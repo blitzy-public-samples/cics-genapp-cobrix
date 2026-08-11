@@ -1,0 +1,18 @@
+******************************************************************
+*  COPYBOOK  : GOUTY001
+*  KIND      : PARTY-RECORD (named insured / agency)
+*  COVERAGE  : Owners and Contractors Protective Liability (OC)
+*  STATE     : UT
+******************************************************************
+ 01  PT-OUT-PARTY.
+
+          03 PT-OUT-INSURED-NAME              PIC X(40).
+          03 PT-OUT-TAX-ID                    PIC X(11).
+          03 PT-OUT-ADDRESS-LINE1             PIC X(30).
+          03 PT-OUT-ADDRESS-LINE2             PIC X(30).
+          03 PT-OUT-CITY                      PIC X(20).
+          03 PT-OUT-STATE-CODE                PIC X(2).
+          03 PT-OUT-ZIP-CODE                  PIC X(9).
+          03 PT-OUT-PHONE                     PIC X(14).
+          03 PT-OUT-AGENCY-CODE               PIC X(6).
+          03 PT-OUT-AGENT-NAME                PIC X(30).

@@ -1,0 +1,13 @@
+******************************************************************
+*  COPYBOOK  : GCNVE001
+*  KIND      : ENDORSEMENT
+*  COVERAGE  : Contractual Liability (CL)
+*  STATE     : NV
+******************************************************************
+ 01  EN-CNV-ENDORSEMENT.
+
+          03 EN-CNV-ENDORSEMENT-CODE          PIC X(6).
+          03 EN-CNV-ENDORSEMENT-DESC          PIC X(40).
+          03 EN-CNV-FORM-NUMBER               PIC X(10).
+          03 EN-CNV-EFFECTIVE-DATE            PIC X(10).
+          03 EN-CNV-PREMIUM-ADJUSTMENT        PIC S9(7)V9(2).

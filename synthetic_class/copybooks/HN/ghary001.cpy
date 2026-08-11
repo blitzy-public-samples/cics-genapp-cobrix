@@ -1,0 +1,18 @@
+******************************************************************
+*  COPYBOOK  : GHARY001
+*  KIND      : PARTY-RECORD (named insured / agency)
+*  COVERAGE  : Hired and Non-Owned Auto Liability (HN)
+*  STATE     : AR
+******************************************************************
+ 01  PT-HAR-PARTY.
+
+          03 PT-HAR-INSURED-NAME              PIC X(40).
+          03 PT-HAR-TAX-ID                    PIC X(11).
+          03 PT-HAR-ADDRESS-LINE1             PIC X(30).
+          03 PT-HAR-ADDRESS-LINE2             PIC X(30).
+          03 PT-HAR-CITY                      PIC X(20).
+          03 PT-HAR-STATE-CODE                PIC X(2).
+          03 PT-HAR-ZIP-CODE                  PIC X(9).
+          03 PT-HAR-PHONE                     PIC X(14).
+          03 PT-HAR-AGENCY-CODE               PIC X(6).
+          03 PT-HAR-AGENT-NAME                PIC X(30).
