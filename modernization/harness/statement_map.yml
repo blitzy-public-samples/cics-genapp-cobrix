@@ -1,0 +1,608 @@
+# ---------------------------------------------------------------------------
+# statement_map.yml - EXEC SQL block map for base/src/lgapdb01.cbl
+#
+# Machine-readable map consumed by modernization/harness/translate.py. Each
+# entry names one EXEC SQL block in the read-only source program and the
+# construct that replaces that block in the generated copy written to
+# modernization/harness/build/. translate.py fails when a block found in the
+# source cannot be matched to an entry in this file.
+#
+# Coverage: all 11 EXEC SQL blocks of base/src/lgapdb01.cbl - 3 INCLUDE
+# blocks under `includes` and 8 DML blocks under `dml`. Line numbers are
+# 1-based and refer to base/src/lgapdb01.cbl, which is read-only and remains
+# byte-identical; nothing here edits it.
+#
+# `terminating_period` records whether the block's END-EXEC line carries a
+# trailing period. The last statement of the generated replacement inherits
+# that period.
+#
+# `using` lists the host variables of a DML block in source order. Each item
+# carries the host name exactly as the source spells it, the DB2 column it is
+# paired with, its direction, its PICTURE and the locator of its declaration.
+#
+# Scope: SQL-block-to-harness-construct mapping only. Warehouse column
+# mapping, runtime status, COMMAREA offsets and the landing record are held in
+# modernization/extraction/copybook_field_map.yml.
+#
+# The two interpretation choices encoded by this file - the single-superset
+# SQL-INSERT-ENDOWMENT call standing for both source branches, and one map
+# covering INCLUDE and DML blocks alike - are recorded as rows in
+# modernization/docs/decision-log.md. Harness topology is Figure 5
+# "Validation Harness Control Flow" in modernization/docs/architecture.md.
+# ---------------------------------------------------------------------------
+version: 1
+
+# Census of the source program, measured from base/src/lgapdb01.cbl.
+source_program:
+  path: 'base/src/lgapdb01.cbl'
+  program_id: 'LGAPDB01'
+  total_lines: 595
+  exec_sql_blocks: 11
+  exec_cics_blocks: 20
+  max_line_length: 72
+
+# EXEC SQL INCLUDE blocks. Each is replaced by a COPY statement that resolves
+# against the generated build directory under -ffold-copy=LOWER -ext cpy.
+includes:
+  # WORKING-STORAGE: length constants and Db2 host-variable definitions.
+  - id: 'include_lgpolicy'
+    include_name: 'LGPOLICY'
+    start_line: 75
+    end_line: 77
+    terminating_period: true
+    replacement: 'COPY LGPOLICY.'
+    resolves_to: 'lgpolicy.cpy'
+  # WORKING-STORAGE: SQL communications area. The generated copy resolves to
+  # the harness copybook hsqlca.cpy.
+  - id: 'include_sqlca'
+    include_name: 'SQLCA'
+    start_line: 124
+    end_line: 126
+    terminating_period: true
+    replacement: 'COPY HSQLCA.'
+    resolves_to: 'hsqlca.cpy'
+  # LINKAGE SECTION (starts at line 132): nested inside 01 DFHCOMMAREA at
+  # line 134. base/src/lgcmarea.cpy starts at level 03 and requires the
+  # level-01 enclosure the program already declares.
+  - id: 'include_lgcmarea'
+    include_name: 'LGCMAREA'
+    start_line: 135
+    end_line: 137
+    terminating_period: true
+    replacement: 'COPY LGCMAREA.'
+    resolves_to: 'lgcmarea.cpy'
+    enclosing_group: '01  DFHCOMMAREA.'
+
+# EXEC SQL DML blocks. Each is replaced by a dynamic CALL to the stub named in
+# `call_program`, passing the `using` hosts BY REFERENCE in the listed order.
+# The stub PROGRAM-IDs live in modernization/harness/stubs/.
+dml:
+  # ---------------------------------------------------------------------
+  # Block 4 of 11. INSERT INTO POLICY, paragraph INSERT-POLICY (line 261).
+  # Arity 7. Two of the nine columns take no host variable.
+  # ---------------------------------------------------------------------
+  - id: 'insert_policy'
+    paragraph: 'INSERT-POLICY'
+    start_line: 268
+    end_line: 288
+    terminating_period: false
+    sql_verb: 'INSERT'
+    table: 'POLICY'
+    call_program: 'SQL-INSERT-POLICY'
+    # Columns supplied by an SQL expression (no host variable):
+    # POLICYNUMBER at line 279, LASTCHANGED at line 284.
+    non_host_values:
+      POLICYNUMBER: 'DEFAULT'
+      LASTCHANGED: 'CURRENT TIMESTAMP'
+    notes: >-
+      POLICYNUMBER is supplied by the DEFAULT keyword and LASTCHANGED by
+      CURRENT TIMESTAMP; neither column appears in `using`. DB2-POLICYNUMBER
+      (base/src/lgpolicy.cpy:44) is not referenced by this block; the assigned
+      key reaches the COMMAREA through DB2-POLICYNUM-INT in the set_identity
+      block and the MOVE at base/src/lgapdb01.cbl:311.
+    using:
+      - host: 'DB2-CUSTOMERNUM-INT'
+        column: 'CUSTOMERNUMBER'
+        direction: 'in'
+        pic: 'S9(9) COMP'
+        declared_in: 'base/src/lgapdb01.cbl:90'
+      - host: 'CA-ISSUE-DATE'
+        column: 'ISSUEDATE'
+        direction: 'in'
+        pic: 'X(10)'
+        declared_in: 'base/src/lgcmarea.cpy:38'
+      - host: 'CA-EXPIRY-DATE'
+        column: 'EXPIRYDATE'
+        direction: 'in'
+        pic: 'X(10)'
+        declared_in: 'base/src/lgcmarea.cpy:39'
+      - host: 'DB2-POLICYTYPE'
+        column: 'POLICYTYPE'
+        direction: 'in'
+        pic: 'X'
+        declared_in: 'base/src/lgpolicy.cpy:43'
+      - host: 'DB2-BROKERID-INT'
+        column: 'BROKERID'
+        direction: 'in'
+        pic: 'S9(9) COMP'
+        declared_in: 'base/src/lgapdb01.cbl:91'
+      - host: 'CA-BROKERSREF'
+        column: 'BROKERSREFERENCE'
+        direction: 'in'
+        pic: 'X(10)'
+        declared_in: 'base/src/lgcmarea.cpy:42'
+      - host: 'DB2-PAYMENT-INT'
+        column: 'PAYMENT'
+        direction: 'in'
+        pic: 'S9(9) COMP'
+        declared_in: 'base/src/lgapdb01.cbl:92'
+  # ---------------------------------------------------------------------
+  # Block 5 of 11. SET :DB2-POLICYNUM-INT = IDENTITY_VAL_LOCAL(), inside
+  # paragraph INSERT-POLICY. Arity 1, direction out.
+  # ---------------------------------------------------------------------
+  - id: 'set_identity'
+    paragraph: 'INSERT-POLICY'
+    start_line: 308
+    end_line: 310
+    terminating_period: false
+    sql_verb: 'SET'
+    table: null
+    call_program: 'SQL-SET-IDENTITY'
+    notes: >-
+      The SET statement names no table; `table` is null. It returns the
+      identity value assigned by the INSERT INTO POLICY block at lines
+      268-288; line 311 then moves DB2-POLICYNUM-INT to CA-POLICY-NUM.
+    using:
+      - host: 'DB2-POLICYNUM-INT'
+        column: 'IDENTITY_VAL_LOCAL()'
+        direction: 'out'
+        pic: 'S9(9) COMP'
+        declared_in: 'base/src/lgapdb01.cbl:117'
+  # ---------------------------------------------------------------------
+  # Block 6 of 11. SELECT LASTCHANGED read-back, inside paragraph
+  # INSERT-POLICY. Arity 2, in source order: the INTO target first, then the
+  # WHERE predicate host.
+  # ---------------------------------------------------------------------
+  - id: 'select_lastchanged'
+    paragraph: 'INSERT-POLICY'
+    start_line: 316
+    end_line: 321
+    terminating_period: true
+    sql_verb: 'SELECT'
+    table: 'POLICY'
+    call_program: 'SQL-SELECT-LASTCHANGED'
+    notes: >-
+      Reads back into CA-LASTCHANGED the LASTCHANGED value that the POLICY
+      insert at lines 268-288 set from CURRENT TIMESTAMP. This is the only
+      block that populates CA-LASTCHANGED.
+    using:
+      - host: 'CA-LASTCHANGED'
+        column: 'LASTCHANGED'
+        direction: 'out'
+        pic: 'X(26)'
+        declared_in: 'base/src/lgcmarea.cpy:40'
+      - host: 'DB2-POLICYNUM-INT'
+        column: 'POLICYNUMBER'
+        direction: 'in'
+        pic: 'S9(9) COMP'
+        declared_in: 'base/src/lgapdb01.cbl:117'
+        predicate: 'WHERE POLICYNUMBER ='
+  # ---------------------------------------------------------------------
+  # Block 7 of 11. INSERT INTO ENDOWMENT including the varchar column,
+  # paragraph INSERT-ENDOW (line 327), taken when the guard
+  # IF WS-VARY-LEN IS GREATER THAN ZERO at line 342 is true. Arity 9.
+  # ---------------------------------------------------------------------
+  - id: 'insert_endowment_varchar'
+    paragraph: 'INSERT-ENDOW'
+    start_line: 346
+    end_line: 366
+    terminating_period: false
+    sql_verb: 'INSERT'
+    table: 'ENDOWMENT'
+    call_program: 'SQL-INSERT-ENDOWMENT'
+    notes: >-
+      WS-VARY-FIELD is the 01/49-level varchar host structure declared at
+      base/src/lgapdb01.cbl:70-72, whose 49-level length item WS-VARY-LEN is
+      set by the SUBTRACT at lines 339-340. This block carries the ninth host;
+      the ELSE block at 368-386 omits it, and the stub ignores the padding
+      argument when WS-VARY-LEN is zero or negative.
+    using:
+      - host: 'DB2-POLICYNUM-INT'
+        column: 'POLICYNUMBER'
+        direction: 'in'
+        pic: 'S9(9) COMP'
+        declared_in: 'base/src/lgapdb01.cbl:117'
+      - host: 'CA-E-WITH-PROFITS'
+        column: 'WITHPROFITS'
+        direction: 'in'
+        pic: 'X'
+        declared_in: 'base/src/lgcmarea.cpy:47'
+      - host: 'CA-E-EQUITIES'
+        column: 'EQUITIES'
+        direction: 'in'
+        pic: 'X'
+        declared_in: 'base/src/lgcmarea.cpy:48'
+      - host: 'CA-E-MANAGED-FUND'
+        column: 'MANAGEDFUND'
+        direction: 'in'
+        pic: 'X'
+        declared_in: 'base/src/lgcmarea.cpy:49'
+      - host: 'CA-E-FUND-NAME'
+        column: 'FUNDNAME'
+        direction: 'in'
+        pic: 'X(10)'
+        declared_in: 'base/src/lgcmarea.cpy:50'
+      - host: 'DB2-E-TERM-SINT'
+        column: 'TERM'
+        direction: 'in'
+        pic: 'S9(4) COMP'
+        declared_in: 'base/src/lgapdb01.cbl:93'
+      - host: 'DB2-E-SUMASSURED-INT'
+        column: 'SUMASSURED'
+        direction: 'in'
+        pic: 'S9(9) COMP'
+        declared_in: 'base/src/lgapdb01.cbl:94'
+      - host: 'CA-E-LIFE-ASSURED'
+        column: 'LIFEASSURED'
+        direction: 'in'
+        pic: 'X(31)'
+        declared_in: 'base/src/lgcmarea.cpy:53'
+      - host: 'WS-VARY-FIELD'
+        column: 'PADDINGDATA'
+        direction: 'in'
+        pic: 'GROUP (49 S9(4) COMP + 49 X(3900))'
+        declared_in: 'base/src/lgapdb01.cbl:70-72'
+        present_in_source_block: ['346-366']
+  # ---------------------------------------------------------------------
+  # Block 8 of 11. INSERT INTO ENDOWMENT without the varchar column,
+  # paragraph INSERT-ENDOW, the ELSE branch at line 367. The source block
+  # lists 8 hosts; this entry carries the same 9-item superset as block 7.
+  # Arity 9.
+  # ---------------------------------------------------------------------
+  - id: 'insert_endowment_novarchar'
+    paragraph: 'INSERT-ENDOW'
+    start_line: 368
+    end_line: 386
+    terminating_period: false
+    sql_verb: 'INSERT'
+    table: 'ENDOWMENT'
+    call_program: 'SQL-INSERT-ENDOWMENT'
+    notes: >-
+      This block omits the PADDINGDATA column and its :WS-VARY-FIELD host. The
+      ninth entry below is carried over from block 346-366, and its
+      present_in_source_block flag records that it is not referenced here.
+      WS-VARY-FIELD is the 01/49-level varchar host structure
+      declared at base/src/lgapdb01.cbl:70-72; the stub ignores the padding
+      argument when WS-VARY-LEN is zero or negative, which is the condition
+      that selects this branch.
+    using:
+      - host: 'DB2-POLICYNUM-INT'
+        column: 'POLICYNUMBER'
+        direction: 'in'
+        pic: 'S9(9) COMP'
+        declared_in: 'base/src/lgapdb01.cbl:117'
+      - host: 'CA-E-WITH-PROFITS'
+        column: 'WITHPROFITS'
+        direction: 'in'
+        pic: 'X'
+        declared_in: 'base/src/lgcmarea.cpy:47'
+      - host: 'CA-E-EQUITIES'
+        column: 'EQUITIES'
+        direction: 'in'
+        pic: 'X'
+        declared_in: 'base/src/lgcmarea.cpy:48'
+      - host: 'CA-E-MANAGED-FUND'
+        column: 'MANAGEDFUND'
+        direction: 'in'
+        pic: 'X'
+        declared_in: 'base/src/lgcmarea.cpy:49'
+      - host: 'CA-E-FUND-NAME'
+        column: 'FUNDNAME'
+        direction: 'in'
+        pic: 'X(10)'
+        declared_in: 'base/src/lgcmarea.cpy:50'
+      - host: 'DB2-E-TERM-SINT'
+        column: 'TERM'
+        direction: 'in'
+        pic: 'S9(4) COMP'
+        declared_in: 'base/src/lgapdb01.cbl:93'
+      - host: 'DB2-E-SUMASSURED-INT'
+        column: 'SUMASSURED'
+        direction: 'in'
+        pic: 'S9(9) COMP'
+        declared_in: 'base/src/lgapdb01.cbl:94'
+      - host: 'CA-E-LIFE-ASSURED'
+        column: 'LIFEASSURED'
+        direction: 'in'
+        pic: 'X(31)'
+        declared_in: 'base/src/lgcmarea.cpy:53'
+      - host: 'WS-VARY-FIELD'
+        column: 'PADDINGDATA'
+        direction: 'in'
+        pic: 'GROUP (49 S9(4) COMP + 49 X(3900))'
+        declared_in: 'base/src/lgapdb01.cbl:70-72'
+        present_in_source_block: ['346-366']
+  # ---------------------------------------------------------------------
+  # Block 9 of 11. INSERT INTO HOUSE, paragraph INSERT-HOUSE (line 402).
+  # Arity 7. Source column order is POLICYNUMBER, PROPERTYTYPE, BEDROOMS,
+  # VALUE, HOUSENAME, HOUSENUMBER, POSTCODE; the VALUES order at 418-424 is
+  # reproduced below.
+  # ---------------------------------------------------------------------
+  - id: 'insert_house'
+    paragraph: 'INSERT-HOUSE'
+    start_line: 409
+    end_line: 425
+    terminating_period: false
+    sql_verb: 'INSERT'
+    table: 'HOUSE'
+    call_program: 'SQL-INSERT-HOUSE'
+    notes: >-
+      DB2-H-VALUE-INT and DB2-H-BEDROOMS-SINT are loaded from CA-H-VALUE and
+      CA-H-BEDROOMS by the MOVE statements at base/src/lgapdb01.cbl:405-406.
+    using:
+      - host: 'DB2-POLICYNUM-INT'
+        column: 'POLICYNUMBER'
+        direction: 'in'
+        pic: 'S9(9) COMP'
+        declared_in: 'base/src/lgapdb01.cbl:117'
+      - host: 'CA-H-PROPERTY-TYPE'
+        column: 'PROPERTYTYPE'
+        direction: 'in'
+        pic: 'X(15)'
+        declared_in: 'base/src/lgcmarea.cpy:57'
+      - host: 'DB2-H-BEDROOMS-SINT'
+        column: 'BEDROOMS'
+        direction: 'in'
+        pic: 'S9(4) COMP'
+        declared_in: 'base/src/lgapdb01.cbl:96'
+      - host: 'DB2-H-VALUE-INT'
+        column: 'VALUE'
+        direction: 'in'
+        pic: 'S9(9) COMP'
+        declared_in: 'base/src/lgapdb01.cbl:97'
+      - host: 'CA-H-HOUSE-NAME'
+        column: 'HOUSENAME'
+        direction: 'in'
+        pic: 'X(20)'
+        declared_in: 'base/src/lgcmarea.cpy:60'
+      - host: 'CA-H-HOUSE-NUMBER'
+        column: 'HOUSENUMBER'
+        direction: 'in'
+        pic: 'X(4)'
+        declared_in: 'base/src/lgcmarea.cpy:61'
+      - host: 'CA-H-POSTCODE'
+        column: 'POSTCODE'
+        direction: 'in'
+        pic: 'X(8)'
+        declared_in: 'base/src/lgcmarea.cpy:62'
+
+  # ---------------------------------------------------------------------
+  # Block 10 of 11. INSERT INTO MOTOR, paragraph INSERT-MOTOR (line 440).
+  # Arity 10.
+  # ---------------------------------------------------------------------
+  - id: 'insert_motor'
+    paragraph: 'INSERT-MOTOR'
+    start_line: 449
+    end_line: 471
+    terminating_period: false
+    sql_verb: 'INSERT'
+    table: 'MOTOR'
+    call_program: 'SQL-INSERT-MOTOR'
+    notes: >-
+      The four DB2 integer hosts are loaded from CA-M-VALUE, CA-M-CC,
+      CA-M-PREMIUM and CA-M-ACCIDENTS by the MOVE statements at
+      base/src/lgapdb01.cbl:443-446. The declarations at lines 100-101 spell
+      the suffix in lower case (DB2-M-PREMIUM-int, DB2-M-ACCIDENTS-int) while
+      the host references at 469-470 spell it in upper case; COBOL
+      user-defined words are case-insensitive and both spellings name the same
+      item. The upper-case spelling used below is the one inside this block.
+    using:
+      - host: 'DB2-POLICYNUM-INT'
+        column: 'POLICYNUMBER'
+        direction: 'in'
+        pic: 'S9(9) COMP'
+        declared_in: 'base/src/lgapdb01.cbl:117'
+      - host: 'CA-M-MAKE'
+        column: 'MAKE'
+        direction: 'in'
+        pic: 'X(15)'
+        declared_in: 'base/src/lgcmarea.cpy:66'
+      - host: 'CA-M-MODEL'
+        column: 'MODEL'
+        direction: 'in'
+        pic: 'X(15)'
+        declared_in: 'base/src/lgcmarea.cpy:67'
+      - host: 'DB2-M-VALUE-INT'
+        column: 'VALUE'
+        direction: 'in'
+        pic: 'S9(9) COMP'
+        declared_in: 'base/src/lgapdb01.cbl:98'
+      - host: 'CA-M-REGNUMBER'
+        column: 'REGNUMBER'
+        direction: 'in'
+        pic: 'X(7)'
+        declared_in: 'base/src/lgcmarea.cpy:69'
+      - host: 'CA-M-COLOUR'
+        column: 'COLOUR'
+        direction: 'in'
+        pic: 'X(8)'
+        declared_in: 'base/src/lgcmarea.cpy:70'
+      - host: 'DB2-M-CC-SINT'
+        column: 'CC'
+        direction: 'in'
+        pic: 'S9(4) COMP'
+        declared_in: 'base/src/lgapdb01.cbl:99'
+      - host: 'CA-M-MANUFACTURED'
+        column: 'YEAROFMANUFACTURE'
+        direction: 'in'
+        pic: 'X(10)'
+        declared_in: 'base/src/lgcmarea.cpy:72'
+      - host: 'DB2-M-PREMIUM-INT'
+        column: 'PREMIUM'
+        direction: 'in'
+        pic: 'S9(9) COMP'
+        declared_in: 'base/src/lgapdb01.cbl:100'
+      - host: 'DB2-M-ACCIDENTS-INT'
+        column: 'ACCIDENTS'
+        direction: 'in'
+        pic: 'S9(9) COMP'
+        declared_in: 'base/src/lgapdb01.cbl:101'
+  # ---------------------------------------------------------------------
+  # Block 11 of 11. INSERT INTO COMMERCIAL, paragraph INSERT-COMMERCIAL
+  # (line 486). Arity 20. The column names in this block are written in
+  # mixed case at lines 502-521 and are transcribed as written.
+  # ---------------------------------------------------------------------
+  - id: 'insert_commercial'
+    paragraph: 'INSERT-COMMERCIAL'
+    start_line: 499
+    end_line: 545
+    terminating_period: false
+    sql_verb: 'INSERT'
+    table: 'COMMERCIAL'
+    call_program: 'SQL-INSERT-COMMERCIAL'
+    notes: >-
+      The nine DB2 integer hosts are loaded from their CA-B counterparts by the
+      MOVE statements at base/src/lgapdb01.cbl:488-496. Two column names differ
+      from the COBOL item names paired with them: CA-B-Postcode supplies
+      Zipcode at line 529 and CA-B-RejectReason supplies RejectionReason at
+      line 543. CA-LASTCHANGED supplies RequestDate at line 525.
+    using:
+      - host: 'DB2-POLICYNUM-INT'
+        column: 'PolicyNumber'
+        direction: 'in'
+        pic: 'S9(9) COMP'
+        declared_in: 'base/src/lgapdb01.cbl:117'
+      - host: 'CA-LASTCHANGED'
+        column: 'RequestDate'
+        direction: 'in'
+        pic: 'X(26)'
+        declared_in: 'base/src/lgcmarea.cpy:40'
+      - host: 'CA-ISSUE-DATE'
+        column: 'StartDate'
+        direction: 'in'
+        pic: 'X(10)'
+        declared_in: 'base/src/lgcmarea.cpy:38'
+      - host: 'CA-EXPIRY-DATE'
+        column: 'RenewalDate'
+        direction: 'in'
+        pic: 'X(10)'
+        declared_in: 'base/src/lgcmarea.cpy:39'
+      - host: 'CA-B-Address'
+        column: 'Address'
+        direction: 'in'
+        pic: 'X(255)'
+        declared_in: 'base/src/lgcmarea.cpy:78'
+      - host: 'CA-B-Postcode'
+        column: 'Zipcode'
+        direction: 'in'
+        pic: 'X(8)'
+        declared_in: 'base/src/lgcmarea.cpy:79'
+      - host: 'CA-B-Latitude'
+        column: 'LatitudeN'
+        direction: 'in'
+        pic: 'X(11)'
+        declared_in: 'base/src/lgcmarea.cpy:80'
+      - host: 'CA-B-Longitude'
+        column: 'LongitudeW'
+        direction: 'in'
+        pic: 'X(11)'
+        declared_in: 'base/src/lgcmarea.cpy:81'
+      - host: 'CA-B-Customer'
+        column: 'Customer'
+        direction: 'in'
+        pic: 'X(255)'
+        declared_in: 'base/src/lgcmarea.cpy:82'
+      - host: 'CA-B-PropType'
+        column: 'PropertyType'
+        direction: 'in'
+        pic: 'X(255)'
+        declared_in: 'base/src/lgcmarea.cpy:83'
+      - host: 'DB2-B-FirePeril-Int'
+        column: 'FirePeril'
+        direction: 'in'
+        pic: 'S9(4) COMP'
+        declared_in: 'base/src/lgapdb01.cbl:102'
+      - host: 'DB2-B-FirePremium-Int'
+        column: 'FirePremium'
+        direction: 'in'
+        pic: 'S9(9) COMP'
+        declared_in: 'base/src/lgapdb01.cbl:103'
+      - host: 'DB2-B-CrimePeril-Int'
+        column: 'CrimePeril'
+        direction: 'in'
+        pic: 'S9(4) COMP'
+        declared_in: 'base/src/lgapdb01.cbl:104'
+      - host: 'DB2-B-CrimePremium-Int'
+        column: 'CrimePremium'
+        direction: 'in'
+        pic: 'S9(9) COMP'
+        declared_in: 'base/src/lgapdb01.cbl:105'
+      - host: 'DB2-B-FloodPeril-Int'
+        column: 'FloodPeril'
+        direction: 'in'
+        pic: 'S9(4) COMP'
+        declared_in: 'base/src/lgapdb01.cbl:106'
+      - host: 'DB2-B-FloodPremium-Int'
+        column: 'FloodPremium'
+        direction: 'in'
+        pic: 'S9(9) COMP'
+        declared_in: 'base/src/lgapdb01.cbl:107'
+      - host: 'DB2-B-WeatherPeril-Int'
+        column: 'WeatherPeril'
+        direction: 'in'
+        pic: 'S9(4) COMP'
+        declared_in: 'base/src/lgapdb01.cbl:108'
+      - host: 'DB2-B-WeatherPremium-Int'
+        column: 'WeatherPremium'
+        direction: 'in'
+        pic: 'S9(9) COMP'
+        declared_in: 'base/src/lgapdb01.cbl:109'
+      - host: 'DB2-B-Status-Int'
+        column: 'Status'
+        direction: 'in'
+        pic: 'S9(4) COMP'
+        declared_in: 'base/src/lgapdb01.cbl:110'
+      - host: 'CA-B-RejectReason'
+        column: 'RejectionReason'
+        direction: 'in'
+        pic: 'X(255)'
+        declared_in: 'base/src/lgcmarea.cpy:93'
+
+# Ordering constraints between dml entries, measured from the source.
+execution_order:
+  - id: 'policy_before_commercial'
+    predecessor: 'insert_policy'
+    successor: 'insert_commercial'
+    reason_kind: 'data_dependency'
+    host: 'CA-LASTCHANGED'
+    note: >-
+      CA-LASTCHANGED is supplied to the COMMERCIAL column RequestDate at
+      base/src/lgapdb01.cbl:525 and is populated only by the SELECT LASTCHANGED
+      read-back at base/src/lgapdb01.cbl:316-321, which reads the row written
+      by the INSERT INTO POLICY block at base/src/lgapdb01.cbl:268-288.
+
+# Counts asserted by modernization/harness/translate.py after loading this
+# file. using_counts is keyed by call target: the call_program value with the
+# SQL- prefix removed, lower-cased, hyphens replaced by underscores. The two
+# ENDOWMENT blocks share the insert_endowment key; both name the same stub and
+# the same 9-item signature.
+checks:
+  include_count: 3
+  dml_count: 8
+  total_blocks: 11
+  using_counts:
+    insert_policy: 7
+    set_identity: 1
+    select_lastchanged: 2
+    insert_endowment: 9
+    insert_house: 7
+    insert_motor: 10
+    insert_commercial: 20
+  call_programs:
+    - 'SQL-INSERT-POLICY'
+    - 'SQL-SET-IDENTITY'
+    - 'SQL-SELECT-LASTCHANGED'
+    - 'SQL-INSERT-ENDOWMENT'
+    - 'SQL-INSERT-HOUSE'
+    - 'SQL-INSERT-MOTOR'
+    - 'SQL-INSERT-COMMERCIAL'

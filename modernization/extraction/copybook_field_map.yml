@@ -1,0 +1,1842 @@
+# Machine-readable field map for the GenApp Policy-Issue COMMAREA.
+#
+# WHAT THIS FILE IS
+#   The single metadata spine of the canonical-warehouse bridge. It records, for every in-scope
+#   COMMAREA declaration, Db2-side counterpart and program intermediate: the logical field entry,
+#   the physical declaration, the byte offset where one applies, the runtime status, the target
+#   column and the transformation applied on the way to the warehouse.
+#
+# HOW IT IS USED
+#   Loaded with yaml.safe_load. The consumers listed under `consumed_by` read their layout, typing
+#   and lineage facts from this file. Byte layout is expressed only as `offset`, `length` and
+#   `pic` values.
+#
+# EVIDENCE BOUNDARY
+#   Every locator in this file resolves to base/src/lgcmarea.cpy, base/src/lgpolicy.cpy or
+#   base/src/lgapdb01.cbl. Locators are written as `path:line`. The three named source artifacts
+#   are read-only and are never modified by this work.
+#
+# CONTENT BOUNDARY
+#   This file states what each field is and how it is treated. Decision rationale is recorded in
+#   modernization/docs/decision-log.md and is deliberately absent here.
+
+map_version: 1
+rationale: see modernization/docs/decision-log.md
+
+# The interface record shared by every program in the named chain.
+record:
+  name: DFHCOMMAREA
+  copybook: base/src/lgcmarea.cpy
+  copybook_start_level: "03"
+  copybook_line_range: "10-103"
+  length: 32500
+  numeric_representation: >-
+    The six amount items are unsigned DISPLAY numerics declared without an implied decimal
+    (PIC 9(6) for payment and motor premium, PIC 9(8) for the four commercial premiums), so each
+    byte holds one digit character and every stored value is a whole number.
+  linkage_binding: base/src/lgapdb01.cbl:134-137
+  link_length_observed: 32500
+  link_length_locator: base/src/lgapdb01.cbl:243-246
+
+# Premium and payment values are carried unchanged; no rating calculation exists in the chain.
+formula: none
+
+formula_evidence:
+  premium_derivation_present: false
+  amount_paths: >-
+    Every amount reaches its Db2 host variable through a MOVE statement and is inserted without
+    modification.
+  statement_census:
+    programs_examined:
+      - base/src/lgapol01.cbl
+      - base/src/lgapdb01.cbl
+      - base/src/lgapvs01.cbl
+    compute_statements: 0
+    multiply_statements: 0
+    divide_statements: 0
+    add_statements: 6
+    subtract_statements: 1
+  add_statement_locators:
+    - base/src/lgapol01.cbl:109
+    - base/src/lgapdb01.cbl:182
+    - base/src/lgapdb01.cbl:187
+    - base/src/lgapdb01.cbl:191
+    - base/src/lgapdb01.cbl:195
+    - base/src/lgapdb01.cbl:199
+  subtract_statement_locators:
+    - base/src/lgapdb01.cbl:339
+  arithmetic_operands: length constants only
+  amount_move_locators:
+    - base/src/lgapdb01.cbl:265
+    - base/src/lgapdb01.cbl:445
+    - base/src/lgapdb01.cbl:489
+    - base/src/lgapdb01.cbl:491
+    - base/src/lgapdb01.cbl:493
+    - base/src/lgapdb01.cbl:495
+  rationale: see modernization/docs/decision-log.md
+
+# Physical byte layout of the groups this work exercises. Groups appear in ascending `order`.
+# `kind` is either alphanumeric or numeric_display. `chain_required_numeric` marks items that
+# LGAPDB01 moves into COMP host variables; those items hold digits on every executed request.
+layout:
+
+  header:
+    order: 1
+    description: Level-03 items declared for every request type.
+    copybook: base/src/lgcmarea.cpy
+    line_range: "10-13"
+    offset: 1
+    end_byte: 32500
+    scalar_prefix_length: 18
+    length_constant_applied_by_chain:
+      name: WS-CA-HEADER-LEN
+      value: 28
+      declared_at: base/src/lgapdb01.cbl:65
+      applied_at: base/src/lgapdb01.cbl:182
+      covers_bytes: "1-28"
+    items:
+      - item: CA-REQUEST-ID
+        pic: "X(6)"
+        offset: 1
+        length: 6
+        kind: alphanumeric
+        line: 10
+        landing_field: request_id
+      - item: CA-RETURN-CODE
+        pic: "9(2)"
+        offset: 7
+        length: 2
+        kind: numeric_display
+        line: 11
+        chain_required_numeric: true
+        landing_field: return_code
+      - item: CA-CUSTOMER-NUM
+        pic: "9(10)"
+        offset: 9
+        length: 10
+        kind: numeric_display
+        line: 12
+        chain_required_numeric: true
+        moved_to: DB2-CUSTOMERNUM-INT
+        moved_at: base/src/lgapdb01.cbl:176
+        moved_to_declared_at: base/src/lgapdb01.cbl:90
+        landing_field: customer_number
+      - item: CA-REQUEST-SPECIFIC
+        pic: "X(32482)"
+        offset: 19
+        length: 32482
+        kind: alphanumeric
+        line: 13
+        redefined_by:
+          - CA-CUSTOMER-REQUEST
+          - CA-CUSTSECR-REQUEST
+          - CA-POLICY-REQUEST
+        landing_field: null
+
+  policy_common:
+    order: 2
+    description: Policy-request view of the request-specific area, common to every policy type.
+    copybook: base/src/lgcmarea.cpy
+    line_range: "34-44"
+    offset: 19
+    end_byte: 32500
+    group_declarations:
+      - item: CA-POLICY-REQUEST
+        line: 34
+        level: "05"
+        redefines: CA-REQUEST-SPECIFIC
+        offset: 19
+        length: 32482
+      - item: CA-POLICY-COMMON
+        line: 37
+        level: "05"
+        redefines: null
+        offset: 29
+        length: 72
+    items:
+      - item: CA-POLICY-NUM
+        pic: "9(10)"
+        offset: 19
+        length: 10
+        kind: numeric_display
+        line: 35
+        chain_required_numeric: true
+        landing_field: policy_number
+      - item: CA-ISSUE-DATE
+        pic: "X(10)"
+        offset: 29
+        length: 10
+        kind: alphanumeric
+        line: 38
+        parent: CA-POLICY-COMMON
+        landing_field: issue_date
+      - item: CA-EXPIRY-DATE
+        pic: "X(10)"
+        offset: 39
+        length: 10
+        kind: alphanumeric
+        line: 39
+        parent: CA-POLICY-COMMON
+        landing_field: expiry_date
+      - item: CA-LASTCHANGED
+        pic: "X(26)"
+        offset: 49
+        length: 26
+        kind: alphanumeric
+        line: 40
+        parent: CA-POLICY-COMMON
+        landing_field: last_changed
+      - item: CA-BROKERID
+        pic: "9(10)"
+        offset: 75
+        length: 10
+        kind: numeric_display
+        line: 41
+        parent: CA-POLICY-COMMON
+        chain_required_numeric: true
+        moved_to: DB2-BROKERID-INT
+        moved_at: base/src/lgapdb01.cbl:264
+        moved_to_declared_at: base/src/lgapdb01.cbl:91
+        landing_field: broker_id
+      - item: CA-BROKERSREF
+        pic: "X(10)"
+        offset: 85
+        length: 10
+        kind: alphanumeric
+        line: 42
+        parent: CA-POLICY-COMMON
+        landing_field: brokers_reference
+      - item: CA-PAYMENT
+        pic: "9(6)"
+        offset: 95
+        length: 6
+        kind: numeric_display
+        line: 43
+        parent: CA-POLICY-COMMON
+        chain_required_numeric: true
+        moved_to: DB2-PAYMENT-INT
+        moved_at: base/src/lgapdb01.cbl:265
+        moved_to_declared_at: base/src/lgapdb01.cbl:92
+        landing_field: payment_amount
+      - item: CA-POLICY-SPECIFIC
+        pic: "X(32400)"
+        offset: 101
+        length: 32400
+        kind: alphanumeric
+        line: 44
+        redefined_by:
+          - CA-ENDOWMENT
+          - CA-HOUSE
+          - CA-MOTOR
+          - CA-COMMERCIAL
+          - CA-CLAIM
+        landing_field: null
+
+  motor_overlay:
+    order: 3
+    description: Motor policy view of the policy-specific area, selected by request id 01AMOT.
+    copybook: base/src/lgcmarea.cpy
+    line_range: "65-75"
+    offset: 101
+    overlay_length: 77
+    overlay_end_byte: 177
+    policy_type: "M"
+    group_declarations:
+      - item: CA-MOTOR
+        line: 65
+        level: "05"
+        redefines: CA-POLICY-SPECIFIC
+        offset: 101
+        length: 32400
+    items:
+      - item: CA-M-MAKE
+        pic: "X(15)"
+        offset: 101
+        length: 15
+        kind: alphanumeric
+        line: 66
+        landing_field: null
+      - item: CA-M-MODEL
+        pic: "X(15)"
+        offset: 116
+        length: 15
+        kind: alphanumeric
+        line: 67
+        landing_field: null
+      - item: CA-M-VALUE
+        pic: "9(6)"
+        offset: 131
+        length: 6
+        kind: numeric_display
+        line: 68
+        chain_required_numeric: true
+        moved_to: DB2-M-VALUE-INT
+        moved_at: base/src/lgapdb01.cbl:443
+        moved_to_declared_at: base/src/lgapdb01.cbl:98
+        landing_field: null
+      - item: CA-M-REGNUMBER
+        pic: "X(7)"
+        offset: 137
+        length: 7
+        kind: alphanumeric
+        line: 69
+        landing_field: null
+      - item: CA-M-COLOUR
+        pic: "X(8)"
+        offset: 144
+        length: 8
+        kind: alphanumeric
+        line: 70
+        landing_field: null
+      - item: CA-M-CC
+        pic: "9(4)"
+        offset: 152
+        length: 4
+        kind: numeric_display
+        line: 71
+        chain_required_numeric: true
+        moved_to: DB2-M-CC-SINT
+        moved_at: base/src/lgapdb01.cbl:444
+        moved_to_declared_at: base/src/lgapdb01.cbl:99
+        landing_field: null
+      - item: CA-M-MANUFACTURED
+        pic: "X(10)"
+        offset: 156
+        length: 10
+        kind: alphanumeric
+        line: 72
+        landing_field: null
+      - item: CA-M-PREMIUM
+        pic: "9(6)"
+        offset: 166
+        length: 6
+        kind: numeric_display
+        line: 73
+        chain_required_numeric: true
+        moved_to: DB2-M-PREMIUM-int
+        moved_at: base/src/lgapdb01.cbl:445
+        moved_to_declared_at: base/src/lgapdb01.cbl:100
+        landing_field: motor_premium_amount
+      - item: CA-M-ACCIDENTS
+        pic: "9(6)"
+        offset: 172
+        length: 6
+        kind: numeric_display
+        line: 74
+        chain_required_numeric: true
+        moved_to: DB2-M-ACCIDENTS-int
+        moved_at: base/src/lgapdb01.cbl:446
+        moved_to_declared_at: base/src/lgapdb01.cbl:101
+        landing_field: null
+      - item: CA-M-FILLER
+        pic: "X(32323)"
+        offset: 178
+        length: 32323
+        kind: alphanumeric
+        line: 75
+        landing_field: null
+
+  commercial_overlay:
+    order: 4
+    description: Commercial policy view of the policy-specific area, selected by request id 01ACOM.
+    copybook: base/src/lgcmarea.cpy
+    line_range: "77-94"
+    offset: 101
+    overlay_length: 1102
+    overlay_end_byte: 1202
+    policy_type: "C"
+    group_declarations:
+      - item: CA-COMMERCIAL
+        line: 77
+        level: "05"
+        redefines: CA-POLICY-SPECIFIC
+        offset: 101
+        length: 32400
+    items:
+      - item: CA-B-Address
+        pic: "X(255)"
+        offset: 101
+        length: 255
+        kind: alphanumeric
+        line: 78
+        landing_field: null
+      - item: CA-B-Postcode
+        pic: "X(8)"
+        offset: 356
+        length: 8
+        kind: alphanumeric
+        line: 79
+        landing_field: null
+      - item: CA-B-Latitude
+        pic: "X(11)"
+        offset: 364
+        length: 11
+        kind: alphanumeric
+        line: 80
+        landing_field: null
+      - item: CA-B-Longitude
+        pic: "X(11)"
+        offset: 375
+        length: 11
+        kind: alphanumeric
+        line: 81
+        landing_field: null
+      - item: CA-B-Customer
+        pic: "X(255)"
+        offset: 386
+        length: 255
+        kind: alphanumeric
+        line: 82
+        landing_field: null
+      - item: CA-B-PropType
+        pic: "X(255)"
+        offset: 641
+        length: 255
+        kind: alphanumeric
+        line: 83
+        landing_field: null
+      - item: CA-B-FirePeril
+        pic: "9(4)"
+        offset: 896
+        length: 4
+        kind: numeric_display
+        line: 84
+        chain_required_numeric: true
+        moved_to: DB2-B-FirePeril-Int
+        moved_at: base/src/lgapdb01.cbl:488
+        moved_to_declared_at: base/src/lgapdb01.cbl:102
+        landing_field: null
+      - item: CA-B-FirePremium
+        pic: "9(8)"
+        offset: 900
+        length: 8
+        kind: numeric_display
+        line: 85
+        chain_required_numeric: true
+        moved_to: DB2-B-FirePremium-Int
+        moved_at: base/src/lgapdb01.cbl:489
+        moved_to_declared_at: base/src/lgapdb01.cbl:103
+        landing_field: fire_premium_amount
+      - item: CA-B-CrimePeril
+        pic: "9(4)"
+        offset: 908
+        length: 4
+        kind: numeric_display
+        line: 86
+        chain_required_numeric: true
+        moved_to: DB2-B-CrimePeril-Int
+        moved_at: base/src/lgapdb01.cbl:490
+        moved_to_declared_at: base/src/lgapdb01.cbl:104
+        landing_field: null
+      - item: CA-B-CrimePremium
+        pic: "9(8)"
+        offset: 912
+        length: 8
+        kind: numeric_display
+        line: 87
+        chain_required_numeric: true
+        moved_to: DB2-B-CrimePremium-Int
+        moved_at: base/src/lgapdb01.cbl:491
+        moved_to_declared_at: base/src/lgapdb01.cbl:105
+        landing_field: crime_premium_amount
+      - item: CA-B-FloodPeril
+        pic: "9(4)"
+        offset: 920
+        length: 4
+        kind: numeric_display
+        line: 88
+        chain_required_numeric: true
+        moved_to: DB2-B-FloodPeril-Int
+        moved_at: base/src/lgapdb01.cbl:492
+        moved_to_declared_at: base/src/lgapdb01.cbl:106
+        landing_field: null
+      - item: CA-B-FloodPremium
+        pic: "9(8)"
+        offset: 924
+        length: 8
+        kind: numeric_display
+        line: 89
+        chain_required_numeric: true
+        moved_to: DB2-B-FloodPremium-Int
+        moved_at: base/src/lgapdb01.cbl:493
+        moved_to_declared_at: base/src/lgapdb01.cbl:107
+        landing_field: flood_premium_amount
+      - item: CA-B-WeatherPeril
+        pic: "9(4)"
+        offset: 932
+        length: 4
+        kind: numeric_display
+        line: 90
+        chain_required_numeric: true
+        moved_to: DB2-B-WeatherPeril-Int
+        moved_at: base/src/lgapdb01.cbl:494
+        moved_to_declared_at: base/src/lgapdb01.cbl:108
+        landing_field: null
+      - item: CA-B-WeatherPremium
+        pic: "9(8)"
+        offset: 936
+        length: 8
+        kind: numeric_display
+        line: 91
+        chain_required_numeric: true
+        moved_to: DB2-B-WeatherPremium-Int
+        moved_at: base/src/lgapdb01.cbl:495
+        moved_to_declared_at: base/src/lgapdb01.cbl:109
+        landing_field: weather_premium_amount
+      - item: CA-B-Status
+        pic: "9(4)"
+        offset: 944
+        length: 4
+        kind: numeric_display
+        line: 92
+        chain_required_numeric: true
+        moved_to: DB2-B-Status-Int
+        moved_at: base/src/lgapdb01.cbl:496
+        moved_to_declared_at: base/src/lgapdb01.cbl:110
+        landing_field: null
+      - item: CA-B-RejectReason
+        pic: "X(255)"
+        offset: 948
+        length: 255
+        kind: alphanumeric
+        line: 93
+        landing_field: null
+      - item: CA-B-FILLER
+        pic: "X(31298)"
+        offset: 1203
+        length: 31298
+        kind: alphanumeric
+        line: 94
+        landing_field: null
+
+# Overlays declared in the copybook that the named Policy-Issue chain does not exercise in this
+# work. Recorded by name and locator for coverage; item-level layouts are not expanded.
+out_of_scope_overlays:
+  - overlay: CA-CUSTOMER-REQUEST
+    copybook: base/src/lgcmarea.cpy
+    line: 15
+    level: "03"
+    redefines: CA-REQUEST-SPECIFIC
+    offset: 19
+    item_line_range: "16-26"
+    expanded: false
+  - overlay: CA-CUSTSECR-REQUEST
+    copybook: base/src/lgcmarea.cpy
+    line: 28
+    level: "03"
+    redefines: CA-REQUEST-SPECIFIC
+    offset: 19
+    item_line_range: "29-32"
+    expanded: false
+  - overlay: CA-ENDOWMENT
+    copybook: base/src/lgcmarea.cpy
+    line: 46
+    level: "05"
+    redefines: CA-POLICY-SPECIFIC
+    offset: 101
+    item_line_range: "47-54"
+    expanded: false
+  - overlay: CA-HOUSE
+    copybook: base/src/lgcmarea.cpy
+    line: 56
+    level: "05"
+    redefines: CA-POLICY-SPECIFIC
+    offset: 101
+    item_line_range: "57-63"
+    expanded: false
+  - overlay: CA-CLAIM
+    copybook: base/src/lgcmarea.cpy
+    line: 96
+    level: "05"
+    redefines: CA-POLICY-SPECIFIC
+    offset: 101
+    item_line_range: "97-103"
+    expanded: false
+
+# Db2-side group containers whose member declarations this map cites. The members themselves are
+# recorded on the field entries as `db2_declaration` and under `excluded` as `db2_counterpart`.
+db2_group_declarations:
+  - item: DB2-POLICY
+    copybook: base/src/lgpolicy.cpy
+    line: 42
+    level: "01"
+    member_line_range: "43-51"
+  - item: DB2-POLICY-COMMON
+    copybook: base/src/lgpolicy.cpy
+    line: 45
+    level: "03"
+    member_line_range: "46-51"
+
+# The seventeen logical field entries. `runtime_status` is one of active, derived or
+# declaration_only. `populated_by` is one of request, chain, derivation or null. The
+# warehouse-assigned entry is held separately under the `source_system_key` key below.
+fields:
+
+  - logical_entry: payment
+    concept: Policy payment amount
+    group: premium_payment
+    runtime_status: active
+    populated_by: request
+    applicable_policy_types: ["E", "H", "M", "C"]
+    commarea:
+      item: CA-PAYMENT
+      copybook: base/src/lgcmarea.cpy
+      line: 43
+      pic: "9(6)"
+      offset: 95
+      length: 6
+      overlay: policy_common
+    db2_declaration:
+      item: DB2-PAYMENT
+      copybook: base/src/lgpolicy.cpy
+      line: 51
+      pic: "9(6)"
+    program_intermediates:
+      - item: DB2-PAYMENT-INT
+        file: base/src/lgapdb01.cbl
+        line: 92
+        pic: "S9(9) COMP"
+        set_at: base/src/lgapdb01.cbl:265
+        passed_to_insert_at: base/src/lgapdb01.cbl:287
+    targets:
+      - relation: canonical.preissued_rating
+        column: payment_amount
+        type: DECIMAL(8,2)
+        nullable: true
+    landing_field: payment_amount
+    transformation: >-
+      Passthrough. The MOVE into the integer host variable applies no arithmetic and the value is
+      inserted unchanged. Leading zeros are stripped for landing and the warehouse casts the
+      landed string to a scale-2 decimal.
+    evidence:
+      - base/src/lgcmarea.cpy:43
+      - base/src/lgpolicy.cpy:51
+      - base/src/lgapdb01.cbl:92
+      - base/src/lgapdb01.cbl:265
+      - base/src/lgapdb01.cbl:287
+
+  - logical_entry: motor_premium
+    concept: Motor policy premium amount
+    group: premium_payment
+    runtime_status: active
+    populated_by: request
+    applicable_policy_types: ["M"]
+    commarea:
+      item: CA-M-PREMIUM
+      copybook: base/src/lgcmarea.cpy
+      line: 73
+      pic: "9(6)"
+      offset: 166
+      length: 6
+      overlay: motor_overlay
+    db2_declaration:
+      item: DB2-M-PREMIUM
+      copybook: base/src/lgpolicy.cpy
+      line: 80
+      pic: "9(6)"
+    program_intermediates:
+      - item: DB2-M-PREMIUM-int
+        file: base/src/lgapdb01.cbl
+        line: 100
+        pic: "S9(9) COMP"
+        set_at: base/src/lgapdb01.cbl:445
+        passed_to_insert_at: base/src/lgapdb01.cbl:469
+    targets:
+      - relation: canonical.preissued_rating
+        column: motor_premium_amount
+        type: DECIMAL(8,2)
+        nullable: true
+    landing_field: motor_premium_amount
+    transformation: >-
+      Passthrough. The MOVE into the integer host variable applies no arithmetic and the value is
+      inserted unchanged. Leading zeros are stripped for landing and the warehouse casts the
+      landed string to a scale-2 decimal. Populated for policy type M only.
+    evidence:
+      - base/src/lgcmarea.cpy:73
+      - base/src/lgpolicy.cpy:80
+      - base/src/lgapdb01.cbl:100
+      - base/src/lgapdb01.cbl:445
+      - base/src/lgapdb01.cbl:469
+
+  - logical_entry: fire_premium
+    concept: Commercial fire premium amount
+    group: premium_payment
+    runtime_status: active
+    populated_by: request
+    applicable_policy_types: ["C"]
+    commarea:
+      item: CA-B-FirePremium
+      copybook: base/src/lgcmarea.cpy
+      line: 85
+      pic: "9(8)"
+      offset: 900
+      length: 8
+      overlay: commercial_overlay
+    db2_declaration:
+      item: DB2-B-FirePremium
+      copybook: base/src/lgpolicy.cpy
+      line: 91
+      pic: "9(8)"
+    program_intermediates:
+      - item: DB2-B-FirePremium-Int
+        file: base/src/lgapdb01.cbl
+        line: 103
+        pic: "S9(9) COMP"
+        set_at: base/src/lgapdb01.cbl:489
+        passed_to_insert_at: base/src/lgapdb01.cbl:535
+    targets:
+      - relation: canonical.preissued_rating
+        column: fire_premium_amount
+        type: DECIMAL(10,2)
+        nullable: true
+    landing_field: fire_premium_amount
+    transformation: >-
+      Passthrough. The MOVE into the integer host variable applies no arithmetic and the value is
+      inserted unchanged. Leading zeros are stripped for landing and the warehouse casts the
+      landed string to a scale-2 decimal. Populated for policy type C only.
+    evidence:
+      - base/src/lgcmarea.cpy:85
+      - base/src/lgpolicy.cpy:91
+      - base/src/lgapdb01.cbl:103
+      - base/src/lgapdb01.cbl:489
+      - base/src/lgapdb01.cbl:535
+
+  - logical_entry: crime_premium
+    concept: Commercial crime premium amount
+    group: premium_payment
+    runtime_status: active
+    populated_by: request
+    applicable_policy_types: ["C"]
+    commarea:
+      item: CA-B-CrimePremium
+      copybook: base/src/lgcmarea.cpy
+      line: 87
+      pic: "9(8)"
+      offset: 912
+      length: 8
+      overlay: commercial_overlay
+    db2_declaration:
+      item: DB2-B-CrimePremium
+      copybook: base/src/lgpolicy.cpy
+      line: 93
+      pic: "9(8)"
+    program_intermediates:
+      - item: DB2-B-CrimePremium-Int
+        file: base/src/lgapdb01.cbl
+        line: 105
+        pic: "S9(9) COMP"
+        set_at: base/src/lgapdb01.cbl:491
+        passed_to_insert_at: base/src/lgapdb01.cbl:537
+    targets:
+      - relation: canonical.preissued_rating
+        column: crime_premium_amount
+        type: DECIMAL(10,2)
+        nullable: true
+    landing_field: crime_premium_amount
+    transformation: >-
+      Passthrough. The MOVE into the integer host variable applies no arithmetic and the value is
+      inserted unchanged. Leading zeros are stripped for landing and the warehouse casts the
+      landed string to a scale-2 decimal. Populated for policy type C only.
+    evidence:
+      - base/src/lgcmarea.cpy:87
+      - base/src/lgpolicy.cpy:93
+      - base/src/lgapdb01.cbl:105
+      - base/src/lgapdb01.cbl:491
+      - base/src/lgapdb01.cbl:537
+
+  - logical_entry: flood_premium
+    concept: Commercial flood premium amount
+    group: premium_payment
+    runtime_status: active
+    populated_by: request
+    applicable_policy_types: ["C"]
+    commarea:
+      item: CA-B-FloodPremium
+      copybook: base/src/lgcmarea.cpy
+      line: 89
+      pic: "9(8)"
+      offset: 924
+      length: 8
+      overlay: commercial_overlay
+    db2_declaration:
+      item: DB2-B-FloodPremium
+      copybook: base/src/lgpolicy.cpy
+      line: 95
+      pic: "9(8)"
+    program_intermediates:
+      - item: DB2-B-FloodPremium-Int
+        file: base/src/lgapdb01.cbl
+        line: 107
+        pic: "S9(9) COMP"
+        set_at: base/src/lgapdb01.cbl:493
+        passed_to_insert_at: base/src/lgapdb01.cbl:539
+    targets:
+      - relation: canonical.preissued_rating
+        column: flood_premium_amount
+        type: DECIMAL(10,2)
+        nullable: true
+    landing_field: flood_premium_amount
+    transformation: >-
+      Passthrough. The MOVE into the integer host variable applies no arithmetic and the value is
+      inserted unchanged. Leading zeros are stripped for landing and the warehouse casts the
+      landed string to a scale-2 decimal. Populated for policy type C only.
+    evidence:
+      - base/src/lgcmarea.cpy:89
+      - base/src/lgpolicy.cpy:95
+      - base/src/lgapdb01.cbl:107
+      - base/src/lgapdb01.cbl:493
+      - base/src/lgapdb01.cbl:539
+
+  - logical_entry: weather_premium
+    concept: Commercial weather premium amount
+    group: premium_payment
+    runtime_status: active
+    populated_by: request
+    applicable_policy_types: ["C"]
+    commarea:
+      item: CA-B-WeatherPremium
+      copybook: base/src/lgcmarea.cpy
+      line: 91
+      pic: "9(8)"
+      offset: 936
+      length: 8
+      overlay: commercial_overlay
+    db2_declaration:
+      item: DB2-B-WeatherPremium
+      copybook: base/src/lgpolicy.cpy
+      line: 97
+      pic: "9(8)"
+    program_intermediates:
+      - item: DB2-B-WeatherPremium-Int
+        file: base/src/lgapdb01.cbl
+        line: 109
+        pic: "S9(9) COMP"
+        set_at: base/src/lgapdb01.cbl:495
+        passed_to_insert_at: base/src/lgapdb01.cbl:541
+    targets:
+      - relation: canonical.preissued_rating
+        column: weather_premium_amount
+        type: DECIMAL(10,2)
+        nullable: true
+    landing_field: weather_premium_amount
+    transformation: >-
+      Passthrough. The MOVE into the integer host variable applies no arithmetic and the value is
+      inserted unchanged. Leading zeros are stripped for landing and the warehouse casts the
+      landed string to a scale-2 decimal. Populated for policy type C only.
+    evidence:
+      - base/src/lgcmarea.cpy:91
+      - base/src/lgpolicy.cpy:97
+      - base/src/lgapdb01.cbl:109
+      - base/src/lgapdb01.cbl:495
+      - base/src/lgapdb01.cbl:541
+
+  - logical_entry: policy_number
+    concept: Db2-assigned policy identity
+    group: policy_request
+    runtime_status: active
+    populated_by: chain
+    applicable_policy_types: ["E", "H", "M", "C"]
+    commarea:
+      item: CA-POLICY-NUM
+      copybook: base/src/lgcmarea.cpy
+      line: 35
+      pic: "9(10)"
+      offset: 19
+      length: 10
+      overlay: policy_common
+    db2_declaration: null
+    program_intermediates:
+      - item: DB2-POLICYNUM-INT
+        file: base/src/lgapdb01.cbl
+        line: 117
+        pic: "S9(9) COMP VALUE +0"
+        set_at: base/src/lgapdb01.cbl:308-310
+        moved_to_commarea_at: base/src/lgapdb01.cbl:311
+    targets:
+      - relation: canonical.issued_policy
+        column: policy_number
+        type: BIGINT
+        nullable: false
+      - relation: canonical.preissued_rating
+        column: policy_number
+        type: BIGINT
+        nullable: false
+    landing_field: policy_number
+    transformation: >-
+      The value exists only in the RETURNED COMMAREA. IDENTITY_VAL_LOCAL() loads the integer host
+      variable after the policy insert and the result is moved into the COMMAREA item. Leading
+      zeros are stripped for landing and the warehouse casts the landed string to BIGINT.
+    additional_source_uses:
+      - locator: base/src/lgapdb01.cbl:461
+        description: supplied as MOTOR.POLICYNUMBER
+      - locator: base/src/lgapdb01.cbl:524
+        description: supplied as COMMERCIAL.PolicyNumber
+      - locator: base/src/lgapdb01.cbl:320
+        description: predicate of the LASTCHANGED read-back
+    evidence:
+      - base/src/lgcmarea.cpy:35
+      - base/src/lgapdb01.cbl:117
+      - base/src/lgapdb01.cbl:308-310
+      - base/src/lgapdb01.cbl:311
+
+  - logical_entry: db2_policynumber_declaration
+    concept: Db2-side policy-number declaration
+    group: policy_request
+    runtime_status: declaration_only
+    populated_by: null
+    applicable_policy_types: []
+    commarea: null
+    db2_declaration:
+      item: DB2-POLICYNUMBER
+      copybook: base/src/lgpolicy.cpy
+      line: 44
+      pic: "9(10)"
+    program_intermediates: []
+    targets: []
+    landing_field: null
+    observed_behaviour: >-
+      The declaration is never referenced by the policy-issue program. The POLICY insert names
+      POLICYNUMBER in its column list and supplies DEFAULT as its value, and the recovered key
+      travels through DB2-POLICYNUM-INT instead.
+    transformation: not projected; declaration retained for traceability coverage
+    evidence:
+      - base/src/lgpolicy.cpy:44
+      - base/src/lgapdb01.cbl:270
+      - base/src/lgapdb01.cbl:279
+      - base/src/lgapdb01.cbl:311
+
+  - logical_entry: policy_type
+    concept: Policy product discriminator
+    group: policy_request
+    runtime_status: derived
+    populated_by: derivation
+    applicable_policy_types: ["E", "H", "M", "C"]
+    commarea: null
+    db2_declaration:
+      item: DB2-POLICYTYPE
+      copybook: base/src/lgpolicy.cpy
+      line: 43
+      pic: "X"
+    program_intermediates: []
+    derivation:
+      source_item: CA-REQUEST-ID
+      rule: request_routing
+      evaluate_range: base/src/lgapdb01.cbl:184-207
+      set_at:
+        - base/src/lgapdb01.cbl:188
+        - base/src/lgapdb01.cbl:192
+        - base/src/lgapdb01.cbl:196
+        - base/src/lgapdb01.cbl:200
+      passed_to_insert_at: base/src/lgapdb01.cbl:283
+      verified_against: harness policy SQL capture
+    targets:
+      - relation: canonical.issued_policy
+        column: policy_type
+        type: CHAR(1)
+        nullable: false
+      - relation: canonical.preissued_rating
+        column: policy_type
+        type: CHAR(1)
+        nullable: false
+    landing_field: policy_type
+    transformation: >-
+      Not a COMMAREA item. Extraction derives the single letter from CA-REQUEST-ID using the
+      request_routing map, where 01AEND yields E, 01AHOU yields H, 01AMOT yields M and 01ACOM
+      yields C, and the derived letter is verified against the policy SQL capture taken from the
+      harness run.
+    evidence:
+      - base/src/lgpolicy.cpy:43
+      - base/src/lgapdb01.cbl:184-207
+      - base/src/lgapdb01.cbl:283
+
+  - logical_entry: customer_number
+    concept: Owning customer identifier
+    group: policy_request
+    runtime_status: active
+    populated_by: request
+    applicable_policy_types: ["E", "H", "M", "C"]
+    commarea:
+      item: CA-CUSTOMER-NUM
+      copybook: base/src/lgcmarea.cpy
+      line: 12
+      pic: "9(10)"
+      offset: 9
+      length: 10
+      overlay: header
+    db2_declaration: null
+    program_intermediates:
+      - item: DB2-CUSTOMERNUM-INT
+        file: base/src/lgapdb01.cbl
+        line: 90
+        pic: "S9(9) COMP"
+        set_at: base/src/lgapdb01.cbl:176
+        passed_to_insert_at: base/src/lgapdb01.cbl:280
+    targets:
+      - relation: canonical.issued_policy
+        column: customer_number
+        type: BIGINT
+        nullable: false
+    landing_field: customer_number
+    transformation: >-
+      Passthrough. Leading zeros are stripped for landing and the warehouse casts the landed
+      string to BIGINT.
+    evidence:
+      - base/src/lgcmarea.cpy:12
+      - base/src/lgapdb01.cbl:90
+      - base/src/lgapdb01.cbl:176
+      - base/src/lgapdb01.cbl:280
+
+  - logical_entry: request_id
+    concept: Chain request identifier
+    group: policy_request
+    runtime_status: active
+    populated_by: request
+    applicable_policy_types: ["E", "H", "M", "C"]
+    commarea:
+      item: CA-REQUEST-ID
+      copybook: base/src/lgcmarea.cpy
+      line: 10
+      pic: "X(6)"
+      offset: 1
+      length: 6
+      overlay: header
+    db2_declaration: null
+    program_intermediates: []
+    targets:
+      - relation: canonical.issued_policy
+        column: request_id
+        type: VARCHAR(6)
+        nullable: false
+    landing_field: request_id
+    transformation: >-
+      Trim trailing spaces. The trimmed value is the routing key that yields policy_type and it is
+      landed unchanged otherwise.
+    additional_source_uses:
+      - locator: base/src/lgapdb01.cbl:184
+        description: evaluated to select the policy type and required length
+      - locator: base/src/lgapdb01.cbl:223
+        description: evaluated to select the product insert paragraph
+    evidence:
+      - base/src/lgcmarea.cpy:10
+      - base/src/lgapdb01.cbl:184
+
+  - logical_entry: return_code
+    concept: Chain outcome code
+    group: policy_request
+    runtime_status: active
+    populated_by: chain
+    applicable_policy_types: ["E", "H", "M", "C"]
+    commarea:
+      item: CA-RETURN-CODE
+      copybook: base/src/lgcmarea.cpy
+      line: 11
+      pic: "9(2)"
+      offset: 7
+      length: 2
+      overlay: header
+    db2_declaration: null
+    program_intermediates: []
+    targets:
+      - relation: canonical.issued_policy
+        column: return_code
+        type: CHAR(2)
+        nullable: false
+    landing_field: return_code
+    transformation: >-
+      Carried as a two-character zero-padded string and never converted to an integer. The
+      programs compare the item against the literals '00', '70', '80', '90', '98' and '99'. The
+      value is read from the returned COMMAREA.
+    domain: ["00", "70", "80", "90", "98", "99"]
+    evidence:
+      - base/src/lgcmarea.cpy:11
+      - base/src/lgapdb01.cbl:172
+      - base/src/lgapdb01.cbl:293
+
+  - logical_entry: issue_date
+    concept: Policy issue date
+    group: policy_request
+    runtime_status: active
+    populated_by: request
+    applicable_policy_types: ["E", "H", "M", "C"]
+    commarea:
+      item: CA-ISSUE-DATE
+      copybook: base/src/lgcmarea.cpy
+      line: 38
+      pic: "X(10)"
+      offset: 29
+      length: 10
+      overlay: policy_common
+    db2_declaration:
+      item: DB2-ISSUEDATE
+      copybook: base/src/lgpolicy.cpy
+      line: 46
+      pic: "X(10)"
+    program_intermediates: []
+    targets:
+      - relation: canonical.issued_policy
+        column: issue_date
+        type: DATE
+        nullable: true
+    landing_field: issue_date
+    transformation: >-
+      Trim. An empty trimmed value lands as null. The warehouse casts the landed string to DATE.
+    additional_source_uses:
+      - locator: base/src/lgapdb01.cbl:526
+        description: supplied as COMMERCIAL.StartDate
+    evidence:
+      - base/src/lgcmarea.cpy:38
+      - base/src/lgpolicy.cpy:46
+      - base/src/lgapdb01.cbl:281
+
+  - logical_entry: expiry_date
+    concept: Policy expiry date
+    group: policy_request
+    runtime_status: active
+    populated_by: request
+    applicable_policy_types: ["E", "H", "M", "C"]
+    commarea:
+      item: CA-EXPIRY-DATE
+      copybook: base/src/lgcmarea.cpy
+      line: 39
+      pic: "X(10)"
+      offset: 39
+      length: 10
+      overlay: policy_common
+    db2_declaration:
+      item: DB2-EXPIRYDATE
+      copybook: base/src/lgpolicy.cpy
+      line: 47
+      pic: "X(10)"
+    program_intermediates: []
+    targets:
+      - relation: canonical.issued_policy
+        column: expiry_date
+        type: DATE
+        nullable: true
+    landing_field: expiry_date
+    transformation: >-
+      Trim. An empty trimmed value lands as null. The warehouse casts the landed string to DATE.
+    additional_source_uses:
+      - locator: base/src/lgapdb01.cbl:527
+        description: supplied as COMMERCIAL.RenewalDate
+    evidence:
+      - base/src/lgcmarea.cpy:39
+      - base/src/lgpolicy.cpy:47
+      - base/src/lgapdb01.cbl:282
+
+  - logical_entry: last_changed
+    concept: Db2 policy row timestamp
+    group: policy_request
+    runtime_status: active
+    populated_by: chain
+    applicable_policy_types: ["E", "H", "M", "C"]
+    commarea:
+      item: CA-LASTCHANGED
+      copybook: base/src/lgcmarea.cpy
+      line: 40
+      pic: "X(26)"
+      offset: 49
+      length: 26
+      overlay: policy_common
+    db2_declaration:
+      item: DB2-LASTCHANGED
+      copybook: base/src/lgpolicy.cpy
+      line: 48
+      pic: "X(26)"
+    program_intermediates: []
+    targets:
+      - relation: canonical.issued_policy
+        column: last_changed
+        type: TIMESTAMP
+        nullable: false
+    landing_field: last_changed
+    transformation: >-
+      The value exists only in the RETURNED COMMAREA. The policy insert writes CURRENT TIMESTAMP
+      and the assigned value is read back into the COMMAREA item by a SELECT keyed on the recovered
+      policy number. Extraction normalises the returned 26-character Db2 timestamp to ISO-8601
+      before landing.
+    additional_source_uses:
+      - locator: base/src/lgapdb01.cbl:525
+        description: supplied as COMMERCIAL.RequestDate
+    evidence:
+      - base/src/lgcmarea.cpy:40
+      - base/src/lgpolicy.cpy:48
+      - base/src/lgapdb01.cbl:284
+      - base/src/lgapdb01.cbl:316-321
+
+  - logical_entry: broker_id
+    concept: Broker identifier
+    group: policy_request
+    runtime_status: active
+    populated_by: request
+    applicable_policy_types: ["E", "H", "M", "C"]
+    commarea:
+      item: CA-BROKERID
+      copybook: base/src/lgcmarea.cpy
+      line: 41
+      pic: "9(10)"
+      offset: 75
+      length: 10
+      overlay: policy_common
+    db2_declaration:
+      item: DB2-BROKERID
+      copybook: base/src/lgpolicy.cpy
+      line: 49
+      pic: "9(10)"
+    program_intermediates:
+      - item: DB2-BROKERID-INT
+        file: base/src/lgapdb01.cbl
+        line: 91
+        pic: "S9(9) COMP"
+        set_at: base/src/lgapdb01.cbl:264
+        passed_to_insert_at: base/src/lgapdb01.cbl:285
+    targets:
+      - relation: canonical.issued_policy
+        column: broker_id
+        type: BIGINT
+        nullable: true
+    landing_field: broker_id
+    transformation: >-
+      Passthrough. Leading zeros are stripped for landing and the warehouse casts the landed
+      string to BIGINT.
+    evidence:
+      - base/src/lgcmarea.cpy:41
+      - base/src/lgpolicy.cpy:49
+      - base/src/lgapdb01.cbl:91
+      - base/src/lgapdb01.cbl:264
+      - base/src/lgapdb01.cbl:285
+
+  - logical_entry: brokers_reference
+    concept: Broker reference text
+    group: policy_request
+    runtime_status: active
+    populated_by: request
+    applicable_policy_types: ["E", "H", "M", "C"]
+    commarea:
+      item: CA-BROKERSREF
+      copybook: base/src/lgcmarea.cpy
+      line: 42
+      pic: "X(10)"
+      offset: 85
+      length: 10
+      overlay: policy_common
+    db2_declaration:
+      item: DB2-BROKERSREF
+      copybook: base/src/lgpolicy.cpy
+      line: 50
+      pic: "X(10)"
+    program_intermediates: []
+    targets:
+      - relation: canonical.issued_policy
+        column: brokers_reference
+        type: VARCHAR(10)
+        nullable: true
+    landing_field: brokers_reference
+    transformation: >-
+      Trim. An empty trimmed value lands as null. The COMMAREA item is passed straight to the
+      policy insert as a character host variable.
+    evidence:
+      - base/src/lgcmarea.cpy:42
+      - base/src/lgpolicy.cpy:50
+      - base/src/lgapdb01.cbl:286
+
+# Warehouse-assigned canonical column, held apart from the seventeen logical field entries.
+source_system_key:
+  logical_entry: source_system_key
+  concept: Source-system discriminator
+  group: warehouse_assigned
+  runtime_status: warehouse_assigned
+  populated_by: warehouse
+  sole_warehouse_assigned_column: true
+  counted_in_logical_field_entries: false
+  commarea: null
+  db2_declaration: null
+  program_intermediates: []
+  run_value: GENAPP_CLASS_EXEMPLAR
+  targets:
+    - relation: canonical.issued_policy
+      column: source_system_key
+      type: VARCHAR(64)
+      nullable: false
+    - relation: canonical.preissued_rating
+      column: source_system_key
+      type: VARCHAR(64)
+      nullable: false
+  landing_field: source_system_key
+  transformation: >-
+    Assigned by the extraction run and written unchanged to the landing record, to the S3 key
+    prefix and to both canonical relations.
+  evidence:
+    - user requirement (no COBOL item supplies it)
+  rationale: see modernization/docs/decision-log.md
+
+# Request-id routing observed in the first EVALUATE. Each branch assigns the policy-type letter
+# and adds the product length constant to the required-length accumulator.
+request_routing:
+  evaluated_item: CA-REQUEST-ID
+  evaluate_range: base/src/lgapdb01.cbl:184-207
+  assigned_item: DB2-POLICYTYPE
+  policy_type_passed_to_insert_at: base/src/lgapdb01.cbl:283
+  map:
+    "01AEND":
+      policy_type: "E"
+      set_at: base/src/lgapdb01.cbl:188
+      length_constant_added: WS-FULL-ENDOW-LEN
+      length_add_at: base/src/lgapdb01.cbl:187
+      overlay: null
+    "01AHOU":
+      policy_type: "H"
+      set_at: base/src/lgapdb01.cbl:192
+      length_constant_added: WS-FULL-HOUSE-LEN
+      length_add_at: base/src/lgapdb01.cbl:191
+      overlay: null
+    "01AMOT":
+      policy_type: "M"
+      set_at: base/src/lgapdb01.cbl:196
+      length_constant_added: WS-FULL-MOTOR-LEN
+      length_add_at: base/src/lgapdb01.cbl:195
+      overlay: motor_overlay
+    "01ACOM":
+      policy_type: "C"
+      set_at: base/src/lgapdb01.cbl:200
+      length_constant_added: WS-FULL-COMM-LEN
+      length_add_at: base/src/lgapdb01.cbl:199
+      overlay: commercial_overlay
+  unrecognised_request:
+    return_code: "99"
+    set_at: base/src/lgapdb01.cbl:204
+    returns_at: base/src/lgapdb01.cbl:205
+  product_insert_dispatch:
+    evaluate_range: base/src/lgapdb01.cbl:223-241
+    unrecognised_request_return_code: "99"
+    unrecognised_request_set_at: base/src/lgapdb01.cbl:239
+
+# Sample cases this work generates and executes.
+supported_request_ids: ["01AMOT", "01ACOM"]
+
+supported_samples:
+  - request_id: "01AMOT"
+    policy_type: "M"
+    overlay: motor_overlay
+    sample_definition: modernization/extraction/sample_input/commarea_01amot.json
+    amount_fields_exercised:
+      - payment_amount
+      - motor_premium_amount
+  - request_id: "01ACOM"
+    policy_type: "C"
+    overlay: commercial_overlay
+    sample_definition: modernization/extraction/sample_input/commarea_01acom.json
+    amount_fields_exercised:
+      - payment_amount
+      - fire_premium_amount
+      - crime_premium_amount
+      - flood_premium_amount
+      - weather_premium_amount
+
+samples_not_generated:
+  request_ids: ["01AEND", "01AHOU"]
+  note: >-
+    No endowment or house sample record is generated by this work. Both routing branches remain
+    documented under request_routing.
+  rationale: see modernization/docs/decision-log.md
+
+# Return codes observed in the named chain, keyed as two-character strings.
+return_codes:
+  "00":
+    meaning: success
+    initialised_at: base/src/lgapdb01.cbl:172
+    set_at:
+      - base/src/lgapdb01.cbl:293
+    condition: policy insert returned SQLCODE 0
+  "70":
+    meaning: policy insert returned SQLCODE -530
+    set_at:
+      - base/src/lgapdb01.cbl:296
+    condition: SQLCODE -530 on the policy insert
+  "80":
+    meaning: VSAM write response was not normal
+    set_at: []
+    set_by: the VSAM projection program of the named chain
+    condition: the file write response was not normal
+  "90":
+    meaning: SQL failure
+    set_at:
+      - base/src/lgapdb01.cbl:301
+      - base/src/lgapdb01.cbl:390
+      - base/src/lgapdb01.cbl:428
+      - base/src/lgapdb01.cbl:474
+      - base/src/lgapdb01.cbl:548
+    abend_code: LGSQ
+    abend_at:
+      - base/src/lgapdb01.cbl:393
+      - base/src/lgapdb01.cbl:431
+      - base/src/lgapdb01.cbl:477
+      - base/src/lgapdb01.cbl:551
+    condition: >-
+      non-zero SQLCODE on the policy insert or on a product-subtype insert; the subtype inserts
+      also abend with code LGSQ
+  "98":
+    meaning: COMMAREA shorter than the required length
+    checked_at: base/src/lgapdb01.cbl:210
+    set_at:
+      - base/src/lgapdb01.cbl:211
+    returns_at: base/src/lgapdb01.cbl:212
+    condition: EIBCALEN less than WS-REQUIRED-CA-LEN
+  "99":
+    meaning: unsupported request id
+    set_at:
+      - base/src/lgapdb01.cbl:204
+      - base/src/lgapdb01.cbl:239
+    condition: CA-REQUEST-ID matched no EVALUATE branch
+
+# In-scope declarations that are present in the exercised overlays and carry no target column.
+excluded:
+  - item: CA-B-FirePeril
+    copybook: base/src/lgcmarea.cpy
+    line: 84
+    pic: "9(4)"
+    offset: 896
+    length: 4
+    overlay: commercial_overlay
+    classification: peril code
+    reason: peril code, not an amount
+    target: none
+    chain_required_numeric: true
+    db2_counterpart:
+      item: DB2-B-FirePeril
+      copybook: base/src/lgpolicy.cpy
+      line: 90
+      pic: "9(4)"
+    program_intermediate:
+      item: DB2-B-FirePeril-Int
+      file: base/src/lgapdb01.cbl
+      line: 102
+      pic: "S9(4) COMP"
+  - item: CA-B-CrimePeril
+    copybook: base/src/lgcmarea.cpy
+    line: 86
+    pic: "9(4)"
+    offset: 908
+    length: 4
+    overlay: commercial_overlay
+    classification: peril code
+    reason: peril code, not an amount
+    target: none
+    chain_required_numeric: true
+    db2_counterpart:
+      item: DB2-B-CrimePeril
+      copybook: base/src/lgpolicy.cpy
+      line: 92
+      pic: "9(4)"
+    program_intermediate:
+      item: DB2-B-CrimePeril-Int
+      file: base/src/lgapdb01.cbl
+      line: 104
+      pic: "S9(4) COMP"
+  - item: CA-B-FloodPeril
+    copybook: base/src/lgcmarea.cpy
+    line: 88
+    pic: "9(4)"
+    offset: 920
+    length: 4
+    overlay: commercial_overlay
+    classification: peril code
+    reason: peril code, not an amount
+    target: none
+    chain_required_numeric: true
+    db2_counterpart:
+      item: DB2-B-FloodPeril
+      copybook: base/src/lgpolicy.cpy
+      line: 94
+      pic: "9(4)"
+    program_intermediate:
+      item: DB2-B-FloodPeril-Int
+      file: base/src/lgapdb01.cbl
+      line: 106
+      pic: "S9(4) COMP"
+  - item: CA-B-WeatherPeril
+    copybook: base/src/lgcmarea.cpy
+    line: 90
+    pic: "9(4)"
+    offset: 932
+    length: 4
+    overlay: commercial_overlay
+    classification: peril code
+    reason: peril code, not an amount
+    target: none
+    chain_required_numeric: true
+    db2_counterpart:
+      item: DB2-B-WeatherPeril
+      copybook: base/src/lgpolicy.cpy
+      line: 96
+      pic: "9(4)"
+    program_intermediate:
+      item: DB2-B-WeatherPeril-Int
+      file: base/src/lgapdb01.cbl
+      line: 108
+      pic: "S9(4) COMP"
+  - item: CA-B-Status
+    copybook: base/src/lgcmarea.cpy
+    line: 92
+    pic: "9(4)"
+    offset: 944
+    length: 4
+    overlay: commercial_overlay
+    classification: present-but-unmapped
+    reason: status indicator, not an amount
+    target: none
+    chain_required_numeric: true
+    db2_counterpart:
+      item: DB2-B-Status
+      copybook: base/src/lgpolicy.cpy
+      line: 98
+      pic: "9(4)"
+    program_intermediate:
+      item: DB2-B-Status-Int
+      file: base/src/lgapdb01.cbl
+      line: 110
+      pic: "S9(4) COMP"
+  - item: CA-B-RejectReason
+    copybook: base/src/lgcmarea.cpy
+    line: 93
+    pic: "X(255)"
+    offset: 948
+    length: 255
+    overlay: commercial_overlay
+    classification: present-but-unmapped
+    reason: free-text rejection reason, not an amount
+    target: none
+    chain_required_numeric: false
+    db2_counterpart:
+      item: DB2-B-RejectReason
+      copybook: base/src/lgpolicy.cpy
+      line: 99
+      pic: "X(255)"
+    program_intermediate: null
+
+excluded_rationale: see modernization/docs/decision-log.md
+
+# Length constants used by the chain's COMMAREA length validation, with the measured overlay
+# lengths taken from the copybook declarations.
+length_constants:
+  declared:
+    WS-CA-HEADER-LEN:
+      value: 28
+      declared_at: base/src/lgapdb01.cbl:65
+      applied_at: base/src/lgapdb01.cbl:182
+    WS-MOTOR-LEN:
+      value: 65
+      declared_at: base/src/lgpolicy.cpy:21
+      applied_at: null
+    WS-FULL-MOTOR-LEN:
+      value: 137
+      declared_at: base/src/lgpolicy.cpy:26
+      applied_at: base/src/lgapdb01.cbl:195
+    WS-COMM-LEN:
+      value: 1102
+      declared_at: base/src/lgpolicy.cpy:22
+      applied_at: null
+    WS-FULL-COMM-LEN:
+      value: 1174
+      declared_at: base/src/lgpolicy.cpy:27
+      applied_at: base/src/lgapdb01.cbl:199
+  measured:
+    actual_motor_overlay_length: 77
+    actual_motor_overlay_end_byte: 177
+    declared_full_motor_check: 165
+    shortfall_bytes: 12
+    actual_commercial_overlay_length: 1102
+    actual_commercial_overlay_end_byte: 1202
+    declared_full_comm_check: 1202
+    commercial_shortfall_bytes: 0
+  accumulator:
+    item: WS-REQUIRED-CA-LEN
+    declared_at: base/src/lgapdb01.cbl:66
+    compared_at: base/src/lgapdb01.cbl:210
+  handling: >-
+    samples always emit the full 32500-byte record; extraction validates that applicable amount
+    bytes are numeric before landing
+  rationale: see modernization/docs/decision-log.md
+
+# Contract for the landed object and the raw relation loaded from it.
+landing:
+  entity: policy_issue
+  raw_relation: raw.genapp_policy_issue
+  all_columns_varchar: true
+  value_encoding: json_string_or_null
+  record_format: one JSON object per object file, serialized as a single line terminated by LF
+  additional_keys_permitted: false
+  json_schema: modernization/landing/landing-schema.json
+  s3_prefix_template: >-
+    landing/source_system_key=<source_system_key>/entity=policy_issue/extract_date=YYYY-MM-DD/part-0000.json
+  partitioning_scope: S3 key prefix only
+  field_order:
+    - source_system_key
+    - policy_number
+    - policy_type
+    - customer_number
+    - request_id
+    - return_code
+    - issue_date
+    - expiry_date
+    - last_changed
+    - broker_id
+    - brokers_reference
+    - payment_amount
+    - motor_premium_amount
+    - fire_premium_amount
+    - crime_premium_amount
+    - flood_premium_amount
+    - weather_premium_amount
+
+# Which amount fields carry a value for each policy type. Inapplicable product premiums are null.
+product_premium_nullability:
+  always_populated:
+    - payment_amount
+  inapplicable_value: null
+  zero_substitution_permitted: false
+  by_policy_type:
+    "M":
+      populated:
+        - motor_premium_amount
+      null_fields:
+        - fire_premium_amount
+        - crime_premium_amount
+        - flood_premium_amount
+        - weather_premium_amount
+    "C":
+      populated:
+        - fire_premium_amount
+        - crime_premium_amount
+        - flood_premium_amount
+        - weather_premium_amount
+      null_fields:
+        - motor_premium_amount
+    "E":
+      populated: []
+      null_fields:
+        - motor_premium_amount
+        - fire_premium_amount
+        - crime_premium_amount
+        - flood_premium_amount
+        - weather_premium_amount
+    "H":
+      populated: []
+      null_fields:
+        - motor_premium_amount
+        - fire_premium_amount
+        - crime_premium_amount
+        - flood_premium_amount
+        - weather_premium_amount
+  enforced_by: modernization/dbt/genapp_rqi/tests/assert_product_premium_nullability.sql
+
+# The two canonical relations. `source` names the logical field entry that supplies each column.
+targets:
+
+  canonical.issued_policy:
+    schema: canonical
+    alias: issued_policy
+    dbt_model: canonical_issued_policy
+    materialization: table
+    grain: one row per successful issued policy and source system
+    filter: return_code = '00'
+    unique_key:
+      - source_system_key
+      - policy_number
+    unique_key_test: modernization/dbt/genapp_rqi/tests/assert_issued_policy_unique_key.sql
+    column_count: 11
+    source_derived_column_count: 10
+    warehouse_assigned_column_count: 1
+    columns:
+      - name: source_system_key
+        type: VARCHAR(64)
+        nullable: false
+        source: source_system_key
+      - name: policy_number
+        type: BIGINT
+        nullable: false
+        source: policy_number
+      - name: policy_type
+        type: CHAR(1)
+        nullable: false
+        source: policy_type
+      - name: customer_number
+        type: BIGINT
+        nullable: false
+        source: customer_number
+      - name: request_id
+        type: VARCHAR(6)
+        nullable: false
+        source: request_id
+      - name: return_code
+        type: CHAR(2)
+        nullable: false
+        source: return_code
+      - name: issue_date
+        type: DATE
+        nullable: true
+        source: issue_date
+      - name: expiry_date
+        type: DATE
+        nullable: true
+        source: expiry_date
+      - name: last_changed
+        type: TIMESTAMP
+        nullable: false
+        source: last_changed
+      - name: broker_id
+        type: BIGINT
+        nullable: true
+        source: broker_id
+      - name: brokers_reference
+        type: VARCHAR(10)
+        nullable: true
+        source: brokers_reference
+
+  canonical.preissued_rating:
+    schema: canonical
+    alias: preissued_rating
+    dbt_model: canonical_preissued_rating
+    materialization: table
+    grain: one row per successful issued policy and source system
+    filter: return_code = '00'
+    unique_key:
+      - source_system_key
+      - policy_number
+    unique_key_test: modernization/dbt/genapp_rqi/tests/assert_preissued_rating_unique_key.sql
+    column_count: 9
+    source_derived_column_count: 8
+    warehouse_assigned_column_count: 1
+    columns:
+      - name: source_system_key
+        type: VARCHAR(64)
+        nullable: false
+        source: source_system_key
+      - name: policy_number
+        type: BIGINT
+        nullable: false
+        source: policy_number
+      - name: policy_type
+        type: CHAR(1)
+        nullable: false
+        source: policy_type
+      - name: payment_amount
+        type: DECIMAL(8,2)
+        nullable: true
+        source: payment
+      - name: motor_premium_amount
+        type: DECIMAL(8,2)
+        nullable: true
+        source: motor_premium
+      - name: fire_premium_amount
+        type: DECIMAL(10,2)
+        nullable: true
+        source: fire_premium
+      - name: crime_premium_amount
+        type: DECIMAL(10,2)
+        nullable: true
+        source: crime_premium
+      - name: flood_premium_amount
+        type: DECIMAL(10,2)
+        nullable: true
+        source: flood_premium
+      - name: weather_premium_amount
+        type: DECIMAL(10,2)
+        nullable: true
+        source: weather_premium
+
+canonical_relation_count: 2
+
+# Pass and fail contract applied when harness captures are compared with the canonical rows.
+comparison:
+  implemented_by: modernization/validation/diff_harness_vs_warehouse.py
+  amount_tolerance_abs: 0.01
+  amount_fields:
+    - payment_amount
+    - motor_premium_amount
+    - fire_premium_amount
+    - crime_premium_amount
+    - flood_premium_amount
+    - weather_premium_amount
+  non_amount_comparison: exact after documented trim and normalization
+  non_zero_in_tolerance_delta: pass but report as unexpected
+  over_tolerance_delta: fail
+  skipped_fields_permitted: false
+  relations_compared:
+    - canonical.issued_policy
+    - canonical.preissued_rating
+  rationale: see modernization/docs/decision-log.md
+
+# Counts asserted by this map. Each value is countable from the sections above.
+counts:
+  logical_field_entries: 17
+  premium_payment_entries: 6
+  policy_request_entries: 11
+  active_entries: 15
+  derived_entries: 1
+  declaration_only_entries: 1
+  runtime_business_values: 16
+  issued_policy_source_derived_columns: 10
+  preissued_rating_source_derived_columns: 8
+  source_derived_column_instances: 18
+  warehouse_assigned_columns_per_relation: 1
+  issued_policy_total_columns: 11
+  preissued_rating_total_columns: 9
+  landing_fields: 17
+  canonical_relations: 2
+
+# Files that read their layout, typing and lineage facts from this map.
+consumed_by:
+  - modernization/extraction/build_sample_commarea.py
+  - modernization/extraction/extract_commarea.py
+  - modernization/extraction/extraction-spec.md
+  - modernization/landing/landing-schema.json
+  - modernization/landing/load_redshift.sql
+  - modernization/warehouse/ddl/02_raw_genapp_policy_issue.sql
+  - modernization/dbt/genapp_rqi/models/staging/genapp_class_exemplar/_genapp__sources.yml
+  - modernization/dbt/genapp_rqi/models/staging/genapp_class_exemplar/_genapp__models.yml
+  - modernization/dbt/genapp_rqi/models/intermediate/_int__models.yml
+  - modernization/dbt/genapp_rqi/models/marts/canonical/_canonical__models.yml
+  - modernization/docs/field-level-lineage.md
+  - modernization/docs/traceability-matrix.md
+  - modernization/validation/diff_harness_vs_warehouse.py
+
+# Shape of the sample definition documents under modernization/extraction/sample_input/.
+sample_definition_contract:
+  consumer: modernization/extraction/build_sample_commarea.py
+  document_shape: flat JSON object
+  key_space: COMMAREA item names as declared under layout
+  key_matching: case_insensitive
+  value_type: string
+  required_keys:
+    - CA-REQUEST-ID
+  request_id_domain: supported_request_ids
+  emitted_record_length: 32500
+  rules:
+    - CA-REQUEST-ID is required and must be one of supported_request_ids
+    - keys belonging to another product's overlay are rejected
+    - unknown keys are rejected
+    - items whose logical entry is populated_by chain must not be supplied
+    - supplied numeric values must contain digits only
+    - supplied values longer than the declared item length are rejected
+    - unset numeric items are zero-filled
+    - unset alphanumeric items are space-filled
+  chain_populated_items:
+    - item: CA-RETURN-CODE
+      kind: numeric_display
+      fill: zeros
+    - item: CA-POLICY-NUM
+      kind: numeric_display
+      fill: zeros
+    - item: CA-LASTCHANGED
+      kind: alphanumeric
+      fill: spaces
+  fill_by_kind:
+    numeric_display: zeros
+    alphanumeric: spaces
+  value_justification:
+    numeric_display: right
+    alphanumeric: left
+  value_padding:
+    numeric_display: "0"
+    alphanumeric: " "

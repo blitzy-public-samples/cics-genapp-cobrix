@@ -1,7 +1,6 @@
-# Generated modernization artifacts only (Agent Action Plan sections 0.3.1 and 0.4.5).
-# Authored files under modernization/ remain tracked.
-.venv/
-harness/build/
-dbt/genapp_rqi/target/
-dbt/genapp_rqi/logs/
-validation/local.duckdb
+# Generated modernization artifacts only; see modernization/docs/decision-log.md.
+/.venv/
+/harness/build/
+/dbt/genapp_rqi/target/
+/dbt/genapp_rqi/logs/
+/validation/local.duckdb
