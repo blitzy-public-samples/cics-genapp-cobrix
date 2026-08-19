@@ -1,6 +1,7 @@
 # Exact direct dependency pins for the GenApp canonical-warehouse bridge.
-# Authority: Agent Action Plan section 0.5.2 ("Direct Python and dbt Dependencies").
+# Scope: direct dependencies only; transitive versions are resolved by pip.
 # Install into modernization/.venv (Python 3.12) and invoke tools through .venv/bin/... .
+# See also: modernization/docs/decision-log.md, modernization/docs/traceability-matrix.md
 #
 # dbt model execution and contracts
 dbt-core==1.12.2
