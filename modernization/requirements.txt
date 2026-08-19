@@ -1,0 +1,24 @@
+# Exact direct dependency pins for the GenApp canonical-warehouse bridge.
+# Authority: Agent Action Plan section 0.5.2 ("Direct Python and dbt Dependencies").
+# Install into modernization/.venv (Python 3.12) and invoke tools through .venv/bin/... .
+#
+# dbt model execution and contracts
+dbt-core==1.12.2
+# local warehouse adapter (local-substitute branch)
+dbt-duckdb==1.11.0
+# real warehouse adapter (AWS branch)
+dbt-redshift==1.11.0
+# local raw load, query and diff access
+duckdb==1.5.5
+# real-target validation queries
+redshift-connector==2.1.16
+# S3 API and precondition-gate checks
+boto3==1.43.74
+# explicit credential/session dependency of boto3
+botocore==1.43.74
+# local S3-compatible endpoint for the local-substitute branch
+moto[s3,server]==5.2.2
+# field-map and statement-map reader
+PyYAML==6.0.3
+# sample and landing record validation
+jsonschema==4.26.0
