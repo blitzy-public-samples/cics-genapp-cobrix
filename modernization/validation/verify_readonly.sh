@@ -11,10 +11,10 @@
 # below are planned deliverables, not present at this milestone.
 #
 # Stages, in execution order:
-#   preflight  "git", "sha256sum", "wc", "date", "mkdir" and "stat" are on
-#              PATH, a descriptor this shell holds can be inspected through
-#              "/dev/fd/<number>", and the working directory resolves to a git
-#              work tree.
+#   preflight  "git", "sha256sum", "wc", "date", "mkdir", "stat" and "flock"
+#              are on PATH, a descriptor this shell holds can be inspected
+#              through "/dev/fd/<number>", and the working directory resolves to
+#              a git work tree.
 #   gate A     For each of the five baseline entries: neither the path nor any
 #              of its parent components is a symbolic link, the path exists and
 #              reports a regular file without being followed, the path still
@@ -53,9 +53,15 @@
 #     for the whole run, and before any line is written the path reports a
 #     regular file with exactly one hard link and that descriptor reports a
 #     regular file with the same inode and device as the path;
+#   - once every one of those checks has passed, an exclusive lock is taken on
+#     that descriptor and held until it closes: the blocks of two runs that
+#     share one log follow one another in it, and no line of one block falls
+#     between the lines of another. The wait for that lock is bounded at 60
+#     seconds, and a lock that is not taken within that wait names the evidence
+#     log on stderr and exits 4 with nothing appended;
 #   - every line of the run is written through that descriptor, never through
 #     the path a second time, and the descriptor is closed when the run block
-#     ends.
+#     ends, which releases the lock.
 # A rejected location exits 4, names the offending path and the rule it broke,
 # and writes nothing. An append through the held descriptor that fails is
 # reported on stderr only, names the log, and exits 4 without a further write
@@ -109,8 +115,9 @@
 #   2  the base/ working tree is not clean
 #   3  a pre-existing tracked file outside modernization/ has been modified
 #   4  environment or usage error, including a rejected evidence log location, a
-#      log whose type changed between its checks and its open, and a failed
-#      append to the evidence log
+#      log whose type changed between its checks and its open, an exclusive lock
+#      on the evidence log that is not taken within the bounded wait, and a
+#      failed append to the evidence log
 #   5  --self-test recorded at least one failing case
 #
 # Any non-zero code will stop the planned fail-fast modernization/Makefile once
@@ -162,7 +169,14 @@
 #            fails one of those checks is closed and no entry is ever removed:
 #            an entry a rejected open created is left exactly as it stands, so
 #            no run of this script can delete a file it did not prove it owns.
-#            Nothing is appended, and the run exits 4.
+#            Nothing is appended, and the run exits 4. A descriptor that passes
+#            every one of those checks then carries an exclusive lock, taken
+#            before the first record and held until that descriptor closes: two
+#            runs appending to one log write their blocks one after the other,
+#            and no line of one block falls between the lines of another. The
+#            wait for that lock is bounded at 60 seconds; a lock that is not
+#            taken within that wait names the evidence log on stderr, appends
+#            nothing and exits 4.
 #
 # Generated-output policy: one policy governs every path this bridge writes. A
 # generated record or translated copy resolves inside
@@ -197,7 +211,12 @@
 # Failures also emit a one-line summary on stderr. The evidence log is
 # the only file this script writes, every append reaches it through the one
 # descriptor opened for it and closed when the run finishes; it performs no
-# network access and runs no git command that alters repository state.
+# network access and runs no git command that alters repository state. One run
+# at a time appends to a given evidence log: a run holds an exclusive lock on
+# that log for its whole duration, the blocks of concurrent runs land in the log
+# one after another, and each block stays contiguous. The wait for that lock is
+# bounded at 60 seconds, and a lock that is not taken within that wait exits 4
+# without appending.
 #
 # --self-test builds a throwaway git work tree under a temporary directory,
 # copies the five source artifacts and this script into it, commits them, and
@@ -207,9 +226,10 @@
 # reduced, a log replaced between its open and its status read, a log whose name
 # becomes a symbolic link and a log whose name becomes a FIFO between its open
 # and its status read, a log whose append does not complete, the inode of a log
-# across two runs, an evidence directory that appears while this run creates it,
-# an evidence directory a symbolic link takes over while this run creates it, a
-# committed symlinked source, a committed symlinked source directory, a FIFO and
+# across two runs, four runs appending to one log at the same time, an evidence
+# directory that appears while this run creates it, an evidence directory a
+# symbolic link takes over while this run creates it, a committed symlinked
+# source, a committed symlinked source directory, a FIFO and
 # a directory in place of sources, a committed source content change, a removed
 # source, a source whose line count and digest both moved, a source replaced
 # between its status read and its open, a source replaced by a symbolic link and
@@ -226,8 +246,11 @@
 # PATH that places one name, writes its own stderr line and reports a failure
 # for the single-component creation it selects, and that otherwise forwards
 # every call to the real tool. The incomplete append is driven by a file-size
-# limit with SIGXFSZ ignored. No case drives a substitution into the window that
-# holds no command, between a builtin check and the open that follows it.
+# limit with SIGXFSZ ignored. The concurrent case starts its four runs at once
+# against one log and then reads that log back for balanced markers, one verdict
+# per run and no BEGIN marker opened inside another block. No case drives a
+# substitution into the window that holds no command, between a builtin check and
+# the open that follows it.
 # It prints one PASS or FAIL line per case plus a count summary, checks after
 # every case that nothing was written outside the throwaway tree, removes that
 # tree on exit, and writes no path in the repository it is started from. It runs
@@ -271,9 +294,13 @@ readonly LOG_DIR_REL="modernization/validation/artifacts"
 # Evidence log used when --log is not supplied, relative to the repository root.
 readonly DEFAULT_LOG_REL="${LOG_DIR_REL}/readonly-check.log"
 
+# Longest a run waits for the exclusive lock on the evidence log, in seconds. A
+# wait that reaches it ends the run with exit 4 and appends nothing.
+readonly LOG_LOCK_WAIT_SECONDS=60
+
 # External tools every verification run invokes, in first-use order. A missing
 # entry is an environment error, reported before the evidence log is opened.
-readonly REQUIRED_TOOLS=(git sha256sum wc date mkdir stat)
+readonly REQUIRED_TOOLS=(git sha256sum wc date mkdir stat flock)
 
 # External tools --self-test invokes in addition to REQUIRED_TOOLS.
 readonly SELF_TEST_TOOLS=(mktemp cp ln rm mv mkfifo chmod)
@@ -362,6 +389,12 @@ Options:
                     path that stops being a regular file between its checks and
                     its open, or between that open and the status read that
                     follows it, is reported with exit 4 and no line is written.
+                    The run then holds an exclusive lock on that descriptor until
+                    it closes: runs that share one log append their blocks one
+                    after another, and no line of one block falls between the
+                    lines of another. That wait is bounded at 60 seconds, and a
+                    lock that is not taken within it names the log on stderr,
+                    appends nothing and exits 4.
                     Default:
                     modernization/validation/artifacts/readonly-check.log
   --baseline-only   Print the embedded baseline and exit 0. Runs no gate,
@@ -375,8 +408,8 @@ Options:
   -h, --help        Print this message and exit 0.
 
 Stages, in execution order:
-  preflight  "git", "sha256sum", "wc", "date", "mkdir" and "stat" are on PATH,
-             a descriptor this shell holds can be inspected through
+  preflight  "git", "sha256sum", "wc", "date", "mkdir", "stat" and "flock" are
+             on PATH, a descriptor this shell holds can be inspected through
              "/dev/fd/<number>", and the working directory resolves to a git
              work tree.
   gate A     For each of the five baseline entries: neither the path nor any of
@@ -418,7 +451,8 @@ Exit codes:
   2  the base/ working tree is not clean
   3  a pre-existing tracked file outside modernization/ has been modified
   4  environment or usage error, including a rejected evidence log location, a
-     log whose type changed between its checks and its open, and a failed
+     log whose type changed between its checks and its open, an exclusive lock
+     on the evidence log that is not taken within the bounded wait, and a failed
      append to the evidence log
   5  --self-test recorded at least one failing case
 USAGE_TEXT
@@ -494,8 +528,9 @@ preopen_change_reason() {
   fi
 }
 
-# Closes the held evidence-log descriptor. Writes nothing and is a no-op when
-# no log is open.
+# Closes the held evidence-log descriptor, which releases the exclusive lock
+# that descriptor carries. Writes nothing and is a no-op when no log is open.
+# Process exit closes the descriptor and releases that lock as well.
 close_log() {
   if ((LOG_FD >= 0)); then
     exec {LOG_FD}>&-
@@ -776,11 +811,12 @@ prepare_log_dir() {
 
 # Validates the requested log location against every rule in the header block,
 # creates the missing components of its directory chain, opens the log for
-# appending onto one descriptor and confirms that the descriptor and the path
-# name the same regular file with a single hard link. Every rejection closes the
-# descriptor and exits 4 before anything is written. The recorded path stays
-# repository-relative and is used for the evidence line only; all writing goes
-# through the descriptor.
+# appending onto one descriptor, confirms that the descriptor and the path name
+# the same regular file with a single hard link, and takes an exclusive lock on
+# that descriptor once every one of those checks has passed. Every rejection
+# closes the descriptor and exits 4 before anything is written. The recorded path
+# stays repository-relative and is used for the evidence line only; all writing
+# goes through the descriptor, which holds the lock until it closes.
 open_log() {
   local requested="$DEFAULT_LOG_REL"
   local rel="" dir="" base="" physical="" root_display=""
@@ -905,6 +941,14 @@ open_log() {
   if [[ "$after" != "${REPO_ROOT}/${LOG_DIR_REL}" ]]; then
     exec {fd}>&-
     fail_env "evidence log rejected: directory resolves to $(sanitize "$after") instead of ${root_display}/${LOG_DIR_REL} after the open"
+  fi
+
+  # Taken on the validated descriptor, held until that descriptor closes, and
+  # waited for at most LOG_LOCK_WAIT_SECONDS. The tool's own stderr is
+  # discarded, leaving this script's one-line summary as the only record.
+  if ! flock -x -w "$LOG_LOCK_WAIT_SECONDS" "$fd" 2>/dev/null; then
+    exec {fd}>&-
+    fail_env "unable to take the exclusive lock on the evidence log within ${LOG_LOCK_WAIT_SECONDS} seconds: $(sanitize "$rel")"
   fi
 
   LOG_PATH="$rel"
@@ -1219,11 +1263,11 @@ readonly SELF_TEST_SCRIPT_REL="modernization/validation/verify_readonly.sh"
 # Tool names --self-test scrubs from PATH one case at a time, stated
 # independently of REQUIRED_TOOLS and compared against it by the tool-list
 # case.
-readonly SELF_TEST_EXPECTED_TOOLS=(git sha256sum wc date mkdir stat)
+readonly SELF_TEST_EXPECTED_TOOLS=(git sha256sum wc date mkdir stat flock)
 
 # Number of case lines --self-test reports, including the case that checks this
 # number. A case that is added or removed changes it.
-readonly SELF_TEST_CASE_COUNT=45
+readonly SELF_TEST_CASE_COUNT=47
 
 # Content written to the escape canary and to the stub dependency manifest of
 # each case work tree.
@@ -1245,6 +1289,12 @@ ST_EXIT=0
 ST_OUTPUT=""
 ST_OK=1
 ST_DETAIL=""
+
+# Exit status of every run the concurrent case started, one entry per run.
+ST_CONCURRENT_STATUS=()
+
+# Number of those runs that wrote a byte on stdout or on stderr.
+ST_CONCURRENT_NOISE=0
 
 # Removes the throwaway tree. Registered on EXIT while --self-test runs.
 self_test_cleanup() {
@@ -1588,6 +1638,41 @@ st_run_without_tool() {
   ST_OUTPUT="$(cd "$ST_REPO" && PATH="$bin" "$BASH" "$ST_SCRIPT" "$@" 2>&1)" || ST_EXIT=$?
 }
 
+# Starts several copies under test at the same time, each appending to one
+# evidence log under its own --stage label and with its stdout and stderr sent to
+# a file of its own. Waits for all of them, records one exit status per run in
+# ST_CONCURRENT_STATUS and counts the runs that wrote a byte on either stream in
+# ST_CONCURRENT_NOISE.
+#
+# Positional parameters:
+#   1  number of runs started at the same time
+#   2  evidence log every run appends to, relative to the repository root
+st_run_concurrently() {
+  local runs="$1" log_rel="$2" dir="" index=0 status=0
+  local -a pids=()
+
+  dir="${ST_CASE_DIR}/concurrent-runs"
+  if ! mkdir -p -- "$dir"; then
+    fail_env "--self-test could not create the concurrent-run directory for ${ST_CASE}"
+  fi
+
+  ST_CONCURRENT_STATUS=()
+  ST_CONCURRENT_NOISE=0
+  for ((index = 0; index < runs; index++)); do
+    (cd "$ST_REPO" && "$ST_SCRIPT" --stage "concurrent-${index}" --log "$log_rel" --quiet) \
+      >"${dir}/stdout-${index}" 2>"${dir}/stderr-${index}" &
+    pids+=("$!")
+  done
+  for ((index = 0; index < runs; index++)); do
+    status=0
+    wait "${pids[index]}" || status=$?
+    ST_CONCURRENT_STATUS+=("$status")
+    if [[ -s "${dir}/stdout-${index}" || -s "${dir}/stderr-${index}" ]]; then
+      ST_CONCURRENT_NOISE=$((ST_CONCURRENT_NOISE + 1))
+    fi
+  done
+}
+
 st_expect_exit() {
   ((ST_EXIT == $1)) || st_note "exit ${ST_EXIT}, expected $1"
 }
@@ -1656,6 +1741,48 @@ st_expect_substring_count() {
     fi
   done <"$path"
   ((count == want)) || st_note "${count} line(s) holding '${needle}', expected ${want}"
+}
+
+# Reads a log block by block and checks that the expected number of blocks is
+# present, that each one closes before the next opens, that the last one is
+# closed, and that the record after every BEGIN marker is that block's own stage
+# line.
+st_expect_contiguous_blocks() {
+  local path="$1" want="$2" line=""
+  local open=0 nested=0 begun=0 ended=0 after_begin=0 stray=0
+
+  if [[ ! -f "$path" ]]; then
+    st_note "missing log ${path#"${SELF_TEST_ROOT}/"}"
+    return 0
+  fi
+  while IFS= read -r line; do
+    if ((after_begin == 1)); then
+      after_begin=0
+      if [[ "$line" != "stage: "* ]]; then
+        stray=$((stray + 1))
+      fi
+    fi
+    case "$line" in
+      "BEGIN readonly-check")
+        if ((open == 1)); then
+          nested=$((nested + 1))
+        fi
+        open=1
+        after_begin=1
+        begun=$((begun + 1))
+        ;;
+      "END readonly-check")
+        open=0
+        ended=$((ended + 1))
+        ;;
+    esac
+  done <"$path"
+
+  ((nested == 0)) || st_note "${nested} BEGIN marker(s) opened inside another block"
+  ((stray == 0)) || st_note "${stray} BEGIN marker(s) not followed by a stage line"
+  ((open == 0)) || st_note "the last block of the log was left open"
+  ((begun == want && ended == want)) ||
+    st_note "${begun} BEGIN and ${ended} END marker(s), expected ${want} of each"
 }
 
 # Confirms the case wrote nothing outside its throwaway tree: the escape
@@ -2011,6 +2138,30 @@ st_case_log_inode_stability() {
   st_expect_exact_count "$log_abs" "exit_code: 0" 2
   st_expect_exact_count "$log_abs" "END readonly-check" 2
   st_end "two complete evidence blocks in one unchanged single-link inode"
+}
+
+# Four runs append to one evidence log at the same time, from an evidence
+# directory that does not exist when they start.
+st_case_log_concurrent_blocks() {
+  local log_rel="${LOG_DIR_REL}/concurrent.log" log_abs="" status=""
+  local runs=4
+  st_begin "log-concurrent-blocks"
+  log_abs="${ST_REPO}/${log_rel}"
+  st_run_concurrently "$runs" "$log_rel"
+  for status in "${ST_CONCURRENT_STATUS[@]}"; do
+    ((status == EXIT_OK)) || st_note "a concurrent run exited ${status}, expected ${EXIT_OK}"
+  done
+  ((${#ST_CONCURRENT_STATUS[@]} == runs)) ||
+    st_note "${#ST_CONCURRENT_STATUS[@]} run(s) reported a status, expected ${runs}"
+  ((ST_CONCURRENT_NOISE == 0)) ||
+    st_note "${ST_CONCURRENT_NOISE} concurrent run(s) wrote on stdout or stderr"
+  st_expect_exact_count "$log_abs" "BEGIN readonly-check" "$runs"
+  st_expect_exact_count "$log_abs" "END readonly-check" "$runs"
+  st_expect_exact_count "$log_abs" "verdict: PASS" "$runs"
+  st_expect_exact_count "$log_abs" "exit_code: 0" "$runs"
+  st_expect_prefix_count "$log_abs" "stage: concurrent-" "$runs"
+  st_expect_contiguous_blocks "$log_abs" "$runs"
+  st_end "${runs} runs at once leave ${runs} contiguous blocks in one log, silently and with exit 0"
 }
 
 # The evidence directory is a real directory by the time this run's creation of
@@ -2542,6 +2693,7 @@ run_self_test() {
   st_case_log_name_swapped
   st_case_log_write_failure
   st_case_log_inode_stability
+  st_case_log_concurrent_blocks
   st_case_log_dir_appeared
   st_case_log_dir_link_appeared
   st_case_source_symlink
