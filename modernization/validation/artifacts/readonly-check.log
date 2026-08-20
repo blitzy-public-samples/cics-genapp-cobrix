@@ -249,3 +249,65 @@ verdict: PASS
 exit_code: 0
 END readonly-check
 
+BEGIN readonly-check
+stage: unspecified
+timestamp_utc: 2026-08-20T11:28:57Z
+repository_root: /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4-w-001_ac2ce0
+evidence_log: modernization/validation/artifacts/readonly-check.log
+baseline (path, lines, sha256):
+  base/src/lgapol01.cbl    169  4dddd29539dd96aaec9f6885d3d62d19d40a1c6c888636623164bc5f5b232f6f
+  base/src/lgapdb01.cbl    595  3d21ad353a03c63d05defc511372e14477613fa4c51068a51a84d3c840c29815
+  base/src/lgapvs01.cbl    188  e0bca62eed2d6390852befdbaddd684833040c8be183d23f4fca368834709215
+  base/src/lgcmarea.cpy    103  4ecc9ed8dbf0936a8b0738cbb03a947e937206100b0e34f749fbb9e0b03f701d
+  base/src/lgpolicy.cpy    107  717c8f5c50738a2ef4d432e4b397e21bdc0423a9fc789246eb3360aa3f99eaa5
+preflight result: PASS
+gate A source integrity:
+  PASS base/src/lgapol01.cbl expected_lines=169 actual_lines=169 sha256=4dddd29539dd96aaec9f6885d3d62d19d40a1c6c888636623164bc5f5b232f6f
+  PASS base/src/lgapdb01.cbl expected_lines=595 actual_lines=595 sha256=3d21ad353a03c63d05defc511372e14477613fa4c51068a51a84d3c840c29815
+  PASS base/src/lgapvs01.cbl expected_lines=188 actual_lines=188 sha256=e0bca62eed2d6390852befdbaddd684833040c8be183d23f4fca368834709215
+  PASS base/src/lgcmarea.cpy expected_lines=103 actual_lines=103 sha256=4ecc9ed8dbf0936a8b0738cbb03a947e937206100b0e34f749fbb9e0b03f701d
+  PASS base/src/lgpolicy.cpy expected_lines=107 actual_lines=107 sha256=717c8f5c50738a2ef4d432e4b397e21bdc0423a9fc789246eb3360aa3f99eaa5
+gate A result: PASS (5 of 5 baseline entries matched)
+gate B base working tree clean:
+  git status --porcelain -- base/ produced no output
+gate B result: PASS
+gate C no pre-existing tracked modification:
+  git diff --name-only HEAD raw output:
+    modernization/validation/artifacts/readonly-check.log
+  tracked paths outside modernization/: 0
+gate C result: PASS
+verdict: PASS
+exit_code: 0
+END readonly-check
+
+BEGIN readonly-check
+stage: cics_diag_link
+timestamp_utc: 2026-08-20T11:34:00Z
+repository_root: /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4-w-002_cba742
+evidence_log: modernization/validation/artifacts/readonly-check.log
+baseline (path, lines, sha256):
+  base/src/lgapol01.cbl    169  4dddd29539dd96aaec9f6885d3d62d19d40a1c6c888636623164bc5f5b232f6f
+  base/src/lgapdb01.cbl    595  3d21ad353a03c63d05defc511372e14477613fa4c51068a51a84d3c840c29815
+  base/src/lgapvs01.cbl    188  e0bca62eed2d6390852befdbaddd684833040c8be183d23f4fca368834709215
+  base/src/lgcmarea.cpy    103  4ecc9ed8dbf0936a8b0738cbb03a947e937206100b0e34f749fbb9e0b03f701d
+  base/src/lgpolicy.cpy    107  717c8f5c50738a2ef4d432e4b397e21bdc0423a9fc789246eb3360aa3f99eaa5
+preflight result: PASS
+gate A source integrity:
+  PASS base/src/lgapol01.cbl expected_lines=169 actual_lines=169 sha256=4dddd29539dd96aaec9f6885d3d62d19d40a1c6c888636623164bc5f5b232f6f
+  PASS base/src/lgapdb01.cbl expected_lines=595 actual_lines=595 sha256=3d21ad353a03c63d05defc511372e14477613fa4c51068a51a84d3c840c29815
+  PASS base/src/lgapvs01.cbl expected_lines=188 actual_lines=188 sha256=e0bca62eed2d6390852befdbaddd684833040c8be183d23f4fca368834709215
+  PASS base/src/lgcmarea.cpy expected_lines=103 actual_lines=103 sha256=4ecc9ed8dbf0936a8b0738cbb03a947e937206100b0e34f749fbb9e0b03f701d
+  PASS base/src/lgpolicy.cpy expected_lines=107 actual_lines=107 sha256=717c8f5c50738a2ef4d432e4b397e21bdc0423a9fc789246eb3360aa3f99eaa5
+gate A result: PASS (5 of 5 baseline entries matched)
+gate B base working tree clean:
+  git status --porcelain -- base/ produced no output
+gate B result: PASS
+gate C no pre-existing tracked modification:
+  git diff --name-only HEAD raw output:
+    modernization/validation/artifacts/readonly-check.log
+  tracked paths outside modernization/: 0
+gate C result: PASS
+verdict: PASS
+exit_code: 0
+END readonly-check
+
