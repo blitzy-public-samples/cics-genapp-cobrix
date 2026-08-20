@@ -1,0 +1,48 @@
++ cobc -m -std=ibm -ffold-copy=LOWER -ext cpy -I /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4_93f37d/modernization/harness/build/src -o /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4_93f37d/modernization/harness/build/bin/CICS-ABEND.so modernization/harness/stubs/cics_abend.cbl
+<command-line>: warning: ‘_FORTIFY_SOURCE’ redefined
+<command-line>: note: this is the location of the previous definition
++ cobc -m -std=ibm -ffold-copy=LOWER -ext cpy -I /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4_93f37d/modernization/harness/build/src -o /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4_93f37d/modernization/harness/build/bin/CICS-WRITE.so modernization/harness/stubs/cics_write.cbl
+<command-line>: warning: ‘_FORTIFY_SOURCE’ redefined
+<command-line>: note: this is the location of the previous definition
++ cobc -m -std=ibm -ffold-copy=LOWER -ext cpy -I /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4_93f37d/modernization/harness/build/src -o /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4_93f37d/modernization/harness/build/bin/CICS-ASKTIME.so modernization/harness/stubs/cics_asktime.cbl
+<command-line>: warning: ‘_FORTIFY_SOURCE’ redefined
+<command-line>: note: this is the location of the previous definition
++ cobc -m -std=ibm -ffold-copy=LOWER -ext cpy -I /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4_93f37d/modernization/harness/build/src -o /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4_93f37d/modernization/harness/build/bin/CICS-FORMATTIME.so modernization/harness/stubs/cics_formattime.cbl
+<command-line>: warning: ‘_FORTIFY_SOURCE’ redefined
+<command-line>: note: this is the location of the previous definition
++ cobc -m -std=ibm -ffold-copy=LOWER -ext cpy -I /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4_93f37d/modernization/harness/build/src -o /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4_93f37d/modernization/harness/build/bin/CICS-DIAG-LINK.so modernization/harness/stubs/cics_diag_link.cbl
+<command-line>: warning: ‘_FORTIFY_SOURCE’ redefined
+<command-line>: note: this is the location of the previous definition
++ cobc -m -std=ibm -ffold-copy=LOWER -ext cpy -I /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4_93f37d/modernization/harness/build/src -o /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4_93f37d/modernization/harness/build/bin/SQL-INSERT-POLICY.so modernization/harness/stubs/sql_insert_policy.cbl
+<command-line>: warning: ‘_FORTIFY_SOURCE’ redefined
+<command-line>: note: this is the location of the previous definition
++ cobc -m -std=ibm -ffold-copy=LOWER -ext cpy -I /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4_93f37d/modernization/harness/build/src -o /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4_93f37d/modernization/harness/build/bin/SQL-INSERT-MOTOR.so modernization/harness/stubs/sql_insert_motor.cbl
+<command-line>: warning: ‘_FORTIFY_SOURCE’ redefined
+<command-line>: note: this is the location of the previous definition
++ cobc -m -std=ibm -ffold-copy=LOWER -ext cpy -I /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4_93f37d/modernization/harness/build/src -o /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4_93f37d/modernization/harness/build/bin/SQL-INSERT-COMMERCIAL.so modernization/harness/stubs/sql_insert_commercial.cbl
+<command-line>: warning: ‘_FORTIFY_SOURCE’ redefined
+<command-line>: note: this is the location of the previous definition
++ cobc -m -std=ibm -ffold-copy=LOWER -ext cpy -I /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4_93f37d/modernization/harness/build/src -o /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4_93f37d/modernization/harness/build/bin/SQL-INSERT-ENDOWMENT.so modernization/harness/stubs/sql_insert_endowment.cbl
+<command-line>: warning: ‘_FORTIFY_SOURCE’ redefined
+<command-line>: note: this is the location of the previous definition
++ cobc -m -std=ibm -ffold-copy=LOWER -ext cpy -I /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4_93f37d/modernization/harness/build/src -o /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4_93f37d/modernization/harness/build/bin/SQL-INSERT-HOUSE.so modernization/harness/stubs/sql_insert_house.cbl
+<command-line>: warning: ‘_FORTIFY_SOURCE’ redefined
+<command-line>: note: this is the location of the previous definition
++ cobc -m -std=ibm -ffold-copy=LOWER -ext cpy -I /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4_93f37d/modernization/harness/build/src -o /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4_93f37d/modernization/harness/build/bin/SQL-SET-IDENTITY.so modernization/harness/stubs/sql_set_identity.cbl
+<command-line>: warning: ‘_FORTIFY_SOURCE’ redefined
+<command-line>: note: this is the location of the previous definition
++ cobc -m -std=ibm -ffold-copy=LOWER -ext cpy -I /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4_93f37d/modernization/harness/build/src -o /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4_93f37d/modernization/harness/build/bin/SQL-SELECT-LASTCHANGED.so modernization/harness/stubs/sql_select_lastchanged.cbl
+<command-line>: warning: ‘_FORTIFY_SOURCE’ redefined
+<command-line>: note: this is the location of the previous definition
++ cobc -m -std=ibm -ffold-copy=LOWER -ext cpy -I /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4_93f37d/modernization/harness/build/src -o /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4_93f37d/modernization/harness/build/bin/LGAPOL01.so /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4_93f37d/modernization/harness/build/src/lgapol01.cbl
+<command-line>: warning: ‘_FORTIFY_SOURCE’ redefined
+<command-line>: note: this is the location of the previous definition
++ cobc -m -std=ibm -ffold-copy=LOWER -ext cpy -I /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4_93f37d/modernization/harness/build/src -o /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4_93f37d/modernization/harness/build/bin/LGAPDB01.so /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4_93f37d/modernization/harness/build/src/lgapdb01.cbl
+<command-line>: warning: ‘_FORTIFY_SOURCE’ redefined
+<command-line>: note: this is the location of the previous definition
++ cobc -m -std=ibm -ffold-copy=LOWER -ext cpy -I /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4_93f37d/modernization/harness/build/src -o /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4_93f37d/modernization/harness/build/bin/LGAPVS01.so /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4_93f37d/modernization/harness/build/src/lgapvs01.cbl
+<command-line>: warning: ‘_FORTIFY_SOURCE’ redefined
+<command-line>: note: this is the location of the previous definition
++ cobc -x -std=ibm -ffold-copy=LOWER -ext cpy -I /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4_93f37d/modernization/harness/build/src -o /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4_93f37d/modernization/harness/build/bin/driver modernization/harness/driver.cbl
+<command-line>: warning: ‘_FORTIFY_SOURCE’ redefined
+<command-line>: note: this is the location of the previous definition

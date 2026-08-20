@@ -1,0 +1,8 @@
+translate.py: generated 3 program(s) into modernization/harness/build/src
+  lgapol01.cbl: 169 source line(s) -> 162 generated line(s); 9 EXEC CICS site(s), 0 EXEC SQL block(s), 143 line(s) copied unchanged
+  lgapdb01.cbl: 595 source line(s) -> 514 generated line(s); 20 EXEC CICS site(s), 11 EXEC SQL block(s), 391 line(s) copied unchanged
+  lgapvs01.cbl: 188 source line(s) -> 176 generated line(s); 7 EXEC CICS site(s), 0 EXEC SQL block(s), 160 line(s) copied unchanged
+  rules applied: R1=1, R2=3, R3=3, R4=3, R5=2, R6=9, R7=12, R8=6, R9=1, R10=3, R11=3, R12=1, R13=8
+  verbatim copies: 6; response-condition item: DFHRESP-NORMAL
+  baseline: modernization/harness/build/logs/source-baseline.sha256
+  report:   modernization/harness/build/logs/translation-report.json

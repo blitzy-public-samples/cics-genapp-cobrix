@@ -1,0 +1,672 @@
+{
+  "schema_version": 1,
+  "translator": "modernization/harness/translate.py",
+  "inputs": {
+    "source_dir": "base/src",
+    "build_dir": "modernization/harness/build",
+    "statement_map": "modernization/harness/statement_map.yml",
+    "copybook_dir": "modernization/harness/copybooks"
+  },
+  "source_baseline": {
+    "lgapdb01.cbl": {
+      "path": "base/src/lgapdb01.cbl",
+      "sha256": "3d21ad353a03c63d05defc511372e14477613fa4c51068a51a84d3c840c29815"
+    },
+    "lgapol01.cbl": {
+      "path": "base/src/lgapol01.cbl",
+      "sha256": "4dddd29539dd96aaec9f6885d3d62d19d40a1c6c888636623164bc5f5b232f6f"
+    },
+    "lgapvs01.cbl": {
+      "path": "base/src/lgapvs01.cbl",
+      "sha256": "e0bca62eed2d6390852befdbaddd684833040c8be183d23f4fca368834709215"
+    },
+    "lgcmarea.cpy": {
+      "path": "base/src/lgcmarea.cpy",
+      "sha256": "4ecc9ed8dbf0936a8b0738cbb03a947e937206100b0e34f749fbb9e0b03f701d"
+    },
+    "lgpolicy.cpy": {
+      "path": "base/src/lgpolicy.cpy",
+      "sha256": "717c8f5c50738a2ef4d432e4b397e21bdc0423a9fc789246eb3360aa3f99eaa5"
+    }
+  },
+  "harness_copybooks": {
+    "dfheiblk.cpy": {
+      "path": "modernization/harness/copybooks/dfheiblk.cpy",
+      "sha256": "ddd35d9a2c4a3e2459157c9fb80038a7c1b14c994c58aba2659ac34c256a519d"
+    },
+    "dfhresp.cpy": {
+      "path": "modernization/harness/copybooks/dfhresp.cpy",
+      "sha256": "1a75789da8747c3d910ffb1df5e4dd790971776ebe867103f497fa6a72e02cd7"
+    },
+    "hcapture.cpy": {
+      "path": "modernization/harness/copybooks/hcapture.cpy",
+      "sha256": "2d090ca7ea161794e36c119d6d6b50d42fe4f0dea7dc66fda6d7574b8255cd11"
+    },
+    "hsqlca.cpy": {
+      "path": "modernization/harness/copybooks/hsqlca.cpy",
+      "sha256": "0b874f96ee34585d79f831fe78940a1f3d1dbb0f3abdfbebc0af02cea122fcb8"
+    }
+  },
+  "verbatim_copies": [
+    {
+      "origin": "base/src/lgcmarea.cpy",
+      "copy": "modernization/harness/build/src/lgcmarea.cpy",
+      "sha256": "4ecc9ed8dbf0936a8b0738cbb03a947e937206100b0e34f749fbb9e0b03f701d",
+      "kind": "authorized source copybook"
+    },
+    {
+      "origin": "base/src/lgpolicy.cpy",
+      "copy": "modernization/harness/build/src/lgpolicy.cpy",
+      "sha256": "717c8f5c50738a2ef4d432e4b397e21bdc0423a9fc789246eb3360aa3f99eaa5",
+      "kind": "authorized source copybook"
+    },
+    {
+      "origin": "modernization/harness/copybooks/dfheiblk.cpy",
+      "copy": "modernization/harness/build/src/dfheiblk.cpy",
+      "sha256": "ddd35d9a2c4a3e2459157c9fb80038a7c1b14c994c58aba2659ac34c256a519d",
+      "kind": "harness copybook"
+    },
+    {
+      "origin": "modernization/harness/copybooks/dfhresp.cpy",
+      "copy": "modernization/harness/build/src/dfhresp.cpy",
+      "sha256": "1a75789da8747c3d910ffb1df5e4dd790971776ebe867103f497fa6a72e02cd7",
+      "kind": "harness copybook"
+    },
+    {
+      "origin": "modernization/harness/copybooks/hsqlca.cpy",
+      "copy": "modernization/harness/build/src/hsqlca.cpy",
+      "sha256": "0b874f96ee34585d79f831fe78940a1f3d1dbb0f3abdfbebc0af02cea122fcb8",
+      "kind": "harness copybook"
+    },
+    {
+      "origin": "modernization/harness/copybooks/hcapture.cpy",
+      "copy": "modernization/harness/build/src/hcapture.cpy",
+      "sha256": "2d090ca7ea161794e36c119d6d6b50d42fe4f0dea7dc66fda6d7574b8255cd11",
+      "kind": "harness copybook"
+    }
+  ],
+  "programs": [
+    {
+      "source": "base/src/lgapol01.cbl",
+      "generated": "modernization/harness/build/src/lgapol01.cbl",
+      "source_lines": 169,
+      "generated_lines": 162,
+      "exec_cics_sites": 9,
+      "exec_sql_blocks": 0,
+      "rewritten_source_lines": 26,
+      "unchanged_source_lines": 143,
+      "rule_emitted_lines": 19,
+      "abend_sites_followed_by_return": 0,
+      "applications": [
+        {
+          "rule_id": "R4",
+          "source_lines": "lgapol01.cbl:19",
+          "source_text": "       WORKING-STORAGE SECTION.",
+          "generated_text": "       COPY DFHEIBLK.\n       01  HARNESS-ABEND-CODE           PIC X(4)  VALUE SPACES.\n       01  HARNESS-DIAG-LEN             PIC S9(8) COMP VALUE +0.",
+          "notes": "inserted after the anchor line, which is copied unchanged: DFHEIBLK, HARNESS-ABEND-CODE, HARNESS-DIAG-LEN"
+        },
+        {
+          "rule_id": "R3",
+          "source_lines": "lgapol01.cbl:77",
+          "source_text": "       PROCEDURE DIVISION.",
+          "generated_text": "       PROCEDURE DIVISION USING DFHCOMMAREA.",
+          "notes": "PROCEDURE DIVISION bound to DFHCOMMAREA for dynamic CALL by reference"
+        },
+        {
+          "rule_id": "R8",
+          "source_lines": "lgapol01.cbl:101",
+          "source_text": "               EXEC CICS ABEND ABCODE('LGCA') NODUMP END-EXEC",
+          "generated_text": "               MOVE 'LGCA' TO HARNESS-ABEND-CODE\n               CALL 'CICS-ABEND' USING HARNESS-ABEND-CODE\n               GOBACK",
+          "notes": "abend code 'LGCA' captured before returning; the NODUMP option has no harness counterpart"
+        },
+        {
+          "rule_id": "R7",
+          "source_lines": "lgapol01.cbl:115",
+          "source_text": "             EXEC CICS RETURN END-EXEC",
+          "generated_text": "             GOBACK",
+          "notes": "control returns to the caller at this point; see modernization/docs/decision-log.md: no called RETURN stub"
+        },
+        {
+          "rule_id": "R5",
+          "source_lines": "lgapol01.cbl:121-124",
+          "source_text": "           EXEC CICS Link Program(LGAPDB01)\n                Commarea(DFHCOMMAREA)\n                LENGTH(32500)\n           END-EXEC.",
+          "generated_text": "           MOVE 32500 TO EIBCALEN\n           CALL LGAPDB01 USING DFHCOMMAREA.",
+          "notes": "PROGRAM(LGAPDB01) names a data item and the dynamic CALL passes that item; LENGTH(32500) is carried into EIBCALEN and COMMAREA(DFHCOMMAREA) is passed by reference"
+        },
+        {
+          "rule_id": "R7",
+          "source_lines": "lgapol01.cbl:126",
+          "source_text": "           EXEC CICS RETURN END-EXEC.",
+          "generated_text": "           GOBACK.",
+          "notes": "control returns to the caller at this point; see modernization/docs/decision-log.md: no called RETURN stub"
+        },
+        {
+          "rule_id": "R10",
+          "source_lines": "lgapol01.cbl:140-141",
+          "source_text": "           EXEC CICS ASKTIME ABSTIME(ABS-TIME)\n           END-EXEC",
+          "generated_text": "           CALL 'CICS-ASKTIME' USING ABS-TIME",
+          "notes": "ABSTIME(ABS-TIME) receives the harness clock value"
+        },
+        {
+          "rule_id": "R11",
+          "source_lines": "lgapol01.cbl:142-145",
+          "source_text": "           EXEC CICS FORMATTIME ABSTIME(ABS-TIME)\n                     MMDDYYYY(DATE1)\n                     TIME(TIME1)\n           END-EXEC",
+          "generated_text": "           CALL 'CICS-FORMATTIME' USING ABS-TIME DATE1 TIME1",
+          "notes": "ABSTIME(ABS-TIME) is formatted into MMDDYYYY(DATE1) and TIME(TIME1)"
+        },
+        {
+          "rule_id": "R6",
+          "source_lines": "lgapol01.cbl:149-152",
+          "source_text": "           EXEC CICS LINK PROGRAM('LGSTSQ')\n                     COMMAREA(ERROR-MSG)\n                     LENGTH(LENGTH OF ERROR-MSG)\n           END-EXEC.",
+          "generated_text": "           MOVE LENGTH OF ERROR-MSG TO HARNESS-DIAG-LEN\n           CALL 'CICS-DIAG-LINK' USING ERROR-MSG HARNESS-DIAG-LEN.",
+          "notes": "diagnostic area ERROR-MSG and its length are passed to CICS-DIAG-LINK; the source spelling of the length operand was 'LENGTH OF ERROR-MSG'"
+        },
+        {
+          "rule_id": "R6",
+          "source_lines": "lgapol01.cbl:157-160",
+          "source_text": "               EXEC CICS LINK PROGRAM('LGSTSQ')\n                         COMMAREA(CA-ERROR-MSG)\n                         LENGTH(LENGTH OF CA-ERROR-MSG)\n               END-EXEC",
+          "generated_text": "               MOVE LENGTH OF CA-ERROR-MSG TO HARNESS-DIAG-LEN\n               CALL 'CICS-DIAG-LINK' USING CA-ERROR-MSG HARNESS-DIAG-LEN",
+          "notes": "diagnostic area CA-ERROR-MSG and its length are passed to CICS-DIAG-LINK; the source spelling of the length operand was 'LENGTH OF CA-ERROR-MSG'"
+        },
+        {
+          "rule_id": "R6",
+          "source_lines": "lgapol01.cbl:163-166",
+          "source_text": "               EXEC CICS LINK PROGRAM('LGSTSQ')\n                         COMMAREA(CA-ERROR-MSG)\n                         LENGTH(LENGTH OF CA-ERROR-MSG)\n               END-EXEC",
+          "generated_text": "               MOVE LENGTH OF CA-ERROR-MSG TO HARNESS-DIAG-LEN\n               CALL 'CICS-DIAG-LINK' USING CA-ERROR-MSG HARNESS-DIAG-LEN",
+          "notes": "diagnostic area CA-ERROR-MSG and its length are passed to CICS-DIAG-LINK; the source spelling of the length operand was 'LENGTH OF CA-ERROR-MSG'"
+        }
+      ]
+    },
+    {
+      "source": "base/src/lgapdb01.cbl",
+      "generated": "modernization/harness/build/src/lgapdb01.cbl",
+      "source_lines": 595,
+      "generated_lines": 514,
+      "exec_cics_sites": 20,
+      "exec_sql_blocks": 11,
+      "rewritten_source_lines": 204,
+      "unchanged_source_lines": 391,
+      "rule_emitted_lines": 123,
+      "abend_sites_followed_by_return": 4,
+      "applications": [
+        {
+          "rule_id": "R1",
+          "source_lines": "lgapdb01.cbl:1",
+          "source_text": "       PROCESS SQL",
+          "generated_text": "      *PROCESS SQL  (R1: commented for the harness build)",
+          "notes": "compiler directive 'PROCESS SQL' commented; the indicator column carries '*' and the line stays within column 72"
+        },
+        {
+          "rule_id": "R4",
+          "source_lines": "lgapdb01.cbl:19",
+          "source_text": "       WORKING-STORAGE SECTION.",
+          "generated_text": "       COPY DFHEIBLK.\n       01  HARNESS-ABEND-CODE           PIC X(4)  VALUE SPACES.\n       01  HARNESS-DIAG-LEN             PIC S9(8) COMP VALUE +0.",
+          "notes": "inserted after the anchor line, which is copied unchanged: DFHEIBLK, HARNESS-ABEND-CODE, HARNESS-DIAG-LEN"
+        },
+        {
+          "rule_id": "R2",
+          "source_lines": "lgapdb01.cbl:75-77",
+          "source_text": "           EXEC SQL\n             INCLUDE LGPOLICY\n           END-EXEC.",
+          "generated_text": "           COPY LGPOLICY.",
+          "notes": "statement map entry 'include_lgpolicy'; the COPY resolves to lgpolicy.cpy under -ffold-copy=LOWER -ext cpy"
+        },
+        {
+          "rule_id": "R2",
+          "source_lines": "lgapdb01.cbl:124-126",
+          "source_text": "           EXEC SQL\n               INCLUDE SQLCA\n           END-EXEC.",
+          "generated_text": "           COPY HSQLCA.",
+          "notes": "statement map entry 'include_sqlca'; the COPY resolves to hsqlca.cpy under -ffold-copy=LOWER -ext cpy"
+        },
+        {
+          "rule_id": "R2",
+          "source_lines": "lgapdb01.cbl:135-137",
+          "source_text": "           EXEC SQL\n             INCLUDE LGCMAREA\n           END-EXEC.",
+          "generated_text": "           COPY LGCMAREA.",
+          "notes": "statement map entry 'include_lgcmarea'; the COPY resolves to lgcmarea.cpy under -ffold-copy=LOWER -ext cpy"
+        },
+        {
+          "rule_id": "R3",
+          "source_lines": "lgapdb01.cbl:143",
+          "source_text": "       PROCEDURE DIVISION.",
+          "generated_text": "       PROCEDURE DIVISION USING DFHCOMMAREA.",
+          "notes": "PROCEDURE DIVISION bound to DFHCOMMAREA for dynamic CALL by reference"
+        },
+        {
+          "rule_id": "R8",
+          "source_lines": "lgapdb01.cbl:168",
+          "source_text": "               EXEC CICS ABEND ABCODE('LGCA') NODUMP END-EXEC",
+          "generated_text": "               MOVE 'LGCA' TO HARNESS-ABEND-CODE\n               CALL 'CICS-ABEND' USING HARNESS-ABEND-CODE\n               GOBACK",
+          "notes": "abend code 'LGCA' captured before returning; the NODUMP option has no harness counterpart"
+        },
+        {
+          "rule_id": "R7",
+          "source_lines": "lgapdb01.cbl:205",
+          "source_text": "               EXEC CICS RETURN END-EXEC",
+          "generated_text": "               GOBACK",
+          "notes": "control returns to the caller at this point; see modernization/docs/decision-log.md: no called RETURN stub"
+        },
+        {
+          "rule_id": "R7",
+          "source_lines": "lgapdb01.cbl:212",
+          "source_text": "             EXEC CICS RETURN END-EXEC",
+          "generated_text": "             GOBACK",
+          "notes": "control returns to the caller at this point; see modernization/docs/decision-log.md: no called RETURN stub"
+        },
+        {
+          "rule_id": "R5",
+          "source_lines": "lgapdb01.cbl:243-246",
+          "source_text": "             EXEC CICS Link Program(LGAPVS01)\n                  Commarea(DFHCOMMAREA)\n                LENGTH(32500)\n             END-EXEC.",
+          "generated_text": "             MOVE 32500 TO EIBCALEN\n             CALL LGAPVS01 USING DFHCOMMAREA.",
+          "notes": "PROGRAM(LGAPVS01) names a data item and the dynamic CALL passes that item; LENGTH(32500) is carried into EIBCALEN and COMMAREA(DFHCOMMAREA) is passed by reference"
+        },
+        {
+          "rule_id": "R7",
+          "source_lines": "lgapdb01.cbl:250",
+          "source_text": "           EXEC CICS RETURN END-EXEC.",
+          "generated_text": "           GOBACK.",
+          "notes": "control returns to the caller at this point; see modernization/docs/decision-log.md: no called RETURN stub"
+        },
+        {
+          "rule_id": "R13",
+          "source_lines": "lgapdb01.cbl:268-288",
+          "source_text": "           EXEC SQL\n             INSERT INTO POLICY\n                       ( POLICYNUMBER,\n                         CUSTOMERNUMBER,\n                         ISSUEDATE,\n                         EXPIRYDATE,\n                         POLICYTYPE,\n                         LASTCHANGED,\n                         BROKERID,\n                         BROKERSREFERENCE,\n                         PAYMENT           )\n                VALUES ( DEFAULT,\n                         :DB2-CUSTOMERNUM-INT,\n                         :CA-ISSUE-DATE,\n                         :CA-EXPIRY-DATE,\n                         :DB2-POLICYTYPE,\n                         CURRENT TIMESTAMP,\n                         :DB2-BROKERID-INT,\n                         :CA-BROKERSREF,\n                         :DB2-PAYMENT-INT      )\n           END-EXEC",
+          "generated_text": "           CALL 'SQL-INSERT-POLICY' USING\n                DB2-CUSTOMERNUM-INT\n                CA-ISSUE-DATE\n                CA-EXPIRY-DATE\n                DB2-POLICYTYPE\n                DB2-BROKERID-INT\n                CA-BROKERSREF\n                DB2-PAYMENT-INT\n           END-CALL",
+          "notes": "statement map entry 'insert_policy' -> SQL-INSERT-POLICY; 7 host variable(s) passed by reference in source order; column(s) supplied by an SQL expression: POLICYNUMBER=DEFAULT, LASTCHANGED=CURRENT TIMESTAMP"
+        },
+        {
+          "rule_id": "R7",
+          "source_lines": "lgapdb01.cbl:298",
+          "source_text": "               EXEC CICS RETURN END-EXEC",
+          "generated_text": "               GOBACK",
+          "notes": "control returns to the caller at this point; see modernization/docs/decision-log.md: no called RETURN stub"
+        },
+        {
+          "rule_id": "R7",
+          "source_lines": "lgapdb01.cbl:303",
+          "source_text": "               EXEC CICS RETURN END-EXEC",
+          "generated_text": "               GOBACK",
+          "notes": "control returns to the caller at this point; see modernization/docs/decision-log.md: no called RETURN stub"
+        },
+        {
+          "rule_id": "R13",
+          "source_lines": "lgapdb01.cbl:308-310",
+          "source_text": "           EXEC SQL\n             SET :DB2-POLICYNUM-INT = IDENTITY_VAL_LOCAL()\n           END-EXEC",
+          "generated_text": "           CALL 'SQL-SET-IDENTITY' USING\n                DB2-POLICYNUM-INT\n           END-CALL",
+          "notes": "statement map entry 'set_identity' -> SQL-SET-IDENTITY; 1 host variable(s) passed by reference in source order"
+        },
+        {
+          "rule_id": "R13",
+          "source_lines": "lgapdb01.cbl:316-321",
+          "source_text": "           EXEC SQL\n             SELECT LASTCHANGED\n               INTO :CA-LASTCHANGED\n               FROM POLICY\n               WHERE POLICYNUMBER = :DB2-POLICYNUM-INT\n           END-EXEC.",
+          "generated_text": "           CALL 'SQL-SELECT-LASTCHANGED' USING\n                CA-LASTCHANGED\n                DB2-POLICYNUM-INT\n           END-CALL.",
+          "notes": "statement map entry 'select_lastchanged' -> SQL-SELECT-LASTCHANGED; 2 host variable(s) passed by reference in source order"
+        },
+        {
+          "rule_id": "R13",
+          "source_lines": "lgapdb01.cbl:346-366",
+          "source_text": "              EXEC SQL\n                INSERT INTO ENDOWMENT\n                          ( POLICYNUMBER,\n                            WITHPROFITS,\n                            EQUITIES,\n                            MANAGEDFUND,\n                            FUNDNAME,\n                            TERM,\n                            SUMASSURED,\n                            LIFEASSURED,\n                            PADDINGDATA    )\n                   VALUES ( :DB2-POLICYNUM-INT,\n                            :CA-E-WITH-PROFITS,\n                            :CA-E-EQUITIES,\n                            :CA-E-MANAGED-FUND,\n                            :CA-E-FUND-NAME,\n                            :DB2-E-TERM-SINT,\n                            :DB2-E-SUMASSURED-INT,\n                            :CA-E-LIFE-ASSURED,\n                            :WS-VARY-FIELD )\n              END-EXEC",
+          "generated_text": "              CALL 'SQL-INSERT-ENDOWMENT' USING\n                   DB2-POLICYNUM-INT\n                   CA-E-WITH-PROFITS\n                   CA-E-EQUITIES\n                   CA-E-MANAGED-FUND\n                   CA-E-FUND-NAME\n                   DB2-E-TERM-SINT\n                   DB2-E-SUMASSURED-INT\n                   CA-E-LIFE-ASSURED\n                   WS-VARY-FIELD\n              END-CALL",
+          "notes": "statement map entry 'insert_endowment_varchar' -> SQL-INSERT-ENDOWMENT; 9 host variable(s) passed by reference in source order"
+        },
+        {
+          "rule_id": "R13",
+          "source_lines": "lgapdb01.cbl:368-386",
+          "source_text": "              EXEC SQL\n                INSERT INTO ENDOWMENT\n                          ( POLICYNUMBER,\n                            WITHPROFITS,\n                            EQUITIES,\n                            MANAGEDFUND,\n                            FUNDNAME,\n                            TERM,\n                            SUMASSURED,\n                            LIFEASSURED    )\n                   VALUES ( :DB2-POLICYNUM-INT,\n                            :CA-E-WITH-PROFITS,\n                            :CA-E-EQUITIES,\n                            :CA-E-MANAGED-FUND,\n                            :CA-E-FUND-NAME,\n                            :DB2-E-TERM-SINT,\n                            :DB2-E-SUMASSURED-INT,\n                            :CA-E-LIFE-ASSURED )\n              END-EXEC",
+          "generated_text": "              CALL 'SQL-INSERT-ENDOWMENT' USING\n                   DB2-POLICYNUM-INT\n                   CA-E-WITH-PROFITS\n                   CA-E-EQUITIES\n                   CA-E-MANAGED-FUND\n                   CA-E-FUND-NAME\n                   DB2-E-TERM-SINT\n                   DB2-E-SUMASSURED-INT\n                   CA-E-LIFE-ASSURED\n                   WS-VARY-FIELD\n              END-CALL",
+          "notes": "statement map entry 'insert_endowment_novarchar' -> SQL-INSERT-ENDOWMENT; 9 host variable(s) passed by reference in source order; superset argument(s) ['WS-VARY-FIELD'] appear in the mapped USING list but not in this source branch"
+        },
+        {
+          "rule_id": "R8",
+          "source_lines": "lgapdb01.cbl:393",
+          "source_text": "             EXEC CICS ABEND ABCODE('LGSQ') NODUMP END-EXEC",
+          "generated_text": "             MOVE 'LGSQ' TO HARNESS-ABEND-CODE\n             CALL 'CICS-ABEND' USING HARNESS-ABEND-CODE\n             GOBACK",
+          "notes": "abend code 'LGSQ' captured before returning; the NODUMP option has no harness counterpart; source line 394 is an EXEC CICS RETURN that R7 emits as a second GOBACK, which is unreachable"
+        },
+        {
+          "rule_id": "R7",
+          "source_lines": "lgapdb01.cbl:394",
+          "source_text": "             EXEC CICS RETURN END-EXEC",
+          "generated_text": "             GOBACK",
+          "notes": "control returns to the caller at this point; see modernization/docs/decision-log.md: no called RETURN stub"
+        },
+        {
+          "rule_id": "R13",
+          "source_lines": "lgapdb01.cbl:409-425",
+          "source_text": "           EXEC SQL\n             INSERT INTO HOUSE\n                       ( POLICYNUMBER,\n                         PROPERTYTYPE,\n                         BEDROOMS,\n                         VALUE,\n                         HOUSENAME,\n                         HOUSENUMBER,\n                         POSTCODE          )\n                VALUES ( :DB2-POLICYNUM-INT,\n                         :CA-H-PROPERTY-TYPE,\n                         :DB2-H-BEDROOMS-SINT,\n                         :DB2-H-VALUE-INT,\n                         :CA-H-HOUSE-NAME,\n                         :CA-H-HOUSE-NUMBER,\n                         :CA-H-POSTCODE      )\n           END-EXEC",
+          "generated_text": "           CALL 'SQL-INSERT-HOUSE' USING\n                DB2-POLICYNUM-INT\n                CA-H-PROPERTY-TYPE\n                DB2-H-BEDROOMS-SINT\n                DB2-H-VALUE-INT\n                CA-H-HOUSE-NAME\n                CA-H-HOUSE-NUMBER\n                CA-H-POSTCODE\n           END-CALL",
+          "notes": "statement map entry 'insert_house' -> SQL-INSERT-HOUSE; 7 host variable(s) passed by reference in source order"
+        },
+        {
+          "rule_id": "R8",
+          "source_lines": "lgapdb01.cbl:431",
+          "source_text": "             EXEC CICS ABEND ABCODE('LGSQ') NODUMP END-EXEC",
+          "generated_text": "             MOVE 'LGSQ' TO HARNESS-ABEND-CODE\n             CALL 'CICS-ABEND' USING HARNESS-ABEND-CODE\n             GOBACK",
+          "notes": "abend code 'LGSQ' captured before returning; the NODUMP option has no harness counterpart; source line 432 is an EXEC CICS RETURN that R7 emits as a second GOBACK, which is unreachable"
+        },
+        {
+          "rule_id": "R7",
+          "source_lines": "lgapdb01.cbl:432",
+          "source_text": "             EXEC CICS RETURN END-EXEC",
+          "generated_text": "             GOBACK",
+          "notes": "control returns to the caller at this point; see modernization/docs/decision-log.md: no called RETURN stub"
+        },
+        {
+          "rule_id": "R13",
+          "source_lines": "lgapdb01.cbl:449-471",
+          "source_text": "           EXEC SQL\n             INSERT INTO MOTOR\n                       ( POLICYNUMBER,\n                         MAKE,\n                         MODEL,\n                         VALUE,\n                         REGNUMBER,\n                         COLOUR,\n                         CC,\n                         YEAROFMANUFACTURE,\n                         PREMIUM,\n                         ACCIDENTS )\n                VALUES ( :DB2-POLICYNUM-INT,\n                         :CA-M-MAKE,\n                         :CA-M-MODEL,\n                         :DB2-M-VALUE-INT,\n                         :CA-M-REGNUMBER,\n                         :CA-M-COLOUR,\n                         :DB2-M-CC-SINT,\n                         :CA-M-MANUFACTURED,\n                         :DB2-M-PREMIUM-INT,\n                         :DB2-M-ACCIDENTS-INT )\n           END-EXEC",
+          "generated_text": "           CALL 'SQL-INSERT-MOTOR' USING\n                DB2-POLICYNUM-INT\n                CA-M-MAKE\n                CA-M-MODEL\n                DB2-M-VALUE-INT\n                CA-M-REGNUMBER\n                CA-M-COLOUR\n                DB2-M-CC-SINT\n                CA-M-MANUFACTURED\n                DB2-M-PREMIUM-INT\n                DB2-M-ACCIDENTS-INT\n           END-CALL",
+          "notes": "statement map entry 'insert_motor' -> SQL-INSERT-MOTOR; 10 host variable(s) passed by reference in source order"
+        },
+        {
+          "rule_id": "R8",
+          "source_lines": "lgapdb01.cbl:477",
+          "source_text": "             EXEC CICS ABEND ABCODE('LGSQ') NODUMP END-EXEC",
+          "generated_text": "             MOVE 'LGSQ' TO HARNESS-ABEND-CODE\n             CALL 'CICS-ABEND' USING HARNESS-ABEND-CODE\n             GOBACK",
+          "notes": "abend code 'LGSQ' captured before returning; the NODUMP option has no harness counterpart; source line 478 is an EXEC CICS RETURN that R7 emits as a second GOBACK, which is unreachable"
+        },
+        {
+          "rule_id": "R7",
+          "source_lines": "lgapdb01.cbl:478",
+          "source_text": "             EXEC CICS RETURN END-EXEC",
+          "generated_text": "             GOBACK",
+          "notes": "control returns to the caller at this point; see modernization/docs/decision-log.md: no called RETURN stub"
+        },
+        {
+          "rule_id": "R13",
+          "source_lines": "lgapdb01.cbl:499-545",
+          "source_text": "           EXEC SQL\n             INSERT INTO COMMERCIAL\n                       (\n                         PolicyNumber,\n                         RequestDate,\n                         StartDate,\n                         RenewalDate,\n                         Address,\n                         Zipcode,\n                         LatitudeN,\n                         LongitudeW,\n                         Customer,\n                         PropertyType,\n                         FirePeril,\n                         FirePremium,\n                         CrimePeril,\n                         CrimePremium,\n                         FloodPeril,\n                         FloodPremium,\n                         WeatherPeril,\n                         WeatherPremium,\n                         Status,\n                         RejectionReason\n                                             )\n                VALUES (\n                         :DB2-POLICYNUM-INT,\n                         :CA-LASTCHANGED,\n                         :CA-ISSUE-DATE,\n                         :CA-EXPIRY-DATE,\n                         :CA-B-Address,\n                         :CA-B-Postcode,\n                         :CA-B-Latitude,\n                         :CA-B-Longitude,\n                         :CA-B-Customer,\n                         :CA-B-PropType,\n                         :DB2-B-FirePeril-Int,\n                         :DB2-B-FirePremium-Int,\n                         :DB2-B-CrimePeril-Int,\n                         :DB2-B-CrimePremium-Int,\n                         :DB2-B-FloodPeril-Int,\n                         :DB2-B-FloodPremium-Int,\n                         :DB2-B-WeatherPeril-Int,\n                         :DB2-B-WeatherPremium-Int,\n                         :DB2-B-Status-Int,\n                         :CA-B-RejectReason\n                                             )\n           END-EXEC",
+          "generated_text": "           CALL 'SQL-INSERT-COMMERCIAL' USING\n                DB2-POLICYNUM-INT\n                CA-LASTCHANGED\n                CA-ISSUE-DATE\n                CA-EXPIRY-DATE\n                CA-B-Address\n                CA-B-Postcode\n                CA-B-Latitude\n                CA-B-Longitude\n                CA-B-Customer\n                CA-B-PropType\n                DB2-B-FirePeril-Int\n                DB2-B-FirePremium-Int\n                DB2-B-CrimePeril-Int\n                DB2-B-CrimePremium-Int\n                DB2-B-FloodPeril-Int\n                DB2-B-FloodPremium-Int\n                DB2-B-WeatherPeril-Int\n                DB2-B-WeatherPremium-Int\n                DB2-B-Status-Int\n                CA-B-RejectReason\n           END-CALL",
+          "notes": "statement map entry 'insert_commercial' -> SQL-INSERT-COMMERCIAL; 20 host variable(s) passed by reference in source order"
+        },
+        {
+          "rule_id": "R8",
+          "source_lines": "lgapdb01.cbl:551",
+          "source_text": "             EXEC CICS ABEND ABCODE('LGSQ') NODUMP END-EXEC",
+          "generated_text": "             MOVE 'LGSQ' TO HARNESS-ABEND-CODE\n             CALL 'CICS-ABEND' USING HARNESS-ABEND-CODE\n             GOBACK",
+          "notes": "abend code 'LGSQ' captured before returning; the NODUMP option has no harness counterpart; source line 552 is an EXEC CICS RETURN that R7 emits as a second GOBACK, which is unreachable"
+        },
+        {
+          "rule_id": "R7",
+          "source_lines": "lgapdb01.cbl:552",
+          "source_text": "             EXEC CICS RETURN END-EXEC",
+          "generated_text": "             GOBACK",
+          "notes": "control returns to the caller at this point; see modernization/docs/decision-log.md: no called RETURN stub"
+        },
+        {
+          "rule_id": "R10",
+          "source_lines": "lgapdb01.cbl:566-567",
+          "source_text": "           EXEC CICS ASKTIME ABSTIME(ABS-TIME)\n           END-EXEC",
+          "generated_text": "           CALL 'CICS-ASKTIME' USING ABS-TIME",
+          "notes": "ABSTIME(ABS-TIME) receives the harness clock value"
+        },
+        {
+          "rule_id": "R11",
+          "source_lines": "lgapdb01.cbl:568-571",
+          "source_text": "           EXEC CICS FORMATTIME ABSTIME(ABS-TIME)\n                     MMDDYYYY(DATE1)\n                     TIME(TIME1)\n           END-EXEC",
+          "generated_text": "           CALL 'CICS-FORMATTIME' USING ABS-TIME DATE1 TIME1",
+          "notes": "ABSTIME(ABS-TIME) is formatted into MMDDYYYY(DATE1) and TIME(TIME1)"
+        },
+        {
+          "rule_id": "R6",
+          "source_lines": "lgapdb01.cbl:575-578",
+          "source_text": "           EXEC CICS LINK PROGRAM('LGSTSQ')\n                     COMMAREA(ERROR-MSG)\n                     LENGTH(LENGTH OF ERROR-MSG)\n           END-EXEC.",
+          "generated_text": "           MOVE LENGTH OF ERROR-MSG TO HARNESS-DIAG-LEN\n           CALL 'CICS-DIAG-LINK' USING ERROR-MSG HARNESS-DIAG-LEN.",
+          "notes": "diagnostic area ERROR-MSG and its length are passed to CICS-DIAG-LINK; the source spelling of the length operand was 'LENGTH OF ERROR-MSG'"
+        },
+        {
+          "rule_id": "R6",
+          "source_lines": "lgapdb01.cbl:583-586",
+          "source_text": "               EXEC CICS LINK PROGRAM('LGSTSQ')\n                         COMMAREA(CA-ERROR-MSG)\n                         LENGTH(LENGTH OF CA-ERROR-MSG)\n               END-EXEC",
+          "generated_text": "               MOVE LENGTH OF CA-ERROR-MSG TO HARNESS-DIAG-LEN\n               CALL 'CICS-DIAG-LINK' USING CA-ERROR-MSG HARNESS-DIAG-LEN",
+          "notes": "diagnostic area CA-ERROR-MSG and its length are passed to CICS-DIAG-LINK; the source spelling of the length operand was 'LENGTH OF CA-ERROR-MSG'"
+        },
+        {
+          "rule_id": "R6",
+          "source_lines": "lgapdb01.cbl:589-592",
+          "source_text": "               EXEC CICS LINK PROGRAM('LGSTSQ')\n                         COMMAREA(CA-ERROR-MSG)\n                         LENGTH(LENGTH OF CA-ERROR-MSG)\n               END-EXEC",
+          "generated_text": "               MOVE LENGTH OF CA-ERROR-MSG TO HARNESS-DIAG-LEN\n               CALL 'CICS-DIAG-LINK' USING CA-ERROR-MSG HARNESS-DIAG-LEN",
+          "notes": "diagnostic area CA-ERROR-MSG and its length are passed to CICS-DIAG-LINK; the source spelling of the length operand was 'LENGTH OF CA-ERROR-MSG'"
+        }
+      ]
+    },
+    {
+      "source": "base/src/lgapvs01.cbl",
+      "generated": "modernization/harness/build/src/lgapvs01.cbl",
+      "source_lines": 188,
+      "generated_lines": 176,
+      "exec_cics_sites": 7,
+      "exec_sql_blocks": 0,
+      "rewritten_source_lines": 28,
+      "unchanged_source_lines": 160,
+      "rule_emitted_lines": 16,
+      "abend_sites_followed_by_return": 0,
+      "applications": [
+        {
+          "rule_id": "R4",
+          "source_lines": "lgapvs01.cbl:16",
+          "source_text": "       WORKING-STORAGE SECTION.",
+          "generated_text": "       COPY DFHEIBLK.\n       01  HARNESS-ABEND-CODE           PIC X(4)  VALUE SPACES.\n       01  HARNESS-DIAG-LEN             PIC S9(8) COMP VALUE +0.\n       COPY DFHRESP.",
+          "notes": "inserted after the anchor line, which is copied unchanged: DFHEIBLK, HARNESS-ABEND-CODE, HARNESS-DIAG-LEN, DFHRESP"
+        },
+        {
+          "rule_id": "R3",
+          "source_lines": "lgapvs01.cbl:91",
+          "source_text": "       PROCEDURE DIVISION.",
+          "generated_text": "       PROCEDURE DIVISION USING DFHCOMMAREA.",
+          "notes": "PROCEDURE DIVISION bound to DFHCOMMAREA for dynamic CALL by reference"
+        },
+        {
+          "rule_id": "R9",
+          "source_lines": "lgapvs01.cbl:135-141",
+          "source_text": "           Exec CICS Write File('KSDSPOLY')\n                     From(WF-Policy-Info)\n                     Length(64)\n                     Ridfld(WF-Policy-Key)\n                     KeyLength(21)\n                     RESP(WS-RESP)\n           End-Exec.",
+          "generated_text": "           CALL 'CICS-WRITE' USING WF-Policy-Info WF-Policy-Key WS-RESP.",
+          "notes": "FROM(WF-Policy-Info), RIDFLD(WF-Policy-Key) and RESP(WS-RESP) are passed in that order; FILE('KSDSPOLY'), LENGTH(64) and KEYLENGTH(21) are constants of the CICS-WRITE stub"
+        },
+        {
+          "rule_id": "R12",
+          "source_lines": "lgapvs01.cbl:142",
+          "source_text": "           If WS-RESP Not = DFHRESP(NORMAL)",
+          "generated_text": "           If WS-RESP Not = DFHRESP-NORMAL",
+          "notes": "DFHRESP(NORMAL) replaced by DFHRESP-NORMAL; the rest of the condition is unchanged"
+        },
+        {
+          "rule_id": "R7",
+          "source_lines": "lgapvs01.cbl:146",
+          "source_text": "             EXEC CICS RETURN END-EXEC",
+          "generated_text": "             GOBACK",
+          "notes": "control returns to the caller at this point; see modernization/docs/decision-log.md: no called RETURN stub"
+        },
+        {
+          "rule_id": "R10",
+          "source_lines": "lgapvs01.cbl:156-157",
+          "source_text": "           EXEC CICS ASKTIME ABSTIME(WS-ABSTIME)\n           END-EXEC",
+          "generated_text": "           CALL 'CICS-ASKTIME' USING WS-ABSTIME",
+          "notes": "ABSTIME(WS-ABSTIME) receives the harness clock value"
+        },
+        {
+          "rule_id": "R11",
+          "source_lines": "lgapvs01.cbl:158-161",
+          "source_text": "           EXEC CICS FORMATTIME ABSTIME(WS-ABSTIME)\n                     MMDDYYYY(WS-DATE)\n                     TIME(WS-TIME)\n           END-EXEC",
+          "generated_text": "           CALL 'CICS-FORMATTIME' USING WS-ABSTIME WS-DATE WS-TIME",
+          "notes": "ABSTIME(WS-ABSTIME) is formatted into MMDDYYYY(WS-DATE) and TIME(WS-TIME)"
+        },
+        {
+          "rule_id": "R6",
+          "source_lines": "lgapvs01.cbl:169-172",
+          "source_text": "           EXEC CICS LINK PROGRAM('LGSTSQ')\n                     COMMAREA(ERROR-MSG)\n                     LENGTH(LENGTH OF ERROR-MSG)\n           END-EXEC.",
+          "generated_text": "           MOVE LENGTH OF ERROR-MSG TO HARNESS-DIAG-LEN\n           CALL 'CICS-DIAG-LINK' USING ERROR-MSG HARNESS-DIAG-LEN.",
+          "notes": "diagnostic area ERROR-MSG and its length are passed to CICS-DIAG-LINK; the source spelling of the length operand was 'LENGTH OF ERROR-MSG'"
+        },
+        {
+          "rule_id": "R6",
+          "source_lines": "lgapvs01.cbl:176-179",
+          "source_text": "               EXEC CICS LINK PROGRAM('LGSTSQ')\n                         COMMAREA(CA-ERROR-MSG)\n                         LENGTH(Length Of CA-ERROR-MSG)\n               END-EXEC",
+          "generated_text": "               MOVE LENGTH OF CA-ERROR-MSG TO HARNESS-DIAG-LEN\n               CALL 'CICS-DIAG-LINK' USING CA-ERROR-MSG HARNESS-DIAG-LEN",
+          "notes": "diagnostic area CA-ERROR-MSG and its length are passed to CICS-DIAG-LINK; the source spelling of the length operand was 'Length Of CA-ERROR-MSG'"
+        },
+        {
+          "rule_id": "R6",
+          "source_lines": "lgapvs01.cbl:182-185",
+          "source_text": "               EXEC CICS LINK PROGRAM('LGSTSQ')\n                         COMMAREA(CA-ERROR-MSG)\n                         LENGTH(Length Of CA-ERROR-MSG)\n               END-EXEC",
+          "generated_text": "               MOVE LENGTH OF CA-ERROR-MSG TO HARNESS-DIAG-LEN\n               CALL 'CICS-DIAG-LINK' USING CA-ERROR-MSG HARNESS-DIAG-LEN",
+          "notes": "diagnostic area CA-ERROR-MSG and its length are passed to CICS-DIAG-LINK; the source spelling of the length operand was 'Length Of CA-ERROR-MSG'"
+        }
+      ]
+    }
+  ],
+  "rule_totals": {
+    "R1": {
+      "expected": 1,
+      "observed": 1
+    },
+    "R2": {
+      "expected": 3,
+      "observed": 3
+    },
+    "R3": {
+      "expected": 3,
+      "observed": 3
+    },
+    "R4": {
+      "expected": 3,
+      "observed": 3
+    },
+    "R5": {
+      "expected": 2,
+      "observed": 2
+    },
+    "R6": {
+      "expected": 9,
+      "observed": 9
+    },
+    "R7": {
+      "expected": 12,
+      "observed": 12
+    },
+    "R8": {
+      "expected": 6,
+      "observed": 6
+    },
+    "R9": {
+      "expected": 1,
+      "observed": 1
+    },
+    "R10": {
+      "expected": 3,
+      "observed": 3
+    },
+    "R11": {
+      "expected": 3,
+      "observed": 3
+    },
+    "R12": {
+      "expected": 1,
+      "observed": 1
+    },
+    "R13": {
+      "expected": 8,
+      "observed": 8
+    },
+    "R14": {
+      "expected": 694,
+      "observed": 694,
+      "unit": "source lines carried through byte-for-byte"
+    }
+  },
+  "totals": {
+    "exec_cics_sites": 36,
+    "exec_sql_blocks": 11,
+    "expected_exec_cics_sites": 36,
+    "expected_exec_sql_blocks": 11,
+    "abend_sites_followed_by_return": 4
+  },
+  "structural_counts": {
+    "COPY DFHEIBLK.": {
+      "expected": 3,
+      "observed": 3
+    },
+    "COPY DFHRESP.": {
+      "expected": 1,
+      "observed": 1
+    },
+    "COPY HSQLCA.": {
+      "expected": 1,
+      "observed": 1
+    },
+    "COPY LGCMAREA.": {
+      "expected": 3,
+      "observed": 3
+    },
+    "COPY LGPOLICY.": {
+      "expected": 1,
+      "observed": 1
+    },
+    "PROCEDURE DIVISION USING DFHCOMMAREA.": {
+      "expected": 3,
+      "observed": 3
+    }
+  },
+  "resolved_copies": [
+    {
+      "program": "lgapol01.cbl",
+      "line": 20,
+      "member": "DFHEIBLK"
+    },
+    {
+      "program": "lgapol01.cbl",
+      "line": 74,
+      "member": "LGCMAREA"
+    },
+    {
+      "program": "lgapdb01.cbl",
+      "line": 20,
+      "member": "DFHEIBLK"
+    },
+    {
+      "program": "lgapdb01.cbl",
+      "line": 78,
+      "member": "LGPOLICY"
+    },
+    {
+      "program": "lgapdb01.cbl",
+      "line": 125,
+      "member": "HSQLCA"
+    },
+    {
+      "program": "lgapdb01.cbl",
+      "line": 134,
+      "member": "LGCMAREA"
+    },
+    {
+      "program": "lgapvs01.cbl",
+      "line": 17,
+      "member": "DFHEIBLK"
+    },
+    {
+      "program": "lgapvs01.cbl",
+      "line": 20,
+      "member": "DFHRESP"
+    },
+    {
+      "program": "lgapvs01.cbl",
+      "line": 91,
+      "member": "LGCMAREA"
+    }
+  ],
+  "response_condition_item": "DFHRESP-NORMAL",
+  "commented_source_tokens": {
+    "lgapdb01.cbl": {
+      "PROCESS SQL": [
+        1
+      ]
+    }
+  },
+  "read_only_checks": {
+    "source_digests_reverified": true,
+    "git_working_tree": {
+      "checked": true,
+      "pathspec": "base/src/",
+      "reported_changes": 0
+    }
+  }
+}
