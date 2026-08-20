@@ -135,30 +135,34 @@
 #            non-regular file is rejected before any directory is created or any
 #            file is opened, and exits 4. The evidence directory is then entered
 #            from the resolved repository root one component at a time: a
-#            component that is a symbolic link is refused, a missing component is
-#            created by a single-component "mkdir" that fails rather than
-#            traverses when a symbolic link holds that name, and the directory
-#            the process holds after each step must equal the accumulated
-#            absolute path. The log is opened once for appending on one
-#            descriptor, addressed by its name alone inside that entered
-#            directory, and the object that descriptor holds must be a regular
-#            file, must carry exactly one link, must still resolve inside
-#            modernization/validation/artifacts/, and must not be the file any
-#            baseline source path names. That object must also be the exact
-#            entry the run resolved: the path the descriptor reports equals the
-#            resolved requested path character for character, and the device and
-#            inode of the requested entry, read without following a symbolic
-#            link, equal the device and inode of the object the descriptor
-#            holds. That descriptor is inspected through "/dev/fd/<number>"
-#            alone, and a shell that cannot resolve that name is reported by the
-#            preflight as an environment error rather than as a finding. Every
-#            component from the resolved repository root down to and including
-#            the log entry must, in every run, also be a directory entry that is
-#            not a symbolic link. A descriptor that fails one of those checks
-#            is closed and no entry is ever removed: an entry a rejected open
-#            created is left exactly as it stands, so no run of this script can
-#            delete a file it did not prove it owns. Nothing is appended, and
-#            the run exits 4.
+#            component that is a symbolic link is refused, a missing component
+#            is created by a single-component "mkdir" that does not traverse a
+#            symbolic link holding that name, a name that appears while that
+#            creation runs is accepted once it is re-read with shell builtins
+#            and reports a directory that is not a symbolic link, a name that
+#            reads as a symbolic link at that moment is refused, a name that
+#            reads as anything else exits 4, that tool's own stderr never
+#            reaches the caller, and the directory the process holds after each
+#            step must equal the accumulated absolute path. The log is opened
+#            once for appending on one descriptor, addressed by its name alone
+#            inside that entered directory, and the object that descriptor holds
+#            must be a regular file, must carry exactly one link, must still
+#            resolve inside modernization/validation/artifacts/, and must not be
+#            the file any baseline source path names. That object must also be
+#            the exact entry the run resolved: the path the descriptor reports
+#            equals the resolved requested path character for character, and the
+#            device and inode of the requested entry, read without following a
+#            symbolic link, equal the device and inode of the object the
+#            descriptor holds. That descriptor is inspected through
+#            "/dev/fd/<number>" alone, and a shell that cannot resolve that name
+#            is reported by the preflight as an environment error rather than as
+#            a finding. Every component from the resolved repository root down
+#            to and including the log entry must, in every run, also be a
+#            directory entry that is not a symbolic link. A descriptor that
+#            fails one of those checks is closed and no entry is ever removed:
+#            an entry a rejected open created is left exactly as it stands, so
+#            no run of this script can delete a file it did not prove it owns.
+#            Nothing is appended, and the run exits 4.
 #
 # Generated-output policy: one policy governs every path this bridge writes. A
 # generated record or translated copy resolves inside
@@ -203,22 +207,27 @@
 # reduced, a log replaced between its open and its status read, a log whose name
 # becomes a symbolic link and a log whose name becomes a FIFO between its open
 # and its status read, a log whose append does not complete, the inode of a log
-# across two runs, a committed symlinked source, a committed symlinked source
-# directory, a FIFO and a directory in place of sources, a committed source
-# content change, a removed source, a source whose line count and digest both
-# moved, a source replaced between its status read and its open, a source
-# replaced by a symbolic link and a source replaced by a FIFO between its status
-# read and its open, a source whose name becomes a symbolic link and a source
-# whose name becomes a FIFO between its open and the status read that follows
-# it, a source replaced while it is measured through its descriptor, an unclean
-# base/ working tree, a modified tracked file outside modernization/, one
-# missing required tool per case, a failing status read of a held descriptor, an
-# injected --stage label, clean positive runs, and the declared case count. The
-# substitution cases and the descriptor-status case drive their fault through a
-# "stat" shim placed ahead of PATH that otherwise forwards every call to the
-# real tool. The incomplete append is driven by a file-size limit with SIGXFSZ
-# ignored. No case drives a substitution into the window that holds no command,
-# between a builtin check and the open that follows it.
+# across two runs, an evidence directory that appears while this run creates it,
+# an evidence directory a symbolic link takes over while this run creates it, a
+# committed symlinked source, a committed symlinked source directory, a FIFO and
+# a directory in place of sources, a committed source content change, a removed
+# source, a source whose line count and digest both moved, a source replaced
+# between its status read and its open, a source replaced by a symbolic link and
+# a source replaced by a FIFO between its status read and its open, a source
+# whose name becomes a symbolic link and a source whose name becomes a FIFO
+# between its open and the status read that follows it, a source replaced while
+# it is measured through its descriptor, an unclean base/ working tree, a
+# modified tracked file outside modernization/, one missing required tool per
+# case, a failing status read of a held descriptor, an injected --stage label,
+# clean positive runs, and the declared case count. The substitution cases and
+# the descriptor-status case drive their fault through a "stat" shim placed
+# ahead of PATH that otherwise forwards every call to the real tool. The two
+# evidence-directory cases drive theirs through a "mkdir" shim placed ahead of
+# PATH that places one name, writes its own stderr line and reports a failure
+# for the single-component creation it selects, and that otherwise forwards
+# every call to the real tool. The incomplete append is driven by a file-size
+# limit with SIGXFSZ ignored. No case drives a substitution into the window that
+# holds no command, between a builtin check and the open that follows it.
 # It prints one PASS or FAIL line per case plus a count summary, checks after
 # every case that nothing was written outside the throwaway tree, removes that
 # tree on exit, and writes no path in the repository it is started from. It runs
@@ -641,7 +650,7 @@ parse_args() {
     printf -v stage_rule \
       '%s accepts one to %d characters, starting with a letter or a digit and continuing with letters, digits, %s, %s or %s' \
       '--stage' "$STAGE_MAX_LENGTH" "'.'" "'_'" "'-'"
-    fail_usage "${stage_rule}, received: ${STAGE}"
+    fail_usage "${stage_rule}, received: $(sanitize "$STAGE")"
   fi
   [[ -z "$LOG_REQUESTED" || "$LOG_REQUESTED" != -* ]] ||
     fail_usage "--log requires a path value, received: $(sanitize "$LOG_REQUESTED")"
@@ -731,7 +740,13 @@ resolve_repo_root() {
 
 # Creates the directory chain of the evidence log one component at a time,
 # rejecting a component that is a symbolic link or that exists as something
-# other than a directory. Creates nothing outside that chain.
+# other than a directory. Each missing component is created by a
+# single-component "mkdir" whose own stderr is discarded, so the only record of
+# a creation that does not complete is this script's one-line summary. A
+# creation that does not complete is followed by a re-read of that one name with
+# shell builtins alone: a name that reads as a symbolic link is rejected with
+# exit 4, a name that reads as a directory is accepted and the descent
+# continues, and any other name exits 4. Creates nothing outside that chain.
 prepare_log_dir() {
   local walked="" component=""
   local -a components=()
@@ -748,8 +763,13 @@ prepare_log_dir() {
       fi
       continue
     fi
-    if ! mkdir -- "$walked"; then
-      fail_env "unable to create the evidence log directory component: $(sanitize "$walked")"
+    if ! mkdir -- "$walked" 2>/dev/null; then
+      if [[ -L "$walked" ]]; then
+        fail_env "evidence log rejected: directory component is a symbolic link: $(sanitize "$walked")"
+      fi
+      if [[ ! -d "$walked" ]]; then
+        fail_env "unable to create the evidence log directory component: $(sanitize "$walked")"
+      fi
     fi
   done
 }
@@ -1203,7 +1223,7 @@ readonly SELF_TEST_EXPECTED_TOOLS=(git sha256sum wc date mkdir stat)
 
 # Number of case lines --self-test reports, including the case that checks this
 # number. A case that is added or removed changes it.
-readonly SELF_TEST_CASE_COUNT=43
+readonly SELF_TEST_CASE_COUNT=45
 
 # Content written to the escape canary and to the stub dependency manifest of
 # each case work tree.
@@ -1455,6 +1475,86 @@ FAILING_SHIM_BODY
   } >"${bin}/stat"
   if ! chmod 0755 -- "${bin}/stat"; then
     fail_env "--self-test could not make the failing stat shim executable for ${ST_CASE}"
+  fi
+
+  ST_OUTPUT=""
+  ST_EXIT=0
+  ST_OUTPUT="$(cd "$ST_REPO" && PATH="${bin}:${PATH}" "$BASH" "$ST_SCRIPT" "$@" 2>&1)" ||
+    ST_EXIT=$?
+}
+
+# Runs the copy under test with a "mkdir" shim ahead of PATH, so that one
+# single-component creation finds the name already taken. For the first call
+# whose last argument matches the supplied pattern the shim places the requested
+# kind of entry at that name, writes one line of its own on stderr in the form
+# the real tool uses and exits non-zero; every other call, and every later call
+# on that name, is forwarded to the real "mkdir" with its arguments and exit
+# status unchanged.
+#
+# Positional parameters:
+#   1  pattern the last argument of the selected call must match
+#   2  entry the shim places at that name: directory, symlink
+#   3  path a placed symbolic link points at, empty for a placed directory
+#   4+ options handed to the copy under test
+st_run_with_mkdir_shim() {
+  local trigger="$1" kind="$2" link_target="$3"
+  local bin="" real="" line=""
+  shift 3
+
+  bin="${ST_CASE_DIR}/bin-mkdir-shim"
+  if ! mkdir -p -- "$bin"; then
+    fail_env "--self-test could not create the mkdir-shim PATH directory for ${ST_CASE}"
+  fi
+  if ! real="$(command -v mkdir)" || [[ -z "$real" ]]; then
+    fail_env "--self-test could not resolve the real mkdir for ${ST_CASE}"
+  fi
+  {
+    printf '%s\n' '#!/usr/bin/env bash'
+    printf '%s\n' '# Forwards every call to the real mkdir except the one creation it takes over.'
+    printf '%s\n' 'set -u'
+    printf 'readonly REAL=%q\n' "$real"
+    printf 'readonly TRIGGER=%q\n' "$trigger"
+    printf 'readonly KIND=%q\n' "$kind"
+    printf 'readonly LINK_TARGET=%q\n' "$link_target"
+    printf 'readonly MARKER=%q\n' "${bin}/creation-taken-over"
+    while IFS= read -r line; do
+      printf '%s\n' "$line"
+    done <<'MKDIR_SHIM_BODY'
+args=("$@")
+target="${args[${#args[@]} - 1]}"
+# TRIGGER is matched as a pattern, so a component of the evidence directory can
+# be named by a pattern as well as by an exact string.
+if [[ "$target" == $TRIGGER && ! -e "$MARKER" ]]; then
+  if ! : >"$MARKER"; then
+    printf 'mkdir shim: could not record %s\n' "$MARKER" >&2
+    exit 1
+  fi
+  case "$KIND" in
+    directory)
+      if ! "$REAL" -- "$target"; then
+        printf 'mkdir shim: could not create %s\n' "$target" >&2
+        exit 1
+      fi
+      ;;
+    symlink)
+      if ! ln -s -- "$LINK_TARGET" "$target"; then
+        printf 'mkdir shim: could not link %s\n' "$target" >&2
+        exit 1
+      fi
+      ;;
+    *)
+      printf 'mkdir shim: unknown entry kind %s\n' "$KIND" >&2
+      exit 1
+      ;;
+  esac
+  printf 'mkdir: %s: File exists\n' "$target" >&2
+  exit 1
+fi
+exec "$REAL" "${args[@]}"
+MKDIR_SHIM_BODY
+  } >"${bin}/mkdir"
+  if ! chmod 0755 -- "${bin}/mkdir"; then
+    fail_env "--self-test could not make the mkdir shim executable for ${ST_CASE}"
   fi
 
   ST_OUTPUT=""
@@ -1913,6 +2013,44 @@ st_case_log_inode_stability() {
   st_end "two complete evidence blocks in one unchanged single-link inode"
 }
 
+# The evidence directory is a real directory by the time this run's creation of
+# it reports a failure, and the creating tool writes a line of its own.
+st_case_log_dir_appeared() {
+  local log_abs=""
+  st_begin "log-dir-appeared"
+  log_abs="${ST_REPO}/${DEFAULT_LOG_REL}"
+  st_run_with_mkdir_shim "$LOG_DIR_REL" "directory" "" --stage self-test
+  st_expect_exit "$EXIT_OK"
+  st_expect_output "gate A result: PASS (5 of 5 baseline entries matched)"
+  st_expect_output "gate B result: PASS"
+  st_expect_output "gate C result: PASS"
+  st_expect_output "verdict: PASS"
+  st_expect_no_output "unable to create the evidence log directory component"
+  st_expect_no_output "mkdir:"
+  st_expect_exact_count "$log_abs" "BEGIN readonly-check" 1
+  st_expect_exact_count "$log_abs" "END readonly-check" 1
+  st_expect_exact_count "$log_abs" "verdict: PASS" 1
+  st_end "exit 0 with one complete block when the evidence directory appears under this run, no tool stderr"
+}
+
+# A symbolic link holds the evidence directory's name by the time this run's
+# creation of it reports a failure.
+st_case_log_dir_link_appeared() {
+  st_begin "log-dir-link-appeared"
+  if ! mkdir -p -- "${ST_CASE_DIR}/diverted"; then
+    fail_env "--self-test could not create the diverted directory for ${ST_CASE}"
+  fi
+  st_run_with_mkdir_shim "$LOG_DIR_REL" "symlink" "${ST_CASE_DIR}/diverted" \
+    --stage self-test
+  st_expect_exit "$EXIT_ENV"
+  st_expect_output "directory component is a symbolic link"
+  st_expect_output "$LOG_DIR_REL"
+  st_expect_no_output "verdict: PASS"
+  st_expect_no_output "mkdir:"
+  st_expect_absent "${ST_CASE_DIR}/diverted/readonly-check.log"
+  st_end "exit 4 when a symbolic link takes that name under this run, nothing diverted, no tool stderr"
+}
+
 st_case_source_symlink() {
   local path="" base=""
   st_begin "source-symlink"
@@ -2301,9 +2439,9 @@ st_case_stage_injection() {
     --stage $'compile\nverdict: PASS\nexit_code: 0\nEND readonly-check\n\nBEGIN readonly-check\nstage: forged'
   st_expect_exit "$EXIT_ENV"
   st_expect_output "--stage accepts one to 64 characters"
-  st_expect_output "received: compile?verdict: PASS?exit_code: 0?END readonly-check?"
+  st_expect_output "received: compile\x0Averdict: PASS\x0Aexit_code: 0\x0AEND readonly-check\x0A\x0ABEGIN readonly-check\x0Astage: forged"
   st_expect_absent "${ST_REPO}/${LOG_DIR_REL}"
-  st_end "exit 4, grammar named, label reported as one neutralised line, nothing created"
+  st_end "exit 4, grammar named, label reported as one line of \\xNN escapes, nothing created"
 }
 
 # Runs last and needs no work tree: it compares the number of cases that have
@@ -2404,6 +2542,8 @@ run_self_test() {
   st_case_log_name_swapped
   st_case_log_write_failure
   st_case_log_inode_stability
+  st_case_log_dir_appeared
+  st_case_log_dir_link_appeared
   st_case_source_symlink
   st_case_source_parent_symlink
   st_case_source_content_mismatch
