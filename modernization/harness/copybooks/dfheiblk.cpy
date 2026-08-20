@@ -2,6 +2,13 @@
       *                                                                *
       *  DFHEIBLK - EXEC Interface Block surrogate                     *
       *                                                                *
+      *  Milestone note: modernization/harness/translate.py,           *
+      *  modernization/harness/driver.cbl and the generated tree       *
+      *  modernization/harness/build/ are planned artifacts and are    *
+      *  not present in the tree at this milestone; every statement    *
+      *  below about the harness or about a translated program is      *
+      *  the planned contract.                                         *
+      *                                                                *
       *  Declares the five EXEC Interface Block fields that the        *
       *  translated Policy-Issue chain references without declaring:   *
       *  EIBTRNID, EIBTRMID, EIBTASKN, EIBCALEN and EIBRESP2. On CICS  *
@@ -9,20 +16,23 @@
       *  data items in one EXTERNAL group, and every compilation unit  *
       *  that COPYs this member addresses the same storage.            *
       *                                                                *
-      *  COPYed by the translated LGAPOL01, LGAPDB01 and LGAPVS01 and  *
-      *  by the harness driver. translate.py copies this member        *
-      *  verbatim into the generated build tree; it is never           *
-      *  preprocessed in place.                                        *
+      *  To be COPYed by the translated LGAPOL01, LGAPDB01 and         *
+      *  LGAPVS01 and by the harness driver. translate.py is to copy   *
+      *  this member verbatim into the generated build tree; it is     *
+      *  never preprocessed in place.                                  *
       *                                                                *
       *  No item is initialised in this member. The harness driver     *
-      *  seeds all five procedurally before it calls the chain, and    *
-      *  the translated programs refresh EIBCALEN before each CALL.    *
+      *  will seed all five procedurally before it calls the chain,    *
+      *  and the translated programs will refresh EIBCALEN before      *
+      *  each CALL.                                                    *
       *                                                                *
-      *  Rationale is recorded in modernization/docs/decision-log.md,  *
-      *  rows: EIB surrogate storage scope; EIBCALEN binary            *
-      *  representation.                                               *
+      *  Rationale is to be recorded in                                *
+      *  modernization/docs/decision-log.md (planned deliverable; not  *
+      *  present at this milestone), rows: EIB surrogate storage       *
+      *  scope; EIBCALEN binary representation.                        *
       *                                                                *
-      *  Harness topology: Figure 5 - Validation Harness Control Flow  *
+      *  Harness topology:                                             *
+      *  Figure 5 — Validation Harness Control Flow                  *
       *  in modernization/docs/architecture.md.                        *
       *                                                                *
       ******************************************************************
@@ -73,7 +83,7 @@
       *   WS-CALEN at base/src/lgapol01.cbl:33 and
       *   base/src/lgapdb01.cbl:33; WS-Commarea-Len at
       *   base/src/lgapvs01.cbl:23.
-      *   See decision-log row: EIBCALEN binary representation.
+      *   See planned decision-log row: EIBCALEN binary representation.
            03 EIBCALEN                 PIC S9(4) COMP-5.
       *
       * EIBRESP2 - secondary response code of the most recent CICS
@@ -81,6 +91,6 @@
       *   on the KSDSPOLY write error path.
       *   Receiver WS-RESP2 PIC S9(8) COMP at
       *   base/src/lgapvs01.cbl:19.
-      *   The translated chain reads this item and never writes it.
+      *   The translated chain will read this item and never write it.
            03 EIBRESP2                 PIC S9(8) COMP.
       *----------------------------------------------------------------*

@@ -1,4 +1,5 @@
-# Generated modernization artifacts only; see modernization/docs/decision-log.md.
+# Generated modernization artifacts only; see modernization/docs/decision-log.md
+# (planned deliverable; not present at this milestone).
 /.venv/
 /harness/build/
 /dbt/genapp_rqi/target/

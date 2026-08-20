@@ -6,36 +6,69 @@
       *                                                                *
       ******************************************************************
       *
-      * Records what the translated Policy-Issue chain handed to each
-      * emulated service. The SQL groups hold the host-variable values
-      * the translated LGAPDB01 passed to each INSERT, SET and SELECT
-      * block. The VSAM group holds the record, key, lengths and
-      * response of the KSDSPOLY write issued by the translated
-      * LGAPVS01. The abend and diagnostic-link items hold the failure
-      * signals raised by any of the three translated programs.
+      * Milestone note: modernization/harness/translate.py,
+      * modernization/harness/driver.cbl,
+      * modernization/harness/run_harness.sh, the twelve stub members
+      * under modernization/harness/stubs/, the generated tree
+      * modernization/harness/build/ and
+      * modernization/validation/diff_harness_vs_warehouse.py are
+      * planned artifacts and are not present in the tree at this
+      * milestone; every statement below about the harness, about a
+      * translated program or about the diff tool is the planned
+      * contract.
       *
-      * modernization/validation/diff_harness_vs_warehouse.py reads
-      * these values, as emitted by the driver, and compares them with
-      * canonical.issued_policy and canonical.preissued_rating.
+      * Records what the translated Policy-Issue chain is to hand to
+      * each emulated service. The SQL groups hold the host-variable
+      * values the translated LGAPDB01 is to pass to each INSERT, SET
+      * and SELECT block. The VSAM group holds the record, key,
+      * lengths and response of the KSDSPOLY write issued by the
+      * translated LGAPVS01. The abend and diagnostic-link items hold
+      * the failure signals raised by any of the three translated
+      * programs.
       *
-      * COPYed by modernization/harness/driver.cbl and by the twelve
-      * members of modernization/harness/stubs/. It is not inserted
-      * into the three translated programs. translate.py copies this
-      * member verbatim into the generated build tree; it is never
-      * preprocessed in place.
+      * modernization/validation/diff_harness_vs_warehouse.py is to
+      * read these values, as emitted by the driver, and compare them
+      * with canonical.issued_policy and canonical.preissued_rating.
+      *
+      * To be COPYed by modernization/harness/driver.cbl and by the
+      * twelve members of modernization/harness/stubs/. It is not
+      * inserted into the three translated programs. translate.py is
+      * to copy this member verbatim into the generated build tree; it
+      * is never preprocessed in place.
       *
       * One 01 group carries the EXTERNAL clause, so every compilation
       * unit that COPYs this member addresses the same storage.
       *
       * No item is initialised here: this member declares no VALUE
-      * clause on any data item. modernization/harness/driver.cbl
-      * initialises the whole group procedurally before each case. The
-      * level-88 entries below name conditions and allocate no storage.
+      * clause on any data item. modernization/harness/driver.cbl is
+      * to initialise the whole group procedurally before each case.
+      * The level-88 entries below name conditions and allocate no
+      * storage.
       *
       * Each presence flag holds 'N' before its statement has been
-      * captured and 'Y' afterwards; each counter starts at zero.
-      * modernization/harness/driver.cbl moves those two states into
-      * every flag and counter at the start of each case.
+      * captured and 'Y' afterwards; each counter, the shared event
+      * sequence HC-EVENT-SEQ and every per-statement ordinal item
+      * hold zero before capture. Before each case
+      * modernization/harness/driver.cbl is to move 'N' into every
+      * presence flag and into HC-ORDER-VIOLATION, zero into every
+      * counter, into HC-EVENT-SEQ and into every ordinal item, and
+      * spaces into HC-ORDER-LAST-STMT and HC-ORDER-VIOLATION-STMT.
+      *
+      * Execution order is carried by HC-EVENT-SEQ and the eight
+      * ordinal items HC-POL-SEQ, HC-IDENT-SEQ, HC-LCHG-SEQ,
+      * HC-MOT-SEQ, HC-COM-SEQ, HC-END-SEQ, HC-HOU-SEQ and
+      * HC-VSAM-SEQ. A capture stub is to add 1 to HC-EVENT-SEQ, move
+      * the new value to the ordinal item of its own group and move its
+      * own name into HC-ORDER-LAST-STMT as it records that event. A
+      * lower ordinal marks the earlier event; zero marks an event that
+      * was never captured. HC-POL-SEQ less than HC-COM-SEQ is the
+      * witness that INSERT-POLICY preceded INSERT-COMMERCIAL, the
+      * constraint recorded as execution_order.policy_before_commercial
+      * in modernization/harness/statement_map.yml. A stub whose
+      * declared prerequisite ordinal is still zero when it runs is to
+      * report that in HC-ORDER-VIOLATION and HC-ORDER-VIOLATION-STMT.
+      * A counter records how many times its own statement executed and
+      * carries no ordering.
       *
       * Statement arities are fixed by the checks.using_counts block
       * of modernization/harness/statement_map.yml: insert_policy 7,
@@ -43,42 +76,117 @@
       * insert_house 7, insert_motor 10, insert_commercial 20, giving
       * 56 host-variable slots. Capture is per statement and is not
       * deduplicated: each product group holds its own policy-number
-      * item.
+      * item. HC-EVENT-SEQ, the eight statement ordinal items and
+      * HC-ABEND-SEQ are capture-control items, not host-variable
+      * slots; no stub USING arity changes.
       *
-      * Rationale is recorded in modernization/docs/decision-log.md,
-      * rows: shared EXTERNAL harness state; HC- capture prefix;
-      * commercial peril-code capture without canonical mapping;
+      * Rationale is to be recorded in
+      * modernization/docs/decision-log.md (planned deliverable; not
+      * present at this milestone), rows: shared EXTERNAL harness
+      * state; HC- capture prefix; per-statement capture without
+      * deduplication; shared event-sequence ordering witness and order
+      * guard; commercial peril-code capture without canonical mapping;
       * flat VSAM payload capture.
       *
-      * Harness topology: Figure 5 "Validation Harness Control Flow"
+      * Harness topology: Figure 5 — Validation Harness Control Flow
       * in modernization/docs/architecture.md.
       *
       ******************************************************************
        01  HC-CAPTURE-STATE EXTERNAL.
       *
       *================================================================*
+      * Shared event sequence                                          *
+      *================================================================*
+      * modernization/harness/driver.cbl and the twelve members of
+      * modernization/harness/stubs/ share the item below. A capture
+      * stub adds 1 to it and moves the new value to the HC-*-SEQ
+      * ordinal item of its own group as it records an event, giving
+      * every captured event of one case a distinct ordinal in
+      * execution order.
+           03 HC-EVENT-CONTROL.
+      *
+      * Count of events captured in the current case, and the value
+      * most recently stamped into an ordinal item. Width matches the
+      * ordinal items it feeds.
+              05 HC-EVENT-SEQ             PIC 9(4).
+      *
+      *================================================================*
       * Deterministic seeds supplied by the driver                     *
       *================================================================*
-      * The two items below hold the values the driver supplies to the
-      * chain. The values the stubs record are held in the SQL groups
-      * that follow: the assigned identity that reaches CA-POLICY-NUM
-      * at [base/src/lgapdb01.cbl:311], and the timestamp read back at
-      * [base/src/lgapdb01.cbl:316-321].
-      * modernization/harness/run_harness.sh exports
+      * The two items below hold the values the driver is to supply to
+      * the chain. The values the stubs are to record are held in the
+      * SQL groups that follow: the assigned identity that reaches
+      * CA-POLICY-NUM at [base/src/lgapdb01.cbl:311], and the timestamp
+      * read back at [base/src/lgapdb01.cbl:316-321].
+      * modernization/harness/run_harness.sh is to export
       * HARNESS_POLICY_NUMBER and HARNESS_LASTCHANGED;
-      * modernization/harness/driver.cbl reads them into these items.
+      * modernization/harness/driver.cbl is to read them into these
+      * items.
            03 HC-SEED.
       *
-      * Identity that sql_set_identity.cbl returns to the translated
-      * LGAPDB01 in place of IDENTITY_VAL_LOCAL()
+      * Identity that sql_set_identity.cbl is to return to the
+      * translated LGAPDB01 in place of IDENTITY_VAL_LOCAL()
       * [base/src/lgapdb01.cbl:308-310]. Shape follows the receiving
       * host variable DB2-POLICYNUM-INT [base/src/lgapdb01.cbl:117].
               05 HC-SEED-POLICYNUM        PIC S9(9) COMP.
       *
-      * Timestamp that sql_select_lastchanged.cbl returns for the
+      * Timestamp that sql_select_lastchanged.cbl is to return for the
       * LASTCHANGED read-back [base/src/lgapdb01.cbl:316-321]. Shape
       * follows CA-LASTCHANGED [base/src/lgcmarea.cpy:40].
               05 HC-SEED-LASTCHANGED      PIC X(26).
+      *
+      *================================================================*
+      * Capture order guard                                            *
+      *================================================================*
+      * Records the statement captured most recently and whether a
+      * declared ordering was kept. The order itself is carried by
+      * HC-EVENT-SEQ above and by the HC-...-SEQ ordinal item of each
+      * capturing group below, so the relative order of two captured
+      * statements is the comparison of their two ordinals. A zero
+      * ordinal reports that its statement was never captured.
+      *
+      * The execution_order block of
+      * modernization/harness/statement_map.yml declares one
+      * constraint, policy_before_commercial: predecessor
+      * insert_policy, successor insert_commercial, reason_kind
+      * data_dependency, host CA-LASTCHANGED. For a case that captured
+      * INSERT-COMMERCIAL the constraint holds when HC-POL-SEQ is
+      * non-zero and lower than HC-COM-SEQ. That block declares no
+      * other ordering.
+      *
+      * A capturing member of modernization/harness/stubs/ whose
+      * prerequisite ordinal in that block is still zero when it runs
+      * is to move 'Y' into HC-ORDER-VIOLATION and its own name into
+      * HC-ORDER-VIOLATION-STMT; sql_insert_commercial.cbl is to read
+      * HC-POL-SEQ for that test. The other members have no declared
+      * prerequisite and leave the flag as the driver set it. A case
+      * whose HC-ORDER-VIOLATION reports 'Y' did not keep the declared
+      * order.
+      *
+      * See modernization/docs/decision-log.md (planned deliverable;
+      * not present at this milestone), row: shared event-sequence
+      * ordering witness and order guard.
+           03 HC-ORDER.
+      *
+      * Name of the item captured most recently. The SQL groups use the
+      * checks.using_counts keys of
+      * modernization/harness/statement_map.yml, the longest of which is
+      * select_lastchanged; the VSAM write and the abend sites use the
+      * name of the recording stub, cics_write and cics_abend. Spaces
+      * until the first capture of a case.
+              05 HC-ORDER-LAST-STMT       PIC X(24).
+      *
+      * Holds 'N' while every declared prerequisite ordinal was
+      * non-zero when its successor ran, and 'Y' once one was not.
+              05 HC-ORDER-VIOLATION       PIC X.
+                 88 HC-ORDER-VIOLATED     VALUE 'Y'.
+                 88 HC-ORDER-INTACT       VALUE 'N'.
+      *
+      * Name of the statement that ran with a prerequisite ordinal
+      * still at zero, spelled as in HC-ORDER-LAST-STMT above and moved
+      * here with the 'Y' above. Spaces while HC-ORDER-VIOLATION holds
+      * 'N'.
+              05 HC-ORDER-VIOLATION-STMT  PIC X(24).
       *
       *================================================================*
       * SQL: INSERT INTO POLICY                                        *
@@ -92,16 +200,23 @@
       * the SET-IDENTITY and SELECT-LASTCHANGED groups below.
            03 HC-SQL-POLICY.
       *
-      * Set to 'Y' by sql_insert_policy.cbl when the block executes.
+      * To be set to 'Y' by sql_insert_policy.cbl when the block
+      * executes.
               05 HC-POL-PRESENT           PIC X.
                  88 HC-POL-CAPTURED       VALUE 'Y'.
                  88 HC-POL-MISSING        VALUE 'N'.
       *
       * Number of times the block executed. One execution is expected
-      * per case; the value also orders this block ahead of
-      * INSERT-COMMERCIAL, which consumes CA-LASTCHANGED at
-      * [base/src/lgapdb01.cbl:525].
+      * per case; a value above one records repeated execution and
+      * carries no ordering.
               05 HC-POL-COUNT             PIC 9(4).
+      *
+      * Ordinal stamped from HC-EVENT-SEQ when the block is captured.
+      * Below HC-COM-SEQ on a commercial case: the source performs
+      * INSERT-POLICY at [base/src/lgapdb01.cbl:219] and
+      * INSERT-COMMERCIAL at [base/src/lgapdb01.cbl:235], which
+      * consumes CA-LASTCHANGED at [base/src/lgapdb01.cbl:525].
+              05 HC-POL-SEQ               PIC 9(4).
       *
       * Slot 1, column CUSTOMERNUMBER. Witnesses DB2-CUSTOMERNUM-INT
       * [base/src/lgapdb01.cbl:90], loaded from CA-CUSTOMER-NUM
@@ -145,13 +260,22 @@
       *================================================================*
            03 HC-SQL-SET-IDENTITY.
       *
-      * Set to 'Y' by sql_set_identity.cbl when the block executes.
+      * To be set to 'Y' by sql_set_identity.cbl when the block
+      * executes.
               05 HC-IDENT-PRESENT         PIC X.
                  88 HC-IDENT-CAPTURED     VALUE 'Y'.
                  88 HC-IDENT-MISSING      VALUE 'N'.
       *
-      * Number of times the block executed.
+      * Number of times the block executed. One execution is expected
+      * per case: zero reports a missing execution and a value above
+      * one reports a repeated execution.
               05 HC-IDENT-COUNT           PIC 9(4).
+      *
+      * Ordinal stamped from HC-EVENT-SEQ when the block is captured.
+      * Above HC-POL-SEQ: the block at [base/src/lgapdb01.cbl:308-310]
+      * follows the INSERT INTO POLICY block at
+      * [base/src/lgapdb01.cbl:268-288] in paragraph INSERT-POLICY.
+              05 HC-IDENT-SEQ             PIC 9(4).
       *
       * Slot 1, the assigned identity. Witnesses DB2-POLICYNUM-INT
       * [base/src/lgapdb01.cbl:117] as returned to the translated
@@ -167,14 +291,22 @@
       *================================================================*
            03 HC-SQL-SELECT-LASTCHANGED.
       *
-      * Set to 'Y' by sql_select_lastchanged.cbl when the block
-      * executes.
+      * To be set to 'Y' by sql_select_lastchanged.cbl when the
+      * block executes.
               05 HC-LCHG-PRESENT          PIC X.
                  88 HC-LCHG-CAPTURED      VALUE 'Y'.
                  88 HC-LCHG-MISSING       VALUE 'N'.
       *
-      * Number of times the block executed.
+      * Number of times the block executed. One execution is expected
+      * per case: zero reports a missing execution and a value above
+      * one reports a repeated execution.
               05 HC-LCHG-COUNT            PIC 9(4).
+      *
+      * Ordinal stamped from HC-EVENT-SEQ when the block is captured.
+      * Above HC-IDENT-SEQ: the block at
+      * [base/src/lgapdb01.cbl:316-321] follows the SET block at
+      * [base/src/lgapdb01.cbl:308-310] in paragraph INSERT-POLICY.
+              05 HC-LCHG-SEQ              PIC 9(4).
       *
       * Slot 1, column LASTCHANGED, direction out. Witnesses
       * CA-LASTCHANGED [base/src/lgcmarea.cpy:40] as returned into the
@@ -197,19 +329,30 @@
       * by the MOVE statements at [base/src/lgapdb01.cbl:443-446].
            03 HC-SQL-MOTOR.
       *
-      * Set to 'Y' by sql_insert_motor.cbl when the block executes.
+      * To be set to 'Y' by sql_insert_motor.cbl when the block
+      * executes.
               05 HC-MOT-PRESENT           PIC X.
                  88 HC-MOT-CAPTURED       VALUE 'Y'.
                  88 HC-MOT-MISSING        VALUE 'N'.
       *
-      * Number of times the block executed.
+      * Number of times the block executed. One execution is expected
+      * for request id '01AMOT' and none for the other request ids: any
+      * other value reports a missing or a repeated execution.
               05 HC-MOT-COUNT             PIC 9(4).
+      *
+      * Ordinal stamped from HC-EVENT-SEQ when the block is captured.
+      * Above HC-LCHG-SEQ on a motor case: the source performs
+      * INSERT-POLICY at [base/src/lgapdb01.cbl:219] and INSERT-MOTOR
+      * at [base/src/lgapdb01.cbl:232]. Zero on request id '01ACOM'.
+              05 HC-MOT-SEQ               PIC 9(4).
       *
       * Slot 1, column POLICYNUMBER. Witnesses DB2-POLICYNUM-INT
       * [base/src/lgapdb01.cbl:117] as passed by
-      * [base/src/lgapdb01.cbl:461]. Held per statement, so the
-      * recovered identity can be compared against the value the
-      * SET-IDENTITY group recorded.
+      * [base/src/lgapdb01.cbl:461]. Held per statement: this item and
+      * HC-IDENT-POLICYNUM hold the value separately and are compared
+      * with each other.
+      * See modernization/docs/decision-log.md, row: per-statement
+      * capture without deduplication.
               05 HC-MOT-POLICYNUM         PIC S9(9) COMP.
       *
       * Slot 2, column MAKE. Witnesses CA-M-MAKE
@@ -265,20 +408,31 @@
       * by the MOVE statements at [base/src/lgapdb01.cbl:488-496]. The
       * block's column names are transcribed as the source spells them
       * at [base/src/lgapdb01.cbl:502-521].
-      * See modernization/docs/decision-log.md, row: commercial
-      * peril-code capture without canonical mapping.
+      * See modernization/docs/decision-log.md (planned deliverable;
+      * not present at this milestone), row: commercial peril-code
+      * capture without canonical mapping.
            03 HC-SQL-COMMERCIAL.
       *
-      * Set to 'Y' by sql_insert_commercial.cbl when the block
-      * executes.
+      * To be set to 'Y' by sql_insert_commercial.cbl when the
+      * block executes.
               05 HC-COM-PRESENT           PIC X.
                  88 HC-COM-CAPTURED       VALUE 'Y'.
                  88 HC-COM-MISSING        VALUE 'N'.
       *
-      * Number of times the block executed. Read together with
-      * HC-POL-COUNT it shows that INSERT-POLICY ran first, which is
-      * the ordering the CA-LASTCHANGED dependency requires.
+      * Number of times the block executed. One execution is expected
+      * per case; a value above one records repeated execution and
+      * carries no ordering.
               05 HC-COM-COUNT             PIC 9(4).
+      *
+      * Ordinal stamped from HC-EVENT-SEQ when the block is captured.
+      * Above HC-POL-SEQ and HC-LCHG-SEQ: slot 2 below witnesses
+      * CA-LASTCHANGED, which only the read-back at
+      * [base/src/lgapdb01.cbl:316-321] populates. HC-POL-SEQ less
+      * than HC-COM-SEQ is the ordering witness the CA-LASTCHANGED
+      * dependency requires, recorded as
+      * execution_order.policy_before_commercial in
+      * modernization/harness/statement_map.yml.
+              05 HC-COM-SEQ               PIC 9(4).
       *
       * Slot 1, column PolicyNumber. Witnesses DB2-POLICYNUM-INT
       * [base/src/lgapdb01.cbl:117] as passed by
@@ -399,17 +553,23 @@
       * The two integer hosts are loaded from their CA-E counterparts
       * by the MOVE statements at [base/src/lgapdb01.cbl:330-331].
       * Request ids '01AMOT' and '01ACOM' leave this group at the state
-      * driver.cbl initialised, and its presence flag reports 'N'.
+      * driver.cbl is to initialise, and its presence flag reports 'N'.
            03 HC-SQL-ENDOWMENT.
       *
-      * Set to 'Y' by sql_insert_endowment.cbl when either block
-      * executes.
+      * To be set to 'Y' by sql_insert_endowment.cbl when either
+      * block executes.
               05 HC-END-PRESENT           PIC X.
                  88 HC-END-CAPTURED       VALUE 'Y'.
                  88 HC-END-MISSING        VALUE 'N'.
       *
-      * Number of times either block executed.
+      * Number of times either block executed. One execution is
+      * expected for request id '01AEND' and none for the other request
+      * ids: any other value reports a missing or a repeated execution.
               05 HC-END-COUNT             PIC 9(4).
+      *
+      * Ordinal stamped from HC-EVENT-SEQ when either block is
+      * captured. Zero on request ids '01AMOT' and '01ACOM'.
+              05 HC-END-SEQ               PIC 9(4).
       *
       * Slot 1, column POLICYNUMBER. Witnesses DB2-POLICYNUM-INT
       * [base/src/lgapdb01.cbl:117] as passed by
@@ -477,16 +637,23 @@
       * The two integer hosts are loaded from their CA-H counterparts
       * by the MOVE statements at [base/src/lgapdb01.cbl:405-406].
       * Request ids '01AMOT' and '01ACOM' leave this group at the state
-      * driver.cbl initialised, and its presence flag reports 'N'.
+      * driver.cbl is to initialise, and its presence flag reports 'N'.
            03 HC-SQL-HOUSE.
       *
-      * Set to 'Y' by sql_insert_house.cbl when the block executes.
+      * To be set to 'Y' by sql_insert_house.cbl when the block
+      * executes.
               05 HC-HOU-PRESENT           PIC X.
                  88 HC-HOU-CAPTURED       VALUE 'Y'.
                  88 HC-HOU-MISSING        VALUE 'N'.
       *
-      * Number of times the block executed.
+      * Number of times the block executed. One execution is expected
+      * for request id '01AHOU' and none for the other request ids: any
+      * other value reports a missing or a repeated execution.
               05 HC-HOU-COUNT             PIC 9(4).
+      *
+      * Ordinal stamped from HC-EVENT-SEQ when the block is captured.
+      * Zero on request ids '01AMOT' and '01ACOM'.
+              05 HC-HOU-SEQ               PIC 9(4).
       *
       * Slot 1, column POLICYNUMBER. Witnesses DB2-POLICYNUM-INT
       * [base/src/lgapdb01.cbl:117] as passed by
@@ -523,20 +690,20 @@
       *================================================================*
       * VSAM: WRITE FILE('KSDSPOLY') record image                      *
       *   [base/src/lgapvs01.cbl:135-141], issued by the translated    *
-      *   LGAPVS01 and recorded by cics_write.cbl.                     *
+      *   LGAPVS01 and to be recorded by cics_write.cbl.               *
       *================================================================*
       * Mirrors the nested structure WF-Policy-Info
       * [base/src/lgapvs01.cbl:25-30] at the same relative depth, so
       * this one group supplies both the 64-byte record image passed as
       * From(WF-Policy-Info) and the 21-byte key passed as
-      * Ridfld(WF-Policy-Key). The group holds the record only; the
-      * lengths, response and counters are held in HC-VSAM-CONTROL
-      * below, which keeps this group exactly 64 bytes.
+      * Ridfld(WF-Policy-Key). The group holds the record only and is
+      * exactly 64 bytes; the lengths, response, counter and ordinal
+      * are held in HC-VSAM-CONTROL below.
       * Item order follows the declaration order at
       * [base/src/lgapvs01.cbl:27-29], not the MOVE order at
       * [base/src/lgapvs01.cbl:99-101].
-      * See modernization/docs/decision-log.md, row: flat VSAM payload
-      * capture.
+      * See modernization/docs/decision-log.md (planned deliverable;
+      * not present at this milestone), row: flat VSAM payload capture.
            03 HC-VSAM-RECORD.
       *
       * Key half of the record image, 1 + 10 + 10 = 21 bytes, matching
@@ -572,13 +739,21 @@
       *----------------------------------------------------------------*
            03 HC-VSAM-CONTROL.
       *
-      * Set to 'Y' by cics_write.cbl when the WRITE executes.
+      * To be set to 'Y' by cics_write.cbl when the WRITE executes.
               05 HC-VSAM-PRESENT          PIC X.
                  88 HC-VSAM-CAPTURED      VALUE 'Y'.
                  88 HC-VSAM-MISSING       VALUE 'N'.
       *
-      * Number of times the WRITE executed.
+      * Number of times the WRITE executed. One execution is expected
+      * per case that reaches [base/src/lgapvs01.cbl:135-141]: any
+      * other value reports a missing or a repeated WRITE.
               05 HC-VSAM-COUNT            PIC 9(4).
+      *
+      * Ordinal stamped from HC-EVENT-SEQ when the WRITE is captured.
+      * Above every SQL ordinal of the case: the translated LGAPDB01
+      * links LGAPVS01 at [base/src/lgapdb01.cbl:243-246], after the
+      * product insert.
+              05 HC-VSAM-SEQ              PIC 9(4).
       *
       * Record length passed as Length
       * [base/src/lgapvs01.cbl:137]. The source passes the literal 64.
@@ -597,8 +772,8 @@
       *
       *================================================================*
       * Abend capture                                                  *
-      *   recorded by cics_abend.cbl for every EXEC CICS ABEND site    *
-      *   of the three translated programs.                            *
+      *   to be recorded by cics_abend.cbl for every EXEC CICS ABEND   *
+      *   site of the three translated programs.                       *
       *================================================================*
       * The six sites are [base/src/lgapol01.cbl:101] and
       * [base/src/lgapdb01.cbl:168], both ABCODE('LGCA'), and
@@ -607,7 +782,7 @@
       * all ABCODE('LGSQ'). A passing case records none of them.
            03 HC-ABEND.
       *
-      * Set to 'Y' by cics_abend.cbl when any site is reached.
+      * To be set to 'Y' by cics_abend.cbl when any site is reached.
               05 HC-ABEND-PRESENT         PIC X.
                  88 HC-ABEND-RECORDED     VALUE 'Y'.
                  88 HC-ABEND-NONE         VALUE 'N'.
@@ -617,12 +792,21 @@
       * SQL failure that also sets CA-RETURN-CODE to '90'.
               05 HC-ABEND-CODE            PIC X(4).
       *
-      * Number of sites reached.
+      * Number of sites reached. A passing case leaves it at zero.
               05 HC-ABEND-COUNT           PIC 9(4).
+      *
+      * Ordinal stamped from HC-EVENT-SEQ by cics_abend.cbl when a site
+      * is reached. Zero while no site has been reached. The
+      * capture_ordinals block of
+      * modernization/harness/statement_map.yml counts the eight
+      * statement ordinals and names no prerequisite for an abend site,
+      * so cics_abend.cbl applies no order test; the value records
+      * which captures of the case preceded the abend.
+              05 HC-ABEND-SEQ             PIC 9(4).
       *
       *================================================================*
       * Diagnostic-link capture                                        *
-      *   counted by cics_diag_link.cbl for every diagnostic           *
+      *   to be counted by cics_diag_link.cbl for every diagnostic     *
       *   EXEC CICS LINK PROGRAM('LGSTSQ') site.                       *
       *================================================================*
       * The nine sites are [base/src/lgapol01.cbl:149],
@@ -634,4 +818,3 @@
       * this counter at zero.
            03 HC-DIAG-LINK-COUNT          PIC 9(4).
       *----------------------------------------------------------------*
-

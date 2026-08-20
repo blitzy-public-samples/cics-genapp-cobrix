@@ -7,21 +7,29 @@
 #   column and the transformation applied on the way to the warehouse.
 #
 # HOW IT IS USED
-#   Loaded with yaml.safe_load. The consumers listed under `consumed_by` read their layout, typing
-#   and lineage facts from this file. Byte layout is expressed only as `offset`, `length` and
-#   `pic` values.
+#   Loaded with a yaml.SafeLoader that rejects a repeated mapping key, a key it cannot compare,
+#   an alias and the merge key. modernization/extraction/build_sample_commarea.py is the only
+#   consumer present at this milestone; it reads the record, layout, field, routing and sample
+#   contract sections. The artifacts listed under `planned_consumers` will read their layout,
+#   typing and lineage facts from this file once they are processed; none of them is present at
+#   this milestone. Byte layout is expressed only as `offset`, `length` and `pic` values.
 #
 # EVIDENCE BOUNDARY
-#   Every locator in this file resolves to base/src/lgcmarea.cpy, base/src/lgpolicy.cpy or
-#   base/src/lgapdb01.cbl. Locators are written as `path:line`. The three named source artifacts
-#   are read-only and are never modified by this work.
+#   Every locator in this file resolves to one of the five authorised source artifacts:
+#   base/src/lgapol01.cbl, base/src/lgapdb01.cbl, base/src/lgapvs01.cbl, base/src/lgcmarea.cpy and
+#   base/src/lgpolicy.cpy. Locators are written as `path:line` or `path:first-last`. The five named
+#   source artifacts are read-only and are never modified by this work. The sole warehouse-assigned
+#   column under `source_system_key` records `user requirement` in place of a locator.
 #
 # CONTENT BOUNDARY
-#   This file states what each field is and how it is treated. Decision rationale is recorded in
-#   modernization/docs/decision-log.md and is deliberately absent here.
+#   This file states what each field is and how it is treated. Decision rationale belongs to
+#   modernization/docs/decision-log.md (planned deliverable; not present at this milestone) and
+#   is deliberately absent here. Every `rationale` value below is a pointer to that planned
+#   document, never rationale itself.
 
 map_version: 1
-rationale: see modernization/docs/decision-log.md
+rationale: >-
+  see modernization/docs/decision-log.md (planned deliverable; not present at this milestone)
 
 # The interface record shared by every program in the named chain.
 record:
@@ -34,9 +42,30 @@ record:
     The six amount items are unsigned DISPLAY numerics declared without an implied decimal
     (PIC 9(6) for payment and motor premium, PIC 9(8) for the four commercial premiums), so each
     byte holds one digit character and every stored value is a whole number.
-  linkage_binding: base/src/lgapdb01.cbl:134-137
+  linkage_bindings:
+    - program: LGAPOL01
+      locator: base/src/lgapol01.cbl:70-71
+      declaration: 01 DFHCOMMAREA. followed by Copy LGCMAREA.
+    - program: LGAPDB01
+      locator: base/src/lgapdb01.cbl:134-137
+      declaration: 01 DFHCOMMAREA. followed by EXEC SQL INCLUDE LGCMAREA END-EXEC.
+    - program: LGAPVS01
+      locator: base/src/lgapvs01.cbl:86-87
+      declaration: 01 DFHCOMMAREA. followed by Copy LGCMAREA.
   link_length_observed: 32500
-  link_length_locator: base/src/lgapdb01.cbl:243-246
+  links:
+    - call_order: 1
+      from_program: LGAPOL01
+      to_program: LGAPDB01
+      commarea: DFHCOMMAREA
+      length: 32500
+      locator: base/src/lgapol01.cbl:121-124
+    - call_order: 2
+      from_program: LGAPDB01
+      to_program: LGAPVS01
+      commarea: DFHCOMMAREA
+      length: 32500
+      locator: base/src/lgapdb01.cbl:243-246
 
 # Premium and payment values are carried unchanged; no rating calculation exists in the chain.
 formula: none
@@ -73,11 +102,17 @@ formula_evidence:
     - base/src/lgapdb01.cbl:491
     - base/src/lgapdb01.cbl:493
     - base/src/lgapdb01.cbl:495
-  rationale: see modernization/docs/decision-log.md
+  rationale: >-
+    see modernization/docs/decision-log.md (planned deliverable; not present at this milestone)
 
 # Physical byte layout of the groups this work exercises. Groups appear in ascending `order`.
 # `kind` is either alphanumeric or numeric_display. `chain_required_numeric` marks items that
 # LGAPDB01 moves into COMP host variables; those items hold digits on every executed request.
+# Each item that records `moved_to` also records `moved_to_pic`, the host declaration as
+# base/src/lgapdb01.cbl spells it, and `moved_to_max_value`, the largest whole number the digits of
+# that declared PICTURE carry: 999999999 for S9(9) COMP and 9999 for S9(4) COMP.
+# `value_semantics: iso_date` marks items whose supplied value is a calendar date written as
+# YYYY-MM-DD. `group_declarations[].level` is the copybook level number of the group itself.
 layout:
 
   header:
@@ -120,6 +155,8 @@ layout:
         moved_to: DB2-CUSTOMERNUM-INT
         moved_at: base/src/lgapdb01.cbl:176
         moved_to_declared_at: base/src/lgapdb01.cbl:90
+        moved_to_pic: "S9(9) COMP"
+        moved_to_max_value: 999999999
         landing_field: customer_number
       - item: CA-REQUEST-SPECIFIC
         pic: "X(32482)"
@@ -143,7 +180,7 @@ layout:
     group_declarations:
       - item: CA-POLICY-REQUEST
         line: 34
-        level: "05"
+        level: "03"
         redefines: CA-REQUEST-SPECIFIC
         offset: 19
         length: 32482
@@ -169,6 +206,7 @@ layout:
         kind: alphanumeric
         line: 38
         parent: CA-POLICY-COMMON
+        value_semantics: iso_date
         landing_field: issue_date
       - item: CA-EXPIRY-DATE
         pic: "X(10)"
@@ -177,6 +215,7 @@ layout:
         kind: alphanumeric
         line: 39
         parent: CA-POLICY-COMMON
+        value_semantics: iso_date
         landing_field: expiry_date
       - item: CA-LASTCHANGED
         pic: "X(26)"
@@ -197,6 +236,8 @@ layout:
         moved_to: DB2-BROKERID-INT
         moved_at: base/src/lgapdb01.cbl:264
         moved_to_declared_at: base/src/lgapdb01.cbl:91
+        moved_to_pic: "S9(9) COMP"
+        moved_to_max_value: 999999999
         landing_field: broker_id
       - item: CA-BROKERSREF
         pic: "X(10)"
@@ -217,6 +258,8 @@ layout:
         moved_to: DB2-PAYMENT-INT
         moved_at: base/src/lgapdb01.cbl:265
         moved_to_declared_at: base/src/lgapdb01.cbl:92
+        moved_to_pic: "S9(9) COMP"
+        moved_to_max_value: 999999999
         landing_field: payment_amount
       - item: CA-POLICY-SPECIFIC
         pic: "X(32400)"
@@ -273,6 +316,8 @@ layout:
         moved_to: DB2-M-VALUE-INT
         moved_at: base/src/lgapdb01.cbl:443
         moved_to_declared_at: base/src/lgapdb01.cbl:98
+        moved_to_pic: "S9(9) COMP"
+        moved_to_max_value: 999999999
         landing_field: null
       - item: CA-M-REGNUMBER
         pic: "X(7)"
@@ -298,6 +343,8 @@ layout:
         moved_to: DB2-M-CC-SINT
         moved_at: base/src/lgapdb01.cbl:444
         moved_to_declared_at: base/src/lgapdb01.cbl:99
+        moved_to_pic: "S9(4) COMP"
+        moved_to_max_value: 9999
         landing_field: null
       - item: CA-M-MANUFACTURED
         pic: "X(10)"
@@ -305,6 +352,7 @@ layout:
         length: 10
         kind: alphanumeric
         line: 72
+        value_semantics: iso_date
         landing_field: null
       - item: CA-M-PREMIUM
         pic: "9(6)"
@@ -316,6 +364,8 @@ layout:
         moved_to: DB2-M-PREMIUM-int
         moved_at: base/src/lgapdb01.cbl:445
         moved_to_declared_at: base/src/lgapdb01.cbl:100
+        moved_to_pic: "S9(9) COMP"
+        moved_to_max_value: 999999999
         landing_field: motor_premium_amount
       - item: CA-M-ACCIDENTS
         pic: "9(6)"
@@ -327,6 +377,8 @@ layout:
         moved_to: DB2-M-ACCIDENTS-int
         moved_at: base/src/lgapdb01.cbl:446
         moved_to_declared_at: base/src/lgapdb01.cbl:101
+        moved_to_pic: "S9(9) COMP"
+        moved_to_max_value: 999999999
         landing_field: null
       - item: CA-M-FILLER
         pic: "X(32323)"
@@ -405,6 +457,8 @@ layout:
         moved_to: DB2-B-FirePeril-Int
         moved_at: base/src/lgapdb01.cbl:488
         moved_to_declared_at: base/src/lgapdb01.cbl:102
+        moved_to_pic: "S9(4) COMP"
+        moved_to_max_value: 9999
         landing_field: null
       - item: CA-B-FirePremium
         pic: "9(8)"
@@ -416,6 +470,8 @@ layout:
         moved_to: DB2-B-FirePremium-Int
         moved_at: base/src/lgapdb01.cbl:489
         moved_to_declared_at: base/src/lgapdb01.cbl:103
+        moved_to_pic: "S9(9) COMP"
+        moved_to_max_value: 999999999
         landing_field: fire_premium_amount
       - item: CA-B-CrimePeril
         pic: "9(4)"
@@ -427,6 +483,8 @@ layout:
         moved_to: DB2-B-CrimePeril-Int
         moved_at: base/src/lgapdb01.cbl:490
         moved_to_declared_at: base/src/lgapdb01.cbl:104
+        moved_to_pic: "S9(4) COMP"
+        moved_to_max_value: 9999
         landing_field: null
       - item: CA-B-CrimePremium
         pic: "9(8)"
@@ -438,6 +496,8 @@ layout:
         moved_to: DB2-B-CrimePremium-Int
         moved_at: base/src/lgapdb01.cbl:491
         moved_to_declared_at: base/src/lgapdb01.cbl:105
+        moved_to_pic: "S9(9) COMP"
+        moved_to_max_value: 999999999
         landing_field: crime_premium_amount
       - item: CA-B-FloodPeril
         pic: "9(4)"
@@ -449,6 +509,8 @@ layout:
         moved_to: DB2-B-FloodPeril-Int
         moved_at: base/src/lgapdb01.cbl:492
         moved_to_declared_at: base/src/lgapdb01.cbl:106
+        moved_to_pic: "S9(4) COMP"
+        moved_to_max_value: 9999
         landing_field: null
       - item: CA-B-FloodPremium
         pic: "9(8)"
@@ -460,6 +522,8 @@ layout:
         moved_to: DB2-B-FloodPremium-Int
         moved_at: base/src/lgapdb01.cbl:493
         moved_to_declared_at: base/src/lgapdb01.cbl:107
+        moved_to_pic: "S9(9) COMP"
+        moved_to_max_value: 999999999
         landing_field: flood_premium_amount
       - item: CA-B-WeatherPeril
         pic: "9(4)"
@@ -471,6 +535,8 @@ layout:
         moved_to: DB2-B-WeatherPeril-Int
         moved_at: base/src/lgapdb01.cbl:494
         moved_to_declared_at: base/src/lgapdb01.cbl:108
+        moved_to_pic: "S9(4) COMP"
+        moved_to_max_value: 9999
         landing_field: null
       - item: CA-B-WeatherPremium
         pic: "9(8)"
@@ -482,6 +548,8 @@ layout:
         moved_to: DB2-B-WeatherPremium-Int
         moved_at: base/src/lgapdb01.cbl:495
         moved_to_declared_at: base/src/lgapdb01.cbl:109
+        moved_to_pic: "S9(9) COMP"
+        moved_to_max_value: 999999999
         landing_field: weather_premium_amount
       - item: CA-B-Status
         pic: "9(4)"
@@ -493,6 +561,8 @@ layout:
         moved_to: DB2-B-Status-Int
         moved_at: base/src/lgapdb01.cbl:496
         moved_to_declared_at: base/src/lgapdb01.cbl:110
+        moved_to_pic: "S9(4) COMP"
+        moved_to_max_value: 9999
         landing_field: null
       - item: CA-B-RejectReason
         pic: "X(255)"
@@ -1047,10 +1117,13 @@ fields:
       programs compare the item against the literals '00', '70', '80', '90', '98' and '99'. The
       value is read from the returned COMMAREA.
     domain: ["00", "70", "80", "90", "98", "99"]
+    domain_lineage: return_codes
     evidence:
       - base/src/lgcmarea.cpy:11
+      - base/src/lgapol01.cbl:105
       - base/src/lgapdb01.cbl:172
       - base/src/lgapdb01.cbl:293
+      - base/src/lgapvs01.cbl:144
 
   - logical_entry: issue_date
     concept: Policy issue date
@@ -1268,7 +1341,8 @@ source_system_key:
     prefix and to both canonical relations.
   evidence:
     - user requirement (no COBOL item supplies it)
-  rationale: see modernization/docs/decision-log.md
+  rationale: >-
+    see modernization/docs/decision-log.md (planned deliverable; not present at this milestone)
 
 # Request-id routing observed in the first EVALUATE. Each branch assigns the policy-type letter
 # and adds the product length constant to the required-length accumulator.
@@ -1311,7 +1385,9 @@ request_routing:
     unrecognised_request_return_code: "99"
     unrecognised_request_set_at: base/src/lgapdb01.cbl:239
 
-# Sample cases this work generates and executes.
+# Sample cases this work generates. Both records are generated at this milestone; executing them
+# through the translated chain belongs to the planned harness, which is not present at this
+# milestone.
 supported_request_ids: ["01AMOT", "01ACOM"]
 
 supported_samples:
@@ -1338,55 +1414,101 @@ samples_not_generated:
   note: >-
     No endowment or house sample record is generated by this work. Both routing branches remain
     documented under request_routing.
-  rationale: see modernization/docs/decision-log.md
+  rationale: >-
+    see modernization/docs/decision-log.md (planned deliverable; not present at this milestone)
 
-# Return codes observed in the named chain, keyed as two-character strings.
+# Return codes observed in the named chain, keyed as two-character strings. `initialised_by` and
+# `set_by` name the programs of the chain, and every `initialised_at`, `checked_at`, `set_at`,
+# `abend_at` and `returns_at` member is a locator in the program that carries it.
 return_codes:
   "00":
     meaning: success
-    initialised_at: base/src/lgapdb01.cbl:172
+    initialised_at:
+      - base/src/lgapol01.cbl:105
+      - base/src/lgapdb01.cbl:172
+    initialised_by:
+      - LGAPOL01
+      - LGAPDB01
+    checked_at: base/src/lgapdb01.cbl:292
     set_at:
       - base/src/lgapdb01.cbl:293
+    set_by: LGAPDB01
     condition: policy insert returned SQLCODE 0
   "70":
     meaning: policy insert returned SQLCODE -530
+    checked_at: base/src/lgapdb01.cbl:295
     set_at:
       - base/src/lgapdb01.cbl:296
+    set_by: LGAPDB01
+    returns_at: base/src/lgapdb01.cbl:298
     condition: SQLCODE -530 on the policy insert
   "80":
     meaning: VSAM write response was not normal
-    set_at: []
-    set_by: the VSAM projection program of the named chain
+    checked_at: base/src/lgapvs01.cbl:142
+    set_at:
+      - base/src/lgapvs01.cbl:144
+    set_by: LGAPVS01
+    returns_at: base/src/lgapvs01.cbl:146
     condition: the file write response was not normal
   "90":
     meaning: SQL failure
+    checked_at:
+      - base/src/lgapdb01.cbl:300
+      - base/src/lgapdb01.cbl:389
+      - base/src/lgapdb01.cbl:427
+      - base/src/lgapdb01.cbl:473
+      - base/src/lgapdb01.cbl:547
     set_at:
       - base/src/lgapdb01.cbl:301
       - base/src/lgapdb01.cbl:390
       - base/src/lgapdb01.cbl:428
       - base/src/lgapdb01.cbl:474
       - base/src/lgapdb01.cbl:548
+    set_by: LGAPDB01
     abend_code: LGSQ
     abend_at:
       - base/src/lgapdb01.cbl:393
       - base/src/lgapdb01.cbl:431
       - base/src/lgapdb01.cbl:477
       - base/src/lgapdb01.cbl:551
+    returns_at:
+      - base/src/lgapdb01.cbl:303
+      - base/src/lgapdb01.cbl:394
+      - base/src/lgapdb01.cbl:432
+      - base/src/lgapdb01.cbl:478
+      - base/src/lgapdb01.cbl:552
     condition: >-
       non-zero SQLCODE on the policy insert or on a product-subtype insert; the subtype inserts
       also abend with code LGSQ
   "98":
     meaning: COMMAREA shorter than the required length
-    checked_at: base/src/lgapdb01.cbl:210
+    checked_at:
+      - base/src/lgapol01.cbl:113
+      - base/src/lgapdb01.cbl:210
     set_at:
+      - base/src/lgapol01.cbl:114
       - base/src/lgapdb01.cbl:211
-    returns_at: base/src/lgapdb01.cbl:212
+    set_by:
+      - LGAPOL01
+      - LGAPDB01
+    returns_at:
+      - base/src/lgapol01.cbl:115
+      - base/src/lgapdb01.cbl:212
     condition: EIBCALEN less than WS-REQUIRED-CA-LEN
   "99":
     meaning: unsupported request id
+    checked_at:
+      - base/src/lgapdb01.cbl:202
+      - base/src/lgapdb01.cbl:237
     set_at:
       - base/src/lgapdb01.cbl:204
       - base/src/lgapdb01.cbl:239
+    set_by: LGAPDB01
+    returns_at: base/src/lgapdb01.cbl:205
+    set_without_immediate_return:
+      locator: base/src/lgapdb01.cbl:239
+      continues_to: base/src/lgapdb01.cbl:243-246
+      chain_return_at: base/src/lgapdb01.cbl:250
     condition: CA-REQUEST-ID matched no EVALUATE branch
 
 # In-scope declarations that are present in the exercised overlays and carry no target column.
@@ -1514,10 +1636,14 @@ excluded:
       pic: "X(255)"
     program_intermediate: null
 
-excluded_rationale: see modernization/docs/decision-log.md
+excluded_rationale: >-
+  see modernization/docs/decision-log.md (planned deliverable; not present at this milestone)
 
 # Length constants used by the chain's COMMAREA length validation, with the measured overlay
-# lengths taken from the copybook declarations.
+# lengths taken from the copybook declarations. In `handling`, sample generation is present at
+# this milestone; the extraction-side numeric check belongs to
+# modernization/extraction/extract_commarea.py (planned deliverable; not present at this
+# milestone).
 length_constants:
   declared:
     WS-CA-HEADER-LEN:
@@ -1556,9 +1682,12 @@ length_constants:
   handling: >-
     samples always emit the full 32500-byte record; extraction validates that applicable amount
     bytes are numeric before landing
-  rationale: see modernization/docs/decision-log.md
+  rationale: >-
+    see modernization/docs/decision-log.md (planned deliverable; not present at this milestone)
 
-# Contract for the landed object and the raw relation loaded from it.
+# Target contract for the landed object and the raw relation loaded from it. No landing artifact
+# and no raw-relation DDL is present at this milestone, so this section states the contract the
+# planned artifacts will satisfy rather than a contract already in force.
 landing:
   entity: policy_issue
   raw_relation: raw.genapp_policy_issue
@@ -1566,7 +1695,7 @@ landing:
   value_encoding: json_string_or_null
   record_format: one JSON object per object file, serialized as a single line terminated by LF
   additional_keys_permitted: false
-  json_schema: modernization/landing/landing-schema.json
+  planned_json_schema: modernization/landing/landing-schema.json
   s3_prefix_template: >-
     landing/source_system_key=<source_system_key>/entity=policy_issue/extract_date=YYYY-MM-DD/part-0000.json
   partitioning_scope: S3 key prefix only
@@ -1590,11 +1719,66 @@ landing:
     - weather_premium_amount
 
 # Which amount fields carry a value for each policy type. Inapplicable product premiums are null.
+# `planned_enforcement` names the dbt test that will assert this pattern; that test is a planned
+# deliverable and is not present at this milestone, so nothing enforces the pattern yet.
 product_premium_nullability:
   always_populated:
     - payment_amount
   inapplicable_value: null
   zero_substitution_permitted: false
+  decided_by: policy_type
+  # The overlays redefine the same bytes from offset 101, so an item of the overlay a
+  # request does not select can read as non-blank content placed by the selected overlay.
+  # A blank or zero window is not the test for an inapplicable premium; the policy type is.
+  inactive_overlay_bytes_may_be_non_blank: true
+  blank_or_zero_content_is_not_the_null_test: true
+  # What the sample builder's own cases establish. These cases read record bytes and
+  # request routing; they read no raw, staging, intermediate or canonical column.
+  record_bytes_demonstrated_by:
+    tool: modernization/extraction/build_sample_commarea.py
+    invocation: --self-test
+    cases:
+      - case: commercial_inactive_overlay_filled
+        request_id: 01ACOM
+        establishes:
+          - the bytes CA-M-PREMIUM declares hold commercial address content, not blanks
+          - request id 01ACOM resolves policy type C
+          - a CA-M-PREMIUM key is rejected for request id 01ACOM
+      - case: motor_inactive_overlay_spaces
+        request_id: 01AMOT
+        establishes:
+          - the four commercial premium windows fall inside CA-M-FILLER and hold its spaces
+          - request id 01AMOT resolves policy type M
+          - a CA-B-FirePremium key is rejected for request id 01AMOT
+        non_blank_inactive_bytes_reachable: false
+        non_blank_inactive_bytes_blocked_by: CA-M-FILLER is a protected fill item
+    does_not_establish:
+      - any raw, staging, intermediate or canonical column value
+      - motor_premium_amount IS NULL while the four commercial premiums carry values
+      - the four commercial premiums IS NULL while motor_premium_amount carries a value
+  # Where the column-level assertion is carried. The two cases below are the transformed
+  # assertion this contract requires; the builder cases above do not carry it.
+  transformed_assertion_carried_by:
+    test: modernization/dbt/genapp_rqi/tests/assert_product_premium_nullability.sql
+    required_cases:
+      - policy_type: "M"
+        raw_inactive_overlay_bytes: non_blank
+        populated:
+          - motor_premium_amount
+        null_fields:
+          - fire_premium_amount
+          - crime_premium_amount
+          - flood_premium_amount
+          - weather_premium_amount
+      - policy_type: "C"
+        raw_inactive_overlay_bytes: non_blank
+        populated:
+          - fire_premium_amount
+          - crime_premium_amount
+          - flood_premium_amount
+          - weather_premium_amount
+        null_fields:
+          - motor_premium_amount
   by_policy_type:
     "M":
       populated:
@@ -1628,22 +1812,26 @@ product_premium_nullability:
         - crime_premium_amount
         - flood_premium_amount
         - weather_premium_amount
-  enforced_by: modernization/dbt/genapp_rqi/tests/assert_product_premium_nullability.sql
+  planned_enforcement: modernization/dbt/genapp_rqi/tests/assert_product_premium_nullability.sql
 
 # The two canonical relations. `source` names the logical field entry that supplies each column.
+# This is the target contract: the models named under `planned_dbt_model` and the uniqueness
+# tests named under `planned_unique_key_test` are planned deliverables, none of them is present
+# at this milestone, and neither canonical relation has been built yet.
 targets:
 
   canonical.issued_policy:
     schema: canonical
     alias: issued_policy
-    dbt_model: canonical_issued_policy
+    planned_dbt_model: canonical_issued_policy
     materialization: table
     grain: one row per successful issued policy and source system
     filter: return_code = '00'
     unique_key:
       - source_system_key
       - policy_number
-    unique_key_test: modernization/dbt/genapp_rqi/tests/assert_issued_policy_unique_key.sql
+    planned_unique_key_test: >-
+      modernization/dbt/genapp_rqi/tests/assert_issued_policy_unique_key.sql
     column_count: 11
     source_derived_column_count: 10
     warehouse_assigned_column_count: 1
@@ -1696,14 +1884,15 @@ targets:
   canonical.preissued_rating:
     schema: canonical
     alias: preissued_rating
-    dbt_model: canonical_preissued_rating
+    planned_dbt_model: canonical_preissued_rating
     materialization: table
     grain: one row per successful issued policy and source system
     filter: return_code = '00'
     unique_key:
       - source_system_key
       - policy_number
-    unique_key_test: modernization/dbt/genapp_rqi/tests/assert_preissued_rating_unique_key.sql
+    planned_unique_key_test: >-
+      modernization/dbt/genapp_rqi/tests/assert_preissued_rating_unique_key.sql
     column_count: 9
     source_derived_column_count: 8
     warehouse_assigned_column_count: 1
@@ -1747,9 +1936,11 @@ targets:
 
 canonical_relation_count: 2
 
-# Pass and fail contract applied when harness captures are compared with the canonical rows.
+# Pass and fail contract to apply when harness captures are compared with the canonical rows.
+# The comparison tool named under `planned_implementation` is a planned deliverable and is not
+# present at this milestone, so no comparison has been run against this contract yet.
 comparison:
-  implemented_by: modernization/validation/diff_harness_vs_warehouse.py
+  planned_implementation: modernization/validation/diff_harness_vs_warehouse.py
   amount_tolerance_abs: 0.01
   amount_fields:
     - payment_amount
@@ -1765,7 +1956,8 @@ comparison:
   relations_compared:
     - canonical.issued_policy
     - canonical.preissued_rating
-  rationale: see modernization/docs/decision-log.md
+  rationale: >-
+    see modernization/docs/decision-log.md (planned deliverable; not present at this milestone)
 
 # Counts asserted by this map. Each value is countable from the sections above.
 counts:
@@ -1785,9 +1977,14 @@ counts:
   landing_fields: 17
   canonical_relations: 2
 
-# Files that read their layout, typing and lineage facts from this map.
-consumed_by:
+# Consumers of this map. `current_consumers` names what reads it at this milestone.
+# `planned_consumers` names the artifacts that will read their layout, typing and lineage facts
+# from it once they are processed; every path listed there is a planned deliverable and is not
+# present at this milestone.
+current_consumers:
   - modernization/extraction/build_sample_commarea.py
+
+planned_consumers:
   - modernization/extraction/extract_commarea.py
   - modernization/extraction/extraction-spec.md
   - modernization/landing/landing-schema.json
@@ -1817,10 +2014,41 @@ sample_definition_contract:
     - keys belonging to another product's overlay are rejected
     - unknown keys are rejected
     - items whose logical entry is populated_by chain must not be supplied
+    - keys naming a filler or padding item listed under protected_fill_items are rejected
+    - supplied values must not be empty; an item left at its fill is omitted instead
     - supplied numeric values must contain digits only
+    - supplied alphanumeric values must contain printable 7-bit ASCII only
     - supplied values longer than the declared item length are rejected
     - unset numeric items are zero-filled
     - unset alphanumeric items are space-filled
+    - a required key must carry a non-empty value
+    - >-
+      an optional key may be omitted, and its window is then filled with the padding character its
+      kind records under value_padding
+    - >-
+      a supplied value for an item recording value_semantics iso_date must be a real calendar date
+      written as YYYY-MM-DD
+    - >-
+      a supplied numeric value must not exceed the item's moved_to_max_value where the layout
+      records one
+  # Filler and padding items whose windows hold their fill character on every emitted
+  # record. Each entry is the declaration at base/src/lgcmarea.cpy:<line>.
+  protected_fill_items:
+    - item: CA-E-PADDING-DATA
+      line: 54
+      fill: spaces
+    - item: CA-H-FILLER
+      line: 63
+      fill: spaces
+    - item: CA-M-FILLER
+      line: 75
+      fill: spaces
+    - item: CA-B-FILLER
+      line: 94
+      fill: spaces
+    - item: CA-C-FILLER
+      line: 103
+      fill: spaces
   chain_populated_items:
     - item: CA-RETURN-CODE
       kind: numeric_display

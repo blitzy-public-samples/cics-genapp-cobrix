@@ -1,11 +1,17 @@
 # ---------------------------------------------------------------------------
 # statement_map.yml - EXEC SQL block map for base/src/lgapdb01.cbl
 #
-# Machine-readable map consumed by modernization/harness/translate.py. Each
-# entry names one EXEC SQL block in the read-only source program and the
-# construct that replaces that block in the generated copy written to
-# modernization/harness/build/. translate.py fails when a block found in the
-# source cannot be matched to an entry in this file.
+# Milestone note: modernization/harness/translate.py, the stub members under
+# modernization/harness/stubs/ and the generated tree
+# modernization/harness/build/ are planned artifacts and are not present in
+# the tree at this milestone; every statement below about the translator, a
+# stub or a generated copy is the planned contract.
+#
+# Machine-readable map to be consumed by modernization/harness/translate.py.
+# Each entry names one EXEC SQL block in the read-only source program and the
+# construct that is to replace that block in the generated copy written to
+# modernization/harness/build/. translate.py is required to fail when a block
+# found in the source cannot be matched to an entry in this file.
 #
 # Coverage: all 11 EXEC SQL blocks of base/src/lgapdb01.cbl - 3 INCLUDE
 # blocks under `includes` and 8 DML blocks under `dml`. Line numbers are
@@ -13,12 +19,19 @@
 # byte-identical; nothing here edits it.
 #
 # `terminating_period` records whether the block's END-EXEC line carries a
-# trailing period. The last statement of the generated replacement inherits
-# that period.
+# trailing period. The last statement of the generated replacement is to
+# inherit that period.
 #
 # `using` lists the host variables of a DML block in source order. Each item
 # carries the host name exactly as the source spells it, the DB2 column it is
 # paired with, its direction, its PICTURE and the locator of its declaration.
+#
+# `execution_order` records the ordering constraints between dml entries and,
+# in each entry's `witness` block, the capture items whose runtime values
+# decide the constraint. `capture_ordinals` resolves a dml id to the ordinal
+# item that carries when that block ran, and names the shared sequence item
+# that every ordinal is stamped from. Both sections name items declared by
+# modernization/harness/copybooks/hcapture.cpy.
 #
 # Scope: SQL-block-to-harness-construct mapping only. Warehouse column
 # mapping, runtime status, COMMAREA offsets and the landing record are held in
@@ -26,9 +39,11 @@
 #
 # The two interpretation choices encoded by this file - the single-superset
 # SQL-INSERT-ENDOWMENT call standing for both source branches, and one map
-# covering INCLUDE and DML blocks alike - are recorded as rows in
-# modernization/docs/decision-log.md. Harness topology is Figure 5
-# "Validation Harness Control Flow" in modernization/docs/architecture.md.
+# covering INCLUDE and DML blocks alike - are to be recorded as rows in
+# modernization/docs/decision-log.md (planned deliverable; not present at
+# this milestone).
+# Harness topology: Figure 5 — Validation Harness Control Flow in
+# modernization/docs/architecture.md.
 # ---------------------------------------------------------------------------
 version: 1
 
@@ -41,8 +56,9 @@ source_program:
   exec_cics_blocks: 20
   max_line_length: 72
 
-# EXEC SQL INCLUDE blocks. Each is replaced by a COPY statement that resolves
-# against the generated build directory under -ffold-copy=LOWER -ext cpy.
+# EXEC SQL INCLUDE blocks. Each is to be replaced by a COPY statement that
+# resolves against the generated build directory under -ffold-copy=LOWER
+# -ext cpy.
 includes:
   # WORKING-STORAGE: length constants and Db2 host-variable definitions.
   - id: 'include_lgpolicy'
@@ -52,8 +68,8 @@ includes:
     terminating_period: true
     replacement: 'COPY LGPOLICY.'
     resolves_to: 'lgpolicy.cpy'
-  # WORKING-STORAGE: SQL communications area. The generated copy resolves to
-  # the harness copybook hsqlca.cpy.
+  # WORKING-STORAGE: SQL communications area. The generated copy is to
+  # resolve to the harness copybook hsqlca.cpy.
   - id: 'include_sqlca'
     include_name: 'SQLCA'
     start_line: 124
@@ -73,9 +89,10 @@ includes:
     resolves_to: 'lgcmarea.cpy'
     enclosing_group: '01  DFHCOMMAREA.'
 
-# EXEC SQL DML blocks. Each is replaced by a dynamic CALL to the stub named in
-# `call_program`, passing the `using` hosts BY REFERENCE in the listed order.
-# The stub PROGRAM-IDs live in modernization/harness/stubs/.
+# EXEC SQL DML blocks. Each is to be replaced by a dynamic CALL to the stub
+# named in `call_program`, passing the `using` hosts BY REFERENCE in the
+# listed order. The stub PROGRAM-IDs are to live in
+# modernization/harness/stubs/.
 dml:
   # ---------------------------------------------------------------------
   # Block 4 of 11. INSERT INTO POLICY, paragraph INSERT-POLICY (line 261).
@@ -568,7 +585,12 @@ dml:
         pic: 'X(255)'
         declared_in: 'base/src/lgcmarea.cpy:93'
 
-# Ordering constraints between dml entries, measured from the source.
+# Ordering constraints between dml entries, measured from the source. The
+# `witness` block of each entry names the hcapture.cpy ordinal items that carry
+# the observed order and the assertions evaluated over their values. In an
+# assertion, `left_item` and `right_item` name ordinal items, `right_literal`
+# carries a value, and `operator` is 'greater_than' or 'less_than'. An
+# assertion that does not hold reports the constraint as violated.
 execution_order:
   - id: 'policy_before_commercial'
     predecessor: 'insert_policy'
@@ -580,12 +602,58 @@ execution_order:
       base/src/lgapdb01.cbl:525 and is populated only by the SELECT LASTCHANGED
       read-back at base/src/lgapdb01.cbl:316-321, which reads the row written
       by the INSERT INTO POLICY block at base/src/lgapdb01.cbl:268-288.
+    witness:
+      copybook: 'modernization/harness/copybooks/hcapture.cpy'
+      predecessor_ordinal_item: 'HC-POL-SEQ'
+      successor_ordinal_item: 'HC-COM-SEQ'
+      assertions:
+        # The predecessor was captured.
+        - left_item: 'HC-POL-SEQ'
+          operator: 'greater_than'
+          right_literal: 0
+        # The successor was captured.
+        - left_item: 'HC-COM-SEQ'
+          operator: 'greater_than'
+          right_literal: 0
+        # The predecessor was captured earlier than the successor.
+        - left_item: 'HC-POL-SEQ'
+          operator: 'less_than'
+          right_item: 'HC-COM-SEQ'
 
-# Counts asserted by modernization/harness/translate.py after loading this
-# file. using_counts is keyed by call target: the call_program value with the
-# SQL- prefix removed, lower-cased, hyphens replaced by underscores. The two
-# ENDOWMENT blocks share the insert_endowment key; both name the same stub and
-# the same 9-item signature.
+# Ordering witness items declared by
+# modernization/harness/copybooks/hcapture.cpy. A capture stub adds 1 to
+# `sequence_item` and moves the new value into the ordinal item of its own
+# capture group as it records the event. A lower ordinal marks the earlier
+# event; `unstamped_value` marks a block that was never captured.
+# `by_dml_id` carries one entry per dml id above, spelled as that entry
+# spells it; both ENDOWMENT ids resolve to the single ENDOWMENT capture group
+# and name the same ordinal item.
+capture_ordinals:
+  copybook: 'modernization/harness/copybooks/hcapture.cpy'
+  sequence_item: 'HC-EVENT-SEQ'
+  ordinal_pic: '9(4)'
+  unstamped_value: 0
+  by_dml_id:
+    insert_policy: 'HC-POL-SEQ'
+    set_identity: 'HC-IDENT-SEQ'
+    select_lastchanged: 'HC-LCHG-SEQ'
+    insert_endowment_varchar: 'HC-END-SEQ'
+    insert_endowment_novarchar: 'HC-END-SEQ'
+    insert_house: 'HC-HOU-SEQ'
+    insert_motor: 'HC-MOT-SEQ'
+    insert_commercial: 'HC-COM-SEQ'
+  # The KSDSPOLY write at base/src/lgapvs01.cbl:135-141 is not an EXEC SQL
+  # block of this map. Its ordinal is stamped from the same sequence item and
+  # is named here beside the SQL ordinals.
+  vsam_write_ordinal_item: 'HC-VSAM-SEQ'
+  # The seven distinct values of by_dml_id plus vsam_write_ordinal_item.
+  distinct_ordinal_items: 8
+
+# Counts to be asserted by modernization/harness/translate.py after loading
+# this file. using_counts is keyed by call target: the call_program value with
+# the SQL- prefix removed, lower-cased, hyphens replaced by underscores. The
+# two ENDOWMENT blocks share the insert_endowment key; both name the same stub
+# and the same 9-item signature.
 checks:
   include_count: 3
   dml_count: 8

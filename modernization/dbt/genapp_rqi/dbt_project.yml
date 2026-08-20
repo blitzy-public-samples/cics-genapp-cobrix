@@ -1,20 +1,26 @@
 # dbt_project.yml
 # Project manifest for the GenApp Policy-Issue cloud-warehouse bridge.
-# Single dbt project of the bridge; its models, macros and singular tests resolve
-# through this file.
-# Runs unchanged on Amazon Redshift and DuckDB.
-# Diagram reference: Figure 4, dbt Transformation DAG and Field Allocation,
+# Single dbt project of the bridge; its models, macros and singular tests will
+# resolve through this file.
+# Milestone status: macros/generate_schema_name.sql is the only other project member
+# present. The model tree, the singular tests and profiles.example.yml are planned
+# deliverables, not present at this milestone. Every model, test and profile
+# statement below states the target configuration, not observed behavior.
+# Planned to run unchanged on Amazon Redshift and DuckDB.
+# Diagram reference: Figure 4 — dbt Transformation DAG and Field Allocation
 # in modernization/docs/architecture.md.
-# Rationale for every choice in this file: modernization/docs/decision-log.md
+# Rationale for every choice in this file:
+# modernization/docs/decision-log.md (planned deliverable; not present at this milestone)
 
 name: genapp_rqi
 version: '1.0.0'
 config-version: 2
 
-# Connection profile. Matches the top-level profile block name in profiles.example.yml.
+# Connection profile. Will match the top-level profile block name of the planned
+# profiles.example.yml.
 profile: genapp_rqi
 
-# Authored directories of this project.
+# Authored directories of this project. Only macros is present at this milestone.
 model-paths: ["models"]
 macro-paths: ["macros"]
 test-paths: ["tests"]
@@ -25,11 +31,11 @@ clean-targets: ["target", "dbt_packages"]
 # Supported dbt-core range. Matches the dbt-core pin in modernization/requirements.txt.
 require-dbt-version: [">=1.12.0", "<1.13.0"]
 
-# Per-layer defaults, keyed by project name and then by model directory.
-# Each +schema value is passed verbatim to the generate_schema_name macro in
-# macros/generate_schema_name.sql, which yields the literal schemas staging,
-# intermediate and canonical on both adapters.
-# Each mart sets its own relation alias in its own model config block.
+# Per-layer defaults for the planned model tree, keyed by project name and then by
+# model directory. dbt will pass each +schema value verbatim to the
+# generate_schema_name macro in macros/generate_schema_name.sql, which returns the
+# literal schemas staging, intermediate and canonical on both adapters.
+# Each planned mart will set its own relation alias in its own model config block.
 models:
   genapp_rqi:
     staging:

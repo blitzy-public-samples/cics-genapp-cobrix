@@ -7,43 +7,191 @@ WHAT THIS TOOL DOES
     single fixed-width record of exactly 32,500 characters followed by one newline.
 
 WHICH INPUTS IT ACCEPTS
-    --sample     one sample definition JSON document, keyed by COMMAREA item name.
-    --field-map  the field map supplying every offset, length and kind
-                 (default: ``copybook_field_map.yml`` beside this script).
-    --output     destination path for the generated record.
+    --sample       one sample definition JSON document, keyed by COMMAREA item name,
+                   holding at most 262,144 bytes of UTF-8 text.
+    --field-map    the field map supplying every offset, length and kind, holding at
+                   most 4,194,304 bytes of UTF-8 text
+                   (default: ``copybook_field_map.yml`` beside this script).
+    --output       destination path for the generated record.
+    --output-root  existing directory inside the validated generated-output root or
+                   inside the system temporary directory tree that the destination must
+                   resolve inside, replacing the default generated-output root.
+
+    Both documents are parsed with a repeated key rejected at every nesting level and
+    structural nesting bounded to 32 levels: the sample definition's text is scanned for
+    that bound before the JSON parser materialises the document, and the field map is
+    bounded while its nodes are composed, where no YAML alias is accepted either.
+
+WHICH FIELD MAP MEMBERS ARE FIXED
+    Loading confirms, before any routing, rendering or allocation, that
+    ``record.length`` and ``sample_definition_contract.emitted_record_length`` are
+    both 32,500, that ``value_padding`` is the digit zero for ``numeric_display`` and
+    one space for ``alphanumeric``, that ``value_justification`` is right for
+    ``numeric_display`` and left for ``alphanumeric``, and that every layout item
+    flagged ``chain_required_numeric`` records kind ``numeric_display``. Loading also
+    confirms the container and element types of every member this builder reads: each
+    ``layout`` group name and each ``request_routing.map`` request id is a non-empty
+    string, and ``sample_definition_contract.required_keys``, where it is recorded, is a
+    sequence whose every element is a non-empty string. Members this builder does not
+    read are ignored.
+    --self-test    run the built-in case matrix instead of building a record; it accepts
+                   no --sample and no --output.
+
+    Every path argument must be UTF-8 text free of control characters, and its ``.``
+    and ``..`` components are collapsed without consulting the filesystem, so no
+    symbolic link is followed while the argument is normalised. A path read by this
+    tool must sit inside ``modernization/extraction/`` or
+    ``modernization/harness/build/``. The generated record is written inside
+    ``modernization/harness/build/``, or inside the directory ``--output-root`` names,
+    which must itself resolve inside that root or inside the system temporary
+    directory; an existing destination is replaced only when it is a regular file and
+    is not a symbolic link. Both read directories are composed by name from the
+    repository root two levels above this script's own directory; every working
+    directory yields the same two directories. A symbolic link among the components of
+    either directory, or among the components of a path argument below it, is refused
+    rather than followed. Each input is opened once, with the leaf refused when it is a
+    symbolic link, and is read from that one open descriptor. The complete file status
+    of that descriptor is examined before any byte is read: the inode carries exactly
+    one link, and it sits on the device its authorised input directory sits on. The
+    record is written to a temporary file created inside the destination directory,
+    moved onto the destination name and read back through one descriptor held open on
+    that directory. The built-in self-test runs in this process and reads its own
+    scratch documents from one throwaway directory inside the system temporary
+    directory, which it names to each reader as an extra authorised root; no command
+    line can name one.
 
 HOW FIELDS ARE PLACED
-    The buffer starts as spaces at the length declared by ``record.length``. Placement
+    The buffer starts as spaces at ``COMMAREA_RECORD_LENGTH`` characters. Placement
     covers the base ``layout`` groups plus the one overlay group that
     ``request_routing`` selects for the sample's request id. Items carrying a
     ``redefined_by`` list are not placed; the items that redefine them are placed
     instead. A ``numeric_display`` window receives the supplied value right-justified
     and zero-padded, and all zeros when the sample omits the item. An ``alphanumeric``
     window receives the supplied value left-justified and space-padded, and stays
-    spaces when the sample omits the item. The record is always emitted at the full
-    declared length of 32,500 characters.
+    spaces when the sample omits the item. The record is always emitted at
+    ``COMMAREA_RECORD_LENGTH`` characters followed by one newline, and the field map
+    must declare that same length under both ``record.length`` and
+    ``sample_definition_contract.emitted_record_length``.
+
+WHAT A SAMPLE DEFINITION MAY NOT CONTAIN
+    An unknown key, a key of an overlay the request id does not select, a key the
+    chain assigns, a key naming one of the ``PROTECTED_FILL_ITEMS`` filler or padding
+    items, a repeated key, two keys that name one item, a non-string value, an empty
+    value, a value longer than the declared item length, a non-digit value for a
+    numeric item, or a character outside printable 7-bit ASCII for an alphanumeric
+    item. Each input must be one regular file. Documents above ``MAX_SAMPLE_BYTES``,
+    above ``MAX_SAMPLE_KEYS`` keys, nested deeper than ``MAX_DOCUMENT_DEPTH``
+    containers or expanding past ``MAX_DOCUMENT_NODES`` values are rejected unread or
+    unused, as is a field map above ``MAX_FIELD_MAP_BYTES`` or breaching the same
+    nesting limits. A document holding a container that appears inside itself is
+    rejected, and a field map that repeats a mapping key or carries a key this tool
+    cannot compare is rejected rather than resolved to its last value.
+
+WHAT --self-test CHECKS
+    It parses ``base/src/lgcmarea.cpy`` for every item offset, length and kind without
+    reading the field map, compares that parse with the field map's exercised layout
+    entries in both directions, asserts each fixture's exact supplied key set, the
+    fill of every window it omits and its rendered bytes against a table of literal
+    expected window contents, and runs the failure matrix: mutated field maps,
+    rejected sample definitions, including two keys that name one item by differing
+    case, a record one character short of and one character past the emitted length
+    offered to the writer, an unwritable output, an unreadable field map, an input that
+    is not a regular file, a rerun comparison, a non-zero commercial status placement,
+    a full-width commercial address, the motor record's inactive commercial windows,
+    short values of both kinds, a numeric justification mutation compared byte for byte
+    against the literal window it moves, a protected filler's fill mutation, and the
+    literal cases, withheld statements and dbt test of the field map's product premium
+    nullability claim. Every case prints one line, and a failing case leaves status 5.
+
+WHICH VALUES IT ACCEPTS
+    A required item must be supplied with one or more characters. An optional item may
+    be omitted, and an optional item whose key is present with an empty string leaves
+    its window filled with the padding character of its kind, exactly as an omitted key
+    does. A supplied value no longer than its declared length holds ASCII digits for a
+    ``numeric_display`` item and printable 7-bit ASCII for an ``alphanumeric`` item; it
+    stays within ``moved_to_max_value`` where the layout records the host declaration
+    the chain moves it into, and is a real calendar date written as YYYY-MM-DD where the
+    layout records ``value_semantics: iso_date``.
 
 HOW IT FAILS
     Every failure writes one diagnostic line to stderr and returns a non-zero status:
     2 for a rejected sample definition, 3 for an internally inconsistent field map,
-    4 for an unreadable input or an unwritable output. The tool never prompts and
-    requires no TTY. On success it writes one summary line to stdout.
+    4 for an unreadable input or an unwritable output, 5 for a failed self-test case.
+    Diagnostics carry untrusted text escaped to one printable 7-bit ASCII line. The
+    tool never prompts and requires no TTY. On success it writes one summary line to
+    stdout.
 
-Decision rationale for this component: modernization/docs/decision-log.md
+GENERATED-OUTPUT POLICY
+    One policy governs every path this bridge writes: a generated record or translated
+    copy resolves inside ``modernization/harness/build/`` and a generated evidence log
+    resolves inside ``modernization/validation/artifacts/``. That build directory is
+    itself validated before anything is written: it must canonicalise to exactly
+    ``modernization/harness/build`` under the canonical repository directory that holds
+    this script, and no component from that repository directory down to it may be a
+    symbolic link. An explicitly designated root replaces it only while resolving inside
+    that validated directory or inside the system temporary directory tree. Every
+    destination is canonicalised through its symbolic links before anything is created;
+    a symbolic link, an existing non-regular target and every path under the
+    repository's ``base/`` directory are refused, no authored or source path is
+    reachable, and every value carried into a diagnostic or an evidence record is
+    escaped to one control-free line. This tool enforces the policy for generated
+    records; ``modernization/validation/verify_readonly.sh`` enforces it for evidence
+    logs.
+
+WHERE IT WRITES
+    The destination is canonicalised and must resolve inside the validated
+    ``modernization/harness/build`` directory described above, unless --output-root
+    names an existing directory that contains it, carries no symbolic-link component
+    and resolves inside that validated directory or inside the system temporary
+    directory tree. A destination resolving inside the repository must resolve inside
+    the validated ``modernization/harness/build`` directory whichever root is in force,
+    and a destination resolving inside the repository's ``base/`` directory is refused.
+    A destination that is a symbolic link, that already exists as anything other than a
+    regular file, or whose canonical form leaves the allowed root is refused before any
+    directory is created and before any temporary entry is written.
+
+    The write itself runs through descriptors alone. The directory the destination is
+    reached from is opened while the destination is validated, by descending its
+    canonical path one single component at a time from the filesystem root and following
+    no symbolic link at any level: the canonical repository directory holding this
+    script under the default root, and --output-root itself when one is named. That
+    descriptor is confirmed to still hold the directory the canonical path names, is the
+    only object the write descends from, and the anchor is never resolved as a pathname
+    again. Every directory below it is created where absent and opened by single
+    component relative to the descriptor above it, so a symbolic link is refused at
+    every level. The temporary entry is created exclusively relative to the descriptor
+    holding the destination, flushed to the device, renamed onto the destination name
+    through that same descriptor, and read back through it for a byte-for-byte
+    comparison with the 32,501 bytes rendered.
+
+HOW IT FAILS
+    Every failure writes one diagnostic to stderr as a single line free of control
+    characters and of complete supplied values, and returns a non-zero status: 2 for a
+    rejected sample definition, 3 for an internally inconsistent field map, 4 for an
+    unreadable input, a refused output or a usage error. The tool never prompts and
+    requires no TTY. ``--help`` prints the full help and exits with status 0. On success
+    it writes one summary line to stdout.
+
+Decision rationale for this component belongs to modernization/docs/decision-log.md
+(planned deliverable; not present at this milestone).
 """
 
 from __future__ import annotations
 
 import argparse
 import contextlib
+import copy
+import datetime
+import io
 import json
 import os
 import re
+import stat
 import sys
 import tempfile
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable, Iterator
 from pathlib import Path
-from typing import Any, NamedTuple
+from typing import Any, NamedTuple, NoReturn
 
 import yaml
 
@@ -53,14 +201,67 @@ _PROGRAM = "build_sample_commarea"
 _THIS_DIR = Path(__file__).resolve().parent
 DEFAULT_FIELD_MAP = _THIS_DIR / "copybook_field_map.yml"
 
+# Repository directory that holds this script, taken from the script's own location
+# (modernization/extraction/ -> repository root), and the generated-output root every
+# destination resolving inside that repository must stay under.
+REPOSITORY_ROOT = _THIS_DIR.parents[1]
+DEFAULT_OUTPUT_ROOT = REPOSITORY_ROOT / "modernization" / "harness" / "build"
+
+# Sample definitions this tool is exercised with, beside the field map.
+SAMPLE_INPUT_DIR = _THIS_DIR / "sample_input"
+MOTOR_SAMPLE_DEFINITION = SAMPLE_INPUT_DIR / "commarea_01amot.json"
+COMMERCIAL_SAMPLE_DEFINITION = SAMPLE_INPUT_DIR / "commarea_01acom.json"
+
+# The read-only copybook that declares the record, two directories above this script.
+COMMAREA_COPYBOOK = _THIS_DIR.parent.parent / "base" / "src" / "lgcmarea.cpy"
+
+# Emitted record width: the sum of the four level-03 items declared at
+# base/src/lgcmarea.cpy:10-13, which are 6 + 2 + 10 + 32482 characters.
+COMMAREA_RECORD_LENGTH = 32500
+
+# Name the same fixed width carries where the generated-output policy refers to it,
+# and the width record.length and sample_definition_contract.emitted_record_length must
+# both declare.
+RECORD_LENGTH = COMMAREA_RECORD_LENGTH
+
 EXIT_OK = 0
 EXIT_SAMPLE_REJECTED = 2
 EXIT_FIELD_MAP_INVALID = 3
 EXIT_IO_ERROR = 4
+EXIT_SELF_TEST_FAILED = 5
+
+# Bounds applied to each input document before and during parsing: the bytes one read
+# takes, the keys a sample definition may declare, the container nesting a document may
+# reach and the values it may expand to.
+MAX_FIELD_MAP_BYTES = 1024 * 1024
+MAX_SAMPLE_BYTES = 64 * 1024
+MAX_SAMPLE_KEYS = 256
+MAX_DOCUMENT_DEPTH = 32
+MAX_DOCUMENT_NODES = 100_000
+
+# Flags that open one input without blocking on a pipe, socket or device.
+_NON_BLOCKING_READ = os.O_RDONLY | getattr(os, "O_NONBLOCK", 0)
+
+# Characters of untrusted text one diagnostic fragment carries before truncation.
+MAX_DIAGNOSTIC_CHARACTERS = 48
+MAX_DIAGNOSTIC_PATH_CHARACTERS = 160
+MAX_DIAGNOSTIC_MESSAGE_CHARACTERS = 200
+
+# Candidate names tried when creating the temporary entry the record is written through.
+MAX_TEMPORARY_ATTEMPTS = 8
+
+# Mode requested for a directory created below the anchor; the umask applies to it.
+DIRECTORY_MODE = 0o777
+
+# Bytes read back from the destination in one os.read call during verification.
+READ_BACK_CHUNK_BYTES = 65536
 
 # Item kinds recorded by the field map's layout entries.
 KIND_NUMERIC = "numeric_display"
 KIND_ALPHANUMERIC = "alphanumeric"
+
+# Kind reported by the copybook parse for an item declared without a PICTURE clause.
+KIND_GROUP = "group"
 
 # Runtime statuses recorded by the field map's logical field entries.
 POPULATED_BY_REQUEST = "request"
@@ -70,10 +271,44 @@ POPULATED_BY_CHAIN = "chain"
 JUSTIFY_LEFT = "left"
 JUSTIFY_RIGHT = "right"
 
-# Character classes permitted in a supplied value, matched with fullmatch: ASCII digits
-# 0-9 for a numeric item, printable 7-bit ASCII for an alphanumeric item.
-_ASCII_DIGITS = re.compile(r"[0-9]*")
-_PRINTABLE_ASCII = re.compile(r"[\x20-\x7E]*")
+# Padding character and justification each item kind must record under
+# sample_definition_contract.value_padding and value_justification.
+FIXED_PADDING = {KIND_NUMERIC: "0", KIND_ALPHANUMERIC: " "}
+FIXED_JUSTIFICATION = {KIND_NUMERIC: JUSTIFY_RIGHT, KIND_ALPHANUMERIC: JUSTIFY_LEFT}
+
+# Value semantics a layout item records; iso_date marks a calendar date value.
+SEMANTICS_ISO_DATE = "iso_date"
+KNOWN_VALUE_SEMANTICS = (SEMANTICS_ISO_DATE,)
+
+# Fill labels the field map records for a window left at its padding character.
+FILL_LABEL_SPACES = "spaces"
+FILL_LABEL_ZEROS = "zeros"
+
+# Filler and padding items of base/src/lgcmarea.cpy: CA-E-PADDING-DATA at line 54,
+# CA-H-FILLER at 63, CA-M-FILLER at 75, CA-B-FILLER at 94 and CA-C-FILLER at 103. A
+# sample definition may not supply them and their windows stay spaces.
+PROTECTED_FILL_ITEMS = frozenset(
+    {
+        "CA-E-PADDING-DATA",
+        "CA-H-FILLER",
+        "CA-M-FILLER",
+        "CA-B-FILLER",
+        "CA-C-FILLER",
+    }
+)
+
+# Character classes permitted in a supplied value, matched with fullmatch: one or more
+# ASCII digits 0-9 for a numeric item, one or more printable 7-bit ASCII characters for
+# an alphanumeric item, and the YYYY-MM-DD shape for an iso_date item. An omitted item
+# is filled by _placed_characters instead.
+_DIGITS = "0123456789"
+_ASCII_DIGITS = re.compile(r"[0-9]+")
+_PRINTABLE_ASCII = re.compile(r"[\x20-\x7E]+")
+_ISO_DATE_SHAPE = re.compile(r"([0-9]{4})-([0-9]{2})-([0-9]{2})")
+
+# C0 controls, DEL and C1 controls, rejected outright in a path argument and escaped in
+# every other value a diagnostic quotes.
+_CONTROL_CHARACTERS = re.compile(r"[\x00-\x1f\x7f-\x9f]")
 
 
 class BuildError(Exception):
@@ -100,6 +335,18 @@ class InputOutputError(BuildError):
     exit_status = EXIT_IO_ERROR
 
 
+class UsageError(BuildError):
+    """The command line omits a required argument or names an unknown one."""
+
+    exit_status = EXIT_IO_ERROR
+
+
+class SelfTestError(BuildError):
+    """Raised when the self-test cannot run its cases at all."""
+
+    exit_status = EXIT_SELF_TEST_FAILED
+
+
 class Routing(NamedTuple):
     """Request routing resolved for one sample definition."""
 
@@ -109,18 +356,33 @@ class Routing(NamedTuple):
 
 
 class Window(NamedTuple):
-    """One placeable byte window taken from a field map layout entry."""
+    """One placeable byte window taken from a field map layout entry.
+
+    ``semantics`` carries the item's ``value_semantics`` when it records one.
+    ``moved_to``, ``moved_to_pic`` and ``moved_to_max_value`` carry the host declaration
+    the chain moves the item's value into and the largest whole number that declaration
+    holds, for the items whose layout entry records them.
+    """
 
     item: str
     group: str
     offset: int
     length: int
     kind: str
+    semantics: str | None = None
+    moved_to: str | None = None
+    moved_to_pic: str | None = None
+    moved_to_max_value: int | None = None
 
     @property
     def end_byte(self) -> int:
         """Return the 1-based position of the window's last character."""
         return self.offset + self.length - 1
+
+    @property
+    def host_declaration(self) -> str:
+        """Return the host declaration recorded for this window, name then PICTURE."""
+        return f"{self.moved_to} PIC {self.moved_to_pic}"
 
 
 def _type_name(value: Any) -> str:
@@ -128,15 +390,438 @@ def _type_name(value: Any) -> str:
     return type(value).__name__
 
 
+def _escaped_character(character: str) -> str:
+    """Return one character unchanged when printable ASCII, otherwise as an escape."""
+    code = ord(character)
+    if 0x20 <= code <= 0x7E:
+        return character
+    if code <= 0xFF:
+        return f"\\x{code:02x}"
+    return f"\\u{code:04x}"
+
+
+def _one_line(text: str) -> str:
+    """Return ``text`` with every control and non-ASCII character shown as an escape."""
+    return "".join(_escaped_character(character) for character in text)
+
+
+def _escaped(text: str, limit: int = MAX_DIAGNOSTIC_CHARACTERS) -> str:
+    """Return ``text`` quoted for a diagnostic, bounded and free of control characters.
+
+    Every character outside printable 7-bit ASCII becomes an escape, a single quote and
+    a backslash are escaped, and text longer than ``limit`` characters is truncated with
+    a trailing ellipsis. Used for every fragment taken from an input document: sample
+    keys, request ids, field map member names and item spellings.
+    """
+    rendered = [
+        "\\" + character if character in ("'", "\\") else _escaped_character(character)
+        for character in text[:limit]
+    ]
+    ellipsis = "..." if len(text) > limit else ""
+    body = "".join(rendered)
+    return f"'{body}{ellipsis}'"
+
+
+def _shown(value: Any) -> str:
+    """Return one value taken from an input document, rendered for a diagnostic.
+
+    A string is escaped and bounded, a scalar is shown by value, and any other value is
+    named by its type without any of its content.
+    """
+    if isinstance(value, str):
+        return _escaped(value)
+    if value is None or isinstance(value, (bool, int, float)):
+        return repr(value)
+    return f"a {_type_name(value)}"
+
+
+def _path_shown(path: str | os.PathLike[str]) -> str:
+    """Return one filesystem path quoted for a diagnostic, bounded and control-free."""
+    return _escaped(os.fspath(path), MAX_DIAGNOSTIC_PATH_CHARACTERS)
+
+
+def _display(value: Any) -> str:
+    """Return ``value`` as one quoted, printable 7-bit ASCII fragment.
+
+    Every value interpolated into a diagnostic passes through here: sample definition
+    keys, item names, supplied values, file paths and failure reasons. ``ascii``
+    escapes any character outside 7-bit ASCII, and each remaining control character is
+    replaced by its ``\\xNN`` form, so the caller's message stays one printable line.
+
+    >>> _display("BAD\\nKEY")
+    "'BAD\\\\nKEY'"
+    """
+    return "".join(
+        character if 0x20 <= ord(character) <= 0x7E else f"\\x{ord(character):02x}"
+        for character in ascii(value)
+    )
+
+
+def _reason(error: BaseException) -> str:
+    """Return the reason text of ``error`` as one printable ASCII fragment."""
+    strerror = getattr(error, "strerror", None)
+    return _display(strerror if strerror else str(error))
+
+
 def _quote_all(names: Iterable[str]) -> str:
-    """Return ``names`` sorted, quoted and comma separated."""
-    return ", ".join(f"'{name}'" for name in sorted(names))
+    """Return ``names`` sorted, escaped, quoted and comma separated."""
+    return ", ".join(_display(name) for name in sorted(names))
+
+
+class _DuplicateRejectingLoader(yaml.SafeLoader):
+    """``yaml.SafeLoader`` that refuses a mapping which repeats a key.
+
+    Loading raises ``yaml.constructor.ConstructorError`` naming the repeated key and
+    the position it reappears at, instead of resolving that key to its last value. A
+    key this loader cannot compare against the keys already seen raises the same error
+    class, so every mapping defect reaches the caller as a YAML error.
+    """
+
+    def construct_mapping(
+        self, node: yaml.MappingNode, deep: bool = False
+    ) -> dict[Any, Any]:
+        """Build one mapping, raising on a repeated key or a key it cannot compare."""
+        seen: set[Any] = set()
+        for key_node, _ in node.value:
+            key = self.construct_object(key_node, deep=deep)
+            try:
+                duplicate = key in seen
+                if not duplicate:
+                    seen.add(key)
+            except TypeError as error:
+                raise yaml.constructor.ConstructorError(
+                    "while constructing a mapping",
+                    node.start_mark,
+                    f"found unhashable key of type {_type_name(key)}",
+                    key_node.start_mark,
+                ) from error
+            if duplicate:
+                raise yaml.constructor.ConstructorError(
+                    "while constructing a mapping",
+                    node.start_mark,
+                    f"found duplicate key {_display(key)}",
+                    key_node.start_mark,
+                )
+        return super().construct_mapping(node, deep=deep)
+
+
+# Sentinel returned when a container's children are exhausted during the walk below.
+_EXHAUSTED = object()
+
+
+def _container_children(node: Any) -> Iterable[Any] | None:
+    """Return the child values of a mapping or sequence, or None for a scalar."""
+    if isinstance(node, dict):
+        return node.values()
+    if isinstance(node, (list, tuple)):
+        return node
+    return None
+
+
+def _document_depth(document: Any, where: str, invalid: type[BuildError]) -> int:
+    """Return the deepest container nesting level of ``document``.
+
+    The walk is iterative and measures a document nested past any Python recursion
+    limit without raising. A scalar has depth 0, a flat mapping or sequence has
+    depth 1. Every container on the way down is held by identity, so a container
+    reached from inside itself raises ``invalid`` instead of walking forever, and the
+    walk stops with ``invalid`` once it has visited ``MAX_DOCUMENT_NODES`` values, so
+    an alias graph that expands past that count is rejected rather than followed.
+    """
+    children = _container_children(document)
+    if children is None:
+        return 0
+    deepest = 1
+    visits = 1
+    open_containers: list[tuple[int, Iterator[Any]]] = [(id(document), iter(children))]
+    on_path = {id(document)}
+    while open_containers:
+        holder, remaining = open_containers[-1]
+        child = next(remaining, _EXHAUSTED)
+        if child is _EXHAUSTED:
+            open_containers.pop()
+            on_path.discard(holder)
+            continue
+        visits += 1
+        if visits > MAX_DOCUMENT_NODES:
+            raise invalid(
+                f"{where} expands to more than {MAX_DOCUMENT_NODES} values, above the "
+                f"value count this tool reads"
+            )
+        grandchildren = _container_children(child)
+        if grandchildren is None:
+            continue
+        if id(child) in on_path:
+            raise invalid(
+                f"{where} holds a container that appears inside itself; this tool "
+                f"reads no self-referential document"
+            )
+        open_containers.append((id(child), iter(grandchildren)))
+        on_path.add(id(child))
+        deepest = max(deepest, len(open_containers))
+    return deepest
+
+
+# Directories a path this tool reads must sit inside, each composed by name from the
+# canonical repository directory that holds this script: the extraction directory that
+# carries the field map and the packaged sample definitions, and the generated-output
+# root that carries a record an earlier run wrote.
+_READ_ROOT_COMPONENTS = (
+    ("modernization", "extraction"),
+    ("modernization", "harness", "build"),
+)
+
+
+def _refuse_control_characters(
+    path: str | os.PathLike[str], what: str, refusal: str
+) -> None:
+    """Refuse a path argument whose text carries a control character.
+
+    C0 controls, DEL and C1 controls are rejected outright rather than escaped, so no
+    path this tool opens can carry a byte that a diagnostic or an evidence record would
+    have to neutralise. The position reported is 1-based and the text itself is escaped
+    for display. ``refusal`` closes the diagnostic.
+    """
+    text = os.fspath(path)
+    if not isinstance(text, str):
+        text = os.fsdecode(text)
+    found = _CONTROL_CHARACTERS.search(text)
+    if found is not None:
+        raise InputOutputError(
+            f"{what} {_path_shown(path)} holds a control character at position "
+            f"{found.start() + 1}; a path argument is text free of control characters; "
+            f"{refusal}"
+        )
+
+
+def _validated_read_roots() -> tuple[Path, ...]:
+    """Return the directories a path this tool reads must sit inside.
+
+    Each root is composed by name from the canonical repository directory that holds
+    this script, so every working directory yields the same directories, and no
+    component from that repository directory down to a root may be a symbolic link. A
+    root that is absent is returned unchanged and authorises nothing, because no path
+    can resolve inside a directory that does not exist.
+    """
+    repository = _canonical_path(REPOSITORY_ROOT)
+    roots: list[Path] = []
+    for components in _READ_ROOT_COMPONENTS:
+        root = repository.joinpath(*components)
+        _refuse_symbolic_component(root, repository, "read root", "refusing to read")
+        roots.append(root)
+    return tuple(roots)
+
+
+def _designated_read_root(root: str | os.PathLike[str]) -> Path:
+    """Return one extra read root, which must be a directory in the temporary tree.
+
+    The in-process self-test names the throwaway directory holding its own scratch
+    documents, which is the only way a directory outside the validated read roots is
+    ever authorised. The root must carry no symbolic-link component, must resolve inside
+    the system temporary directory tree, and must already be a directory; every other
+    root raises ``InputOutputError`` and no byte is read through it.
+    """
+    given = _absolute_path(root)
+    _refuse_control_characters(given, "read root", "refusing to read")
+    _refuse_symbolic_component(
+        given, Path(given.anchor), "read root", "refusing to read"
+    )
+    canonical = _canonical_path(given)
+    temporary_root = _canonical_path(tempfile.gettempdir())
+    if not canonical.is_relative_to(temporary_root):
+        raise InputOutputError(
+            f"read root {_path_shown(root)} resolves to {_path_shown(canonical)}, "
+            f"which is not inside the system temporary directory "
+            f"{_path_shown(temporary_root)}; refusing to read"
+        )
+    if not canonical.is_dir():
+        raise InputOutputError(
+            f"read root {_path_shown(root)} is not an existing directory; refusing to "
+            "read"
+        )
+    return canonical
+
+
+def _authorised_read_roots(
+    extra: Iterable[str | os.PathLike[str]] | None,
+) -> tuple[Path, ...]:
+    """Return every directory an input may be read from for one invocation.
+
+    The validated read roots always authorise a read. ``extra`` adds the throwaway
+    directories the in-process self-test reads its own scratch documents from, each
+    checked by ``_designated_read_root`` before it authorises anything.
+    """
+    roots = list(_validated_read_roots())
+    for root in extra or ():
+        roots.append(_designated_read_root(root))
+    return tuple(roots)
+
+
+def _authorising_read_root(
+    canonical: Path, roots: tuple[Path, ...], what: str, shown: str
+) -> Path:
+    """Return the first root in ``roots`` that contains ``canonical``.
+
+    A path equal to a root is a directory rather than an input and is refused with every
+    path that resolves outside all of them, naming the directories a read is confined to
+    so the caller learns the rule and not only the refusal.
+    """
+    for root in roots:
+        if canonical != root and canonical.is_relative_to(root):
+            return root
+    named = ", ".join(_path_shown(root) for root in roots)
+    raise InputOutputError(
+        f"cannot read {what} {shown}: it resolves to {_path_shown(canonical)}, and a "
+        f"path this tool reads must sit inside {named}; refusing to read"
+    )
+
+
+class _OpenedInput(NamedTuple):
+    """One input opened for a single bounded read: its descriptor and file status."""
+
+    descriptor: int
+    status: os.stat_result
+
+
+def _opened_input(
+    path: Path, what: str, roots: tuple[Path, ...], invalid: type[BuildError]
+) -> _OpenedInput:
+    """Return one descriptor for ``path``, confined to the authorised read roots.
+
+    The path is made absolute, which collapses its ``.`` and ``..`` components without
+    consulting the filesystem, refused when its text carries a control character, and
+    refused when any component from the filesystem root down to it is a symbolic link,
+    so no link is ever followed. Its canonical form must sit inside one authorised read
+    root. The directory holding it is then opened one component at a time from the
+    filesystem root without following a symbolic link, and the leaf is opened as one
+    single name relative to that directory with ``O_NOFOLLOW`` and without blocking, so
+    a pipe, socket or device cannot stall the open and a leaf that became a symbolic
+    link is refused rather than followed. The complete status of that one descriptor is
+    read before any byte is taken: it must report a regular file reached by exactly one
+    link, sitting on the device of the read root that authorised it. Anything else
+    raises ``invalid``; a path outside the roots, an unopenable component and an
+    unopenable leaf raise ``InputOutputError``. The descriptor returned is the caller's
+    to close, and every refusal after the open closes it before raising.
+    """
+    shown = _display(str(path))
+    _refuse_control_characters(path, what, "refusing to read")
+    given = _absolute_path(path)
+    _refuse_symbolic_component(given, Path(given.anchor), what, "refusing to read")
+    canonical = _canonical_path(given)
+    root = _authorising_read_root(canonical, roots, what, shown)
+    try:
+        authorised = os.stat(root, follow_symlinks=False)
+    except OSError as error:
+        raise InputOutputError(
+            f"cannot read {what} {shown}: the authorised directory "
+            f"{_path_shown(root)} cannot be examined: {_reason(error)}"
+        ) from error
+
+    directory = _opened_by_components(
+        canonical.parent, f"directory holding {what}", "refusing to read"
+    )
+    try:
+        descriptor = os.open(
+            canonical.name, _NON_BLOCKING_READ | os.O_NOFOLLOW, dir_fd=directory
+        )
+    except OSError as error:
+        raise InputOutputError(
+            f"cannot read {what} {shown}: {_reason(error)}"
+        ) from error
+    finally:
+        with contextlib.suppress(OSError):
+            os.close(directory)
+
+    try:
+        status = os.fstat(descriptor)
+        if not stat.S_ISREG(status.st_mode):
+            raise invalid(
+                f"{what} {shown} is not a regular file; this tool reads one regular "
+                f"file per input"
+            )
+        if status.st_nlink != 1:
+            raise invalid(
+                f"{what} {shown} is reached by {status.st_nlink} names, and this tool "
+                f"reads a file reached by exactly one"
+            )
+        if status.st_dev != authorised.st_dev:
+            raise invalid(
+                f"{what} {shown} sits on a device other than the one holding the "
+                f"authorised directory {_path_shown(root)}, so it is not the file that "
+                f"directory holds"
+            )
+    except BaseException:
+        with contextlib.suppress(OSError):
+            os.close(descriptor)
+        raise
+    return _OpenedInput(descriptor=descriptor, status=status)
+
+
+class _BoundedInput(NamedTuple):
+    """One input taken by a single bounded read: its exact bytes and their text."""
+
+    payload: bytes
+    text: str
+
+
+def _read_limited_input(
+    path: Path,
+    limit: int,
+    what: str,
+    invalid: type[BuildError],
+    roots: tuple[Path, ...],
+) -> _BoundedInput:
+    """Return the bytes and UTF-8 text of ``path``, reading at most ``limit`` bytes.
+
+    The path is opened once by ``_opened_input``, which confines it to ``roots``,
+    follows no symbolic link and takes the complete status of the one descriptor it
+    returns before any byte is read, so a pipe, socket or device is rejected before any
+    content is taken and a file whose size changes after the examination, or whose
+    directory entry understates it, cannot exceed the limit unnoticed. Anything that is
+    not a regular file raises ``invalid``, as does content above ``limit`` bytes, naming
+    the observed size and the limit, and content that is not UTF-8 text. A path that
+    cannot be opened or read raises ``InputOutputError``. The returned bytes and text
+    are the content that one read took, so a caller needing either form opens the path
+    no second time.
+    """
+    opened = _opened_input(path, what, roots, invalid)
+    descriptor = opened.descriptor
+    chunks: list[bytes] = []
+    entry_size = opened.status.st_size
+    try:
+        pending = limit + 1
+        while pending > 0:
+            chunk = os.read(descriptor, pending)
+            if not chunk:
+                break
+            chunks.append(chunk)
+            pending -= len(chunk)
+    except OSError as error:
+        raise InputOutputError(
+            f"cannot read {what} {_display(str(path))}: {_reason(error)}"
+        ) from error
+    finally:
+        os.close(descriptor)
+
+    payload = b"".join(chunks)
+    if len(payload) > limit:
+        observed = max(len(payload), entry_size)
+        raise invalid(
+            f"{what} {_display(str(path))} holds at least {observed} bytes, above the "
+            f"{limit} byte limit this tool reads"
+        )
+    try:
+        return _BoundedInput(payload=payload, text=payload.decode("utf-8"))
+    except UnicodeError as error:
+        raise invalid(
+            f"{what} {_display(str(path))} is not valid UTF-8 text: {_reason(error)}"
+        ) from error
 
 
 def _section(container: dict[str, Any], key: str, where: str) -> Any:
     """Return ``container[key]``, or raise ``FieldMapError`` naming what is missing."""
     if key not in container:
-        raise FieldMapError(f"{where}: required section '{key}' is missing")
+        raise FieldMapError(f"{where}: required section {_shown(key)} is missing")
     return container[key]
 
 
@@ -145,7 +830,8 @@ def _mapping_section(container: dict[str, Any], key: str, where: str) -> dict[st
     value = _section(container, key, where)
     if not isinstance(value, dict):
         raise FieldMapError(
-            f"{where}: section '{key}' must be a mapping, found {_type_name(value)}"
+            f"{where}: section {_shown(key)} must be a mapping, "
+            f"found {_type_name(value)}"
         )
     return value
 
@@ -155,7 +841,8 @@ def _sequence_section(container: dict[str, Any], key: str, where: str) -> list[A
     value = _section(container, key, where)
     if not isinstance(value, list):
         raise FieldMapError(
-            f"{where}: section '{key}' must be a sequence, found {_type_name(value)}"
+            f"{where}: section {_shown(key)} must be a sequence, "
+            f"found {_type_name(value)}"
         )
     return value
 
@@ -165,55 +852,316 @@ def _positive_int(container: dict[str, Any], key: str, where: str) -> int:
     value = container.get(key)
     if isinstance(value, bool) or not isinstance(value, int) or value < 1:
         raise FieldMapError(
-            f"{where}: '{key}' must be a positive integer, found {value!r}"
+            f"{where}: '{key}' must be a positive integer, found {_display(value)}"
         )
     return value
 
 
-def load_field_map(path: str | os.PathLike[str] | None = None) -> dict[str, Any]:
-    """Load the field map and confirm the sections this builder reads are present.
+def _check_string_keys(section: dict[Any, Any], what: str, where: str) -> None:
+    """Confirm every key of one field map mapping is a non-empty string.
 
-    ``path`` defaults to ``copybook_field_map.yml`` in this script's directory. The
-    returned document is the parsed YAML mapping.
+    ``what`` names one key in the diagnostic and ``where`` names the section that
+    carries it. A key of any other type, and an empty one, each raise ``FieldMapError``
+    naming the offending key, so every later lookup, sort and diagnostic works on the
+    string keys the contract declares.
+    """
+    for key in section:
+        if not isinstance(key, str) or not key:
+            raise FieldMapError(
+                f"{where}: every {what} must be a non-empty string, "
+                f"found {_display(key)}"
+            )
+
+
+def _check_string_sequence(container: dict[str, Any], key: str, where: str) -> None:
+    """Confirm one optional member is a sequence of non-empty strings when recorded.
+
+    An absent member and a member recorded as null are both accepted, exactly as the
+    member's consumers treat them. Every other value must be a sequence whose every
+    element is a non-empty string; a container of any other type, and an element that is
+    not a non-empty string, each raise ``FieldMapError`` naming the member and, for an
+    element, its position.
+    """
+    value = container.get(key)
+    if value is None:
+        return
+    if not isinstance(value, list):
+        raise FieldMapError(
+            f"{where}: '{key}' must be a sequence of non-empty strings when recorded, "
+            f"found {_type_name(value)}"
+        )
+    for position, element in enumerate(value, start=1):
+        if not isinstance(element, str) or not element:
+            raise FieldMapError(
+                f"{where}: '{key}' element {position} must be a non-empty string, "
+                f"found {_display(element)}"
+            )
+
+
+class _FieldMapLoader(_DuplicateRejectingLoader):
+    """Duplicate-rejecting loader that additionally refuses an alias and deep nesting.
+
+    Mapping construction rejects a repeated key exactly as
+    ``_DuplicateRejectingLoader`` does. Node composition additionally rejects every
+    alias, so no anchor can expand a document behind the bounds this tool reads, and
+    bounds nesting to ``MAX_DOCUMENT_DEPTH`` levels while the nodes are composed. Each
+    refusal raises ``FieldMapError`` naming the offending anchor or the line that
+    carries it.
+    """
+
+    def __init__(self, stream: Any) -> None:
+        super().__init__(stream)
+        self._depth = 0
+
+    def compose_node(self, parent: Any, index: Any) -> Any:
+        """Compose one node, refusing an alias and bounding the nesting depth."""
+        if self.check_event(yaml.events.AliasEvent):
+            event = self.peek_event()
+            raise FieldMapError(
+                f"field map refers to anchor '*{_display(str(event.anchor))}' at line "
+                f"{event.start_mark.line + 1}; an alias is not accepted"
+            )
+        self._depth += 1
+        if self._depth > MAX_DOCUMENT_DEPTH:
+            raise FieldMapError(
+                f"field map nests deeper than the accepted {MAX_DOCUMENT_DEPTH} levels "
+                f"at line {self.peek_event().start_mark.line + 1}"
+            )
+        try:
+            return super().compose_node(parent, index)
+        finally:
+            self._depth -= 1
+
+    def construct_mapping(self, node: Any, deep: bool = False) -> dict[Any, Any]:
+        """Construct one mapping, refusing the merge key as well as a repeated key."""
+        for key_node, _value_node in node.value:
+            if (
+                isinstance(key_node, yaml.nodes.ScalarNode)
+                and key_node.tag == "tag:yaml.org,2002:merge"
+            ):
+                raise FieldMapError(
+                    "field map uses the merge key '<<' at line "
+                    f"{key_node.start_mark.line + 1}; a merge key is not accepted"
+                )
+        return super().construct_mapping(node, deep)
+
+
+def _check_chain_numeric_kinds(field_map: dict[str, Any]) -> None:
+    """Confirm every ``chain_required_numeric`` layout item records the numeric kind."""
+    where = "field map layout"
+    layout = _mapping_section(field_map, "layout", "field map")
+    for group_name in layout:
+        group = _mapping_section(layout, group_name, where)
+        for position, item in enumerate(
+            _sequence_section(group, "items", f"{where} group {_display(group_name)}"),
+            start=1,
+        ):
+            if not isinstance(item, dict):
+                raise FieldMapError(
+                    f"{where} group {_display(group_name)} item {position} must be a "
+                    f"mapping, found {_display(item)}"
+                )
+            if not item.get("chain_required_numeric"):
+                continue
+            if item.get("kind") != KIND_NUMERIC:
+                raise FieldMapError(
+                    f"{where} item {_display(item.get('item'))} is flagged "
+                    f"'chain_required_numeric' and must record kind '{KIND_NUMERIC}', "
+                    f"found {_display(item.get('kind'))}"
+                )
+
+
+def _check_fixed_contract(field_map: dict[str, Any]) -> None:
+    """Confirm the field map declares the fixed record contract this tool emits.
+
+    Checks ``record.length``, ``record.link_length_observed`` and
+    ``sample_definition_contract.emitted_record_length`` against
+    ``COMMAREA_RECORD_LENGTH``, the padding character and justification recorded for
+    both item kinds, and the kind of every layout item flagged
+    ``chain_required_numeric``. Raises ``FieldMapError`` naming the member that differs.
+    """
+    _record_length(field_map)
+    record = _mapping_section(field_map, "record", "field map")
+    observed = _positive_int(record, "link_length_observed", "field map record")
+    if observed != COMMAREA_RECORD_LENGTH:
+        raise FieldMapError(
+            f"field map record: 'link_length_observed' must be "
+            f"{COMMAREA_RECORD_LENGTH}, found {observed}"
+        )
+    where = "field map sample_definition_contract"
+    emitted = _positive_int(
+        field_map["sample_definition_contract"], "emitted_record_length", where
+    )
+    if emitted != COMMAREA_RECORD_LENGTH:
+        raise FieldMapError(
+            f"{where}: 'emitted_record_length' must be {COMMAREA_RECORD_LENGTH}, "
+            f"found {emitted}"
+        )
+    _fill_rules(field_map)
+    _check_chain_numeric_kinds(field_map)
+
+
+class _FieldMapSource(NamedTuple):
+    """One field map read once: its path, the exact bytes read and the document."""
+
+    path: Path
+    payload: bytes
+    document: dict[str, Any]
+
+
+def _read_field_map(
+    path: str | os.PathLike[str] | None,
+    read_roots: Iterable[str | os.PathLike[str]] | None = None,
+) -> _FieldMapSource:
+    """Read one field map with a single bounded read and validate what it declares.
+
+    The one read serves both the parse and any caller that also needs the exact bytes,
+    which are returned beside the document, so the path is opened no second time and
+    the bytes a caller works from are the bytes the parse saw. The path defaults to
+    ``DEFAULT_FIELD_MAP``, is confined to the authorised read roots that
+    ``read_roots`` extends, and the validation is the contract ``load_field_map``
+    states.
     """
     map_path = Path(path) if path is not None else DEFAULT_FIELD_MAP
-    try:
-        text = map_path.read_text(encoding="utf-8")
-    except OSError as error:
-        raise InputOutputError(
-            f"cannot read field map '{map_path}': {error.strerror or error}"
-        ) from error
+    source = _read_limited_input(
+        map_path,
+        MAX_FIELD_MAP_BYTES,
+        "field map",
+        FieldMapError,
+        _authorised_read_roots(read_roots),
+    )
+    text = source.text
 
     try:
-        document = yaml.safe_load(text)
+        document = yaml.load(text, Loader=_FieldMapLoader)
     except yaml.YAMLError as error:
         raise FieldMapError(
-            f"field map '{map_path}' is not valid YAML: {error}"
+            f"field map {_display(str(map_path))} is not valid YAML: "
+            f"{_display(' '.join(str(error).split()))}"
+        ) from error
+    except RecursionError as error:
+        raise FieldMapError(
+            f"field map {_display(str(map_path))} nests containers too deeply to "
+            f"parse: {_reason(error)}"
+        ) from error
+    except ValueError as error:
+        raise FieldMapError(
+            f"field map {_display(str(map_path))} carries a scalar the YAML parser "
+            f"cannot construct ({_type_name(error)}); the value is not echoed"
         ) from error
 
     if not isinstance(document, dict):
         raise FieldMapError(
-            f"field map '{map_path}' must be a mapping, found {_type_name(document)}"
+            f"field map {_display(str(map_path))} must be a mapping, "
+            f"found {_type_name(document)}"
         )
 
-    where = f"field map '{map_path}'"
+    where = f"field map {_display(str(map_path))}"
+    depth = _document_depth(document, where, FieldMapError)
+    if depth > MAX_DOCUMENT_DEPTH:
+        raise FieldMapError(
+            f"{where} nests {depth} containers, above the "
+            f"{MAX_DOCUMENT_DEPTH} container limit this tool reads"
+        )
+
     record = _mapping_section(document, "record", where)
-    _positive_int(record, "length", f"{where} record")
+    declared_length = _positive_int(record, "length", f"{where} record")
+    if declared_length != COMMAREA_RECORD_LENGTH:
+        raise FieldMapError(
+            f"{where} record: 'length' is {declared_length}; this builder emits "
+            f"records of exactly {COMMAREA_RECORD_LENGTH} characters"
+        )
 
     layout = _mapping_section(document, "layout", where)
     if not layout:
         raise FieldMapError(f"{where}: section 'layout' declares no groups")
+    _check_string_keys(layout, "group name", f"{where} layout")
     for group_name in layout:
         group = _mapping_section(layout, group_name, f"{where} layout")
-        _sequence_section(group, "items", f"{where} layout group '{group_name}'")
+        _sequence_section(
+            group, "items", f"{where} layout group {_display(group_name)}"
+        )
 
     routing = _mapping_section(document, "request_routing", where)
-    _mapping_section(routing, "map", f"{where} request_routing")
+    routing_map = _mapping_section(routing, "map", f"{where} request_routing")
+    _check_string_keys(routing_map, "request id", f"{where} request_routing.map")
     _sequence_section(document, "supported_request_ids", where)
     _sequence_section(document, "supported_samples", where)
     _sequence_section(document, "fields", where)
-    _mapping_section(document, "sample_definition_contract", where)
-    return document
+    contract = _mapping_section(document, "sample_definition_contract", where)
+    emitted_length = _positive_int(
+        contract, "emitted_record_length", f"{where} sample_definition_contract"
+    )
+    if emitted_length != COMMAREA_RECORD_LENGTH:
+        raise FieldMapError(
+            f"{where} sample_definition_contract: 'emitted_record_length' is "
+            f"{emitted_length}; this builder emits records of exactly "
+            f"{COMMAREA_RECORD_LENGTH} characters"
+        )
+    _check_string_sequence(
+        contract, "required_keys", f"{where} sample_definition_contract"
+    )
+    _check_fixed_contract(document)
+    return _FieldMapSource(path=map_path, payload=source.payload, document=document)
+
+
+def load_field_map(
+    path: str | os.PathLike[str] | None = None,
+    read_roots: Iterable[str | os.PathLike[str]] | None = None,
+) -> dict[str, Any]:
+    """Load the field map and confirm the sections this builder reads are present.
+
+    ``path`` defaults to ``copybook_field_map.yml`` in this script's directory and must
+    sit inside the authorised read roots, which ``read_roots`` extends with a throwaway
+    directory the in-process self-test reads its own scratch documents from. The
+    file must be one regular file holding at most ``MAX_FIELD_MAP_BYTES`` bytes of
+    UTF-8 YAML, must not repeat a mapping key, must nest at most
+    ``MAX_DOCUMENT_DEPTH`` containers, must expand to at most ``MAX_DOCUMENT_NODES``
+    values without a container appearing inside itself, and must declare
+    ``COMMAREA_RECORD_LENGTH`` under both ``record.length`` and
+    ``sample_definition_contract.emitted_record_length``. The returned document is the
+    parsed YAML mapping.
+    """
+    return _read_field_map(path, read_roots).document
+
+
+def _check_json_depth(text: str, what: str) -> None:
+    """Confirm JSON text nests no deeper than ``MAX_DOCUMENT_DEPTH`` levels.
+
+    The text is scanned before the parser materialises anything from it: every array or
+    object opening deepens the nesting, every closing shallows it, and the characters of
+    a string literal are skipped, including a quotation mark or a backslash the literal
+    escapes. ``what`` names the document in the diagnostic. Raises ``SampleError``
+    naming the depth limit and the position that breaches it.
+    """
+    depth = 0
+    line = 1
+    in_string = False
+    escaped = False
+    for position, character in enumerate(text, start=1):
+        if in_string:
+            if escaped:
+                escaped = False
+            elif character == "\\":
+                escaped = True
+            elif character == '"':
+                in_string = False
+            elif character == "\n":
+                line += 1
+            continue
+        if character == '"':
+            in_string = True
+        elif character in "[{":
+            depth += 1
+            if depth > MAX_DOCUMENT_DEPTH:
+                raise SampleError(
+                    f"{what} nests deeper than the accepted {MAX_DOCUMENT_DEPTH} "
+                    f"levels at line {line} character {position}"
+                )
+        elif character in "]}":
+            depth = max(depth - 1, 0)
+        elif character == "\n":
+            line += 1
 
 
 def _reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
@@ -221,40 +1169,72 @@ def _reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     result: dict[str, Any] = {}
     for key, value in pairs:
         if key in result:
-            raise SampleError(f"sample definition repeats key '{key}'")
+            raise SampleError(f"sample definition repeats key {_display(key)}")
         result[key] = value
     return result
 
 
-def load_sample(path: str | os.PathLike[str]) -> dict[str, str]:
-    """Read one sample definition and confirm it is a flat object of string values."""
+def load_sample(
+    path: str | os.PathLike[str],
+    read_roots: Iterable[str | os.PathLike[str]] | None = None,
+) -> dict[str, str]:
+    """Read one sample definition and confirm it is a flat object of string values.
+
+    ``path`` must sit inside the authorised read roots, which ``read_roots`` extends
+    with a throwaway directory the in-process self-test reads its own scratch documents
+    from. The file must be one regular file holding at most ``MAX_SAMPLE_BYTES``
+    bytes of UTF-8 JSON, must nest at most ``MAX_DOCUMENT_DEPTH`` containers, must expand to at
+    most ``MAX_DOCUMENT_NODES`` values without a container appearing inside itself, and
+    must declare at most ``MAX_SAMPLE_KEYS`` keys, none of them repeated.
+    """
     sample_path = Path(path)
-    try:
-        text = sample_path.read_text(encoding="utf-8")
-    except OSError as error:
-        raise InputOutputError(
-            f"cannot read sample definition '{sample_path}': {error.strerror or error}"
-        ) from error
+    text = _read_limited_input(
+        sample_path,
+        MAX_SAMPLE_BYTES,
+        "sample definition",
+        SampleError,
+        _authorised_read_roots(read_roots),
+    ).text
 
     try:
         document = json.loads(text, object_pairs_hook=_reject_duplicate_keys)
     except json.JSONDecodeError as error:
         raise SampleError(
-            f"sample definition '{sample_path}' is not valid JSON: {error.msg} "
-            f"at line {error.lineno} column {error.colno}"
+            f"sample definition {_display(str(sample_path))} is not valid JSON: "
+            f"{_display(error.msg)} at line {error.lineno} column {error.colno}"
+        ) from error
+    except RecursionError as error:
+        raise SampleError(
+            f"sample definition {_display(str(sample_path))} nests containers too "
+            f"deeply to parse: {_reason(error)}"
         ) from error
 
     if not isinstance(document, dict):
         raise SampleError(
-            f"sample definition '{sample_path}' must be a JSON object, "
+            f"sample definition {_display(str(sample_path))} must be a JSON object, "
             f"found {_type_name(document)}"
+        )
+
+    depth = _document_depth(
+        document, f"sample definition {_display(str(sample_path))}", SampleError
+    )
+    if depth > MAX_DOCUMENT_DEPTH:
+        raise SampleError(
+            f"sample definition {_display(str(sample_path))} nests {depth} containers, "
+            f"above the {MAX_DOCUMENT_DEPTH} container limit this tool reads"
+        )
+    if len(document) > MAX_SAMPLE_KEYS:
+        raise SampleError(
+            f"sample definition {_display(str(sample_path))} declares "
+            f"{len(document)} keys, above the {MAX_SAMPLE_KEYS} key limit this tool "
+            f"reads"
         )
 
     for key, value in document.items():
         if not isinstance(value, str):
             raise SampleError(
-                f"sample definition '{sample_path}': value for key '{key}' must be a "
-                f"string, found {_type_name(value)}"
+                f"sample definition {_display(str(sample_path))}: value for key "
+                f"{_display(key)} must be a string, found {_type_name(value)}"
             )
     return document
 
@@ -265,7 +1245,7 @@ def _request_id_item(field_map: dict[str, Any]) -> str:
     if not isinstance(item, str) or not item:
         raise FieldMapError(
             "field map request_routing: 'evaluated_item' must be a non-empty string, "
-            f"found {item!r}"
+            f"found {_display(item)}"
         )
     return item
 
@@ -276,7 +1256,7 @@ def _overlay_group_names(field_map: dict[str, Any]) -> set[str]:
     for request_id, entry in field_map["request_routing"]["map"].items():
         if not isinstance(entry, dict):
             raise FieldMapError(
-                f"field map request_routing.map entry '{request_id}' must be a "
+                f"field map request_routing.map entry {_display(request_id)} must be a "
                 f"mapping, found {_type_name(entry)}"
             )
         overlay = entry.get("overlay")
@@ -284,8 +1264,9 @@ def _overlay_group_names(field_map: dict[str, Any]) -> set[str]:
             continue
         if not isinstance(overlay, str) or not overlay:
             raise FieldMapError(
-                f"field map request_routing.map entry '{request_id}': 'overlay' must "
-                f"be a non-empty string or null, found {overlay!r}"
+                f"field map request_routing.map entry {_display(request_id)}: "
+                f"'overlay' must be a non-empty string or null, "
+                f"found {_display(overlay)}"
             )
         names.add(overlay)
     return names
@@ -304,12 +1285,12 @@ def _supported_samples(field_map: dict[str, Any]) -> dict[str, dict[str, Any]]:
         if not isinstance(request_id, str) or not request_id:
             raise FieldMapError(
                 f"field map supported_samples entry {position}: 'request_id' must be "
-                f"a non-empty string, found {request_id!r}"
+                f"a non-empty string, found {_display(request_id)}"
             )
         if request_id in entries:
             raise FieldMapError(
-                f"field map supported_samples declares request id '{request_id}' "
-                "more than once"
+                f"field map supported_samples declares request id "
+                f"{_display(request_id)} more than once"
             )
         entries[request_id] = entry
 
@@ -330,40 +1311,84 @@ def _group_order(layout: dict[str, Any], name: str) -> tuple[int, str]:
     order = layout[name].get("order")
     if isinstance(order, bool) or not isinstance(order, int):
         raise FieldMapError(
-            f"field map layout group '{name}': 'order' must be an integer, "
-            f"found {order!r}"
+            f"field map layout group {_display(name)}: 'order' must be an integer, "
+            f"found {_display(order)}"
         )
     return (order, name)
+
+
+def _item_semantics(item: dict[str, Any], where: str) -> str | None:
+    """Return the ``value_semantics`` one layout item records, or None when it has none.
+
+    A recorded semantics outside ``KNOWN_VALUE_SEMANTICS`` raises ``FieldMapError``.
+    """
+    semantics = item.get("value_semantics")
+    if semantics is None:
+        return None
+    if semantics not in KNOWN_VALUE_SEMANTICS:
+        raise FieldMapError(
+            f"{where}: 'value_semantics' must be {_quote_all(KNOWN_VALUE_SEMANTICS)} "
+            f"when recorded, found {_shown(semantics)}"
+        )
+    return semantics
+
+
+def _item_host_declaration(
+    item: dict[str, Any], where: str
+) -> tuple[str | None, str | None, int | None]:
+    """Return the host declaration one layout item records: name, PICTURE and maximum.
+
+    An item that records ``moved_to`` must record both ``moved_to_pic`` and a positive
+    ``moved_to_max_value``; a missing member raises ``FieldMapError``. An item without
+    ``moved_to`` yields three None values.
+    """
+    moved_to = item.get("moved_to")
+    if moved_to is None:
+        return (None, None, None)
+    if not isinstance(moved_to, str) or not moved_to:
+        raise FieldMapError(
+            f"{where}: 'moved_to' must be a non-empty string when recorded, "
+            f"found {_shown(moved_to)}"
+        )
+    declared_pic = item.get("moved_to_pic")
+    if not isinstance(declared_pic, str) or not declared_pic:
+        raise FieldMapError(
+            f"{where}: records 'moved_to' {_escaped(moved_to)} without a non-empty "
+            f"'moved_to_pic' host declaration, found {_shown(declared_pic)}"
+        )
+    return (moved_to, declared_pic, _positive_int(item, "moved_to_max_value", where))
 
 
 def _group_windows(layout: dict[str, Any], name: str) -> list[Window]:
     """Return the placeable windows of one layout group, in declaration order.
 
     An item carrying a non-empty ``redefined_by`` list is excluded; the items that
-    redefine it are placed in its bytes instead.
+    redefine it are placed in its bytes instead. Each window carries the item's recorded
+    value semantics and host declaration.
     """
     windows: list[Window] = []
     for position, item in enumerate(layout[name]["items"], start=1):
         if not isinstance(item, dict):
             raise FieldMapError(
-                f"field map layout group '{name}' item {position} must be a mapping, "
-                f"found {_type_name(item)}"
+                f"field map layout group {_display(name)} item {position} must be a "
+                f"mapping, found {_type_name(item)}"
             )
         declared = item.get("item")
         if not isinstance(declared, str) or not declared:
             raise FieldMapError(
-                f"field map layout group '{name}' item {position}: 'item' must be a "
-                f"non-empty string, found {declared!r}"
+                f"field map layout group {_display(name)} item {position}: 'item' must "
+                f"be a non-empty string, found {_display(declared)}"
             )
         if item.get("redefined_by"):
             continue
         kind = item.get("kind")
         if kind not in (KIND_NUMERIC, KIND_ALPHANUMERIC):
             raise FieldMapError(
-                f"field map layout item '{declared}': 'kind' must be "
-                f"'{KIND_NUMERIC}' or '{KIND_ALPHANUMERIC}', found {kind!r}"
+                f"field map layout item {_display(declared)}: 'kind' must be "
+                f"'{KIND_NUMERIC}' or '{KIND_ALPHANUMERIC}', found {_display(kind)}"
             )
-        where = f"field map layout item '{declared}'"
+        where = f"field map layout item {_display(declared)}"
+        moved_to, declared_pic, maximum = _item_host_declaration(item, where)
         windows.append(
             Window(
                 item=declared,
@@ -371,6 +1396,10 @@ def _group_windows(layout: dict[str, Any], name: str) -> list[Window]:
                 offset=_positive_int(item, "offset", where),
                 length=_positive_int(item, "length", where),
                 kind=kind,
+                semantics=_item_semantics(item, where),
+                moved_to=moved_to,
+                moved_to_pic=declared_pic,
+                moved_to_max_value=maximum,
             )
         )
     return windows
@@ -386,7 +1415,9 @@ def _layout_windows(field_map: dict[str, Any], routing: Routing) -> list[Window]
     layout = field_map["layout"]
     overlays = _overlay_group_names(field_map)
     if routing.overlay not in layout:
-        raise FieldMapError(f"field map layout declares no group '{routing.overlay}'")
+        raise FieldMapError(
+            f"field map layout declares no group {_display(routing.overlay)}"
+        )
 
     selected = [
         name for name in layout if name == routing.overlay or name not in overlays
@@ -397,7 +1428,7 @@ def _layout_windows(field_map: dict[str, Any], routing: Routing) -> list[Window]
     if not windows:
         raise FieldMapError(
             f"field map layout selects no placeable item for request id "
-            f"'{routing.request_id}'"
+            f"{_display(routing.request_id)}"
         )
     return windows
 
@@ -409,8 +1440,8 @@ def _window_index(windows: Iterable[Window]) -> dict[str, Window]:
         existing = index.get(window.item.upper())
         if existing is not None:
             raise FieldMapError(
-                f"field map layout declares item '{window.item}' in both group "
-                f"'{existing.group}' and group '{window.group}'"
+                f"field map layout declares item {_display(window.item)} in both group "
+                f"{_display(existing.group)} and group {_display(window.group)}"
             )
         index[window.item.upper()] = window
     return index
@@ -442,10 +1473,13 @@ def _sample_request_id(field_map: dict[str, Any], sample: dict[str, str]) -> str
     item = _request_id_item(field_map)
     matches = [key for key in sample if key.upper() == item.upper()]
     if not matches:
-        raise SampleError(f"sample definition does not supply required item '{item}'")
+        raise SampleError(
+            f"sample definition does not supply required item {_display(item)}"
+        )
     if len(matches) > 1:
         raise SampleError(
-            f"keys {_quote_all(matches)} all name item '{item}'; supply it once"
+            f"keys {_quote_all(matches)} all name item {_display(item)}; "
+            "supply it once"
         )
     return sample[matches[0]]
 
@@ -460,27 +1494,28 @@ def resolve_overlay(field_map: dict[str, Any], request_id: str) -> Routing:
     supported = _supported_samples(field_map)
     if request_id not in supported:
         raise SampleError(
-            f"{_request_id_item(field_map)} '{request_id}' is not a generated sample; "
-            f"the supported request ids are {_quote_all(supported)}"
+            f"{_request_id_item(field_map)} {_display(request_id)} is not a generated "
+            f"sample; the supported request ids are {_quote_all(supported)}"
         )
 
     entry = field_map["request_routing"]["map"].get(request_id)
     if not isinstance(entry, dict):
         raise FieldMapError(
-            f"field map request_routing.map has no entry for request id '{request_id}'"
+            f"field map request_routing.map has no entry for request id "
+            f"{_display(request_id)}"
         )
 
     overlay = entry.get("overlay")
     if not isinstance(overlay, str) or not overlay:
         raise FieldMapError(
-            f"field map request_routing.map entry '{request_id}' selects no overlay "
-            f"group, found {overlay!r}"
+            f"field map request_routing.map entry {_display(request_id)} selects no "
+            f"overlay group, found {_display(overlay)}"
         )
     policy_type = entry.get("policy_type")
     if not isinstance(policy_type, str) or len(policy_type) != 1:
         raise FieldMapError(
-            f"field map request_routing.map entry '{request_id}': 'policy_type' must "
-            f"be a single character, found {policy_type!r}"
+            f"field map request_routing.map entry {_display(request_id)}: "
+            f"'policy_type' must be a single character, found {_display(policy_type)}"
         )
 
     sample_entry = supported[request_id]
@@ -488,16 +1523,17 @@ def resolve_overlay(field_map: dict[str, Any], request_id: str) -> Routing:
         stated = sample_entry.get(member)
         if stated is not None and stated != resolved:
             raise FieldMapError(
-                f"field map supported_samples entry '{request_id}' states {member} "
-                f"{stated!r} while request_routing.map resolves {resolved!r}"
+                f"field map supported_samples entry {_display(request_id)} states "
+                f"{member} {_display(stated)} while request_routing.map resolves "
+                f"{_display(resolved)}"
             )
 
     group = _mapping_section(field_map["layout"], overlay, "field map layout")
     if group.get("policy_type") != policy_type:
         raise FieldMapError(
-            f"field map layout group '{overlay}' states policy_type "
-            f"{group.get('policy_type')!r} while request_routing.map resolves "
-            f"{policy_type!r}"
+            f"field map layout group {_display(overlay)} states policy_type "
+            f"{_display(group.get('policy_type'))} while request_routing.map resolves "
+            f"{_display(policy_type)}"
         )
     return Routing(request_id=request_id, policy_type=policy_type, overlay=overlay)
 
@@ -561,30 +1597,97 @@ def _required_items(field_map: dict[str, Any], routing: Routing) -> dict[str, st
     return required
 
 
+def _check_numeric_value(window: Window, key: str, value: str) -> None:
+    """Confirm one non-empty numeric value holds digits and fits its host declaration.
+
+    The diagnostic names the item, the offending position or the declared limit, and the
+    length of the supplied value; the value itself is never part of it.
+    """
+    if not _ASCII_DIGITS.fullmatch(value):
+        position, offender = next(
+            (index, character)
+            for index, character in enumerate(value, start=1)
+            if character not in _DIGITS
+        )
+        raise SampleError(
+            f"value supplied under key {_display(key)} for numeric item "
+            f"{_display(window.item)} holds a character outside digits 0-9 at position "
+            f"{position} (code point {ord(offender)})"
+        )
+    if window.moved_to_max_value is not None and int(value) > window.moved_to_max_value:
+        raise SampleError(
+            f"value supplied under key {_display(key)} for numeric item "
+            f"{_display(window.item)} ({len(value)} characters) exceeds the largest "
+            f"whole number {window.moved_to_max_value} that host declaration "
+            f"{_display(window.host_declaration)} carries"
+        )
+
+
+def _check_alphanumeric_value(window: Window, key: str, value: str) -> None:
+    """Confirm one non-empty alphanumeric value holds printable 7-bit ASCII only."""
+    if _PRINTABLE_ASCII.fullmatch(value):
+        return
+    position, offender = next(
+        (index, character)
+        for index, character in enumerate(value, start=1)
+        if not 0x20 <= ord(character) <= 0x7E
+    )
+    raise SampleError(
+        f"value supplied under key {_display(key)} for alphanumeric item "
+        f"{_display(window.item)} holds a character at position {position} (code point "
+        f"{ord(offender)}), outside printable 7-bit ASCII"
+    )
+
+
+def _check_iso_date_value(window: Window, key: str, value: str) -> None:
+    """Confirm one non-empty value is a real calendar date written as YYYY-MM-DD."""
+    shape = _ISO_DATE_SHAPE.fullmatch(value)
+    if shape is None:
+        raise SampleError(
+            f"value supplied under key {_display(key)} for item "
+            f"{_display(window.item)} ({len(value)} characters) is not written as "
+            "YYYY-MM-DD"
+        )
+    year, month, day = (int(part) for part in shape.groups())
+    try:
+        datetime.date(year, month, day)
+    except ValueError as error:
+        raise SampleError(
+            f"value supplied under key {_display(key)} for item "
+            f"{_display(window.item)} is written as YYYY-MM-DD but is not a real "
+            "calendar date"
+        ) from error
+
+
 def _check_value(window: Window, key: str, value: str) -> None:
-    """Confirm one supplied value fits its window and holds permitted characters."""
+    """Confirm one supplied value fits its window and its recorded semantics.
+
+    A supplied value carries at least one character: an item left at its zero-fill or
+    space-fill default is omitted from the sample definition rather than supplied empty,
+    and a required item supplied empty is rejected by the same rule. A non-empty value
+    holds the character class its kind records, stays within ``moved_to_max_value`` where
+    the layout records the host declaration the chain moves it into, and is a real
+    calendar date where the layout records ``value_semantics: iso_date``. No diagnostic
+    quotes the rejected value.
+    """
+    if not value:
+        raise SampleError(
+            f"value supplied under key {_display(key)} for item "
+            f"{_display(window.item)} is empty; omit the key to leave the item at its "
+            f"{'zero' if window.kind == KIND_NUMERIC else 'space'} fill"
+        )
     if len(value) > window.length:
         raise SampleError(
-            f"value supplied under key '{key}' for item '{window.item}' is "
-            f"{len(value)} characters, longer than the declared length "
-            f"{window.length}"
+            f"value supplied under key {_display(key)} for item "
+            f"{_display(window.item)} is {len(value)} characters, longer than the "
+            f"declared length {window.length}"
         )
     if window.kind == KIND_NUMERIC:
-        if not _ASCII_DIGITS.fullmatch(value):
-            raise SampleError(
-                f"value {value!r} for numeric item '{window.item}' must contain "
-                "digits 0-9 only"
-            )
-        return
-    if not _PRINTABLE_ASCII.fullmatch(value):
-        offender = next(
-            char for char in value if not 0x20 <= ord(char) <= 0x7E
-        )
-        raise SampleError(
-            f"value for alphanumeric item '{window.item}' contains {offender!r} at "
-            f"position {value.index(offender) + 1} (code point {ord(offender)}), "
-            "outside printable 7-bit ASCII"
-        )
+        _check_numeric_value(window, key, value)
+    else:
+        _check_alphanumeric_value(window, key, value)
+    if window.semantics == SEMANTICS_ISO_DATE:
+        _check_iso_date_value(window, key, value)
 
 
 def validate_sample(
@@ -593,9 +1696,14 @@ def validate_sample(
     """Validate one sample definition and return its accepted values.
 
     Keys are matched against the field map without regard to case and the result is
-    keyed by the spelling the field map declares. Raises ``SampleError`` naming the
-    offending key when the sample breaches the sample definition contract, and
-    ``FieldMapError`` when the map itself is inconsistent.
+    keyed by the spelling the field map declares. A required item must be supplied with
+    a non-empty value, and no supplied value may be empty: an item left at its zero-fill
+    or space-fill default is omitted from the sample definition rather than supplied
+    empty. A key naming an item of ``PROTECTED_FILL_ITEMS`` is rejected along with an
+    unknown key, an unselected overlay's key, a chain-assigned key, a repeated key and a
+    value that breaches ``_check_value``. Raises ``SampleError`` naming the offending key
+    when the sample breaches the sample definition contract, and ``FieldMapError`` when
+    the map itself is inconsistent.
     """
     windows = _window_index(_layout_windows(field_map, routing))
     unselected = _unselected_overlay_items(field_map, routing)
@@ -613,7 +1721,13 @@ def validate_sample(
     if unplaceable:
         raise FieldMapError(
             f"field map requires {_quote_all(unplaceable)} for policy type "
-            f"'{routing.policy_type}' but declares no layout window for it"
+            f"{_display(routing.policy_type)} but declares no layout window for it"
+        )
+    protected_required = sorted(set(required) & PROTECTED_FILL_ITEMS)
+    if protected_required:
+        raise FieldMapError(
+            f"field map requires filler item(s) {_quote_all(protected_required)} from "
+            "the sample definition; those windows stay at their fill character"
         )
 
     accepted: dict[str, str] = {}
@@ -625,24 +1739,31 @@ def validate_sample(
             elsewhere = unselected.get(lookup)
             if elsewhere is not None:
                 raise SampleError(
-                    f"key '{key}' names item '{elsewhere[0]}' of overlay "
-                    f"'{elsewhere[1]}', which request id '{routing.request_id}' does "
-                    f"not select; the selected overlay is '{routing.overlay}'"
+                    f"key {_display(key)} names item {_display(elsewhere[0])} of "
+                    f"overlay {_display(elsewhere[1])}, which request id "
+                    f"{_display(routing.request_id)} does not select; the selected "
+                    f"overlay is {_display(routing.overlay)}"
                 )
             raise SampleError(
-                f"key '{key}' names no item declared for request id "
-                f"'{routing.request_id}'"
+                f"key {_display(key)} names no item declared for request id "
+                f"{_display(routing.request_id)}"
             )
         if lookup in chain_items:
             raise SampleError(
-                f"key '{key}' names item '{window.item}', which the chain assigns; a "
-                "sample definition must not supply it"
+                f"key {_display(key)} names item {_display(window.item)}, which the "
+                "chain assigns; a sample definition must not supply it"
+            )
+        if lookup in PROTECTED_FILL_ITEMS:
+            raise SampleError(
+                f"key {_display(key)} names filler item {_display(window.item)}, whose "
+                "window stays at its fill character; a sample definition must not "
+                "supply it"
             )
         previous = supplied_under.get(lookup)
         if previous is not None:
             raise SampleError(
-                f"keys '{previous}' and '{key}' both name item '{window.item}'; "
-                "supply it once"
+                f"keys {_display(previous)} and {_display(key)} both name item "
+                f"{_display(window.item)}; supply it once"
             )
         _check_value(window, key, value)
         supplied_under[lookup] = key
@@ -651,19 +1772,29 @@ def validate_sample(
     absent = [name for key, name in required.items() if key not in supplied_under]
     if absent:
         raise SampleError(
-            f"sample definition for request id '{routing.request_id}' does not supply "
-            f"required item(s) {_quote_all(absent)}"
+            f"sample definition for request id {_display(routing.request_id)} does not "
+            f"supply required item(s) {_quote_all(absent)}"
         )
     return accepted
 
 
 def _record_length(field_map: dict[str, Any]) -> int:
-    """Return the record length the field map declares."""
-    return _positive_int(field_map["record"], "length", "field map record")
+    """Return the record length the field map declares, which must be COMMAREA_RECORD_LENGTH."""
+    declared = _positive_int(field_map["record"], "length", "field map record")
+    if declared != COMMAREA_RECORD_LENGTH:
+        raise FieldMapError(
+            f"field map record: 'length' must be {COMMAREA_RECORD_LENGTH}, found {declared}"
+        )
+    return declared
 
 
 def _fill_rules(field_map: dict[str, Any]) -> dict[str, tuple[str, str]]:
-    """Return the padding character and justification recorded for each item kind."""
+    """Return the padding character and justification recorded for each item kind.
+
+    Each kind must record the padding character listed in ``FIXED_PADDING`` and the
+    justification listed in ``FIXED_JUSTIFICATION``; any other value raises
+    ``FieldMapError`` naming the member.
+    """
     where = "field map sample_definition_contract"
     contract = field_map["sample_definition_contract"]
     padding = _mapping_section(contract, "value_padding", where)
@@ -672,16 +1803,16 @@ def _fill_rules(field_map: dict[str, Any]) -> dict[str, tuple[str, str]]:
     rules: dict[str, tuple[str, str]] = {}
     for kind in (KIND_NUMERIC, KIND_ALPHANUMERIC):
         character = padding.get(kind)
-        if not isinstance(character, str) or len(character) != 1:
+        if character != FIXED_PADDING[kind]:
             raise FieldMapError(
-                f"{where}.value_padding['{kind}'] must be a single character, "
-                f"found {character!r}"
+                f"{where}.value_padding['{kind}'] must be "
+                f"{_escaped(FIXED_PADDING[kind])}, found {_shown(character)}"
             )
         side = justification.get(kind)
-        if side not in (JUSTIFY_LEFT, JUSTIFY_RIGHT):
+        if side != FIXED_JUSTIFICATION[kind]:
             raise FieldMapError(
-                f"{where}.value_justification['{kind}'] must be '{JUSTIFY_LEFT}' or "
-                f"'{JUSTIFY_RIGHT}', found {side!r}"
+                f"{where}.value_justification['{kind}'] must be "
+                f"'{FIXED_JUSTIFICATION[kind]}', found {_shown(side)}"
             )
         rules[kind] = (character, side)
     return rules
@@ -692,22 +1823,37 @@ def _placed_characters(
 ) -> str:
     """Return the exact characters to write into one window.
 
-    A supplied value is justified and padded as ``sample_definition_contract`` records
-    for the window's kind. An absent value yields a window filled with that kind's
+    A supplied value carries at least one character and is justified and padded as
+    ``sample_definition_contract`` records for the window's kind. ``None`` marks an
+    item the sample definition omits and yields a window filled with that kind's
     padding character, which for a numeric window is the digit zero.
     """
     character, side = rules[window.kind]
-    text = value if value is not None else ""
-    if len(text) > window.length:
-        raise SampleError(
-            f"value for item '{window.item}' is {len(text)} characters, longer than "
-            f"the declared length {window.length}"
-        )
-    if window.kind == KIND_NUMERIC and not _ASCII_DIGITS.fullmatch(text):
-        raise SampleError(
-            f"value {text!r} for numeric item '{window.item}' must contain "
-            "digits 0-9 only"
-        )
+    if value is None:
+        text = ""
+    else:
+        text = value
+        if not text:
+            raise SampleError(
+                f"value for item {_display(window.item)} is empty; omit the item to "
+                f"leave its window at the fill character {_display(character)}"
+            )
+        if len(text) > window.length:
+            raise SampleError(
+                f"value for item {_display(window.item)} is {len(text)} characters, "
+                f"longer than the declared length {window.length}"
+            )
+        if window.kind == KIND_NUMERIC and not _ASCII_DIGITS.fullmatch(text):
+            position = next(
+                index
+                for index, character in enumerate(text, start=1)
+                if character not in _DIGITS
+            )
+            raise SampleError(
+                f"value for numeric item {_display(window.item)} ({len(text)} "
+                f"characters) holds a character outside digits 0-9 at position "
+                f"{position}"
+            )
     if side == JUSTIFY_RIGHT:
         return text.rjust(window.length, character)
     return text.ljust(window.length, character)
@@ -721,13 +1867,16 @@ def render_record(
     Every window of the base groups and of the resolved overlay is written from the
     field map's own offsets and lengths. Numeric windows receive digits, alphanumeric
     windows receive their value or the padding character, and any byte no window claims
-    stays a space. The result always carries the full length recorded by
-    ``record.length``, which is 32,500 characters.
+    stays a space. The buffer is allocated only after ``record.length`` is confirmed to
+    be ``RECORD_LENGTH``, so the result always carries 32,500 characters.
+    stays a space. The result always carries ``COMMAREA_RECORD_LENGTH`` characters, and
+    every window of ``PROTECTED_FILL_ITEMS`` the layout selects holds spaces only.
 
     Raises ``FieldMapError`` when two windows overlap, when a window falls outside the
-    record, or when the assembled record does not match the declared length.
+    record, when a selected filler window did not stay spaces, or when the assembled
+    record does not match ``COMMAREA_RECORD_LENGTH``.
     """
-    length = _record_length(field_map)
+    length = COMMAREA_RECORD_LENGTH
     rules = _fill_rules(field_map)
     windows = _layout_windows(field_map, routing)
 
@@ -735,7 +1884,7 @@ def render_record(
     unplaceable = [item for item in values if item.upper() not in placeable]
     if unplaceable:
         raise SampleError(
-            f"no layout window under request id '{routing.request_id}' for "
+            f"no layout window under request id {_display(routing.request_id)} for "
             f"value(s) {_quote_all(unplaceable)}"
         )
 
@@ -745,14 +1894,14 @@ def render_record(
     for window in sorted(windows, key=lambda entry: (entry.offset, entry.item)):
         if window.end_byte > length:
             raise FieldMapError(
-                f"field map layout item '{window.item}' spans bytes {window.offset}-"
-                f"{window.end_byte}, outside the record length {length}"
+                f"field map layout item {_display(window.item)} spans bytes "
+                f"{window.offset}-{window.end_byte}, outside the record length {length}"
             )
         if furthest is not None and window.offset <= furthest.end_byte:
             raise FieldMapError(
-                f"field map layout items '{furthest.item}' (bytes {furthest.offset}-"
-                f"{furthest.end_byte}) and '{window.item}' (bytes {window.offset}-"
-                f"{window.end_byte}) claim the same bytes"
+                f"field map layout items {_display(furthest.item)} (bytes "
+                f"{furthest.offset}-{furthest.end_byte}) and {_display(window.item)} "
+                f"(bytes {window.offset}-{window.end_byte}) claim the same bytes"
             )
         text = _placed_characters(window, supplied.get(window.item.upper()), rules)
         buffer[window.offset - 1 : window.end_byte] = list(text)
@@ -764,6 +1913,16 @@ def render_record(
         raise FieldMapError(
             f"rendered record is {len(record)} characters, expected {length}"
         )
+    for window in windows:
+        if window.item.upper() not in PROTECTED_FILL_ITEMS:
+            continue
+        placed = record[window.offset - 1 : window.end_byte]
+        if placed.strip(" "):
+            raise FieldMapError(
+                f"field map layout item {_display(window.item)} filled bytes "
+                f"{window.offset}-{window.end_byte} with characters other than "
+                f"spaces; that window holds spaces only"
+            )
     return record
 
 
@@ -774,99 +1933,3295 @@ def _default_file_mode() -> int:
     return 0o666 & ~mask
 
 
+def _absolute_path(path: str | os.PathLike[str]) -> Path:
+    """Return ``path`` made absolute, reporting a working directory it cannot read.
+
+    Raises ``InputOutputError`` when the current working directory that completes a
+    relative path cannot be read.
+    """
+    try:
+        return Path(os.path.abspath(os.fspath(path)))
+    except OSError as error:
+        raise InputOutputError(
+            f"cannot make the path {_path_shown(path)} absolute: "
+            f"{error.strerror or error}"
+        ) from error
+
+
+def _canonical_path(path: str | os.PathLike[str]) -> Path:
+    """Return the absolute, symbolic-link-free form of ``path``.
+
+    The nearest ancestor that already exists is resolved with ``os.path.realpath`` and
+    the components that do not exist yet are appended to that result unchanged, which
+    canonicalises a path whose final components are absent. Raises ``InputOutputError``
+    when resolution fails, which an entry removed while its link is being read causes.
+    """
+    missing: list[str] = []
+    try:
+        probe = _absolute_path(path)
+        while not os.path.lexists(probe):
+            parent = probe.parent
+            if parent == probe:
+                break
+            missing.append(probe.name)
+            probe = parent
+        resolved = Path(os.path.realpath(os.fspath(probe)))
+    except OSError as error:
+        raise InputOutputError(
+            f"cannot resolve the path {_path_shown(path)}: {error.strerror or error}"
+        ) from error
+
+    for name in reversed(missing):
+        resolved = resolved / name
+    return resolved
+
+
+def _refuse_symbolic_component(
+    path: Path, ancestor: Path, what: str, refusal: str = "refusing to write"
+) -> None:
+    """Refuse when a component from ``ancestor`` down to ``path`` is a symbolic link.
+
+    ``ancestor`` must contain ``path``. Each component below it is examined in turn and
+    the first symbolic link found raises ``InputOutputError`` naming it; a component
+    that does not exist yet is not a symbolic link and is accepted. ``refusal`` closes
+    the diagnostic, so a read and a write each name the operation being refused.
+    """
+    probe = ancestor
+    for name in path.relative_to(ancestor).parts:
+        probe = probe / name
+        if os.path.islink(probe):
+            raise InputOutputError(
+                f"{what} {_path_shown(path)} passes through symbolic link "
+                f"{_path_shown(probe)}; {refusal}"
+            )
+
+
+def _validated_build_root() -> Path:
+    """Return the generated-output root after confirming it is the declared directory.
+
+    The root must canonicalise to exactly ``modernization/harness/build`` under the
+    canonical repository directory that holds this script, and no component from that
+    repository directory down to it may be a symbolic link. Any other state raises
+    ``InputOutputError`` naming the rule, before any directory or entry is created.
+    """
+    repository = _canonical_path(REPOSITORY_ROOT)
+    declared = repository / "modernization" / "harness" / "build"
+    canonical = _canonical_path(DEFAULT_OUTPUT_ROOT)
+    if canonical != declared:
+        raise InputOutputError(
+            f"generated-output root {_path_shown(DEFAULT_OUTPUT_ROOT)} resolves to "
+            f"{_path_shown(canonical)} and not to {_path_shown(declared)}; a generated "
+            "record is written only inside modernization/harness/build under the "
+            "canonical repository directory holding this script; refusing to write"
+        )
+    _refuse_symbolic_component(declared, repository, "generated-output root")
+    return declared
+
+
+def _opened_by_components(
+    canonical: Path, what: str, refusal: str = "refusing to write"
+) -> int:
+    """Return a descriptor for ``canonical``, descending one component at a time.
+
+    ``canonical`` must be absolute. The filesystem root is opened first and every
+    component below it is opened as one single name relative to the descriptor above it
+    without following a symbolic link, so no ancestor is ever resolved from a full
+    path. Each descriptor is closed as the walk descends past it and the descriptor
+    returned is the caller's to close. ``what`` names the directory in every diagnostic.
+    A component that cannot be opened raises ``InputOutputError`` naming that component
+    and the directory, reported for a canonical path that carried no symbolic-link
+    component when it was resolved as the entry having changed while this run was in
+    progress. ``refusal`` closes every diagnostic, so a read and a write each name the
+    operation being refused.
+    """
+    if not canonical.is_absolute():
+        raise InputOutputError(
+            f"the {what} {_path_shown(canonical)} is not an absolute path; {refusal}"
+        )
+
+    try:
+        dirfd = os.open(canonical.anchor, os.O_RDONLY | os.O_DIRECTORY)
+    except OSError as error:
+        raise InputOutputError(
+            f"cannot open the filesystem root {_path_shown(canonical.anchor)} the "
+            f"{what} {_path_shown(canonical)} descends from: {error.strerror or error}"
+        ) from error
+
+    for component in canonical.relative_to(canonical.anchor).parts:
+        try:
+            descended = os.open(
+                component, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=dirfd
+            )
+        except OSError as error:
+            raise InputOutputError(
+                f"cannot open component {_escaped(component)} of the {what} "
+                f"{_path_shown(canonical)}: {error.strerror or error}; that path "
+                "carried no symbolic-link component when it was resolved, so the entry "
+                f"changed while this run was in progress; {refusal}"
+            ) from error
+        finally:
+            with contextlib.suppress(OSError):
+                os.close(dirfd)
+        dirfd = descended
+    return dirfd
+
+
+def _confirm_same_directory(descriptor: int, canonical: Path, what: str) -> None:
+    """Confirm ``descriptor`` still holds the directory ``canonical`` names.
+
+    The device and inode numbers carried by the open descriptor are compared with those
+    the canonical path carries, taken without following a final symbolic link. A failure
+    to take either of them, and any difference between them, are both reported as the
+    entry having changed while this run was in progress. ``what`` names the directory in
+    every diagnostic.
+    """
+    try:
+        opened = os.fstat(descriptor)
+        named = os.stat(canonical, follow_symlinks=False)
+    except OSError as error:
+        raise InputOutputError(
+            f"cannot confirm the {what} {_path_shown(canonical)} the write descends "
+            f"from: {error.strerror or error}; refusing to write"
+        ) from error
+    if (opened.st_dev, opened.st_ino) != (named.st_dev, named.st_ino):
+        raise InputOutputError(
+            f"the {what} {_path_shown(canonical)} the write descends from is no longer "
+            "the directory that path named when it was validated; the entry changed "
+            "while this run was in progress; refusing to write"
+        )
+
+
+def _opened_output_root(root: Path, given: str | os.PathLike[str]) -> int:
+    """Return a descriptor for a named output root that is an existing directory.
+
+    The root is opened by descending its canonical components one at a time, so an
+    absent component and a component that is not a directory are both reported as a root
+    that is not an existing directory. ``given`` names the root as the command line
+    spelled it. The descriptor returned is the caller's to close.
+    """
+    try:
+        return _opened_by_components(root, "output root")
+    except InputOutputError as error:
+        cause = error.__cause__
+        if isinstance(cause, (FileNotFoundError, NotADirectoryError)):
+            raise InputOutputError(
+                f"output root {_path_shown(given)} is not an existing directory"
+            ) from cause
+        raise
+
+
+class _OutputRoot(NamedTuple):
+    """The directory a destination must resolve inside and the anchor of every write.
+
+    ``path`` is the canonical root the destination must resolve inside. ``anchor`` is
+    the canonical directory the write descends from: the repository directory that holds
+    this script while the default generated-output root is in force, whose absent
+    components below it this tool creates, and the named root itself otherwise.
+    ``descriptor`` is open on ``anchor``, obtained by descending that canonical path one
+    component at a time, and is the caller's to close.
+    """
+
+    path: Path
+    anchor: Path
+    descriptor: int
+
+
+def _allowed_output_root(output_root: str | os.PathLike[str] | None) -> _OutputRoot:
+    """Return the canonical root a destination must resolve inside, with its anchor.
+
+    ``None`` selects the validated generated-output root, which this tool creates when
+    it is absent, and anchors the write at the canonical repository directory that holds
+    this script. A named root must already exist as a directory, must carry no
+    symbolic-link component, and must resolve inside the validated generated-output root
+    or inside the system temporary directory tree; every other root is refused. The
+    anchor is opened by descending its canonical components one at a time and that open
+    descriptor is returned with it, so the anchor is never resolved from a full path
+    again; a root refused after the descriptor is open closes it before raising.
+    """
+    build_root = _validated_build_root()
+    if output_root is None:
+        repository = _canonical_path(REPOSITORY_ROOT)
+        return _OutputRoot(
+            path=build_root,
+            anchor=repository,
+            descriptor=_opened_by_components(repository, "repository directory"),
+        )
+
+    given = _absolute_path(output_root)
+    _refuse_symbolic_component(given, Path(given.anchor), "output root")
+    root = _canonical_path(given)
+    descriptor = _opened_output_root(root, output_root)
+    try:
+        try:
+            temporary_root = _canonical_path(tempfile.gettempdir())
+        except OSError as error:
+            raise InputOutputError(
+                "cannot resolve the system temporary directory to compare with output "
+                f"root {_path_shown(output_root)}: {error.strerror or error}"
+            ) from error
+        if not (root.is_relative_to(build_root) or root.is_relative_to(temporary_root)):
+            raise InputOutputError(
+                f"output root {_path_shown(output_root)} resolves to "
+                f"{_path_shown(root)}, which is neither inside "
+                f"{_path_shown(build_root)} nor inside the system temporary directory "
+                f"{_path_shown(temporary_root)}; refusing to write"
+            )
+    except BuildError:
+        with contextlib.suppress(OSError):
+            os.close(descriptor)
+        raise
+    return _OutputRoot(path=root, anchor=root, descriptor=descriptor)
+
+
+class _Destination(NamedTuple):
+    """One validated destination and the directory every write to it descends from.
+
+    ``anchor`` is the canonical directory the write descends from: the repository
+    directory that holds this script while the default generated-output root is in
+    force, and the named output root otherwise. ``anchor_fd`` is open on that directory,
+    opened during validation by descending the canonical ``anchor`` one component at a
+    time from the filesystem root and confirmed to still hold the directory that path
+    names; it is the only object the write descends from, the anchor is never resolved
+    as a pathname again, and closing the descriptor is the caller's to do. ``path`` is
+    the canonical destination, always inside ``anchor``.
+    """
+
+    anchor: Path
+    anchor_fd: int
+    path: Path
+
+
+def _validated_destination(
+    path: str | os.PathLike[str], output_root: str | os.PathLike[str] | None
+) -> _Destination:
+    """Return the canonical destination to write, refusing every unsafe one.
+
+    The destination must not be a symbolic link, must not already exist as anything
+    other than a regular file, and its canonical form must sit inside the allowed output
+    root. A destination whose canonical form sits inside the repository directory that
+    holds this script must sit inside the validated generated-output root whichever root
+    is in force, and a destination whose canonical form sits inside that repository's
+    ``base`` directory is refused outright. Every check runs before any directory is
+    created and before any temporary entry is written. The accepted destination is
+    returned with the directory the write descends from and an open descriptor on it:
+    the repository directory under the default root, whose
+    ``modernization/harness/build`` components this tool creates where they are absent,
+    and the named output root, which must already exist, when one is given. That
+    descriptor is obtained while this function validates the destination, by descending
+    the canonical anchor one component at a time from the filesystem root, and is
+    confirmed to still hold the directory the anchor names before it is returned; it is
+    the caller's to close, and a rule refused after it is open closes it before raising.
+    """
+    _refuse_control_characters(path, "destination", "refusing to write")
+    given = _absolute_path(path)
+    if os.path.islink(given):
+        raise InputOutputError(
+            f"destination {_path_shown(path)} is a symbolic link; refusing to write"
+        )
+
+    destination = _canonical_path(given)
+    if os.path.lexists(destination) and not os.path.isfile(destination):
+        raise InputOutputError(
+            f"destination {_path_shown(path)} exists and is not a regular file; "
+            "refusing to write"
+        )
+
+    root = _allowed_output_root(output_root)
+    try:
+        if destination == root.path or not destination.is_relative_to(root.path):
+            raise InputOutputError(
+                f"destination {_path_shown(path)} resolves to "
+                f"{_path_shown(destination)}, which is not a file inside the output "
+                f"root {_path_shown(root.path)}; refusing to write"
+            )
+
+        repository = _canonical_path(REPOSITORY_ROOT)
+        source_root = repository / "base"
+        if destination.is_relative_to(source_root):
+            raise InputOutputError(
+                f"destination {_path_shown(path)} resolves to "
+                f"{_path_shown(destination)} inside the read-only source directory "
+                f"{_path_shown(source_root)}; refusing to write"
+            )
+
+        build_root = _validated_build_root()
+        inside_repository = destination.is_relative_to(repository)
+        if inside_repository and not destination.is_relative_to(build_root):
+            raise InputOutputError(
+                f"destination {_path_shown(path)} resolves to "
+                f"{_path_shown(destination)} inside the repository, outside "
+                f"{_path_shown(build_root)}; refusing to write"
+            )
+        _confirm_same_directory(root.descriptor, root.anchor, "directory")
+    except BuildError:
+        with contextlib.suppress(OSError):
+            os.close(root.descriptor)
+        raise
+    return _Destination(anchor=root.anchor, anchor_fd=root.descriptor, path=destination)
+
+
+def _temporary_entry(name: str, dirfd: int, mode: int) -> tuple[str, int]:
+    """Create one exclusive temporary entry beside ``name`` and return its name and fd.
+
+    The entry is created relative to ``dirfd`` with ``O_EXCL`` and ``O_NOFOLLOW``. An
+    entry that already carries the candidate name, a symbolic link included, is never
+    written through. Up to ``MAX_TEMPORARY_ATTEMPTS`` candidate names are tried before
+    the write is refused.
+    """
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW
+    for _attempt in range(MAX_TEMPORARY_ATTEMPTS):
+        candidate = f".{name}.{os.getpid()}.{os.urandom(6).hex()}.partial"
+        try:
+            return (candidate, os.open(candidate, flags, mode, dir_fd=dirfd))
+        except FileExistsError:
+            continue
+    raise InputOutputError(
+        f"cannot create a temporary entry beside {_escaped(name)}: "
+        f"{MAX_TEMPORARY_ATTEMPTS} candidate names are all taken; refusing to write"
+    )
+
+
+def _write_through(handle: int, payload: bytes) -> None:
+    """Write every byte of ``payload`` through ``handle`` and flush it to the device."""
+    offset = 0
+    while offset < len(payload):
+        offset += os.write(handle, payload[offset:])
+    os.fsync(handle)
+
+
+def _read_back(name: str, dirfd: int, limit: int) -> bytes:
+    """Return at most ``limit`` bytes of ``name``, read relative to ``dirfd``.
+
+    The entry is opened with ``O_NOFOLLOW``. A symbolic link put in place of the
+    written record is reported rather than followed.
+    """
+    handle = os.open(name, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=dirfd)
+    try:
+        chunks: list[bytes] = []
+        remaining = limit
+        while remaining > 0:
+            chunk = os.read(handle, min(remaining, READ_BACK_CHUNK_BYTES))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            remaining -= len(chunk)
+        return b"".join(chunks)
+    finally:
+        os.close(handle)
+
+
+def _relative_components(anchor: Path, destination: Path) -> tuple[str, ...]:
+    """Return the components leading from ``anchor`` to ``destination``, name last.
+
+    Both paths are already canonical, so every component is a plain entry name. A
+    component the descriptor walk cannot take one name at a time, and a destination not
+    below ``anchor``, are internal inconsistencies and each raises ``InputOutputError``.
+    """
+    try:
+        relative = destination.relative_to(anchor)
+    except ValueError as error:
+        raise InputOutputError(
+            f"destination {_path_shown(destination)} does not sit below "
+            f"{_path_shown(anchor)}; refusing to write"
+        ) from error
+
+    components = relative.parts
+    unwalkable = [
+        name
+        for name in components
+        if name in ("", os.curdir, os.pardir) or os.sep in name or os.path.isabs(name)
+    ]
+    if not components or unwalkable:
+        raise InputOutputError(
+            f"destination {_path_shown(destination)} does not name plain entries below "
+            f"{_path_shown(anchor)}; refusing to write"
+        )
+    return components
+
+
+def _descended_directory(parent_fd: int, component: str, anchor: Path) -> int:
+    """Return a descriptor for ``component`` in ``parent_fd``, creating it if absent.
+
+    The single component is created and opened relative to ``parent_fd`` and never as
+    part of a path that could be resolved again, so ``O_NOFOLLOW`` refuses a symbolic
+    link standing in its place at this level as it does at every other. ``anchor`` names
+    the directory the walk descends from in every diagnostic.
+    """
+    try:
+        os.mkdir(component, DIRECTORY_MODE, dir_fd=parent_fd)
+    except FileExistsError:
+        pass
+    except OSError as error:
+        raise InputOutputError(
+            f"cannot create directory {_escaped(component)} below "
+            f"{_path_shown(anchor)}: {error.strerror or error}"
+        ) from error
+
+    try:
+        return os.open(
+            component, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent_fd
+        )
+    except OSError as error:
+        raise InputOutputError(
+            f"cannot open directory {_escaped(component)} below "
+            f"{_path_shown(anchor)}: {error.strerror or error}"
+        ) from error
+
+
+def _parent_descriptor(
+    anchor_fd: int, anchor: Path, components: tuple[str, ...]
+) -> int:
+    """Return a descriptor for the directory holding the destination entry.
+
+    The walk starts from a duplicate of ``anchor_fd``, so the caller's descriptor stays
+    open and remains the caller's to close, and each component below it is created where
+    absent and opened relative to the descriptor above it, so a symbolic link is refused
+    at every level and no component is resolved from a full path. Each descriptor the
+    walk owns is closed as it descends past it; the descriptor returned is the caller's
+    to close. ``anchor`` names the directory the walk descends from in every diagnostic.
+    """
+    try:
+        dirfd = os.dup(anchor_fd)
+    except OSError as error:
+        raise InputOutputError(
+            f"cannot duplicate the descriptor of the directory {_path_shown(anchor)} "
+            f"the write descends from: {error.strerror or error}"
+        ) from error
+    for component in components:
+        try:
+            descended = _descended_directory(dirfd, component, anchor)
+        finally:
+            with contextlib.suppress(OSError):
+                os.close(dirfd)
+        dirfd = descended
+    return dirfd
+
+
+def _replaced_under_anchor(
+    anchor: Path,
+    anchor_fd: int,
+    destination: Path,
+    payload: bytes,
+    mode: int,
+    limit: int,
+) -> bytes:
+    """Write ``payload`` onto ``destination`` by descending from ``anchor_fd``.
+
+    ``anchor_fd`` is the descriptor already open on ``anchor``; this function descends
+    from a duplicate of it, never resolves ``anchor`` as a pathname and never closes the
+    caller's descriptor, which stays the caller's to close. The directory holding the
+    destination is reached by opening each component below the anchor one at a time,
+    creating a component that is absent. The payload is written to a temporary entry
+    created exclusively relative to that descriptor, flushed to the device, renamed onto
+    the destination name and read back, all through the same descriptor. The temporary
+    entry is removed through it when any step fails, every descriptor this function owns
+    is closed, no failure of any of those steps leaves this function as anything other
+    than a ``BuildError``, and at most ``limit`` bytes of the result are returned.
+    """
+    components = _relative_components(anchor, destination)
+    name = components[-1]
+    dirfd = _parent_descriptor(anchor_fd, anchor, components[:-1])
+
+    temporary: str | None = None
+    try:
+        try:
+            temporary, handle = _temporary_entry(name, dirfd, mode)
+            try:
+                _write_through(handle, payload)
+            finally:
+                os.close(handle)
+            os.replace(temporary, name, src_dir_fd=dirfd, dst_dir_fd=dirfd)
+            temporary = None
+        except OSError as error:
+            raise InputOutputError(
+                f"cannot write record to {_path_shown(destination)}: "
+                f"{error.strerror or error}"
+            ) from error
+        try:
+            return _read_back(name, dirfd, limit)
+        except OSError as error:
+            raise InputOutputError(
+                f"cannot read back {_path_shown(destination)}: "
+                f"{error.strerror or error}"
+            ) from error
+    finally:
+        if temporary is not None:
+            with contextlib.suppress(OSError):
+                os.unlink(temporary, dir_fd=dirfd)
+        with contextlib.suppress(OSError):
+            os.close(dirfd)
+
+
 def write_record(
-    path: str | os.PathLike[str], record: str, expected_length: int
+    path: str | os.PathLike[str],
+    record: str,
+    output_root: str | os.PathLike[str] | None = None,
 ) -> Path:
     """Write ``record`` to ``path`` as one line closed by a single newline.
 
     The record must already hold ``expected_length`` characters and only 7-bit ASCII.
-    Parent directories are created, the characters are written to a temporary file in
-    the destination directory and moved into place, and the result is read back and
-    compared byte for byte before the destination path is returned.
+    The destination is canonicalised and confined to ``output_root``, defaulting to the
+    validated generated-output root, before anything is created, and that validation
+    leaves one descriptor open on the directory the write descends from, obtained by
+    descending its canonical path one component at a time. The write then runs through
+    descriptors only: every directory below that one is created where absent and opened
+    by single component relative to the descriptor above it, and the characters are
+    written to a temporary entry, flushed to the device, renamed onto the destination
+    name and read back through the descriptor holding it, then compared byte for byte
+    with the rendered characters before the canonical destination path is returned. The
+    descriptor validation opened is closed before this function returns or raises.
     """
-    if len(record) != expected_length:
+    if len(record) != COMMAREA_RECORD_LENGTH:
         raise FieldMapError(
-            f"record is {len(record)} characters, expected {expected_length}; "
+            f"record is {len(record)} characters, expected {COMMAREA_RECORD_LENGTH}; "
             "refusing to write"
         )
     if not record.isascii():
-        offender = next(character for character in record if not character.isascii())
+        position, offender = next(
+            (index, character)
+            for index, character in enumerate(record, start=1)
+            if not character.isascii()
+        )
         raise SampleError(
-            f"record holds {offender!r} at position {record.index(offender) + 1}, "
-            "outside 7-bit ASCII; refusing to write"
+            f"record holds a character outside 7-bit ASCII at position {position} "
+            f"(code point {ord(offender)}); refusing to write"
         )
 
-    destination = Path(path)
+    destination = _validated_destination(path, output_root)
     try:
-        destination.parent.mkdir(parents=True, exist_ok=True)
-    except OSError as error:
-        raise InputOutputError(
-            f"cannot create directory '{destination.parent}': "
-            f"{error.strerror or error}"
-        ) from error
-
-    partial: str | None = None
-    try:
-        with tempfile.NamedTemporaryFile(
-            mode="w",
-            encoding="ascii",
-            newline="\n",
-            dir=destination.parent,
-            prefix=f".{destination.name}.",
-            suffix=".partial",
-            delete=False,
-        ) as handle:
-            partial = handle.name
-            handle.write(record)
-            handle.write("\n")
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.chmod(partial, _default_file_mode())
-        os.replace(partial, destination)
-        partial = None
-    except OSError as error:
-        if partial is not None:
-            # Delete the temporary file, then report the original failure.
-            with contextlib.suppress(OSError):
-                os.unlink(partial)
-        raise InputOutputError(
-            f"cannot write record to '{destination}': {error.strerror or error}"
-        ) from error
-
-    payload = (record + "\n").encode("ascii")
-    try:
-        written = destination.read_bytes()
-    except OSError as error:
-        raise InputOutputError(
-            f"cannot read back '{destination}': {error.strerror or error}"
-        ) from error
-    if written != payload:
-        detail = (
-            f"holds {len(written)} bytes, expected {len(payload)}"
-            if len(written) != len(payload)
-            else "content differs from the rendered record"
+        payload = (record + "\n").encode("ascii")
+        written = _replaced_under_anchor(
+            destination.anchor,
+            destination.anchor_fd,
+            destination.path,
+            payload,
+            _default_file_mode(),
+            len(payload) + 1,
         )
-        raise InputOutputError(f"'{destination}' {detail} after writing")
-    return destination
+        if written != payload:
+            if len(written) > len(payload):
+                detail = f"holds more than the expected {len(payload)} bytes"
+            elif len(written) != len(payload):
+                detail = f"holds {len(written)} bytes, expected {len(payload)}"
+            else:
+                detail = "content differs from the rendered record"
+            raise InputOutputError(
+                f"{_path_shown(destination.path)} {detail} after writing"
+            )
+        return destination.path
+    finally:
+        with contextlib.suppress(OSError):
+            os.close(destination.anchor_fd)
+
+
+class _CommandLineParser(argparse.ArgumentParser):
+    """Command line parser that raises ``UsageError`` instead of printing usage text.
+
+    ``-h`` and ``--help`` keep printing the full help and exiting with status 0. Every
+    other command line failure becomes one bounded, control-free diagnostic carried by
+    ``UsageError``, which reaches stderr as one line.
+    """
+
+    def error(self, message: str) -> NoReturn:
+        """Raise ``UsageError`` carrying ``message``, bounded and control-free."""
+        raise UsageError(
+            "command line rejected: "
+            f"{_escaped(message, MAX_DIAGNOSTIC_MESSAGE_CHARACTERS)}; run "
+            f"'{_PROGRAM} --help' for the accepted arguments"
+        )
+
+
+# Self-test support: the copybook layout oracle. It reads base/src/lgcmarea.cpy and
+# computes every item's offset, length and kind without consulting the field map.
+
+# Zero-based index of the fixed-format indicator column and the end of area B.
+_INDICATOR_COLUMN = 6
+_AREA_END_COLUMN = 72
+
+# Repository-relative copybook path each exercised layout group cites.
+_COPYBOOK_REPOSITORY_PATH = "base/src/lgcmarea.cpy"
+
+_COPYBOOK_DATA_LINE = re.compile(r"^(\d{2})\s+([A-Za-z0-9][A-Za-z0-9-]*)(.*)$")
+_COPYBOOK_PICTURE = re.compile(
+    r"\bPIC(?:TURE)?\s+(?:IS\s+)?([A-Za-z0-9()]+)", re.IGNORECASE
+)
+_COPYBOOK_REDEFINES = re.compile(
+    r"\bREDEFINES\s+([A-Za-z0-9][A-Za-z0-9-]*)", re.IGNORECASE
+)
+_PICTURE_TOKEN = re.compile(r"([X9])(?:\((\d+)\))?")
+_LINE_RANGE = re.compile(r"^(\d+)-(\d+)$")
+
+
+class CopybookItem(NamedTuple):
+    """One item parsed from the COMMAREA copybook."""
+
+    name: str
+    level: int
+    line: int
+    offset: int
+    length: int
+    kind: str
+    redefines: str | None
+
+    @property
+    def end_byte(self) -> int:
+        """Return the 1-based position of the item's last character."""
+        return self.offset + self.length - 1
+
+
+class CopybookLayout(NamedTuple):
+    """The parsed copybook: items keyed by upper-case name, plus the record length."""
+
+    items: dict[str, CopybookItem]
+    record_length: int
+
+
+class _OpenGroup:
+    """One group item whose children are still being read."""
+
+    __slots__ = ("cursor", "level", "line", "name", "offset", "redefines")
+
+    def __init__(
+        self, level: int, name: str, line: int, offset: int, redefines: str | None
+    ) -> None:
+        self.level = level
+        self.name = name
+        self.line = line
+        self.offset = offset
+        self.cursor = offset
+        self.redefines = redefines
+
+
+def _picture_length_and_kind(picture: str, where: str) -> tuple[int, str]:
+    """Return the character count and item kind of one PICTURE clause.
+
+    ``X`` and ``9`` symbols are read, each optionally followed by a parenthesised
+    repeat count, so ``X(6)``, ``9(10)``, ``99`` and ``X`` all resolve. An item using
+    any other symbol raises ``SelfTestError`` naming the clause.
+    """
+    position = 0
+    total = 0
+    symbols: set[str] = set()
+    while position < len(picture):
+        token = _PICTURE_TOKEN.match(picture, position)
+        if token is None:
+            raise SelfTestError(
+                f"{where}: PICTURE {_display(picture)} uses a symbol this parse does "
+                f"not read"
+            )
+        total += int(token.group(2)) if token.group(2) else 1
+        symbols.add(token.group(1).upper())
+        position = token.end()
+    if total < 1:
+        raise SelfTestError(
+            f"{where}: PICTURE {_display(picture)} describes no character"
+        )
+    return total, KIND_ALPHANUMERIC if "X" in symbols else KIND_NUMERIC
+
+
+def _record_copybook_item(
+    items: dict[str, CopybookItem], item: CopybookItem, where: str
+) -> None:
+    """Store one parsed item, rejecting a name the copybook already declared."""
+    key = item.name.upper()
+    existing = items.get(key)
+    if existing is not None:
+        raise SelfTestError(
+            f"{where}: item {_display(item.name)} on line {item.line} repeats the "
+            f"name declared on line {existing.line}"
+        )
+    items[key] = item
+
+
+def _close_copybook_group(
+    stack: list[_OpenGroup], items: dict[str, CopybookItem], where: str
+) -> None:
+    """Finish the innermost open group and advance its parent when it adds bytes."""
+    group = stack.pop()
+    length = group.cursor - group.offset
+    if length < 1:
+        raise SelfTestError(
+            f"{where}: group {_display(group.name)} on line {group.line} declares no "
+            f"item"
+        )
+    _record_copybook_item(
+        items,
+        CopybookItem(
+            name=group.name,
+            level=group.level,
+            line=group.line,
+            offset=group.offset,
+            length=length,
+            kind=KIND_GROUP,
+            redefines=group.redefines,
+        ),
+        where,
+    )
+    if group.redefines is None:
+        stack[-1].cursor = group.offset + length
+
+
+def parse_copybook_layout(
+    path: str | os.PathLike[str] | None = None,
+) -> CopybookLayout:
+    """Parse the COMMAREA copybook into offsets, lengths and kinds.
+
+    ``path`` defaults to ``COMMAREA_COPYBOOK``. A line carrying ``*`` or ``/`` in the
+    fixed-format indicator column is a comment; every other line declares one level
+    number, one item name and either a PICTURE clause or a group. An item with a
+    REDEFINES clause starts at the offset already recorded for the item it names and
+    adds no bytes to its parent. Offsets are 1-based positions in the emitted record,
+    and the returned record length is the total the level-01 group would occupy.
+
+    Raises ``SelfTestError`` naming the file and line for any construct this parse does
+    not read.
+    """
+    copybook = Path(path) if path is not None else COMMAREA_COPYBOOK
+    where = f"copybook {_display(str(copybook))}"
+    try:
+        text = copybook.read_text(encoding="utf-8")
+    except OSError as error:
+        raise SelfTestError(f"cannot read {where}: {_reason(error)}") from error
+    except UnicodeError as error:
+        raise SelfTestError(
+            f"{where} is not valid UTF-8 text: {_reason(error)}"
+        ) from error
+
+    items: dict[str, CopybookItem] = {}
+    stack = [_OpenGroup(level=0, name="DFHCOMMAREA", line=0, offset=1, redefines=None)]
+    for number, raw in enumerate(text.splitlines(), start=1):
+        if len(raw) > _INDICATOR_COLUMN and raw[_INDICATOR_COLUMN] in "*/":
+            continue
+        body = raw[_INDICATOR_COLUMN + 1 : _AREA_END_COLUMN].strip()
+        if not body:
+            continue
+        declaration = _COPYBOOK_DATA_LINE.match(body)
+        if declaration is None:
+            raise SelfTestError(
+                f"{where} line {number}: cannot read a level number and item name "
+                f"from {_display(body)}"
+            )
+        level = int(declaration.group(1))
+        name = declaration.group(2)
+        if not 1 <= level <= 49:
+            raise SelfTestError(
+                f"{where} line {number}: level {level} is not a data description this "
+                f"parse reads"
+            )
+        clauses = declaration.group(3).strip()
+        if not clauses.endswith("."):
+            raise SelfTestError(
+                f"{where} line {number}: declaration {_display(body)} does not end "
+                f"with a period"
+            )
+        clauses = clauses[:-1].strip()
+
+        redefines: str | None = None
+        redefines_clause = _COPYBOOK_REDEFINES.search(clauses)
+        if redefines_clause is not None:
+            redefines = redefines_clause.group(1).upper()
+            clauses = (
+                clauses[: redefines_clause.start()] + clauses[redefines_clause.end() :]
+            ).strip()
+        picture: str | None = None
+        picture_clause = _COPYBOOK_PICTURE.search(clauses)
+        if picture_clause is not None:
+            picture = picture_clause.group(1)
+            clauses = (
+                clauses[: picture_clause.start()] + clauses[picture_clause.end() :]
+            ).strip()
+        if clauses:
+            raise SelfTestError(
+                f"{where} line {number}: clause {_display(clauses)} is not a construct "
+                f"this parse reads"
+            )
+
+        while stack[-1].level >= level:
+            _close_copybook_group(stack, items, where)
+        parent = stack[-1]
+        if redefines is not None:
+            target = items.get(redefines)
+            if target is None:
+                raise SelfTestError(
+                    f"{where} line {number}: REDEFINES names {_display(redefines)}, "
+                    f"which is not declared above it"
+                )
+            offset = target.offset
+        else:
+            offset = parent.cursor
+
+        if picture is None:
+            stack.append(
+                _OpenGroup(
+                    level=level,
+                    name=name,
+                    line=number,
+                    offset=offset,
+                    redefines=redefines,
+                )
+            )
+            continue
+        length, kind = _picture_length_and_kind(picture, f"{where} line {number}")
+        _record_copybook_item(
+            items,
+            CopybookItem(
+                name=name,
+                level=level,
+                line=number,
+                offset=offset,
+                length=length,
+                kind=kind,
+                redefines=redefines,
+            ),
+            where,
+        )
+        if redefines is None:
+            parent.cursor = offset + length
+
+    while len(stack) > 1:
+        _close_copybook_group(stack, items, where)
+    if not items:
+        raise SelfTestError(f"{where} declares no item")
+    return CopybookLayout(items=items, record_length=stack[0].cursor - 1)
+
+
+# Self-test support: the expected content of every window each fixture produces. Item
+# names index the copybook parse for the offset and length; the values are literals.
+
+
+class _Fill(NamedTuple):
+    """Expectation that a whole window holds one repeated character."""
+
+    character: str
+
+
+_FILL_SPACES = _Fill(" ")
+
+
+class _FixtureKeys(NamedTuple):
+    """The keys one fixture supplies and the items it leaves at their fill.
+
+    ``supplied`` is the complete key set the fixture document declares. ``omitted``
+    names every window of the selected layout the fixture must not supply: the items
+    the chain assigns, the protected filler and every other window that holds its fill
+    character on the emitted record.
+    """
+
+    supplied: frozenset[str]
+    omitted: frozenset[str]
+
+
+_MOTOR_EXPECTED_WINDOWS: dict[str, str | _Fill] = {
+    "CA-REQUEST-ID": "01AMOT",
+    "CA-RETURN-CODE": "00",
+    "CA-CUSTOMER-NUM": "0000001001",
+    "CA-POLICY-NUM": "0000000000",
+    "CA-ISSUE-DATE": "2026-08-19",
+    "CA-EXPIRY-DATE": "2027-08-18",
+    "CA-LASTCHANGED": " " * 26,
+    "CA-BROKERID": "0000000042",
+    "CA-BROKERSREF": "BRMOT001" + " " * 2,
+    "CA-PAYMENT": "000500",
+    "CA-M-MAKE": "FORD" + " " * 11,
+    "CA-M-MODEL": "FIESTA" + " " * 9,
+    "CA-M-VALUE": "012500",
+    "CA-M-REGNUMBER": "AB12CDE",
+    "CA-M-COLOUR": "BLUE" + " " * 4,
+    "CA-M-CC": "1400",
+    "CA-M-MANUFACTURED": "2019-03-15",
+    "CA-M-PREMIUM": "000450",
+    "CA-M-ACCIDENTS": "000001",
+    "CA-M-FILLER": _FILL_SPACES,
+}
+
+_COMMERCIAL_EXPECTED_WINDOWS: dict[str, str | _Fill] = {
+    "CA-REQUEST-ID": "01ACOM",
+    "CA-RETURN-CODE": "00",
+    "CA-CUSTOMER-NUM": "0000002002",
+    "CA-POLICY-NUM": "0000000000",
+    "CA-ISSUE-DATE": "2026-08-19",
+    "CA-EXPIRY-DATE": "2027-08-18",
+    "CA-LASTCHANGED": " " * 26,
+    "CA-BROKERID": "0000000084",
+    "CA-BROKERSREF": "BRCOM001" + " " * 2,
+    "CA-PAYMENT": "001750",
+    "CA-B-Address": "1 EXAMPLE INDUSTRIAL ESTATE, EXAMPLE TOWN" + " " * 214,
+    "CA-B-Postcode": "EX1 2AB" + " ",
+    "CA-B-Latitude": "51.4779" + " " * 4,
+    "CA-B-Longitude": "-0.0015" + " " * 4,
+    "CA-B-Customer": "EXAMPLE MANUFACTURING LTD" + " " * 230,
+    "CA-B-PropType": "WAREHOUSE" + " " * 246,
+    "CA-B-FirePeril": "0011",
+    "CA-B-FirePremium": "00013500",
+    "CA-B-CrimePeril": "0022",
+    "CA-B-CrimePremium": "00003400",
+    "CA-B-FloodPeril": "0033",
+    "CA-B-FloodPremium": "00007800",
+    "CA-B-WeatherPeril": "0044",
+    "CA-B-WeatherPremium": "00002600",
+    "CA-B-Status": "0000",
+    "CA-B-RejectReason": " " * 255,
+    "CA-B-FILLER": _FILL_SPACES,
+}
+
+_MOTOR_FIXTURE_KEYS = _FixtureKeys(
+    supplied=frozenset(
+        {
+            "CA-REQUEST-ID",
+            "CA-CUSTOMER-NUM",
+            "CA-ISSUE-DATE",
+            "CA-EXPIRY-DATE",
+            "CA-BROKERID",
+            "CA-BROKERSREF",
+            "CA-PAYMENT",
+            "CA-M-MAKE",
+            "CA-M-MODEL",
+            "CA-M-VALUE",
+            "CA-M-REGNUMBER",
+            "CA-M-COLOUR",
+            "CA-M-CC",
+            "CA-M-MANUFACTURED",
+            "CA-M-PREMIUM",
+            "CA-M-ACCIDENTS",
+        }
+    ),
+    omitted=frozenset(
+        {
+            "CA-RETURN-CODE",
+            "CA-POLICY-NUM",
+            "CA-LASTCHANGED",
+            "CA-M-FILLER",
+        }
+    ),
+)
+
+_COMMERCIAL_FIXTURE_KEYS = _FixtureKeys(
+    supplied=frozenset(
+        {
+            "CA-REQUEST-ID",
+            "CA-CUSTOMER-NUM",
+            "CA-ISSUE-DATE",
+            "CA-EXPIRY-DATE",
+            "CA-BROKERID",
+            "CA-BROKERSREF",
+            "CA-PAYMENT",
+            "CA-B-Address",
+            "CA-B-Postcode",
+            "CA-B-Latitude",
+            "CA-B-Longitude",
+            "CA-B-Customer",
+            "CA-B-PropType",
+            "CA-B-FirePeril",
+            "CA-B-FirePremium",
+            "CA-B-CrimePeril",
+            "CA-B-CrimePremium",
+            "CA-B-FloodPeril",
+            "CA-B-FloodPremium",
+            "CA-B-WeatherPeril",
+            "CA-B-WeatherPremium",
+            "CA-B-Status",
+        }
+    ),
+    omitted=frozenset(
+        {
+            "CA-RETURN-CODE",
+            "CA-POLICY-NUM",
+            "CA-LASTCHANGED",
+            "CA-B-RejectReason",
+            "CA-B-FILLER",
+        }
+    ),
+)
+
+# Commercial status value the companion case supplies in place of the fixture's zeros.
+_NON_ZERO_COMMERCIAL_STATUS = "0407"
+
+# Repeated text the adversarial commercial case fills CA-B-Address with.
+_WIDE_ADDRESS_PATTERN = "EXAMPLE COMMERCIAL PREMISES BLOCK "
+
+# Values narrower than their windows that the short-value case supplies in place of the
+# motor fixture's full-width payment and colour, and the windows they must produce: the
+# numeric value right-justified over zeros, the alphanumeric value left-justified over
+# spaces.
+_SHORT_NUMERIC_VALUE = "500"
+_SHORT_ALPHANUMERIC_VALUE = "RED"
+_SHORT_VALUE_EXPECTED_WINDOWS: dict[str, str | _Fill] = {
+    **_MOTOR_EXPECTED_WINDOWS,
+    "CA-PAYMENT": "000500",
+    "CA-M-COLOUR": "RED" + " " * 5,
+}
+
+# The one window the short-value record moves when a field map justifies numeric values
+# to the left instead: the same three digits padded on their right. The alphanumeric
+# windows and every full-width numeric window hold the content above either way, so a
+# left-justifying field map must produce this table and nothing else.
+_LEFT_JUSTIFIED_NUMERIC_ITEM = "CA-PAYMENT"
+_LEFT_JUSTIFIED_NUMERIC_WINDOW = "500000"
+_LEFT_NUMERIC_EXPECTED_WINDOWS: dict[str, str | _Fill] = {
+    **_SHORT_VALUE_EXPECTED_WINDOWS,
+    _LEFT_JUSTIFIED_NUMERIC_ITEM: _LEFT_JUSTIFIED_NUMERIC_WINDOW,
+}
+
+# The four commercial premium items and the value the motor case offers for the first of
+# them. Their windows fall inside CA-M-FILLER on a motor record.
+_COMMERCIAL_PREMIUM_ITEMS = (
+    "CA-B-FirePremium",
+    "CA-B-CrimePremium",
+    "CA-B-FloodPremium",
+    "CA-B-WeatherPremium",
+)
+_COMMERCIAL_PREMIUM_PROBE = "00013500"
+
+# The one 7-bit ASCII character the length case appends to a rendered record, so
+# write_record is offered one character more than it writes.
+_EXTRA_RECORD_CHARACTER = "0"
+
+# The field map's product premium nullability claim, held here as literals: the builder
+# cases it may name for the record bytes, the statements it withholds, the dbt test that
+# carries the transformed column-level assertion and the cases it requires of that test.
+# That test is not authored at this milestone and no case in this matrix runs it; the
+# literals below compare the claim's metadata and read no warehouse column.
+_NULLABILITY_CLAIMED_CASES = frozenset(
+    {"commercial_inactive_overlay_filled", "motor_inactive_overlay_spaces"}
+)
+_NULLABILITY_WITHHELD = (
+    "any raw, staging, intermediate or canonical column value",
+    "motor_premium_amount IS NULL while the four commercial premiums carry values",
+    "the four commercial premiums IS NULL while motor_premium_amount carries a value",
+)
+_NULLABILITY_TRANSFORMED_TEST = (
+    "modernization/dbt/genapp_rqi/tests/assert_product_premium_nullability.sql"
+)
+_NULLABILITY_INACTIVE_BYTES = "non_blank"
+_NULLABILITY_REQUIRED_CASES: dict[str, dict[str, Any]] = {
+    "M": {
+        "policy_type": "M",
+        "raw_inactive_overlay_bytes": _NULLABILITY_INACTIVE_BYTES,
+        "populated": ["motor_premium_amount"],
+        "null_fields": [
+            "fire_premium_amount",
+            "crime_premium_amount",
+            "flood_premium_amount",
+            "weather_premium_amount",
+        ],
+    },
+    "C": {
+        "policy_type": "C",
+        "raw_inactive_overlay_bytes": _NULLABILITY_INACTIVE_BYTES,
+        "populated": [
+            "fire_premium_amount",
+            "crime_premium_amount",
+            "flood_premium_amount",
+            "weather_premium_amount",
+        ],
+        "null_fields": ["motor_premium_amount"],
+    },
+}
+
+# Anchored sequences the alias case expands to _ALIAS_DAG_FANOUT ** _ALIAS_DAG_LEVELS
+# leaf values, and the self-referential mapping the cyclic case declares.
+_ALIAS_DAG_KEY = "alias_dag_probe"
+_ALIAS_DAG_LEVELS = 6
+_ALIAS_DAG_FANOUT = 10
+_CYCLIC_ALIAS_TEXT = "cycle_probe: &cycle_probe\n  child: *cycle_probe\n"
+
+# Mapping key a loader cannot compare against the keys already seen.
+_UNHASHABLE_KEY_TEXT = "unhashable_probe:\n  ? [1, 2]\n  : compared by no loader\n"
+
+# Container nesting the parser case uses; it stays inside MAX_SAMPLE_BYTES and exceeds
+# the nesting the JSON parser reads before it raises.
+_PARSER_NESTING_PROBE = 25000
+
+
+class _SelfTestFailure(Exception):
+    """One self-test case did not hold; the message states what was observed."""
+
+
+class _CaseResult(NamedTuple):
+    """The outcome of one self-test case."""
+
+    name: str
+    passed: bool
+    detail: str
+
+
+class _CliResult(NamedTuple):
+    """The status and captured streams of one command line run in this process."""
+
+    status: int
+    stdout: str
+    stderr: str
+
+
+def _designated_output_root(argv: list[str]) -> list[str]:
+    """Return ``argv`` with the self-test scratch directory named as the output root.
+
+    Every self-test case writes beside its own scratch destination rather than into
+    ``modernization/harness/build``, so the directory holding the ``--output`` argument
+    is named to the tool as the root that destination must resolve inside. An ``argv``
+    that already names a root, or that names no destination, is returned unchanged.
+    """
+    if "--output" not in argv or "--output-root" in argv:
+        return argv
+    root = Path(argv[argv.index("--output") + 1]).parent
+    while not root.is_dir() and root.parent != root:
+        root = root.parent
+    return [*argv, "--output-root", str(root)]
+
+
+def _designated_read_roots(argv: list[str]) -> tuple[Path, ...]:
+    """Return the scratch directories one self-test command line reads its inputs from.
+
+    A case names its own field map and sample definition beside its scratch destination
+    rather than inside the repository, so the directory holding each of those arguments
+    is named to the tool as an authorised read root. A directory already inside the
+    validated read roots, which the packaged field map and the packaged sample
+    definitions sit in, is left out because it needs no extra authority; the nearest
+    existing directory above an absent argument is named, so a case naming a path that
+    does not exist is refused for being absent and not for being unauthorised.
+    """
+    validated = _validated_read_roots()
+    roots: list[Path] = []
+    for option in ("--field-map", "--sample"):
+        if option not in argv:
+            continue
+        position = argv.index(option) + 1
+        if position >= len(argv):
+            continue
+        directory = Path(os.path.abspath(argv[position])).parent
+        while not directory.is_dir() and directory.parent != directory:
+            directory = directory.parent
+        if any(directory.is_relative_to(root) for root in validated):
+            continue
+        if directory not in roots:
+            roots.append(directory)
+    return tuple(roots)
+
+
+def _run_cli(argv: list[str]) -> _CliResult:
+    """Run one command line in this process and capture its status and streams."""
+    out = io.StringIO()
+    err = io.StringIO()
+    with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+        try:
+            status = main(
+                _designated_output_root(argv), _designated_read_roots(argv)
+            )
+        except SystemExit as request:
+            status = request.code if isinstance(request.code, int) else 1
+    return _CliResult(status=status, stdout=out.getvalue(), stderr=err.getvalue())
+
+
+def _assert_diagnostic(stderr: str) -> None:
+    """Confirm a failure wrote one printable 7-bit ASCII line naming this tool."""
+    if not stderr:
+        raise _SelfTestFailure("wrote no diagnostic to stderr")
+    if not stderr.endswith("\n") or stderr.count("\n") != 1:
+        raise _SelfTestFailure(
+            f"diagnostic holds {stderr.count(chr(10))} newline(s), expected 1"
+        )
+    line = stderr[:-1]
+    if not line.startswith(f"{_PROGRAM}: "):
+        raise _SelfTestFailure(f"diagnostic does not name this tool: {_display(line)}")
+    outside = [
+        character for character in line if not 0x20 <= ord(character) <= 0x7E
+    ]
+    if outside:
+        raise _SelfTestFailure(
+            f"diagnostic holds {_display(outside[0])} outside printable ASCII"
+        )
+
+
+def _first_difference(left: str, right: str) -> int:
+    """Return the 0-based index of the first character at which two strings differ."""
+    for position in range(max(len(left), len(right))):
+        if left[position : position + 1] != right[position : position + 1]:
+            return position
+    return -1
+
+
+def _expectation_text(expectation: str | _Fill, item: CopybookItem) -> str:
+    """Return the expected characters of one window at its copybook length."""
+    if isinstance(expectation, _Fill):
+        return expectation.character * item.length
+    return expectation
+
+
+def _expected_record(
+    expectations: dict[str, str | _Fill], layout: CopybookLayout
+) -> str:
+    """Assemble the whole expected record from the literal window contents.
+
+    Each expectation is placed at the offset the copybook parse reports for its item,
+    every byte no expectation claims stays a space, and any expectation whose width
+    differs from the copybook length raises ``_SelfTestFailure``.
+    """
+    buffer = [" "] * layout.record_length
+    for name, expectation in expectations.items():
+        item = layout.items.get(name.upper())
+        if item is None:
+            raise _SelfTestFailure(
+                f"copybook declares no item {_display(name)} for the expected content"
+            )
+        text = _expectation_text(expectation, item)
+        if len(text) != item.length:
+            raise _SelfTestFailure(
+                f"expected content for {_display(name)} is {len(text)} characters, "
+                f"copybook declares {item.length}"
+            )
+        buffer[item.offset - 1 : item.end_byte] = list(text)
+    return "".join(buffer)
+
+
+def _assert_windows(
+    record: str,
+    expectations: dict[str, str | _Fill],
+    layout: CopybookLayout,
+    what: str,
+) -> None:
+    """Compare every expected window content against the produced record."""
+    for name in sorted(expectations):
+        item = layout.items.get(name.upper())
+        if item is None:
+            raise _SelfTestFailure(
+                f"copybook declares no item {_display(name)} for the expected content"
+            )
+        text = _expectation_text(expectations[name], item)
+        placed = record[item.offset - 1 : item.end_byte]
+        if placed == text:
+            continue
+        position = _first_difference(placed, text)
+        raise _SelfTestFailure(
+            f"{what} item {_display(name)} differs at byte {item.offset + position}: "
+            f"holds {_display(placed[position : position + 12])}, expected "
+            f"{_display(text[position : position + 12])}"
+        )
+
+
+def _assert_fixture_keys(
+    sample: dict[str, str], keys: _FixtureKeys, what: str
+) -> None:
+    """Confirm one fixture supplies exactly ``keys.supplied`` and nothing else.
+
+    Keys are compared without regard to case. The message names the missing and the
+    unexpected keys, so a key removed from or added to a fixture document fails here
+    before the record is rendered. ``keys.omitted`` must share no key with the
+    document.
+    """
+    supplied = {key.upper() for key in sample}
+    expected = {name.upper() for name in keys.supplied}
+    if len(supplied) != len(sample):
+        raise _SelfTestFailure(
+            f"{what} declares {len(sample)} key(s) that differ only by case"
+        )
+    missing = expected - supplied
+    unexpected = supplied - expected
+    if missing or unexpected:
+        raise _SelfTestFailure(
+            f"{what} supplies {len(supplied)} key(s) where {len(expected)} are "
+            f"expected; missing {_quote_all(missing) or 'nothing'}, unexpected "
+            f"{_quote_all(unexpected) or 'nothing'}"
+        )
+    also_omitted = {name.upper() for name in keys.omitted} & supplied
+    if also_omitted:
+        raise _SelfTestFailure(
+            f"{what} supplies {_quote_all(also_omitted)}, which it must leave at the "
+            f"fill character"
+        )
+
+
+def _assert_fill_windows(
+    record: str, omitted: Iterable[str], layout: CopybookLayout, what: str
+) -> None:
+    """Confirm every window the fixture omits holds the fill its kind declares.
+
+    A numeric window holds the digit zero across its whole length and an alphanumeric
+    window holds spaces. The expected characters come from the copybook parse, not from
+    the field map or the expected-window table.
+    """
+    for name in sorted(omitted):
+        item = layout.items.get(name.upper())
+        if item is None:
+            raise _SelfTestFailure(
+                f"copybook declares no item {_display(name)} for the omitted window"
+            )
+        if item.kind == KIND_NUMERIC:
+            fill = "0"
+        elif item.kind == KIND_ALPHANUMERIC:
+            fill = " "
+        else:
+            raise _SelfTestFailure(
+                f"copybook declares {_display(name)} as {item.kind}, which no fill "
+                f"character covers"
+            )
+        placed = record[item.offset - 1 : item.end_byte]
+        expected = fill * item.length
+        if placed == expected:
+            continue
+        position = _first_difference(placed, expected)
+        raise _SelfTestFailure(
+            f"{what} omitted item {_display(name)} holds "
+            f"{_display(placed[position : position + 12])} at byte "
+            f"{item.offset + position}, expected the {_display(fill)} fill"
+        )
+
+
+def _read_record(path: Path, what: str) -> str:
+    """Return the record at ``path`` after checking its byte count and newline."""
+    try:
+        payload = path.read_bytes()
+    except OSError as error:
+        raise _SelfTestFailure(f"{what} cannot be read: {_reason(error)}") from error
+    expected_bytes = COMMAREA_RECORD_LENGTH + 1
+    if len(payload) != expected_bytes:
+        raise _SelfTestFailure(
+            f"{what} holds {len(payload)} bytes, expected {expected_bytes}"
+        )
+    if not payload.endswith(b"\n") or payload.count(b"\n") != 1:
+        raise _SelfTestFailure(f"{what} does not end with exactly one newline")
+    try:
+        return payload[:-1].decode("ascii")
+    except UnicodeError as error:
+        raise _SelfTestFailure(
+            f"{what} holds bytes outside 7-bit ASCII: {_reason(error)}"
+        ) from error
+
+
+def _line_range(group_name: str, group: dict[str, Any]) -> tuple[int, int]:
+    """Return the copybook line range one layout group declares."""
+    declared = group.get("line_range")
+    match = _LINE_RANGE.match(declared) if isinstance(declared, str) else None
+    if match is None:
+        raise _SelfTestFailure(
+            f"layout group {_display(group_name)} declares line_range "
+            f"{_display(declared)}"
+        )
+    first, last = int(match.group(1)), int(match.group(2))
+    if first > last:
+        raise _SelfTestFailure(
+            f"layout group {_display(group_name)} declares line_range "
+            f"{_display(declared)}, which ends before it starts"
+        )
+    return first, last
+
+
+def _compare_declaration(
+    where: str,
+    declared: dict[str, Any],
+    members: Iterable[tuple[str, Any]],
+) -> list[str]:
+    """Return one message per member of ``declared`` that the copybook contradicts."""
+    problems: list[str] = []
+    for member, observed in members:
+        stated = declared.get(member)
+        if member == "level" and isinstance(stated, str) and stated.isdigit():
+            stated = int(stated)
+        if member == "redefines" and isinstance(stated, str):
+            stated = stated.upper()
+        if stated != observed:
+            problems.append(
+                f"{where} declares {member} {_display(stated)}, copybook shows "
+                f"{_display(observed)}"
+            )
+    return problems
+
+
+def _layout_disagreements(
+    field_map: dict[str, Any], layout: CopybookLayout
+) -> list[str]:
+    """Return every disagreement between the field map layout and the copybook parse.
+
+    Each exercised group is compared in both directions: every declared item and group
+    declaration must match the copybook's offset, length, kind, line, level and
+    REDEFINES target, and every copybook item inside the group's declared line range
+    must appear in that group.
+    """
+    problems: list[str] = []
+    if layout.record_length != COMMAREA_RECORD_LENGTH:
+        problems.append(
+            f"copybook items total {layout.record_length} characters, expected "
+            f"{COMMAREA_RECORD_LENGTH}"
+        )
+    for group_name, group in sorted(
+        field_map["layout"].items(), key=lambda pair: pair[0]
+    ):
+        cited = group.get("copybook")
+        if cited != _COPYBOOK_REPOSITORY_PATH:
+            problems.append(
+                f"layout group {_display(group_name)} cites copybook "
+                f"{_display(cited)}, expected {_display(_COPYBOOK_REPOSITORY_PATH)}"
+            )
+            continue
+        first, last = _line_range(group_name, group)
+        declared_items: set[str] = set()
+        for entry in group["items"]:
+            name = str(entry.get("item"))
+            declared_items.add(name.upper())
+            parsed = layout.items.get(name.upper())
+            if parsed is None:
+                problems.append(
+                    f"layout group {_display(group_name)} declares item "
+                    f"{_display(name)}, which the copybook does not"
+                )
+                continue
+            problems.extend(
+                _compare_declaration(
+                    f"layout item {_display(name)}",
+                    entry,
+                    (
+                        ("offset", parsed.offset),
+                        ("length", parsed.length),
+                        ("kind", parsed.kind),
+                        ("line", parsed.line),
+                    ),
+                )
+            )
+        declared_groups: set[str] = set()
+        for entry in group.get("group_declarations") or []:
+            name = str(entry.get("item"))
+            declared_groups.add(name.upper())
+            parsed = layout.items.get(name.upper())
+            if parsed is None:
+                problems.append(
+                    f"layout group {_display(group_name)} declares group item "
+                    f"{_display(name)}, which the copybook does not"
+                )
+                continue
+            problems.extend(
+                _compare_declaration(
+                    f"layout group declaration {_display(name)}",
+                    entry,
+                    (
+                        ("offset", parsed.offset),
+                        ("length", parsed.length),
+                        ("line", parsed.line),
+                        ("level", parsed.level),
+                        ("redefines", parsed.redefines),
+                    ),
+                )
+            )
+        for parsed in layout.items.values():
+            if not first <= parsed.line <= last:
+                continue
+            known = declared_groups if parsed.kind == KIND_GROUP else declared_items
+            if parsed.name.upper() not in known:
+                problems.append(
+                    f"copybook line {parsed.line} declares {_display(parsed.name)}, "
+                    f"which layout group {_display(group_name)} does not"
+                )
+    return problems
+
+
+# Self-test support: scratch documents, case bodies and the case runner.
+
+
+def _write_sample(directory: Path, name: str, document: dict[str, Any]) -> Path:
+    """Write one sample definition JSON document into the scratch directory."""
+    path = directory / f"{name}.json"
+    path.write_text(
+        json.dumps(document, indent=2, ensure_ascii=True) + "\n", encoding="utf-8"
+    )
+    return path
+
+
+def _write_payload(directory: Path, name: str, payload: bytes) -> Path:
+    """Write one exact byte payload into the scratch directory."""
+    path = directory / name
+    path.write_bytes(payload)
+    return path
+
+
+def _make_fifo(directory: Path, name: str) -> Path:
+    """Create one FIFO in the scratch directory and return its path."""
+    path = directory / name
+    os.mkfifo(path)
+    return path
+
+
+def _short_value_sample(motor: dict[str, str]) -> dict[str, str]:
+    """Return the motor fixture with a short numeric and a short alphanumeric value."""
+    sample = dict(motor)
+    sample["CA-PAYMENT"] = _SHORT_NUMERIC_VALUE
+    sample["CA-M-COLOUR"] = _SHORT_ALPHANUMERIC_VALUE
+    return sample
+
+
+def _duplicated_key_payload(text: str, anchor: str, inserted: str) -> bytes:
+    """Return ``text`` as bytes with ``inserted`` placed after the line ``anchor``.
+
+    ``anchor`` must equal exactly one whole line of ``text``. ``inserted`` is written
+    directly beneath it, at the indentation it carries, so it repeats a key of the
+    mapping that line opens.
+    """
+    lines = text.splitlines(keepends=True)
+    found = [
+        position
+        for position, line in enumerate(lines)
+        if line.rstrip("\n") == anchor
+    ]
+    if len(found) != 1:
+        raise SelfTestError(
+            f"field map holds {len(found)} line(s) equal to {_display(anchor)}, "
+            f"expected exactly 1"
+        )
+    lines.insert(found[0] + 1, f"{inserted}\n")
+    return "".join(lines).encode("utf-8")
+
+
+def _duplicate_key_stated(key: str) -> str:
+    """Return the fragment a rejected duplicate mapping key writes to a diagnostic.
+
+    The loader's message names the key in quotes and the diagnostic escapes it to one
+    printable line, so the quotes reach stderr in their escaped form.
+    """
+    return f"found duplicate key \\'{key}\\'"
+
+
+def _alias_dag_text(levels: int, fanout: int) -> str:
+    """Return YAML text whose anchors expand to ``fanout ** levels`` leaf values.
+
+    Each level is one anchored sequence holding ``fanout`` references to the level
+    below it, so the text stays short while the document it describes does not.
+    """
+    members = ", ".join(["leaf"] * fanout)
+    lines = [f"{_ALIAS_DAG_KEY}:", f"  level0: &level0 [{members}]"]
+    for level in range(1, levels + 1):
+        aliases = ", ".join([f"*level{level - 1}"] * fanout)
+        lines.append(f"  level{level}: &level{level} [{aliases}]")
+    return "\n".join(lines) + "\n"
+
+
+def _write_field_map(directory: Path, name: str, document: dict[str, Any]) -> Path:
+    """Write one field map document into the scratch directory."""
+    path = directory / f"{name}.yml"
+    path.write_text(
+        yaml.safe_dump(
+            document, default_flow_style=False, sort_keys=True, allow_unicode=False
+        ),
+        encoding="utf-8",
+    )
+    return path
+
+
+def _mutated_field_map(
+    directory: Path,
+    name: str,
+    document: dict[str, Any],
+    mutate: Callable[[dict[str, Any]], None],
+) -> Path:
+    """Write a copy of the field map with ``mutate`` applied to it."""
+    altered = copy.deepcopy(document)
+    mutate(altered)
+    return _write_field_map(directory, name, altered)
+
+
+def _swap_offsets(left: dict[str, Any], right: dict[str, Any]) -> None:
+    """Exchange the ``offset`` members of two layout item entries."""
+    left["offset"], right["offset"] = right["offset"], left["offset"]
+
+
+def _layout_entry(
+    document: dict[str, Any], group: str, item: str
+) -> dict[str, Any]:
+    """Return one layout item entry of a field map document."""
+    for entry in document["layout"][group]["items"]:
+        if isinstance(entry, dict) and str(entry.get("item", "")).upper() == item:
+            return entry
+    raise SelfTestError(
+        f"field map layout group {_display(group)} declares no item {_display(item)}"
+    )
+
+
+def _protected_fill_entry(document: dict[str, Any], item: str) -> dict[str, Any]:
+    """Return one protected_fill_items entry of a field map document."""
+    contract = document["sample_definition_contract"]
+    for entry in contract["protected_fill_items"]:
+        if isinstance(entry, dict) and str(entry.get("item", "")).upper() == item:
+            return entry
+    raise SelfTestError(
+        f"field map sample_definition_contract declares no protected filler "
+        f"{_display(item)}"
+    )
+
+
+def _seeded_destination(directory: Path, name: str) -> Path:
+    """Create a destination holding sentinel bytes and return its path."""
+    path = directory / f"{name}.out"
+    path.write_bytes(b"SENTINEL RECORD NOT REPLACED\n")
+    return path
+
+
+def _nested(depth: int) -> Any:
+    """Return a value wrapped in ``depth`` nested single-element lists."""
+    value: Any = "nested value"
+    for _ in range(depth):
+        value = [value]
+    return value
+
+
+def _assert_rejected(
+    argv: list[str], expected_status: int, destination: Path, fragment: str
+) -> str:
+    """Run one failing invocation and confirm status, diagnostic and destination.
+
+    ``fragment`` is the text the diagnostic must contain; a matching status alone does
+    not pass the case.
+    """
+    before = destination.read_bytes()
+    result = _run_cli(argv)
+    if result.status != expected_status:
+        raise _SelfTestFailure(
+            f"exit {result.status}, expected {expected_status}; stderr "
+            f"{_display(result.stderr.strip())}"
+        )
+    _assert_diagnostic(result.stderr)
+    if fragment not in result.stderr:
+        raise _SelfTestFailure(
+            f"diagnostic {_display(result.stderr.strip())} does not state "
+            f"{_display(fragment)}"
+        )
+    if result.stdout:
+        raise _SelfTestFailure(
+            f"wrote {len(result.stdout)} characters to stdout on failure"
+        )
+    if destination.read_bytes() != before:
+        raise _SelfTestFailure("destination changed while the run failed")
+    return (
+        f"exit={expected_status} diagnostic states {_display(fragment)} "
+        f"destination={len(before)} bytes unchanged"
+    )
+
+
+def _assert_write_refused(destination: Path, record: str) -> str:
+    """Offer one record of the wrong width to ``write_record`` and confirm the refusal.
+
+    ``write_record`` must raise ``FieldMapError`` stating the character count it was
+    offered and the count this builder writes, and ``destination`` must still hold the
+    bytes it held before the call.
+    """
+    before = destination.read_bytes()
+    refusal: FieldMapError | None = None
+    try:
+        write_record(destination, record)
+    except FieldMapError as error:
+        refusal = error
+    if refusal is None:
+        raise _SelfTestFailure(f"write_record accepted {len(record)} characters")
+    stated = f"record is {len(record)} characters, expected {COMMAREA_RECORD_LENGTH}"
+    if stated not in str(refusal):
+        raise _SelfTestFailure(
+            f"the refusal states {_display(str(refusal))}, expected "
+            f"{_display(stated)}"
+        )
+    after = destination.read_bytes()
+    if after != before:
+        raise _SelfTestFailure(
+            f"destination changed while the {len(record)} character write was refused"
+        )
+    return (
+        f"refused {len(record)} characters with {_display(stated)}, "
+        f"destination={len(after)} bytes unchanged"
+    )
+
+
+def _case_copybook_record_length(layout: CopybookLayout) -> str:
+    """Confirm the copybook items total the emitted record length."""
+    if layout.record_length != COMMAREA_RECORD_LENGTH:
+        raise _SelfTestFailure(
+            f"copybook items total {layout.record_length} characters, expected "
+            f"{COMMAREA_RECORD_LENGTH}"
+        )
+    return (
+        f"{len(layout.items)} parsed item(s) total {COMMAREA_RECORD_LENGTH} characters"
+    )
+
+
+def _case_layout_cross_check(
+    field_map: dict[str, Any], layout: CopybookLayout
+) -> str:
+    """Confirm the field map layout and the copybook parse agree in both directions."""
+    problems = _layout_disagreements(field_map, layout)
+    if problems:
+        raise _SelfTestFailure(
+            f"{len(problems)} disagreement(s); first: {problems[0]}"
+        )
+    exercised = sum(
+        len(group["items"]) + len(group.get("group_declarations") or [])
+        for group in field_map["layout"].values()
+    )
+    return f"{exercised} layout entry/entries agree with the copybook"
+
+
+def _case_fixture_record(
+    layout: CopybookLayout,
+    map_path: Path,
+    sample_path: Path,
+    sample: dict[str, str],
+    keys: _FixtureKeys,
+    expectations: dict[str, str | _Fill],
+    directory: Path,
+    name: str,
+) -> str:
+    """Build one fixture and compare its keys and every window with the literals.
+
+    The fixture's key set is compared with ``keys.supplied`` before the record is
+    rendered, the expected-window table must cover exactly the supplied and the omitted
+    items, every window is compared with its literal expectation, and every omitted
+    window must hold the fill character its copybook kind declares.
+    """
+    _assert_fixture_keys(sample, keys, name)
+    covered = {item.upper() for item in keys.supplied} | {
+        item.upper() for item in keys.omitted
+    }
+    tabulated = {window.upper() for window in expectations}
+    if covered != tabulated:
+        raise _SelfTestFailure(
+            f"{name} expects {len(tabulated)} window(s) while its key sets name "
+            f"{len(covered)}; only in the table "
+            f"{_quote_all(tabulated - covered) or 'nothing'}, only in the key sets "
+            f"{_quote_all(covered - tabulated) or 'nothing'}"
+        )
+    output = directory / f"{name}.rec"
+    result = _run_cli(
+        [
+            "--field-map",
+            str(map_path),
+            "--sample",
+            str(sample_path),
+            "--output",
+            str(output),
+        ]
+    )
+    if result.status != EXIT_OK:
+        raise _SelfTestFailure(
+            f"exit {result.status}: {_display(result.stderr.strip())}"
+        )
+    if result.stdout.count("\n") != 1:
+        raise _SelfTestFailure(
+            f"summary holds {result.stdout.count(chr(10))} line(s), expected 1"
+        )
+    if f"characters={COMMAREA_RECORD_LENGTH}" not in result.stdout:
+        raise _SelfTestFailure("summary does not state the character count")
+    if f"bytes={COMMAREA_RECORD_LENGTH + 1}" not in result.stdout:
+        raise _SelfTestFailure("summary does not state the byte count")
+    record = _read_record(output, name)
+    _assert_windows(record, expectations, layout, name)
+    _assert_fill_windows(record, keys.omitted, layout, name)
+    expected = _expected_record(expectations, layout)
+    if record != expected:
+        position = _first_difference(record, expected)
+        raise _SelfTestFailure(
+            f"record differs from the assembled expectation at byte {position + 1}: "
+            f"holds {_display(record[position : position + 12])}, expected "
+            f"{_display(expected[position : position + 12])}"
+        )
+    return (
+        f"{len(keys.supplied)} supplied key(s) and {len(keys.omitted)} omitted "
+        f"window(s) accounted for, {len(expectations)} window(s) match, "
+        f"{COMMAREA_RECORD_LENGTH + 1} bytes on disk closed by one newline"
+    )
+
+
+def _case_protected_fill_items(
+    field_map: dict[str, Any], layout: CopybookLayout
+) -> str:
+    """Confirm the protected filler names, fills, the contract and the copybook agree.
+
+    ``sample_definition_contract.protected_fill_items`` must hold one entry per name in
+    ``PROTECTED_FILL_ITEMS`` and no repeated entry, each entry must record
+    ``FILL_LABEL_SPACES`` as its fill, and each named item must be an alphanumeric item
+    the copybook declares on the stated line.
+    """
+    declared = field_map["sample_definition_contract"].get("protected_fill_items")
+    if not isinstance(declared, list) or not declared:
+        raise _SelfTestFailure(
+            "sample_definition_contract declares no protected_fill_items sequence"
+        )
+    if len(declared) != len(PROTECTED_FILL_ITEMS):
+        raise _SelfTestFailure(
+            f"protected_fill_items holds {len(declared)} entry/entries while this tool "
+            f"protects {len(PROTECTED_FILL_ITEMS)} item(s)"
+        )
+    names: list[str] = []
+    for position, entry in enumerate(declared, start=1):
+        if not isinstance(entry, dict):
+            raise _SelfTestFailure(
+                f"protected_fill_items entry {_display(entry)} is not a mapping"
+            )
+        name = str(entry.get("item"))
+        if name.upper() in names:
+            raise _SelfTestFailure(
+                f"protected_fill_items entry {position} repeats item {_display(name)}"
+            )
+        names.append(name.upper())
+        fill = entry.get("fill")
+        if fill != FILL_LABEL_SPACES:
+            raise _SelfTestFailure(
+                f"protected_fill_items states fill {_display(fill)} for "
+                f"{_display(name)}, expected {_display(FILL_LABEL_SPACES)}"
+            )
+        parsed = layout.items.get(name.upper())
+        if parsed is None:
+            raise _SelfTestFailure(
+                f"copybook declares no item {_display(name)}"
+            )
+        if parsed.line != entry.get("line"):
+            raise _SelfTestFailure(
+                f"protected_fill_items states line {_display(entry.get('line'))} for "
+                f"{_display(name)}, copybook shows {parsed.line}"
+            )
+        if parsed.kind != KIND_ALPHANUMERIC:
+            raise _SelfTestFailure(
+                f"copybook declares {_display(name)} as {parsed.kind}, expected "
+                f"{KIND_ALPHANUMERIC}"
+            )
+    if set(names) != set(PROTECTED_FILL_ITEMS):
+        raise _SelfTestFailure(
+            f"protected_fill_items names {_quote_all(names)} while this tool protects "
+            f"{_quote_all(PROTECTED_FILL_ITEMS)}"
+        )
+    return (
+        f"{len(names)} protected filler item(s) agree with the contract, the "
+        f"{_display(FILL_LABEL_SPACES)} fill and the copybook"
+    )
+
+
+def _case_length_from_constant(
+    field_map: dict[str, Any], motor: dict[str, str], directory: Path
+) -> str:
+    """Confirm the emitted length is the module constant, not a field map member.
+
+    ``render_record`` is called with a field map whose ``record.length`` is short, and
+    ``write_record`` is offered a record one character short of the constant.
+    """
+    altered = copy.deepcopy(field_map)
+    short_length = COMMAREA_RECORD_LENGTH - 100
+    altered["record"]["length"] = short_length
+    routing = resolve_overlay(altered, _sample_request_id(altered, motor))
+    values = validate_sample(altered, motor, routing)
+    record = render_record(altered, routing, values)
+    if len(record) != COMMAREA_RECORD_LENGTH:
+        raise _SelfTestFailure(
+            f"render_record returned {len(record)} characters for a field map "
+            f"declaring {short_length}"
+        )
+    destination = _seeded_destination(directory, "length_from_constant")
+    refusal = _assert_write_refused(destination, record[:-1])
+    return (
+        f"render_record emitted {COMMAREA_RECORD_LENGTH} characters from a field map "
+        f"declaring {short_length}; write_record {refusal}"
+    )
+
+
+def _case_long_record_refused(
+    field_map: dict[str, Any], motor: dict[str, str], directory: Path
+) -> str:
+    """Confirm ``write_record`` refuses one character more than the constant.
+
+    The motor fixture is rendered from the shipped field map and one 7-bit ASCII
+    character is appended, so ``write_record`` is offered ``COMMAREA_RECORD_LENGTH + 1``
+    characters and must refuse them and leave the seeded destination alone.
+    """
+    routing = resolve_overlay(field_map, _sample_request_id(field_map, motor))
+    values = validate_sample(field_map, motor, routing)
+    record = render_record(field_map, routing, values)
+    if len(record) != COMMAREA_RECORD_LENGTH:
+        raise _SelfTestFailure(
+            f"render_record returned {len(record)} characters, expected "
+            f"{COMMAREA_RECORD_LENGTH}"
+        )
+    destination = _seeded_destination(directory, "long_record_refused")
+    return _assert_write_refused(destination, record + _EXTRA_RECORD_CHARACTER)
+
+
+def _case_rerun_identical(
+    map_path: Path, sample_path: Path, directory: Path, name: str
+) -> str:
+    """Confirm two builds of the same fixture produce identical bytes."""
+    output = directory / f"{name}.rec"
+    argv = [
+        "--field-map",
+        str(map_path),
+        "--sample",
+        str(sample_path),
+        "--output",
+        str(output),
+        "--quiet",
+    ]
+    first = _run_cli(argv)
+    if first.status != EXIT_OK:
+        raise _SelfTestFailure(f"first build exit {first.status}")
+    if first.stdout:
+        raise _SelfTestFailure("--quiet still wrote a summary")
+    before = output.read_bytes()
+    second = _run_cli(argv)
+    if second.status != EXIT_OK:
+        raise _SelfTestFailure(f"second build exit {second.status}")
+    after = output.read_bytes()
+    if after != before:
+        raise _SelfTestFailure("the second build differs from the first")
+    return f"two builds produced the same {len(after)} bytes"
+
+
+def _case_commercial_status_placed(
+    layout: CopybookLayout,
+    map_path: Path,
+    commercial: dict[str, str],
+    directory: Path,
+) -> str:
+    """Confirm a non-zero commercial status lands in its own window and nowhere else."""
+    item = layout.items["CA-B-STATUS"]
+    sample = dict(commercial)
+    sample["CA-B-Status"] = _NON_ZERO_COMMERCIAL_STATUS
+    sample_path = _write_sample(directory, "commercial_status", sample)
+    output = directory / "commercial_status.rec"
+    result = _run_cli(
+        [
+            "--field-map",
+            str(map_path),
+            "--sample",
+            str(sample_path),
+            "--output",
+            str(output),
+            "--quiet",
+        ]
+    )
+    if result.status != EXIT_OK:
+        raise _SelfTestFailure(
+            f"exit {result.status}: {_display(result.stderr.strip())}"
+        )
+    record = _read_record(output, "commercial_status")
+    placed = record[item.offset - 1 : item.end_byte]
+    if placed != _NON_ZERO_COMMERCIAL_STATUS:
+        raise _SelfTestFailure(
+            f"bytes {item.offset}-{item.end_byte} hold {_display(placed)}, expected "
+            f"{_display(_NON_ZERO_COMMERCIAL_STATUS)}"
+        )
+    canonical = _expected_record(_COMMERCIAL_EXPECTED_WINDOWS, layout)
+    if record == canonical:
+        raise _SelfTestFailure(
+            "the record matches the fixture's record, so the status is "
+            "indistinguishable"
+        )
+    restored = (
+        record[: item.offset - 1]
+        + _expectation_text(_COMMERCIAL_EXPECTED_WINDOWS["CA-B-Status"], item)
+        + record[item.end_byte :]
+    )
+    if restored != canonical:
+        position = _first_difference(restored, canonical)
+        raise _SelfTestFailure(
+            f"the record also differs outside its status window, first at byte "
+            f"{position + 1}"
+        )
+    return (
+        f"bytes {item.offset}-{item.end_byte} hold "
+        f"{_NON_ZERO_COMMERCIAL_STATUS} and the record differs from the fixture's "
+        f"record only there"
+    )
+
+
+def _case_commercial_inactive_overlay(
+    layout: CopybookLayout,
+    field_map: dict[str, Any],
+    map_path: Path,
+    commercial: dict[str, str],
+    directory: Path,
+) -> str:
+    """Confirm a full-width commercial address leaves the motor premium bytes filled.
+
+    The commercial address covers the bytes the motor overlay reads as
+    ``CA-M-PREMIUM``. With the address filled to its declared width those bytes are not
+    blank, the request id still resolves policy type ``C``, and a motor premium key is
+    still rejected for that request id.
+    """
+    address_item = layout.items["CA-B-ADDRESS"]
+    premium_item = layout.items["CA-M-PREMIUM"]
+    repeats = address_item.length // len(_WIDE_ADDRESS_PATTERN) + 1
+    address = (_WIDE_ADDRESS_PATTERN * repeats)[: address_item.length]
+    sample = dict(commercial)
+    sample["CA-B-Address"] = address
+    sample_path = _write_sample(directory, "commercial_wide_address", sample)
+    output = directory / "commercial_wide_address.rec"
+    result = _run_cli(
+        [
+            "--field-map",
+            str(map_path),
+            "--sample",
+            str(sample_path),
+            "--output",
+            str(output),
+            "--quiet",
+        ]
+    )
+    if result.status != EXIT_OK:
+        raise _SelfTestFailure(
+            f"exit {result.status}: {_display(result.stderr.strip())}"
+        )
+    record = _read_record(output, "commercial_wide_address")
+    placed = record[premium_item.offset - 1 : premium_item.end_byte]
+    if not placed.strip(" "):
+        raise _SelfTestFailure(
+            f"bytes {premium_item.offset}-{premium_item.end_byte} are blank"
+        )
+    expected_slice = address[
+        premium_item.offset - address_item.offset : premium_item.end_byte
+        - address_item.offset
+        + 1
+    ]
+    if placed != expected_slice:
+        raise _SelfTestFailure(
+            f"bytes {premium_item.offset}-{premium_item.end_byte} hold "
+            f"{_display(placed)}, expected {_display(expected_slice)}"
+        )
+
+    routing = resolve_overlay(field_map, commercial["CA-REQUEST-ID"])
+    if routing.policy_type != "C":
+        raise _SelfTestFailure(
+            f"request id {_display(commercial['CA-REQUEST-ID'])} resolves policy type "
+            f"{_display(routing.policy_type)}, expected 'C'"
+        )
+    rejected = dict(sample)
+    rejected["CA-M-PREMIUM"] = "000450"
+    rejected_path = _write_sample(
+        directory, "commercial_wide_address_motor_premium", rejected
+    )
+    destination = _seeded_destination(directory, "commercial_wide_address_rejected")
+    _assert_rejected(
+        [
+            "--field-map",
+            str(map_path),
+            "--sample",
+            str(rejected_path),
+            "--output",
+            str(destination),
+        ],
+        EXIT_SAMPLE_REJECTED,
+        destination,
+        "of overlay 'motor_overlay'",
+    )
+    return (
+        f"bytes {premium_item.offset}-{premium_item.end_byte} carry address content, "
+        f"policy_type={routing.policy_type} from the request id, motor premium key "
+        f"rejected"
+    )
+
+
+def _case_motor_inactive_overlay(
+    layout: CopybookLayout,
+    field_map: dict[str, Any],
+    map_path: Path,
+    motor: dict[str, str],
+    directory: Path,
+) -> str:
+    """Confirm the motor record holds spaces where the commercial premiums sit.
+
+    The four commercial premium windows fall inside ``CA-M-FILLER``, which a sample
+    definition may not supply, so a motor record holds the filler's spaces across all
+    four windows. The request id resolves policy type ``M`` and a commercial premium key
+    is rejected for that request id.
+    """
+    filler = layout.items["CA-M-FILLER"]
+    output = directory / "motor_inactive_overlay.rec"
+    result = _run_cli(
+        [
+            "--field-map",
+            str(map_path),
+            "--sample",
+            str(MOTOR_SAMPLE_DEFINITION),
+            "--output",
+            str(output),
+            "--quiet",
+        ]
+    )
+    if result.status != EXIT_OK:
+        raise _SelfTestFailure(
+            f"exit {result.status}: {_display(result.stderr.strip())}"
+        )
+    record = _read_record(output, "motor_inactive_overlay")
+    for name in _COMMERCIAL_PREMIUM_ITEMS:
+        item = layout.items[name.upper()]
+        if not filler.offset <= item.offset <= item.end_byte <= filler.end_byte:
+            raise _SelfTestFailure(
+                f"item {_display(name)} spans bytes {item.offset}-{item.end_byte}, "
+                f"outside the {_display(filler.name)} window "
+                f"{filler.offset}-{filler.end_byte}"
+            )
+        placed = record[item.offset - 1 : item.end_byte]
+        if placed != " " * item.length:
+            position = _first_difference(placed, " " * item.length)
+            raise _SelfTestFailure(
+                f"bytes {item.offset}-{item.end_byte} hold "
+                f"{_display(placed[position : position + 12])}, expected spaces"
+            )
+
+    routing = resolve_overlay(field_map, motor["CA-REQUEST-ID"])
+    if routing.policy_type != "M":
+        raise _SelfTestFailure(
+            f"request id {_display(motor['CA-REQUEST-ID'])} resolves policy type "
+            f"{_display(routing.policy_type)}, expected 'M'"
+        )
+    rejected = dict(motor)
+    rejected["CA-B-FirePremium"] = _COMMERCIAL_PREMIUM_PROBE
+    rejected_path = _write_sample(directory, "motor_commercial_premium", rejected)
+    destination = _seeded_destination(directory, "motor_commercial_premium_rejected")
+    _assert_rejected(
+        [
+            "--field-map",
+            str(map_path),
+            "--sample",
+            str(rejected_path),
+            "--output",
+            str(destination),
+        ],
+        EXIT_SAMPLE_REJECTED,
+        destination,
+        "of overlay 'commercial_overlay'",
+    )
+    return (
+        f"{len(_COMMERCIAL_PREMIUM_ITEMS)} commercial premium window(s) inside "
+        f"{_display(filler.name)} hold spaces, policy_type={routing.policy_type} from "
+        f"the request id, commercial premium key rejected"
+    )
+
+
+def _case_short_values(
+    layout: CopybookLayout, map_path: Path, motor: dict[str, str], directory: Path
+) -> str:
+    """Confirm a value narrower than its window is justified and padded by kind.
+
+    The supplied payment is three digits and lands right-justified over zeros; the
+    supplied colour is three characters and lands left-justified over spaces. Every
+    other window holds the motor fixture's expected content.
+    """
+    name = "short_values"
+    sample_path = _write_sample(directory, name, _short_value_sample(motor))
+    output = directory / f"{name}.rec"
+    result = _run_cli(
+        [
+            "--field-map",
+            str(map_path),
+            "--sample",
+            str(sample_path),
+            "--output",
+            str(output),
+            "--quiet",
+        ]
+    )
+    if result.status != EXIT_OK:
+        raise _SelfTestFailure(
+            f"exit {result.status}: {_display(result.stderr.strip())}"
+        )
+    record = _read_record(output, name)
+    _assert_windows(record, _SHORT_VALUE_EXPECTED_WINDOWS, layout, name)
+    expected = _expected_record(_SHORT_VALUE_EXPECTED_WINDOWS, layout)
+    if record != expected:
+        position = _first_difference(record, expected)
+        raise _SelfTestFailure(
+            f"record differs from the assembled expectation at byte {position + 1}: "
+            f"holds {_display(record[position : position + 12])}, expected "
+            f"{_display(expected[position : position + 12])}"
+        )
+    payment = layout.items["CA-PAYMENT"]
+    colour = layout.items["CA-M-COLOUR"]
+    return (
+        f"{_display(_SHORT_NUMERIC_VALUE)} landed as "
+        f"{_display(record[payment.offset - 1 : payment.end_byte])} at bytes "
+        f"{payment.offset}-{payment.end_byte}, "
+        f"{_display(_SHORT_ALPHANUMERIC_VALUE)} landed as "
+        f"{_display(record[colour.offset - 1 : colour.end_byte])} at bytes "
+        f"{colour.offset}-{colour.end_byte}"
+    )
+
+
+def _case_justification_mutation(
+    mutated_map: Path, layout: CopybookLayout, sample_path: Path, directory: Path
+) -> str:
+    """Confirm a flipped numeric justification is refused before any record is built.
+
+    The mutated field map justifies numeric values to the left. Loading requires each
+    item kind to declare the justification this builder emits, so the build must stop
+    with ``EXIT_FIELD_MAP_INVALID``, name the member that differs, and write nothing.
+    The case first confirms the mutation would otherwise be observable: the window the
+    two justifications expect for the short numeric value must differ, so a build that
+    accepted the mutated map could not have produced the shipped record.
+    """
+    name = "map_left_numeric"
+    shipped = _SHORT_VALUE_EXPECTED_WINDOWS[_LEFT_JUSTIFIED_NUMERIC_ITEM]
+    if shipped == _LEFT_JUSTIFIED_NUMERIC_WINDOW:
+        raise _SelfTestFailure(
+            f"the two justifications expect the same window "
+            f"{_display(_LEFT_JUSTIFIED_NUMERIC_WINDOW)}, so the mutation is "
+            f"unobservable"
+        )
+    item = layout.items[_LEFT_JUSTIFIED_NUMERIC_ITEM.upper()]
+    output = directory / f"{name}.rec"
+    stated = (
+        f"value_justification['{KIND_NUMERIC}'] must be "
+        f"'{FIXED_JUSTIFICATION[KIND_NUMERIC]}', found '{JUSTIFY_LEFT}'"
+    )
+    result = _run_cli(
+        [
+            "--field-map",
+            str(mutated_map),
+            "--sample",
+            str(sample_path),
+            "--output",
+            str(output),
+            "--quiet",
+        ]
+    )
+    if result.status != EXIT_FIELD_MAP_INVALID:
+        raise _SelfTestFailure(
+            f"exit {result.status}, expected {EXIT_FIELD_MAP_INVALID}; stderr "
+            f"{_display(result.stderr.strip())}"
+        )
+    _assert_diagnostic(result.stderr)
+    if stated not in result.stderr:
+        raise _SelfTestFailure(
+            f"diagnostic {_display(result.stderr.strip())} does not state "
+            f"{_display(stated)}"
+        )
+    if output.exists():
+        raise _SelfTestFailure(
+            f"{_display(str(output))} was written while the mutated map was refused"
+        )
+    return (
+        f"exit={EXIT_FIELD_MAP_INVALID} diagnostic states {_display(stated)}; the "
+        f"mutation is observable because bytes {item.offset}-{item.end_byte} would "
+        f"hold {_display(_LEFT_JUSTIFIED_NUMERIC_WINDOW)} instead of "
+        f"{_display(shipped)}; nothing written"
+    )
+
+
+def _case_nullability_claim(field_map: dict[str, Any], names: Iterable[str]) -> str:
+    """Confirm the nullability claim matches the literals this module holds.
+
+    ``product_premium_nullability.record_bytes_demonstrated_by`` must name exactly the
+    builder cases of ``_NULLABILITY_CLAIMED_CASES``, each of them run by this matrix,
+    and must withhold exactly the statements of ``_NULLABILITY_WITHHELD``.
+    ``transformed_assertion_carried_by`` must name the test
+    ``_NULLABILITY_TRANSFORMED_TEST`` and the same test as ``planned_enforcement``,
+    and must
+    require exactly the ``_NULLABILITY_REQUIRED_CASES`` objects: one for every policy
+    type whose allocation populates a product premium, each carrying its literal
+    ``raw_inactive_overlay_bytes`` value and repeating the ``by_policy_type``
+    allocation exactly.
+    """
+    contract = field_map["product_premium_nullability"]
+    demonstrated = contract.get("record_bytes_demonstrated_by")
+    if not isinstance(demonstrated, dict):
+        raise _SelfTestFailure(
+            "product_premium_nullability records no record_bytes_demonstrated_by "
+            "mapping"
+        )
+    cases = demonstrated.get("cases")
+    if not isinstance(cases, list) or not cases:
+        raise _SelfTestFailure("record_bytes_demonstrated_by names no case")
+    claimed = {
+        str(entry.get("case")) for entry in cases if isinstance(entry, dict)
+    }
+    if claimed != set(_NULLABILITY_CLAIMED_CASES):
+        raise _SelfTestFailure(
+            f"record_bytes_demonstrated_by names {_quote_all(claimed)}, expected "
+            f"{_quote_all(_NULLABILITY_CLAIMED_CASES)}"
+        )
+    unrun = claimed - set(names)
+    if unrun:
+        raise _SelfTestFailure(
+            f"record_bytes_demonstrated_by names {_quote_all(unrun)}, which this "
+            f"matrix does not run"
+        )
+    withheld = demonstrated.get("does_not_establish")
+    if not isinstance(withheld, list):
+        raise _SelfTestFailure(
+            f"record_bytes_demonstrated_by withholds {_display(withheld)}, expected a "
+            f"sequence of {len(_NULLABILITY_WITHHELD)} statement(s)"
+        )
+    if tuple(withheld) != _NULLABILITY_WITHHELD:
+        raise _SelfTestFailure(
+            f"record_bytes_demonstrated_by withholds {_display(withheld)}, expected "
+            f"{_display(list(_NULLABILITY_WITHHELD))}"
+        )
+    carried = contract.get("transformed_assertion_carried_by")
+    if not isinstance(carried, dict):
+        raise _SelfTestFailure(
+            "product_premium_nullability records no transformed_assertion_carried_by "
+            "mapping"
+        )
+    if carried.get("test") != _NULLABILITY_TRANSFORMED_TEST:
+        raise _SelfTestFailure(
+            f"transformed_assertion_carried_by names test "
+            f"{_display(carried.get('test'))}, expected "
+            f"{_display(_NULLABILITY_TRANSFORMED_TEST)}"
+        )
+    if carried.get("test") != contract.get("planned_enforcement"):
+        raise _SelfTestFailure(
+            f"transformed_assertion_carried_by names test "
+            f"{_display(carried.get('test'))} while planned_enforcement names "
+            f"{_display(contract.get('planned_enforcement'))}"
+        )
+    required = carried.get("required_cases")
+    if not isinstance(required, list) or not required:
+        raise _SelfTestFailure(
+            "transformed_assertion_carried_by names no required case"
+        )
+    allocations = contract["by_policy_type"]
+    stated = {
+        str(entry.get("policy_type")) for entry in required if isinstance(entry, dict)
+    }
+    populating = {
+        policy_type
+        for policy_type, allocation in allocations.items()
+        if allocation.get("populated")
+    }
+    if stated != populating:
+        raise _SelfTestFailure(
+            f"transformed_assertion_carried_by requires cases for "
+            f"{_quote_all(stated)} while a product premium is populated for "
+            f"{_quote_all(populating)}"
+        )
+    if len(required) != len(_NULLABILITY_REQUIRED_CASES) or stated != set(
+        _NULLABILITY_REQUIRED_CASES
+    ):
+        raise _SelfTestFailure(
+            f"transformed_assertion_carried_by requires {len(required)} case(s) for "
+            f"{_quote_all(stated)}, expected "
+            f"{len(_NULLABILITY_REQUIRED_CASES)} for "
+            f"{_quote_all(_NULLABILITY_REQUIRED_CASES)}"
+        )
+    for entry in required:
+        policy_type = str(entry.get("policy_type"))
+        expected = _NULLABILITY_REQUIRED_CASES[policy_type]
+        if entry != expected:
+            raise _SelfTestFailure(
+                f"required case {_display(policy_type)} states {_display(entry)}, "
+                f"expected {_display(expected)}"
+            )
+        allocation = allocations[policy_type]
+        for member in ("populated", "null_fields"):
+            if entry.get(member) != allocation.get(member):
+                raise _SelfTestFailure(
+                    f"required case {_display(policy_type)} states {member} "
+                    f"{_display(entry.get(member))} while by_policy_type records "
+                    f"{_display(allocation.get(member))}"
+                )
+    return (
+        f"{len(claimed)} named builder case(s) ran, {len(withheld)} withheld "
+        f"statement(s) match, {len(required)} required transformed case(s) carry "
+        f"{_display(_NULLABILITY_INACTIVE_BYTES)} inactive overlay bytes, repeat "
+        f"by_policy_type and name {_display(carried.get('test'))}"
+    )
+
+
+def _case_protected_fill_mutation(
+    mutated_map: Path, layout: CopybookLayout, item: str
+) -> str:
+    """Confirm the protected filler check reports a fill other than spaces.
+
+    The mutated field map records the zeros fill for one protected filler entry, and
+    the contract-agreement check must report that disagreement.
+    """
+    field_map = load_field_map(mutated_map, (mutated_map.parent,))
+    try:
+        detail = _case_protected_fill_items(field_map, layout)
+    except _SelfTestFailure as failure:
+        return f"the contract check reported {_display(str(failure))}"
+    raise _SelfTestFailure(
+        f"the contract check accepted the {FILL_LABEL_ZEROS} fill recorded for "
+        f"{_display(item)}: {detail}"
+    )
+
+
+def _case_mutation_detected(
+    mutated_map: Path,
+    layout: CopybookLayout,
+    sample_path: Path,
+    expectations: dict[str, str | _Fill],
+    directory: Path,
+    name: str,
+    expect_record_differs: bool,
+) -> str:
+    """Confirm the copybook cross-check reports a mutated field map."""
+    field_map = load_field_map(mutated_map, (mutated_map.parent,))
+    problems = _layout_disagreements(field_map, layout)
+    if not problems:
+        raise _SelfTestFailure("the copybook cross-check reported no disagreement")
+    output = directory / f"{name}.rec"
+    result = _run_cli(
+        [
+            "--field-map",
+            str(mutated_map),
+            "--sample",
+            str(sample_path),
+            "--output",
+            str(output),
+            "--quiet",
+        ]
+    )
+    if result.status != EXIT_OK:
+        return (
+            f"{len(problems)} disagreement(s) reported; the build stopped with exit "
+            f"{result.status}"
+        )
+    record = _read_record(output, name)
+    differs = record != _expected_record(expectations, layout)
+    if expect_record_differs and not differs:
+        raise _SelfTestFailure(
+            "the built record still matches the expectation, so the mutation is "
+            "invisible in both the bytes and the cross-check"
+        )
+    return (
+        f"{len(problems)} disagreement(s) reported; built record "
+        f"{'differs from' if differs else 'equals'} the expectation"
+    )
+
+
+def _run_case(
+    results: list[_CaseResult],
+    stream: Any,
+    quiet: bool,
+    name: str,
+    body: Callable[[], str],
+) -> None:
+    """Run one case, record its outcome and print its line.
+
+    A case that raises records a failure and the run continues with the next case.
+    ``_SelfTestFailure`` carries the observation the case made; a ``BuildError`` or any
+    of the listed defect classes is reported by type and message.
+    """
+    try:
+        detail = body()
+    except _SelfTestFailure as failure:
+        result = _CaseResult(name=name, passed=False, detail=str(failure))
+    except BuildError as error:
+        result = _CaseResult(
+            name=name, passed=False, detail=f"{_type_name(error)}: {error}"
+        )
+    except (
+        ArithmeticError,
+        AssertionError,
+        AttributeError,
+        LookupError,
+        NameError,
+        OSError,
+        RuntimeError,
+        StopIteration,
+        TypeError,
+        ValueError,
+        yaml.YAMLError,
+    ) as error:
+        result = _CaseResult(
+            name=name,
+            passed=False,
+            detail=f"unexpected {_type_name(error)}: {_display(error)}",
+        )
+    else:
+        result = _CaseResult(name=name, passed=True, detail=detail)
+    results.append(result)
+    if result.passed and quiet:
+        return
+    verdict = "PASS" if result.passed else "FAIL"
+    print(f"self-test {verdict} {result.name} -- {result.detail}", file=stream)
+
+
+def run_self_test(
+    field_map_path: str | os.PathLike[str] | None = None,
+    *,
+    read_roots: Iterable[str | os.PathLike[str]] | None = None,
+    quiet: bool = False,
+    stream: Any = None,
+) -> int:
+    """Run every self-test case and return ``EXIT_OK`` or ``EXIT_SELF_TEST_FAILED``.
+
+    The copybook parse, the field map and both sample definitions are read first, so a
+    field map or copybook that cannot be read raises its own ``BuildError`` before any
+    case runs. One bounded read of the field map supplies both the document the cases
+    read and the bytes the mutated field maps are seeded from, so the mutants carry the
+    content that parse saw. Each case then prints one line to ``stream``, which defaults
+    to stdout, followed by one summary line. ``quiet`` limits the case lines to the
+    failing ones. Every scratch document is written inside one temporary directory that
+    is removed when the run ends. ``read_roots`` names any extra directory the field
+    map may be read from, which a caller running this from its own scratch copy needs.
+    """
+    out = sys.stdout if stream is None else stream
+    layout = parse_copybook_layout()
+    selected_map = _read_field_map(field_map_path, read_roots)
+    map_path = selected_map.path
+    field_map = selected_map.document
+    map_text = selected_map.payload
+    motor = load_sample(MOTOR_SAMPLE_DEFINITION)
+    commercial = load_sample(COMMERCIAL_SAMPLE_DEFINITION)
+    results: list[_CaseResult] = []
+
+    with tempfile.TemporaryDirectory(prefix=f"{_PROGRAM}.self-test.") as scratch:
+        directory = Path(scratch)
+
+        _run_case(
+            results,
+            out,
+            quiet,
+            "copybook_record_length",
+            lambda: _case_copybook_record_length(layout),
+        )
+        _run_case(
+            results,
+            out,
+            quiet,
+            "layout_matches_copybook",
+            lambda: _case_layout_cross_check(field_map, layout),
+        )
+        _run_case(
+            results,
+            out,
+            quiet,
+            "motor_record_bytes",
+            lambda: _case_fixture_record(
+                layout,
+                map_path,
+                MOTOR_SAMPLE_DEFINITION,
+                motor,
+                _MOTOR_FIXTURE_KEYS,
+                _MOTOR_EXPECTED_WINDOWS,
+                directory,
+                "motor",
+            ),
+        )
+        _run_case(
+            results,
+            out,
+            quiet,
+            "commercial_record_bytes",
+            lambda: _case_fixture_record(
+                layout,
+                map_path,
+                COMMERCIAL_SAMPLE_DEFINITION,
+                commercial,
+                _COMMERCIAL_FIXTURE_KEYS,
+                _COMMERCIAL_EXPECTED_WINDOWS,
+                directory,
+                "commercial",
+            ),
+        )
+        _run_case(
+            results,
+            out,
+            quiet,
+            "protected_fill_items_agree",
+            lambda: _case_protected_fill_items(field_map, layout),
+        )
+        _run_case(
+            results,
+            out,
+            quiet,
+            "emitted_length_from_constant",
+            lambda: _case_length_from_constant(field_map, motor, directory),
+        )
+        _run_case(
+            results,
+            out,
+            quiet,
+            "long_record_refused",
+            lambda: _case_long_record_refused(field_map, motor, directory),
+        )
+        _run_case(
+            results,
+            out,
+            quiet,
+            "motor_rerun_identical",
+            lambda: _case_rerun_identical(
+                map_path, MOTOR_SAMPLE_DEFINITION, directory, "motor_rerun"
+            ),
+        )
+        _run_case(
+            results,
+            out,
+            quiet,
+            "commercial_status_placed",
+            lambda: _case_commercial_status_placed(
+                layout, map_path, commercial, directory
+            ),
+        )
+        _run_case(
+            results,
+            out,
+            quiet,
+            "commercial_inactive_overlay_filled",
+            lambda: _case_commercial_inactive_overlay(
+                layout, field_map, map_path, commercial, directory
+            ),
+        )
+        _run_case(
+            results,
+            out,
+            quiet,
+            "motor_inactive_overlay_spaces",
+            lambda: _case_motor_inactive_overlay(
+                layout, field_map, map_path, motor, directory
+            ),
+        )
+        _run_case(
+            results,
+            out,
+            quiet,
+            "short_values_justified",
+            lambda: _case_short_values(layout, map_path, motor, directory),
+        )
+
+        left_numeric = _mutated_field_map(
+            directory,
+            "map_left_numeric",
+            field_map,
+            lambda document: document["sample_definition_contract"][
+                "value_justification"
+            ].__setitem__(KIND_NUMERIC, JUSTIFY_LEFT),
+        )
+        short_values_path = _write_sample(
+            directory, "short_values_mutation", _short_value_sample(motor)
+        )
+        _run_case(
+            results,
+            out,
+            quiet,
+            "map_left_numeric_justification_detected",
+            lambda: _case_justification_mutation(
+                left_numeric, layout, short_values_path, directory
+            ),
+        )
+        zero_filler = _mutated_field_map(
+            directory,
+            "map_zero_filled_protected_item",
+            field_map,
+            lambda document: _protected_fill_entry(
+                document, "CA-M-FILLER"
+            ).__setitem__("fill", FILL_LABEL_ZEROS),
+        )
+        _run_case(
+            results,
+            out,
+            quiet,
+            "map_protected_fill_label_detected",
+            lambda: _case_protected_fill_mutation(
+                zero_filler, layout, "CA-M-FILLER"
+            ),
+        )
+
+        swapped = _mutated_field_map(
+            directory,
+            "map_swapped_offsets",
+            field_map,
+            lambda document: _swap_offsets(
+                _layout_entry(document, "policy_common", "CA-ISSUE-DATE"),
+                _layout_entry(document, "policy_common", "CA-EXPIRY-DATE"),
+            ),
+        )
+        _run_case(
+            results,
+            out,
+            quiet,
+            "map_swapped_offsets_detected",
+            lambda: _case_mutation_detected(
+                swapped,
+                layout,
+                MOTOR_SAMPLE_DEFINITION,
+                _MOTOR_EXPECTED_WINDOWS,
+                directory,
+                "map_swapped_offsets",
+                expect_record_differs=True,
+            ),
+        )
+        shortened = _mutated_field_map(
+            directory,
+            "map_shortened_item",
+            field_map,
+            lambda document: _layout_entry(
+                document, "policy_common", "CA-BROKERSREF"
+            ).__setitem__("length", 9),
+        )
+        _run_case(
+            results,
+            out,
+            quiet,
+            "map_shortened_item_detected",
+            lambda: _case_mutation_detected(
+                shortened,
+                layout,
+                MOTOR_SAMPLE_DEFINITION,
+                _MOTOR_EXPECTED_WINDOWS,
+                directory,
+                "map_shortened_item",
+                expect_record_differs=False,
+            ),
+        )
+
+        dropped_item = _mutated_field_map(
+            directory,
+            "map_dropped_item",
+            field_map,
+            lambda document: document["layout"]["motor_overlay"]["items"].remove(
+                _layout_entry(document, "motor_overlay", "CA-M-COLOUR")
+            ),
+        )
+        numeric_filler = _mutated_field_map(
+            directory,
+            "map_numeric_filler",
+            field_map,
+            lambda document: _layout_entry(
+                document, "motor_overlay", "CA-M-FILLER"
+            ).__setitem__("kind", KIND_NUMERIC),
+        )
+        short_record = _mutated_field_map(
+            directory,
+            "map_record_length_short",
+            field_map,
+            lambda document: document["record"].__setitem__(
+                "length", COMMAREA_RECORD_LENGTH - 1
+            ),
+        )
+        long_record = _mutated_field_map(
+            directory,
+            "map_record_length_long",
+            field_map,
+            lambda document: document["record"].__setitem__(
+                "length", COMMAREA_RECORD_LENGTH + 1
+            ),
+        )
+        wrong_emitted = _mutated_field_map(
+            directory,
+            "map_emitted_length",
+            field_map,
+            lambda document: document["sample_definition_contract"].__setitem__(
+                "emitted_record_length", 999
+            ),
+        )
+        deep_map = _mutated_field_map(
+            directory,
+            "map_deeply_nested",
+            field_map,
+            lambda document: document.__setitem__(
+                "depth_probe", _nested(MAX_DOCUMENT_DEPTH + 2)
+            ),
+        )
+        duplicate_map = _write_payload(
+            directory,
+            "map_duplicate_key.yml",
+            map_text + b"\nrecord:\n  length: 100\n",
+        )
+        map_source = map_text.decode("utf-8")
+        duplicate_offset = _write_payload(
+            directory,
+            "map_duplicate_offset.yml",
+            _duplicated_key_payload(
+                map_source, "      - item: CA-PAYMENT", "        offset: 999"
+            ),
+        )
+        duplicate_length = _write_payload(
+            directory,
+            "map_duplicate_length.yml",
+            _duplicated_key_payload(
+                map_source, "      - item: CA-M-PREMIUM", "        length: 7"
+            ),
+        )
+        duplicate_kind = _write_payload(
+            directory,
+            "map_duplicate_kind.yml",
+            _duplicated_key_payload(
+                map_source,
+                "      - item: CA-B-FirePremium",
+                f"        kind: {KIND_ALPHANUMERIC}",
+            ),
+        )
+        duplicate_emitted = _write_payload(
+            directory,
+            "map_duplicate_emitted_length.yml",
+            _duplicated_key_payload(
+                map_source,
+                "sample_definition_contract:",
+                "  emitted_record_length: 999",
+            ),
+        )
+        unhashable_map = _write_payload(
+            directory,
+            "map_unhashable_key.yml",
+            map_text + b"\n" + _UNHASHABLE_KEY_TEXT.encode("utf-8"),
+        )
+        cyclic_map = _write_payload(
+            directory,
+            "map_self_referential.yml",
+            map_text + b"\n" + _CYCLIC_ALIAS_TEXT.encode("utf-8"),
+        )
+        alias_dag_map = _write_payload(
+            directory,
+            "map_alias_dag.yml",
+            map_text
+            + b"\n"
+            + _alias_dag_text(_ALIAS_DAG_LEVELS, _ALIAS_DAG_FANOUT).encode("utf-8"),
+        )
+        undecodable_map = _write_payload(
+            directory, "map_bad_utf8.yml", map_text + b"\n# \xff\n"
+        )
+        oversized_map = _write_payload(
+            directory,
+            "map_oversized.yml",
+            map_text + b"\n# " + b"p" * MAX_FIELD_MAP_BYTES + b"\n",
+        )
+        absent_map = directory / "map_absent.yml"
+        fifo_map = _make_fifo(directory, "map_fifo.yml")
+
+        for case_name, mutated, expected_status, fragment in (
+            (
+                "map_dropped_item_rejects_key",
+                dropped_item,
+                EXIT_SAMPLE_REJECTED,
+                "names no item declared for request id",
+            ),
+            (
+                "map_numeric_filler_rejected",
+                numeric_filler,
+                EXIT_FIELD_MAP_INVALID,
+                "that window holds spaces only",
+            ),
+            (
+                "map_record_length_short",
+                short_record,
+                EXIT_FIELD_MAP_INVALID,
+                f"'length' is {COMMAREA_RECORD_LENGTH - 1}",
+            ),
+            (
+                "map_record_length_long",
+                long_record,
+                EXIT_FIELD_MAP_INVALID,
+                f"'length' is {COMMAREA_RECORD_LENGTH + 1}",
+            ),
+            (
+                "map_emitted_length_mismatch",
+                wrong_emitted,
+                EXIT_FIELD_MAP_INVALID,
+                "'emitted_record_length' is 999",
+            ),
+            (
+                "map_duplicate_key",
+                duplicate_map,
+                EXIT_FIELD_MAP_INVALID,
+                _duplicate_key_stated("record"),
+            ),
+            (
+                "map_duplicate_offset",
+                duplicate_offset,
+                EXIT_FIELD_MAP_INVALID,
+                _duplicate_key_stated("offset"),
+            ),
+            (
+                "map_duplicate_length",
+                duplicate_length,
+                EXIT_FIELD_MAP_INVALID,
+                _duplicate_key_stated("length"),
+            ),
+            (
+                "map_duplicate_kind",
+                duplicate_kind,
+                EXIT_FIELD_MAP_INVALID,
+                _duplicate_key_stated("kind"),
+            ),
+            (
+                "map_duplicate_emitted_length",
+                duplicate_emitted,
+                EXIT_FIELD_MAP_INVALID,
+                _duplicate_key_stated("emitted_record_length"),
+            ),
+            (
+                "map_unhashable_key",
+                unhashable_map,
+                EXIT_FIELD_MAP_INVALID,
+                "found unhashable key of type list",
+            ),
+            (
+                "map_self_referential",
+                cyclic_map,
+                EXIT_FIELD_MAP_INVALID,
+                "an alias is not accepted",
+            ),
+            (
+                "map_alias_dag",
+                alias_dag_map,
+                EXIT_FIELD_MAP_INVALID,
+                "an alias is not accepted",
+            ),
+            (
+                "map_not_regular_file",
+                fifo_map,
+                EXIT_FIELD_MAP_INVALID,
+                "is not a regular file",
+            ),
+            (
+                "map_deeply_nested",
+                deep_map,
+                EXIT_FIELD_MAP_INVALID,
+                f"nests deeper than the accepted {MAX_DOCUMENT_DEPTH} levels",
+            ),
+            (
+                "map_undecodable_bytes",
+                undecodable_map,
+                EXIT_FIELD_MAP_INVALID,
+                "is not valid UTF-8 text",
+            ),
+            (
+                "map_oversized",
+                oversized_map,
+                EXIT_FIELD_MAP_INVALID,
+                f"above the {MAX_FIELD_MAP_BYTES} byte limit",
+            ),
+            ("map_absent", absent_map, EXIT_IO_ERROR, "cannot read field map"),
+        ):
+            destination = _seeded_destination(directory, case_name)
+            _run_case(
+                results,
+                out,
+                quiet,
+                case_name,
+                lambda mutated=mutated,
+                expected_status=expected_status,
+                fragment=fragment,
+                destination=destination: _assert_rejected(
+                    [
+                        "--field-map",
+                        str(mutated),
+                        "--sample",
+                        str(MOTOR_SAMPLE_DEFINITION),
+                        "--output",
+                        str(destination),
+                    ],
+                    expected_status,
+                    destination,
+                    fragment,
+                ),
+            )
+
+        rejected_samples: list[tuple[str, dict[str, Any], str]] = [
+            (
+                "sample_unknown_key",
+                {**motor, "CA-NOT-AN-ITEM": "X"},
+                "key 'CA-NOT-AN-ITEM' names no item declared for request id",
+            ),
+            (
+                "sample_wrong_overlay_motor",
+                {**motor, "CA-B-FirePremium": "00013500"},
+                "of overlay 'commercial_overlay'",
+            ),
+            (
+                "sample_wrong_overlay_commercial",
+                {**commercial, "CA-M-PREMIUM": "000450"},
+                "of overlay 'motor_overlay'",
+            ),
+            (
+                "sample_unsupported_request_id",
+                {**motor, "CA-REQUEST-ID": "01AEND"},
+                "'01AEND' is not a generated sample",
+            ),
+            (
+                "sample_duplicate_request_id_spelling",
+                {**motor, "ca-request-id": motor["CA-REQUEST-ID"]},
+                (
+                    "keys 'CA-REQUEST-ID', 'ca-request-id' all name item "
+                    "'CA-REQUEST-ID'; supply it once"
+                ),
+            ),
+            (
+                "sample_duplicate_key_spelling",
+                {**motor, "ca-payment": "000600"},
+                (
+                    "keys 'CA-PAYMENT' and 'ca-payment' both name item "
+                    "'CA-PAYMENT'; supply it once"
+                ),
+            ),
+            (
+                "sample_chain_return_code",
+                {**motor, "CA-RETURN-CODE": "00"},
+                "names item 'CA-RETURN-CODE', which the chain assigns",
+            ),
+            (
+                "sample_chain_policy_number",
+                {**motor, "CA-POLICY-NUM": "0000000001"},
+                "names item 'CA-POLICY-NUM', which the chain assigns",
+            ),
+            (
+                "sample_chain_last_changed",
+                {**motor, "CA-LASTCHANGED": "2026-08-19-12.00.00.000000"},
+                "names item 'CA-LASTCHANGED', which the chain assigns",
+            ),
+            (
+                "sample_protected_filler_key",
+                {**motor, "CA-M-FILLER": "INJECTED"},
+                "names filler item 'CA-M-FILLER'",
+            ),
+            (
+                "sample_non_string_value",
+                {**motor, "CA-PAYMENT": 500},
+                "value for key 'CA-PAYMENT' must be a string, found int",
+            ),
+            (
+                "sample_over_length_value",
+                {**motor, "CA-M-COLOUR": "MIDNIGHTBLUE"},
+                "is 12 characters, longer than the declared length 8",
+            ),
+            (
+                "sample_non_digit_numeric",
+                {**motor, "CA-PAYMENT": "0005O0"},
+                "holds a character outside digits 0-9 at position 5",
+            ),
+            (
+                "sample_non_ascii_value",
+                {**motor, "CA-M-MAKE": "FORD\u00c9"},
+                "outside printable 7-bit ASCII",
+            ),
+            (
+                "sample_control_character_key",
+                {**motor, "BAD\nKEY\x1b[31m": "X"},
+                "'BAD\\nKEY\\x1b[31m'",
+            ),
+            (
+                "sample_empty_common_value",
+                {**motor, "CA-PAYMENT": ""},
+                "for item 'CA-PAYMENT' is empty; omit the key",
+            ),
+            (
+                "sample_empty_premium_value",
+                {**motor, "CA-M-PREMIUM": ""},
+                "for item 'CA-M-PREMIUM' is empty; omit the key",
+            ),
+            (
+                "sample_empty_alphanumeric_value",
+                {**motor, "CA-M-MAKE": ""},
+                "for item 'CA-M-MAKE' is empty; omit the key",
+            ),
+            (
+                "sample_missing_request_id",
+                {key: value for key, value in motor.items() if key != "CA-REQUEST-ID"},
+                "does not supply required item 'CA-REQUEST-ID'",
+            ),
+            (
+                "sample_missing_required_payment",
+                {key: value for key, value in motor.items() if key != "CA-PAYMENT"},
+                "does not supply required item(s) 'CA-PAYMENT'",
+            ),
+            (
+                "sample_too_many_keys",
+                {
+                    **motor,
+                    **{
+                        f"CA-M-MAKE-{index}": "X"
+                        for index in range(MAX_SAMPLE_KEYS + 1 - len(motor))
+                    },
+                },
+                f"keys, above the {MAX_SAMPLE_KEYS} key limit",
+            ),
+            (
+                "sample_deeply_nested",
+                {"CA-REQUEST-ID": _nested(MAX_DOCUMENT_DEPTH)},
+                f"above the {MAX_DOCUMENT_DEPTH} container limit",
+            ),
+        ]
+        for case_name, document, fragment in rejected_samples:
+            sample_path = _write_sample(directory, case_name, document)
+            destination = _seeded_destination(directory, case_name)
+            _run_case(
+                results,
+                out,
+                quiet,
+                case_name,
+                lambda sample_path=sample_path,
+                destination=destination,
+                fragment=fragment: (
+                    _assert_rejected(
+                        [
+                            "--field-map",
+                            str(map_path),
+                            "--sample",
+                            str(sample_path),
+                            "--output",
+                            str(destination),
+                        ],
+                        EXIT_SAMPLE_REJECTED,
+                        destination,
+                        fragment,
+                    )
+                ),
+            )
+
+        rejected_payloads: list[tuple[str, bytes, str]] = [
+            (
+                "sample_duplicate_key",
+                (
+                    b'{"CA-REQUEST-ID": "01AMOT", "CA-PAYMENT": "000500", '
+                    b'"CA-PAYMENT": "000600"}\n'
+                ),
+                "repeats key 'CA-PAYMENT'",
+            ),
+            (
+                "sample_undecodable_bytes",
+                b'{"CA-REQUEST-ID": "01AMOT", "CA-M-MAKE": "FOR\xffD"}\n',
+                "is not valid UTF-8 text",
+            ),
+            (
+                "sample_oversized",
+                b'{"CA-REQUEST-ID": "01AMOT", "CA-M-MAKE": "'
+                + b"A" * (MAX_SAMPLE_BYTES + 64)
+                + b'"}\n',
+                f"above the {MAX_SAMPLE_BYTES} byte limit",
+            ),
+            (
+                "sample_nested_past_parser",
+                b'{"CA-REQUEST-ID": '
+                + b"[" * _PARSER_NESTING_PROBE
+                + b"]" * _PARSER_NESTING_PROBE
+                + b"}\n",
+                "nests containers too deeply to parse",
+            ),
+        ]
+        for case_name, payload, fragment in rejected_payloads:
+            sample_path = _write_payload(directory, f"{case_name}.json", payload)
+            destination = _seeded_destination(directory, case_name)
+            _run_case(
+                results,
+                out,
+                quiet,
+                case_name,
+                lambda sample_path=sample_path,
+                destination=destination,
+                fragment=fragment: (
+                    _assert_rejected(
+                        [
+                            "--field-map",
+                            str(map_path),
+                            "--sample",
+                            str(sample_path),
+                            "--output",
+                            str(destination),
+                        ],
+                        EXIT_SAMPLE_REJECTED,
+                        destination,
+                        fragment,
+                    )
+                ),
+            )
+
+        fifo_sample = _make_fifo(directory, "sample_fifo.json")
+        fifo_destination = _seeded_destination(directory, "sample_not_regular_file")
+        _run_case(
+            results,
+            out,
+            quiet,
+            "sample_not_regular_file",
+            lambda: _assert_rejected(
+                [
+                    "--field-map",
+                    str(map_path),
+                    "--sample",
+                    str(fifo_sample),
+                    "--output",
+                    str(fifo_destination),
+                ],
+                EXIT_SAMPLE_REJECTED,
+                fifo_destination,
+                "is not a regular file",
+            ),
+        )
+
+        blocked = _write_payload(directory, "blocked_output", b"NOT A DIRECTORY\n")
+        _run_case(
+            results,
+            out,
+            quiet,
+            "output_directory_unusable",
+            lambda: _assert_rejected(
+                [
+                    "--field-map",
+                    str(map_path),
+                    "--sample",
+                    str(MOTOR_SAMPLE_DEFINITION),
+                    "--output",
+                    str(blocked / "record.rec"),
+                ],
+                EXIT_IO_ERROR,
+                blocked,
+                "cannot open directory 'blocked_output'",
+            ),
+        )
+
+        ran = [result.name for result in results]
+        _run_case(
+            results,
+            out,
+            quiet,
+            "nullability_claim_matches_matrix",
+            lambda: _case_nullability_claim(field_map, ran),
+        )
+
+    passed = sum(1 for result in results if result.passed)
+    failed = len(results) - passed
+    print(
+        f"self-test summary cases={len(results)} passed={passed} failed={failed}",
+        file=out,
+    )
+    return EXIT_OK if failed == 0 else EXIT_SELF_TEST_FAILED
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
     """Return the non-interactive command line parser for this tool."""
-    parser = argparse.ArgumentParser(
+    parser = _CommandLineParser(
         prog=_PROGRAM,
         description=(
-            "Validate one GenApp Policy-Issue sample definition and write the "
-            "corresponding COMMAREA record of exactly 32,500 characters."
+            "Validate one GenApp Policy-Issue sample definition and write the\n"
+            f"corresponding COMMAREA record of exactly {COMMAREA_RECORD_LENGTH} "
+            "characters followed by one\n"
+            "newline, or run the built-in case matrix with --self-test.\n"
+            "\n"
+            "Exit status: 0 success, 2 sample definition rejected, 3 field map\n"
+            "invalid, 4 input failure, output refused or command line rejected,\n"
+            "5 self-test case failure."
         ),
-        epilog="Decision rationale: modernization/docs/decision-log.md",
+        epilog=(
+            "The destination must resolve inside modernization/harness/build under the "
+            "canonical repository directory holding this script, or inside "
+            "--output-root; that root must itself resolve inside "
+            "modernization/harness/build or inside the system temporary directory "
+            "tree. A destination resolving inside that repository must stay under "
+            "modernization/harness/build under either root, and a destination "
+            "resolving inside the repository's base directory is always refused. A "
+            "symbolic link, a symbolic-link component of a root, an existing "
+            "non-regular file and a canonical form outside the allowed root are "
+            "refused before any directory is created. Validation itself opens the "
+            "directory the write descends from, by descending its canonical path one "
+            "single component at a time from the filesystem root and following no "
+            "symbolic link at any level, and the write descends from that descriptor "
+            "alone, creating and opening each directory below it by single component, "
+            "so a symbolic link is refused at every level and the directory is never "
+            "resolved as a pathname again.\n"
+            "A path this tool reads must sit inside modernization/extraction or "
+            "modernization/harness/build under that same repository directory. Every "
+            "path argument is text free of control characters, no symbolic-link "
+            "component of one is followed, and each input is read from one descriptor "
+            "opened with the leaf refused when it is a symbolic link, which must "
+            "report a regular file reached by exactly one name on the device of the "
+            "directory that authorised it.\n"
+            "Every failure writes one control-free line to stderr and returns 2 for a "
+            "rejected sample definition, 3 for an inconsistent field map, or 4 for an "
+            "unreadable input, a refused output or a usage error.\n"
+            "Decision rationale: modernization/docs/decision-log.md "
+            "(planned deliverable; not present at this milestone)"
+        ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument(
         "--sample",
-        required=True,
+        default=None,
         type=Path,
         metavar="PATH",
-        help="sample definition JSON document to build the record from",
+        help=(
+            "sample definition JSON document to build the record from, holding at most "
+            f"{MAX_SAMPLE_BYTES} bytes of UTF-8 text; it must sit inside an authorised "
+            "read root"
+        ),
     )
     parser.add_argument(
         "--field-map",
@@ -874,47 +5229,97 @@ def build_arg_parser() -> argparse.ArgumentParser:
         type=Path,
         metavar="PATH",
         help=(
-            "field map supplying every offset, length and kind "
+            "field map supplying every offset, length and kind, holding at most "
+            f"{MAX_FIELD_MAP_BYTES} bytes of UTF-8 text; it must sit inside an "
+            "authorised read root "
             "(default: copybook_field_map.yml beside this script)"
         ),
     )
     parser.add_argument(
         "--output",
-        required=True,
+        default=None,
         type=Path,
         metavar="PATH",
         help=(
-            "destination path for the generated record; parent directories are "
-            "created as needed"
+            "destination path for the generated record; it must resolve inside the "
+            "allowed output root, and its parent directories are created only after "
+            "that check passes"
+        ),
+    )
+    parser.add_argument(
+        "--output-root",
+        default=None,
+        type=Path,
+        metavar="PATH",
+        help=(
+            "existing directory the destination must resolve inside, replacing the "
+            "default modernization/harness/build root; it must carry no symbolic-link "
+            "component and resolve inside that default root or inside the system "
+            "temporary directory tree"
+        ),
+    )
+    parser.add_argument(
+        "--self-test",
+        action="store_true",
+        help=(
+            "run the built-in case matrix against the field map, both sample "
+            "definitions and the read-only copybook, then exit; accepts neither "
+            "--sample nor --output"
         ),
     )
     parser.add_argument(
         "--quiet",
         action="store_true",
-        help="suppress the summary line written to stdout on success",
+        help=(
+            "suppress the summary line written to stdout on success; with "
+            "--self-test, print only the failing case lines and the summary"
+        ),
     )
     return parser
 
 
-def main(argv: list[str] | None = None) -> int:
-    """Build one COMMAREA record and return the process exit status."""
+def main(
+    argv: list[str] | None = None,
+    read_roots: Iterable[str | os.PathLike[str]] | None = None,
+) -> int:
+    """Build one COMMAREA record, or run the self-test, and return the exit status.
+
+    Every diagnostic reaches stderr as one line free of control characters, and the
+    success summary reaches stdout the same way. A rejected command line is reported
+    through the same single line, without a usage block, and returns the status a
+    refused input or output returns, while ``--help`` prints the full help and exits
+    with status 0. ``read_roots`` is the in-process self-test naming the throwaway
+    directory its own scratch inputs sit in; a command line never supplies it, so a
+    path a caller names is read only from the authorised read roots.
+    """
     parser = build_arg_parser()
-    args = parser.parse_args(argv)
     try:
-        field_map = load_field_map(args.field_map)
-        sample = load_sample(args.sample)
+        args = parser.parse_args(argv)
+        if args.self_test:
+            if args.sample is not None or args.output is not None:
+                parser.error("--self-test accepts neither --sample nor --output")
+            return run_self_test(
+                args.field_map, read_roots=read_roots, quiet=args.quiet
+            )
+        if args.sample is None or args.output is None:
+            parser.error("--sample and --output are required unless --self-test is given")
+        field_map = load_field_map(args.field_map, read_roots)
+        sample = load_sample(args.sample, read_roots)
         routing = resolve_overlay(field_map, _sample_request_id(field_map, sample))
         values = validate_sample(field_map, sample, routing)
         record = render_record(field_map, routing, values)
-        written = write_record(args.output, record, _record_length(field_map))
+        written = write_record(args.output, record, args.output_root)
     except BuildError as error:
-        print(f"{_PROGRAM}: {error}", file=sys.stderr)
+        print(f"{_PROGRAM}: {_one_line(str(error))}", file=sys.stderr)
         return error.exit_status
 
     if not args.quiet:
         print(
-            f"built {written} request_id={routing.request_id} "
-            f"overlay={routing.overlay} characters={len(record)}"
+            _one_line(
+                f"built {written} request_id={routing.request_id} "
+                f"overlay={routing.overlay} characters={len(record)} "
+                f"bytes={len(record) + 1}"
+            )
         )
     return EXIT_OK
 
