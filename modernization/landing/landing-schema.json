@@ -1,0 +1,187 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:genapp-rqi:schema:landing:policy_issue:v1",
+  "title": "GenApp Policy-Issue landing record",
+  "description": "One landed GenApp Policy-Issue record. The record is the post-chain COMMAREA of a single execution of the LGAPOL01, LGAPDB01 and LGAPVS01 chain, decoded by modernization/extraction/extract_commarea.py and written as one JSON object on a single line terminated by one line feed. The object is landed under the S3 key prefix defined in modernization/landing/partition-layout.md, whose template is landing/source_system_key=<source_system_key>/entity=policy_issue/extract_date=YYYY-MM-DD/part-0000.json, and is loaded into the all-VARCHAR relation raw.genapp_policy_issue. The record carries exactly 17 keys, in the order fixed by the landing.field_order block of modernization/extraction/copybook_field_map.yml: the warehouse-assigned source_system_key and the 16 runtime business values the chain produces. Every value is a JSON string or null and no value is a JSON number or boolean; all typing is applied by the downstream dbt models. Field names, order, nullability and byte layout follow modernization/extraction/copybook_field_map.yml, which is the naming authority for this contract. The place this contract occupies in the bridge is shown by Figure 2, \"AFTER (BUILT): Canonical Warehouse Bridge\", in modernization/docs/architecture.md.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "source_system_key",
+    "policy_number",
+    "policy_type",
+    "customer_number",
+    "request_id",
+    "return_code",
+    "issue_date",
+    "expiry_date",
+    "last_changed",
+    "broker_id",
+    "brokers_reference",
+    "payment_amount",
+    "motor_premium_amount",
+    "fire_premium_amount",
+    "crime_premium_amount",
+    "flood_premium_amount",
+    "weather_premium_amount"
+  ],
+  "properties": {
+    "source_system_key": {
+      "title": "Source-system key",
+      "description": "Source-system discriminator assigned by the extraction run. This is the sole warehouse-assigned column of the landed record: no COBOL item supplies it and its evidence is the user requirement rather than a source locator. The value is written unchanged to this record, to the S3 key prefix and to the source_system_key column of canonical.issued_policy and canonical.preissued_rating, both typed VARCHAR(64) NOT NULL. The run value is resolved by modernization/extraction/extract_commarea.py from its --source-system-key option, then the SOURCE_SYSTEM_KEY environment variable, then its built-in default; this schema fixes the accepted shape only and pins no particular value. Accepted characters are ASCII letters, digits, underscore, dot and hyphen, in 1 to 64 characters.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^[A-Za-z0-9_.-]{1,64}$"
+    },
+    "policy_number": {
+      "title": "Policy number",
+      "description": "Policy number recovered after the policy insert. Source: CA-POLICY-NUM PIC 9(10), base/src/lgcmarea.cpy:35, COMMAREA bytes 19-28. The value exists only in the returned COMMAREA: the policy insert supplies DEFAULT for POLICYNUMBER at base/src/lgapdb01.cbl:279, IDENTITY_VAL_LOCAL() loads the integer host variable DB2-POLICYNUM-int at base/src/lgapdb01.cbl:308-310, and the recovered value is moved into the COMMAREA item at base/src/lgapdb01.cbl:311. Landed as an unsigned digit string with leading zeros stripped; typed BIGINT in both canonical relations.",
+      "type": "string",
+      "pattern": "^[1-9][0-9]{0,9}$"
+    },
+    "policy_type": {
+      "title": "Policy type",
+      "description": "Single-letter product discriminator. This is not a COMMAREA item: modernization/extraction/extract_commarea.py derives the letter from the trimmed CA-REQUEST-ID using the request routing of the EVALUATE at base/src/lgapdb01.cbl:184-207, in which 01AEND yields E, 01AHOU yields H, 01AMOT yields M and 01ACOM yields C. The Db2-side declaration is DB2-POLICYTYPE PIC X, base/src/lgpolicy.cpy:43, set at base/src/lgapdb01.cbl:188, 192, 196 and 200 and passed to the policy insert at base/src/lgapdb01.cbl:283. Typed CHAR(1) in both canonical relations.",
+      "type": "string",
+      "enum": [
+        "E",
+        "H",
+        "M",
+        "C"
+      ]
+    },
+    "customer_number": {
+      "title": "Customer number",
+      "description": "Customer number supplied in the request. Source: CA-CUSTOMER-NUM PIC 9(10), base/src/lgcmarea.cpy:12, COMMAREA bytes 9-18; moved to the integer host variable DB2-CUSTOMERNUM-int at base/src/lgapdb01.cbl:176 and passed to the policy insert at base/src/lgapdb01.cbl:280. Landed as an unsigned digit string with leading zeros stripped; typed BIGINT in canonical.issued_policy.",
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]{0,9})$"
+    },
+    "request_id": {
+      "title": "Request id",
+      "description": "Request identifier the chain routes on. Source: CA-REQUEST-ID PIC X(6), base/src/lgcmarea.cpy:10, COMMAREA bytes 1-6; evaluated at base/src/lgapdb01.cbl:184. Landed with surrounding spaces trimmed. The four accepted values are the add-policy request ids the routing EVALUATE recognises at base/src/lgapdb01.cbl:184-207; any other id sets return code 99 at base/src/lgapdb01.cbl:204. Typed VARCHAR(6) in canonical.issued_policy.",
+      "type": "string",
+      "enum": [
+        "01AEND",
+        "01AHOU",
+        "01AMOT",
+        "01ACOM"
+      ]
+    },
+    "return_code": {
+      "title": "Return code",
+      "description": "Return code read from the returned COMMAREA. Source: CA-RETURN-CODE PIC 9(2), base/src/lgcmarea.cpy:11, COMMAREA bytes 7-8. Carried as a two-character zero-padded string and never converted to an integer, so a leading zero is preserved. The observed values are 00 success, set at base/src/lgapol01.cbl:105 and base/src/lgapdb01.cbl:293; 70 policy insert returned SQLCODE -530, set at base/src/lgapdb01.cbl:296; 80 VSAM write response was not normal, set at base/src/lgapvs01.cbl:144; 90 SQL failure, set at base/src/lgapdb01.cbl:301, 390, 428, 474 and 548; 98 COMMAREA shorter than the required length, set at base/src/lgapol01.cbl:114 and base/src/lgapdb01.cbl:211; and 99 unsupported request id, set at base/src/lgapdb01.cbl:204 and 239. Typed CHAR(2) in canonical.issued_policy, which retains rows carrying 00.",
+      "type": "string",
+      "enum": [
+        "00",
+        "70",
+        "80",
+        "90",
+        "98",
+        "99"
+      ]
+    },
+    "issue_date": {
+      "title": "Issue date",
+      "description": "Policy issue date supplied in the request. Source: CA-ISSUE-DATE PIC X(10), base/src/lgcmarea.cpy:38, COMMAREA bytes 29-38; Db2-side declaration DB2-ISSUEDATE PIC X(10), base/src/lgpolicy.cpy:46; passed to the policy insert as a character host variable at base/src/lgapdb01.cbl:281. Landed trimmed as a calendar date written YYYY-MM-DD; a window holding only spaces lands as null. Typed DATE in canonical.issued_policy.",
+      "type": [
+        "string",
+        "null"
+      ],
+      "minLength": 10,
+      "maxLength": 10,
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+    },
+    "expiry_date": {
+      "title": "Expiry date",
+      "description": "Policy expiry date supplied in the request. Source: CA-EXPIRY-DATE PIC X(10), base/src/lgcmarea.cpy:39, COMMAREA bytes 39-48; Db2-side declaration DB2-EXPIRYDATE PIC X(10), base/src/lgpolicy.cpy:47; passed to the policy insert as a character host variable at base/src/lgapdb01.cbl:282. Landed trimmed as a calendar date written YYYY-MM-DD; a window holding only spaces lands as null. Typed DATE in canonical.issued_policy.",
+      "type": [
+        "string",
+        "null"
+      ],
+      "minLength": 10,
+      "maxLength": 10,
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+    },
+    "last_changed": {
+      "title": "Last changed timestamp",
+      "description": "Policy last-changed timestamp read back after the policy insert. Source: CA-LASTCHANGED PIC X(26), base/src/lgcmarea.cpy:40, COMMAREA bytes 49-74; Db2-side declaration DB2-LASTCHANGED PIC X(26), base/src/lgpolicy.cpy:48. The insert writes CURRENT TIMESTAMP at base/src/lgapdb01.cbl:284 and the assigned value is read back into the COMMAREA item by the SELECT keyed on the recovered policy number at base/src/lgapdb01.cbl:316-321, so the value exists only in the returned COMMAREA. modernization/extraction/extract_commarea.py normalises the returned 26-character timestamp to ISO-8601 with a T separator and microsecond precision, written YYYY-MM-DDTHH:MM:SS.ffffff in 26 characters. Typed TIMESTAMP in canonical.issued_policy.",
+      "type": "string",
+      "minLength": 26,
+      "maxLength": 26,
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\\.[0-9]{6}$"
+    },
+    "broker_id": {
+      "title": "Broker id",
+      "description": "Broker identifier supplied in the request. Source: CA-BROKERID PIC 9(10), base/src/lgcmarea.cpy:41, COMMAREA bytes 75-84; Db2-side declaration DB2-BROKERID PIC 9(10), base/src/lgpolicy.cpy:49; moved to the integer host variable DB2-BROKERID-int at base/src/lgapdb01.cbl:264 and passed to the policy insert at base/src/lgapdb01.cbl:285. Landed as an unsigned digit string with leading zeros stripped; typed BIGINT in canonical.issued_policy.",
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^(0|[1-9][0-9]{0,9})$"
+    },
+    "brokers_reference": {
+      "title": "Broker's reference",
+      "description": "Broker's reference supplied in the request. Source: CA-BROKERSREF PIC X(10), base/src/lgcmarea.cpy:42, COMMAREA bytes 85-94; Db2-side declaration DB2-BROKERSREF PIC X(10), base/src/lgpolicy.cpy:50; passed to the policy insert as a character host variable at base/src/lgapdb01.cbl:286. Landed trimmed, so the value holds at most the 10 characters the PICTURE declares and a window holding only spaces lands as null rather than as an empty string. Typed VARCHAR(10) in canonical.issued_policy.",
+      "type": [
+        "string",
+        "null"
+      ],
+      "minLength": 1,
+      "maxLength": 10
+    },
+    "payment_amount": {
+      "title": "Payment amount",
+      "description": "Policy payment amount supplied in the request. Source: CA-PAYMENT PIC 9(6), base/src/lgcmarea.cpy:43, COMMAREA bytes 95-100; Db2-side declaration DB2-PAYMENT PIC 9(6), base/src/lgpolicy.cpy:51; moved to the integer host variable DB2-PAYMENT-int at base/src/lgapdb01.cbl:265 and passed to the policy insert at base/src/lgapdb01.cbl:287. The MOVE applies no arithmetic and the value is inserted unchanged. The declaration is an unsigned DISPLAY numeric without an implied decimal, so the landed value is a whole number carried as an unsigned digit string with leading zeros stripped; typed DECIMAL(8,2) in canonical.preissued_rating. Carried for every policy type.",
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^(0|[1-9][0-9]{0,5})$"
+    },
+    "motor_premium_amount": {
+      "title": "Motor premium amount",
+      "description": "Motor policy premium amount supplied in the request. Source: CA-M-PREMIUM PIC 9(6), base/src/lgcmarea.cpy:73, COMMAREA bytes 166-171; Db2-side declaration DB2-M-PREMIUM PIC 9(6), base/src/lgpolicy.cpy:80; moved to the integer host variable DB2-M-PREMIUM-int at base/src/lgapdb01.cbl:445 and passed to the motor insert at base/src/lgapdb01.cbl:469. The MOVE applies no arithmetic and the value is inserted unchanged. The declaration is an unsigned DISPLAY numeric without an implied decimal, so the landed value is a whole number carried as an unsigned digit string with leading zeros stripped; typed DECIMAL(8,2) in canonical.preissued_rating. Carried for policy type M; null for every other policy type.",
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^(0|[1-9][0-9]{0,5})$"
+    },
+    "fire_premium_amount": {
+      "title": "Fire premium amount",
+      "description": "Commercial fire premium amount supplied in the request. Source: CA-B-FirePremium PIC 9(8), base/src/lgcmarea.cpy:85, COMMAREA bytes 900-907; Db2-side declaration DB2-B-FirePremium PIC 9(8), base/src/lgpolicy.cpy:91; moved to the integer host variable DB2-B-FirePremium-Int at base/src/lgapdb01.cbl:489 and passed to the commercial insert at base/src/lgapdb01.cbl:535. The MOVE applies no arithmetic and the value is inserted unchanged. The declaration is an unsigned DISPLAY numeric without an implied decimal, so the landed value is a whole number carried as an unsigned digit string with leading zeros stripped; typed DECIMAL(10,2) in canonical.preissued_rating. Carried for policy type C; null for every other policy type.",
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^(0|[1-9][0-9]{0,7})$"
+    },
+    "crime_premium_amount": {
+      "title": "Crime premium amount",
+      "description": "Commercial crime premium amount supplied in the request. Source: CA-B-CrimePremium PIC 9(8), base/src/lgcmarea.cpy:87, COMMAREA bytes 912-919; Db2-side declaration DB2-B-CrimePremium PIC 9(8), base/src/lgpolicy.cpy:93; moved to the integer host variable DB2-B-CrimePremium-Int at base/src/lgapdb01.cbl:491 and passed to the commercial insert at base/src/lgapdb01.cbl:537. The MOVE applies no arithmetic and the value is inserted unchanged. The declaration is an unsigned DISPLAY numeric without an implied decimal, so the landed value is a whole number carried as an unsigned digit string with leading zeros stripped; typed DECIMAL(10,2) in canonical.preissued_rating. Carried for policy type C; null for every other policy type.",
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^(0|[1-9][0-9]{0,7})$"
+    },
+    "flood_premium_amount": {
+      "title": "Flood premium amount",
+      "description": "Commercial flood premium amount supplied in the request. Source: CA-B-FloodPremium PIC 9(8), base/src/lgcmarea.cpy:89, COMMAREA bytes 924-931; Db2-side declaration DB2-B-FloodPremium PIC 9(8), base/src/lgpolicy.cpy:95; moved to the integer host variable DB2-B-FloodPremium-Int at base/src/lgapdb01.cbl:493 and passed to the commercial insert at base/src/lgapdb01.cbl:539. The MOVE applies no arithmetic and the value is inserted unchanged. The declaration is an unsigned DISPLAY numeric without an implied decimal, so the landed value is a whole number carried as an unsigned digit string with leading zeros stripped; typed DECIMAL(10,2) in canonical.preissued_rating. Carried for policy type C; null for every other policy type.",
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^(0|[1-9][0-9]{0,7})$"
+    },
+    "weather_premium_amount": {
+      "title": "Weather premium amount",
+      "description": "Commercial weather premium amount supplied in the request. Source: CA-B-WeatherPremium PIC 9(8), base/src/lgcmarea.cpy:91, COMMAREA bytes 936-943; Db2-side declaration DB2-B-WeatherPremium PIC 9(8), base/src/lgpolicy.cpy:97; moved to the integer host variable DB2-B-WeatherPremium-Int at base/src/lgapdb01.cbl:495 and passed to the commercial insert at base/src/lgapdb01.cbl:541. The MOVE applies no arithmetic and the value is inserted unchanged. The declaration is an unsigned DISPLAY numeric without an implied decimal, so the landed value is a whole number carried as an unsigned digit string with leading zeros stripped; typed DECIMAL(10,2) in canonical.preissued_rating. Carried for policy type C; null for every other policy type.",
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^(0|[1-9][0-9]{0,7})$"
+    }
+  }
+}
