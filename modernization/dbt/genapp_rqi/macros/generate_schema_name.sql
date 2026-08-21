@@ -5,10 +5,11 @@
     entry of dbt_project.yml and will apply it to every model in the project;
     nothing imports or registers it.
 
-    Milestone status: this macro and dbt_project.yml are the only members of
-    the dbt project present. The model tree, the dbt source declaration and the
-    singular tests are planned deliverables, not present at this milestone. The
-    model behavior stated below is the planned schema-name contract.
+    Milestone status: this macro, dbt_project.yml, profiles.example.yml and the
+    dbt source declaration are the only members of the dbt project present. The
+    model tree and the singular tests are planned deliverables, not present at
+    this milestone. The model behavior stated below is the planned schema-name
+    contract.
 
     Returned value:
       A model that declares no custom schema resolves to the default schema of
@@ -23,9 +24,9 @@
       declared, so the macro never returns a blank name.
 
     Scope:
-      Models only. The planned dbt source declaration in
-      models/staging/genapp_class_exemplar/_genapp__sources.yml will name its
-      own schema and will not pass through this macro. The macro issues no DDL:
+      Models only. The dbt source declaration in
+      models/staging/genapp_class_exemplar/_genapp__sources.yml names its
+      own schema and does not pass through this macro. The macro issues no DDL:
       the raw and canonical namespaces come from
       modernization/warehouse/ddl/01_schemas.sql, and dbt will provision
       staging and intermediate itself at run time.

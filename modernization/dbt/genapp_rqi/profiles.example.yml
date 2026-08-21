@@ -1,0 +1,114 @@
+# profiles.example.yml
+# Connection template for the single dbt project of the GenApp Policy-Issue
+# cloud-warehouse bridge. Copy this file to profiles.yml, unchanged, in the
+# directory dbt reads profiles from (DBT_PROFILES_DIR, or --profiles-dir, or
+# ~/.dbt). Every connection value is supplied by an environment variable; the
+# copy needs no edit and carries no credential.
+#
+# Profile name. genapp_rqi is the profile entry of
+# modernization/dbt/genapp_rqi/dbt_project.yml. dbt resolves the profile by that
+# name; changing one name without the other leaves the project without a profile.
+#
+# Target selection. DBT_TARGET names the output dbt connects to and defaults to
+# local_substitute. The model files, the source declaration, the singular tests
+# and macros/generate_schema_name.sql are identical for both outputs.
+# Target-specific behaviour is held by this file and by the raw loaders
+# modernization/landing/load_local.py and modernization/landing/load_redshift.sql.
+#
+# Schemas. The schema key of an output is the fallback for a model that declares
+# no custom schema. Every model of this project declares one and
+# macros/generate_schema_name.sql returns it verbatim: models land in the literal
+# schemas staging, intermediate and canonical on both outputs.
+#
+# Adapters. dbt-duckdb and dbt-redshift are both pinned in
+# modernization/requirements.txt and both installed in modernization/.venv.
+#
+# Execution status. The redshift output has never been connected to an Amazon
+# Redshift cluster or Serverless workgroup. Per-output run status is recorded in
+# modernization/validation/validation-evidence.md.
+#
+# Environment variables read by this file:
+#   DBT_TARGET             name of the output to connect to; defaults to
+#                          local_substitute
+#   LOCAL_DUCKDB_PATH      DuckDB database file of the local_substitute output
+#   DUCKDB_DATABASE        DuckDB database file, read when LOCAL_DUCKDB_PATH
+#                          carries no value
+#   REDSHIFT_HOST          cluster endpoint, or Serverless workgroup endpoint
+#   REDSHIFT_PORT          port of that endpoint; defaults to 5439
+#   REDSHIFT_USER          database user
+#   REDSHIFT_PASSWORD      password of that user
+#   REDSHIFT_DATABASE      database name
+#   REDSHIFT_SCHEMA        fallback schema of the redshift output
+# Read only while the commented IAM keys of the redshift output are uncommented:
+#   REDSHIFT_CLUSTER_ID    provisioned cluster identifier
+#   REDSHIFT_IAM_PROFILE   named AWS profile IAM authentication reads
+#   AWS_REGION             region of that cluster or workgroup
+# The bucket name, the S3 endpoint, the IAM role identifier and the source-system
+# key are read by the landing tooling in modernization/landing/ and by no key
+# here.
+#
+# Diagram reference: Figure 2 — AFTER (BUILT): Canonical Warehouse Bridge, and
+# Figure 5 — Validation Harness Control Flow, both in
+# modernization/docs/architecture.md.
+# Rationale for every choice in this file: modernization/docs/decision-log.md
+
+genapp_rqi:
+
+  # Output dbt connects to, named from the outputs below.
+  target: "{{ env_var('DBT_TARGET', 'local_substitute') }}"
+
+  outputs:
+
+    # Local-substitute output. Addresses a DuckDB database file and no warehouse
+    # service.
+    local_substitute:
+      type: duckdb
+
+      # Database file. LOCAL_DUCKDB_PATH is read first, then DUCKDB_DATABASE,
+      # then the value below: the order and the default that
+      # modernization/landing/load_local.py applies to its --database option.
+      # A relative value is resolved against the working directory of the dbt
+      # process and not against the project directory. Invoke dbt from the
+      # repository root, naming the project with
+      # --project-dir modernization/dbt/genapp_rqi, for this value to reach the
+      # file load_local.py writes.
+      path: "{{ env_var('LOCAL_DUCKDB_PATH', env_var('DUCKDB_DATABASE', 'modernization/validation/local.duckdb')) }}"
+
+      # Fallback schema. dbt-duckdb takes the database name from the file name
+      # above, and no database key is set here.
+      schema: main
+
+      # One thread. Models and data tests execute one at a time.
+      threads: 1
+
+    # Real-target output. Addresses Amazon Redshift with the password
+    # authentication dbt-redshift applies while no method key is set.
+    redshift:
+      type: redshift
+
+      # Cluster endpoint, or Serverless workgroup endpoint. No default is
+      # carried: an unset variable fails the run.
+      host: "{{ env_var('REDSHIFT_HOST') }}"
+
+      # Port. dbt-redshift requires an integer, env_var returns text, and the
+      # int filter converts it.
+      port: "{{ env_var('REDSHIFT_PORT', '5439') | int }}"
+
+      user: "{{ env_var('REDSHIFT_USER') }}"
+      password: "{{ env_var('REDSHIFT_PASSWORD') }}"
+      dbname: "{{ env_var('REDSHIFT_DATABASE') }}"
+
+      # Fallback schema, as for the output above.
+      schema: "{{ env_var('REDSHIFT_SCHEMA') }}"
+
+      # One thread, as for the output above.
+      threads: 1
+
+      # IAM authentication. With these keys uncommented and the password key
+      # above removed, user names the database user IAM authorises, cluster_id
+      # names a provisioned cluster, and a Serverless workgroup endpoint is
+      # recognised from REDSHIFT_HOST with cluster_id left commented.
+      # method: iam
+      # cluster_id: "{{ env_var('REDSHIFT_CLUSTER_ID') }}"
+      # iam_profile: "{{ env_var('REDSHIFT_IAM_PROFILE') }}"
+      # region: "{{ env_var('AWS_REGION') }}"

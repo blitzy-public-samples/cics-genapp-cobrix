@@ -2,10 +2,11 @@
 # Project manifest for the GenApp Policy-Issue cloud-warehouse bridge.
 # Single dbt project of the bridge; its models, macros and singular tests will
 # resolve through this file.
-# Milestone status: macros/generate_schema_name.sql is the only other project member
-# present. The model tree, the singular tests and profiles.example.yml are planned
-# deliverables, not present at this milestone. Every model, test and profile
-# statement below states the target configuration, not observed behavior.
+# Milestone status: macros/generate_schema_name.sql, profiles.example.yml and the source
+# declaration models/staging/genapp_class_exemplar/_genapp__sources.yml are the other
+# project members present. The model tree and the singular tests are planned
+# deliverables, not present at this milestone. Every model and test statement below
+# states the target configuration, not observed behavior.
 # Planned to run unchanged on Amazon Redshift and DuckDB.
 # Diagram reference: Figure 4 — dbt Transformation DAG and Field Allocation
 # in modernization/docs/architecture.md.
@@ -16,11 +17,12 @@ name: genapp_rqi
 version: '1.0.0'
 config-version: 2
 
-# Connection profile. Will match the top-level profile block name of the planned
+# Connection profile. Matches the top-level profile block name of
 # profiles.example.yml.
 profile: genapp_rqi
 
-# Authored directories of this project. Only macros is present at this milestone.
+# Authored directories of this project. macros and the models tree, which holds the
+# source declaration, are present at this milestone; tests is a planned directory.
 model-paths: ["models"]
 macro-paths: ["macros"]
 test-paths: ["tests"]
