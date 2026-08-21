@@ -89,8 +89,11 @@ _THIS_DIR = Path(__file__).resolve().parent
 DEFAULT_FIELD_MAP = _THIS_DIR / "copybook_field_map.yml"
 
 # Repository directory holding this script (modernization/extraction/ -> repository
-# root) and the read-only source directory no destination may resolve inside.
-REPOSITORY_ROOT = _THIS_DIR.parents[1]
+# root) and the read-only source directory no destination may resolve inside. A copy of
+# this script placed fewer than two directories below the filesystem root takes its own
+# directory as the root, which keeps importing this module free of any path assumption.
+_ANCESTORS = _THIS_DIR.parents
+REPOSITORY_ROOT = _ANCESTORS[1] if len(_ANCESTORS) > 1 else _THIS_DIR
 READ_ONLY_SOURCE_ROOT = REPOSITORY_ROOT / "base"
 
 # Record width the capture must carry: the sum of the four level-03 items declared at
