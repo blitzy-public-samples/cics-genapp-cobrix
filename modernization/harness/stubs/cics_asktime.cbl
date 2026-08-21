@@ -36,28 +36,28 @@
       *                    WRITE-ERROR-MESSAGE paragraphs that hold
       *                    all three sites
       *
-      * Milestone note: modernization/harness/translate.py,
+      * Harness status: modernization/harness/translate.py,
       * modernization/harness/driver.cbl,
-      * modernization/harness/run_harness.sh,
-      * modernization/harness/translation-rules.md, the other eleven
-      * members of modernization/harness/stubs/, the generated tree
-      * modernization/harness/build/,
+      * modernization/harness/run_harness.sh and the other eleven
+      * members of modernization/harness/stubs/ stand in the tree, and
+      * every run of the harness regenerates the tree
+      * modernization/harness/build/.
+      * modernization/harness/translation-rules.md,
       * modernization/validation/diff_harness_vs_warehouse.py,
       * modernization/docs/decision-log.md and
       * modernization/docs/traceability-matrix.md are planned
-      * artifacts and are not present in the tree at this milestone;
-      * every statement below about the harness or about a translated
-      * program is the planned contract.
+      * artifacts and are not present in the tree; a statement below
+      * about one of those four is the planned contract.
       *
-      * modernization/harness/run_harness.sh is to compile this file
-      * as a callable module with cobc -m -std=ibm -ffold-copy=LOWER
+      * modernization/harness/run_harness.sh compiles this file as a
+      * callable module with cobc -m -std=ibm -ffold-copy=LOWER
       * -ext cpy -I build/src -o build/bin/CICS-ASKTIME.so. The module
       * basename equals the PROGRAM-ID, which is the name the dynamic
       * CALL resolves.
       *
-      * Each translated program is to call this module where its
-      * source issues ASKTIME, then pass the returned item unchanged
-      * to CICS-FORMATTIME. Every one of the three sites sits inside a
+      * Each translated program calls this module where its source
+      * issues ASKTIME, then passes the returned item unchanged to
+      * CICS-FORMATTIME. Every one of the three sites sits inside a
       * WRITE-ERROR-MESSAGE paragraph. A case that returns '00' loads
       * this module and never calls it.
       *
@@ -98,10 +98,10 @@
       *----------------------------------------------------------------*
       * The instant is 2026-08-19 12:00:00, carried as the digits
       * 20260819 of that date.
-      * modernization/harness/stubs/cics_formattime.cbl is to render
-      * this same value as MMDDYYYY '08/19/2026' and TIME '12:00:00',
-      * and modernization/harness/stubs/sql_insert_policy.cbl is to
-      * report the same instant as the LASTCHANGED timestamp
+      * modernization/harness/stubs/cics_formattime.cbl renders this
+      * same value as MMDDYYYY '08/19/2026' and TIME '12:00:00', and
+      * modernization/harness/stubs/sql_insert_policy.cbl reports the
+      * same instant as the LASTCHANGED timestamp
       * 2026-08-19-12.00.00.000000.
       * The real CICS abstime encoding is not reproduced. Each of the
       * three sites passes the value to FORMATTIME unchanged. No

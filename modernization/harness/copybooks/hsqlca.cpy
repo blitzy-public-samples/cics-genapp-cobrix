@@ -21,28 +21,27 @@
       *                    base/src/lgapdb01.cbl:53, the EM-SQLRC
       *                    field that receives SQLCODE at line 564
       *
-      * Milestone note: modernization/harness/translate.py,
-      * modernization/harness/driver.cbl, the stub members under
-      * modernization/harness/stubs/ and the generated tree
-      * modernization/harness/build/ are planned artifacts and are not
-      * present in the tree at this milestone; every statement below
-      * about the harness or about a translated program is the planned
+      * Harness status: modernization/harness/translate.py,
+      * modernization/harness/driver.cbl and the stub members under
+      * modernization/harness/stubs/ stand in the tree, and every run
+      * of the harness regenerates the tree
+      * modernization/harness/build/; every statement below about the
+      * harness or about a translated program describes the delivered
       * contract.
       *
-      * COPY HSQLCA. is to be inserted into the translated LGAPDB01
+      * translate.py inserts COPY HSQLCA. into the translated LGAPDB01
       * only. base/src/lgapol01.cbl and base/src/lgapvs01.cbl contain
-      * no SQL statement and are not to copy this member. translate.py
-      * is to copy this file verbatim into the harness build tree; it
-      * is never preprocessed in place.
+      * no SQL statement and do not copy this member. translate.py
+      * copies this file verbatim into the harness build tree; it is
+      * never preprocessed in place.
       *
       * The group is EXTERNAL: every compilation unit that COPYs this
       * member addresses the same storage. The SQL stub programs in
-      * modernization/harness/stubs/ will set SQLCODE on each call,
-      * and the translated LGAPDB01 will read it at the locators
-      * recorded below.
+      * modernization/harness/stubs/ set SQLCODE on each call, and the
+      * translated LGAPDB01 reads it at the locators recorded below.
       *
-      * No item is initialised in this member. The harness driver will
-      * seed the shared state procedurally before it calls the chain.
+      * No item is initialised in this member. The harness driver seeds
+      * the shared state procedurally before it calls the chain.
       *
       * Harness topology: Figure 5 — Validation Harness Control Flow
       * in modernization/docs/architecture.md.
@@ -71,7 +70,9 @@
       *   PIC +9(5) USAGE DISPLAY field declared at
       *   base/src/lgapdb01.cbl:53.
       *   Signed nine-digit binary. The values that reach it are the
-      *   zero the harness SQL stubs will report and the -530 compared
-      *   at base/src/lgapdb01.cbl:295.
+      *   zero the harness SQL stubs report on a call that injects
+      *   nothing, the SQLCODE a case injects through HC-INJECT of
+      *   modernization/harness/copybooks/hcapture.cpy, and the -530
+      *   compared at base/src/lgapdb01.cbl:295.
            03 SQLCODE                  PIC S9(9) COMP-5.
       *----------------------------------------------------------------*

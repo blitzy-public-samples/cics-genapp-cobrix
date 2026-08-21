@@ -47,20 +47,21 @@
       *                    base/src/lgapdb01.cbl:562 and
       *                    base/src/lgapvs01.cbl:155
       *
-      * Milestone note: modernization/harness/driver.cbl,
-      * modernization/harness/run_harness.sh,
-      * modernization/harness/translation-rules.md, the remaining
-      * members of modernization/harness/stubs/, the generated tree
-      * modernization/harness/build/,
+      * Harness status: modernization/harness/driver.cbl,
+      * modernization/harness/run_harness.sh and the remaining members
+      * of modernization/harness/stubs/ stand in the tree, and every
+      * run of the harness regenerates the tree
+      * modernization/harness/build/.
+      * modernization/harness/translation-rules.md,
       * modernization/validation/diff_harness_vs_warehouse.py,
       * modernization/docs/decision-log.md and
       * modernization/docs/traceability-matrix.md are planned
-      * artifacts and are not present in the tree at this milestone;
-      * every statement below about the harness, about a translated
-      * program or about the diff tool is the planned contract.
+      * artifacts and are not present in the tree; a statement below
+      * about one of those four, the diff tool among them, is the
+      * planned contract.
       *
-      * modernization/harness/run_harness.sh is to compile this file
-      * as a callable module with cobc -m -std=ibm -ffold-copy=LOWER
+      * modernization/harness/run_harness.sh compiles this file as a
+      * callable module with cobc -m -std=ibm -ffold-copy=LOWER
       * -ext cpy -I build/src -o build/bin/CICS-DIAG-LINK.so. The
       * module basename equals the PROGRAM-ID, which is the name the
       * dynamic CALL resolves.
@@ -153,10 +154,11 @@
       * MAINLINE - counts the call and returns.                        *
       *----------------------------------------------------------------*
       * Counts this call in the shared capture group.
-      * modernization/harness/driver.cbl is to emit the counter as the
+      * modernization/harness/driver.cbl emits the counter as the
       * DIAG_LINK_COUNT key of build/run/<case>/captures.txt. A case
       * that returns '00' reaches no site and reports zero.
        MAINLINE.
            ADD 1 TO HC-DIAG-LINK-COUNT
+           END-ADD
            GOBACK.
       *----------------------------------------------------------------*

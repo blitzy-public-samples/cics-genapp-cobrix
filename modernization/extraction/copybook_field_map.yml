@@ -9,10 +9,11 @@
 # HOW IT IS USED
 #   Loaded with a yaml.SafeLoader that rejects a repeated mapping key, a key it cannot compare,
 #   an alias and the merge key. modernization/extraction/build_sample_commarea.py is the only
-#   consumer present at this milestone; it reads the record, layout, field, routing and sample
-#   contract sections. The artifacts listed under `planned_consumers` will read their layout,
-#   typing and lineage facts from this file once they are processed; none of them is present at
-#   this milestone. Byte layout is expressed only as `offset`, `length` and `pic` values.
+#   artifact that parses this file; it reads the record, layout, field, routing and sample
+#   contract sections, and modernization/harness/run_harness.sh passes it that path on every run.
+#   The artifacts listed under `planned_consumers` will read their layout, typing and lineage
+#   facts from this file once they are processed; none of them is present in the tree yet. Byte
+#   layout is expressed only as `offset`, `length` and `pic` values.
 #
 # EVIDENCE BOUNDARY
 #   Every locator in this file resolves to one of the five authorised source artifacts:
@@ -1385,9 +1386,12 @@ request_routing:
     unrecognised_request_return_code: "99"
     unrecognised_request_set_at: base/src/lgapdb01.cbl:239
 
-# Sample cases this work generates. Both records are generated at this milestone; executing them
-# through the translated chain belongs to the planned harness, which is not present at this
-# milestone.
+# Sample cases this work generates. modernization/extraction/build_sample_commarea.py generates
+# both records from the definitions under modernization/extraction/sample_input/ and
+# modernization/harness/run_harness.sh executes them through the translated chain. These two
+# request ids are the only ones an authored sample definition describes and the only ones the
+# builder emits a record for. A record the harness runner writes for itself from one of these two
+# records is recorded under `derived_samples`.
 supported_request_ids: ["01AMOT", "01ACOM"]
 
 supported_samples:
@@ -1409,10 +1413,159 @@ supported_samples:
       - flood_premium_amount
       - weather_premium_amount
 
+# Records the harness runner writes for itself from a generated sample record. The runner copies
+# that record, writes each field under `overlay_fields` over the copy at the offset and length the
+# field declares, and reads every one of those fields back before a case runs. No sample definition
+# under modernization/extraction/sample_input/ describes a derived record and
+# modernization/extraction/build_sample_commarea.py emits none, so a derived request id is not a
+# member of supported_request_ids or supported_samples. An alphanumeric overlay value is written
+# left-justified and space-filled to the declared length and a numeric_display overlay value fills
+# the declared length with digits, the `value_justification` and `value_padding` rules a generated
+# record follows. Every byte the overlay does not cover holds the byte the record it is written
+# from carries at that position, and `bytes_from_the_base_record` names the ranges it leaves.
+derived_samples:
+  - request_id: "01AHOU"
+    policy_type: "H"
+    generated_by: modernization/harness/run_harness.sh
+    derived_from_request_id: "01AMOT"
+    derived_from_record: modernization/harness/build/samples/commarea_01amot.dat
+    generated_record: modernization/harness/build/samples/commarea_01ahou.dat
+    generated_record_length: 32500
+    sample_definition: null
+    emitted_by_sample_builder: false
+    amount_fields_exercised:
+      - payment_amount
+    commarea_overlay:
+      item: CA-HOUSE
+      copybook: base/src/lgcmarea.cpy
+      line: 56
+      level: "05"
+      redefines: CA-POLICY-SPECIFIC
+      offset: 101
+      length: 32400
+      overlay_length: 58
+      overlay_end_byte: 158
+      expanded_under_layout: false
+      recorded_under: out_of_scope_overlays
+      read_by_chain_at:
+        - base/src/lgapdb01.cbl:405-424
+        - base/src/lgapvs01.cbl:117-122
+    overlay_fields:
+      - item: CA-REQUEST-ID
+        copybook: base/src/lgcmarea.cpy
+        line: 10
+        pic: "X(6)"
+        offset: 1
+        length: 6
+        kind: alphanumeric
+        value: "01AHOU"
+      - item: CA-H-PROPERTY-TYPE
+        copybook: base/src/lgcmarea.cpy
+        line: 57
+        pic: "X(15)"
+        offset: 101
+        length: 15
+        kind: alphanumeric
+        value: "DETACHED"
+      - item: CA-H-BEDROOMS
+        copybook: base/src/lgcmarea.cpy
+        line: 58
+        pic: "9(3)"
+        offset: 116
+        length: 3
+        kind: numeric_display
+        chain_required_numeric: true
+        moved_to: DB2-H-BEDROOMS-SINT
+        moved_at: base/src/lgapdb01.cbl:406
+        moved_to_declared_at: base/src/lgapdb01.cbl:96
+        moved_to_pic: "S9(4) COMP"
+        moved_to_max_value: 9999
+        value: "004"
+      - item: CA-H-VALUE
+        copybook: base/src/lgcmarea.cpy
+        line: 59
+        pic: "9(8)"
+        offset: 119
+        length: 8
+        kind: numeric_display
+        chain_required_numeric: true
+        moved_to: DB2-H-VALUE-INT
+        moved_at: base/src/lgapdb01.cbl:405
+        moved_to_declared_at: base/src/lgapdb01.cbl:97
+        moved_to_pic: "S9(9) COMP"
+        moved_to_max_value: 999999999
+        value: "00275000"
+      - item: CA-H-HOUSE-NAME
+        copybook: base/src/lgcmarea.cpy
+        line: 60
+        pic: "X(20)"
+        offset: 127
+        length: 20
+        kind: alphanumeric
+        value: "LAUREL COTTAGE"
+      - item: CA-H-HOUSE-NUMBER
+        copybook: base/src/lgcmarea.cpy
+        line: 61
+        pic: "X(4)"
+        offset: 147
+        length: 4
+        kind: alphanumeric
+        value: "17"
+      - item: CA-H-POSTCODE
+        copybook: base/src/lgcmarea.cpy
+        line: 62
+        pic: "X(8)"
+        offset: 151
+        length: 8
+        kind: alphanumeric
+        value: "PO16 7GZ"
+    bytes_from_the_base_record:
+      - offset: 7
+        length: 94
+        end_byte: 100
+        layout_groups:
+          - header
+          - policy_common
+        content: the header items after CA-REQUEST-ID and the common policy items
+        supplies_amount_fields:
+          - payment_amount
+      - offset: 159
+        length: 32342
+        end_byte: 32500
+        item: CA-H-FILLER
+        copybook: base/src/lgcmarea.cpy
+        line: 63
+        content: the bytes the 01AMOT record carries at those positions
+        read_by_the_house_route: false
+    executed_by:
+      runner: modernization/harness/run_harness.sh
+      cases:
+        - label: 01AHOU-ROUTE
+          injected_subtype_sqlcode: 0
+          expected_return_code: "00"
+          expected_abend: null
+          expected_product_capture: HOUSE
+          expected_vsam_write: true
+        - label: 01AHOU-LGSQ
+          injected_subtype_sqlcode: -803
+          expected_return_code: "90"
+          expected_abend: LGSQ
+          expected_product_capture: HOUSE
+          expected_vsam_write: false
+    purpose: >-
+      Holds digits in the CA-H-BEDROOMS and CA-H-VALUE windows the house insert moves into its COMP
+      host variables, so both house cases reach that insert and end at the return code, abend and
+      VSAM write recorded under `executed_by` on every run, including a compile that checks the
+      numeric class of a display item.
+    rationale: >-
+      see modernization/docs/decision-log.md (planned deliverable; not present at this milestone),
+      row: house fixture derived from the motor record
+
 samples_not_generated:
-  request_ids: ["01AEND", "01AHOU"]
+  request_ids: ["01AEND"]
   note: >-
-    No endowment or house sample record is generated by this work. Both routing branches remain
+    No endowment sample record is generated by this work, by the sample builder or by the harness
+    runner, and no harness case executes the endowment route. The endowment routing branch remains
     documented under request_routing.
   rationale: >-
     see modernization/docs/decision-log.md (planned deliverable; not present at this milestone)

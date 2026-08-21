@@ -8,19 +8,24 @@ WHAT THIS TOOL DOES
 
 WHICH INPUTS IT ACCEPTS
     --sample       one sample definition JSON document, keyed by COMMAREA item name,
-                   holding at most 262,144 bytes of UTF-8 text.
+                   holding at most 65,536 bytes of UTF-8 text (``MAX_SAMPLE_BYTES``).
     --field-map    the field map supplying every offset, length and kind, holding at
-                   most 4,194,304 bytes of UTF-8 text
+                   most 1,048,576 bytes of UTF-8 text (``MAX_FIELD_MAP_BYTES``)
                    (default: ``copybook_field_map.yml`` beside this script).
     --output       destination path for the generated record.
-    --output-root  existing directory inside the validated generated-output root or
-                   inside the system temporary directory tree that the destination must
-                   resolve inside, replacing the default generated-output root.
+    --output-root  existing directory inside the validated generated-output root that
+                   the destination must resolve inside, replacing that root as the
+                   directory every write descends from; no directory outside it is
+                   accepted.
 
-    Both documents are parsed with a repeated key rejected at every nesting level and
-    structural nesting bounded to 32 levels: the sample definition's text is scanned for
-    that bound before the JSON parser materialises the document, and the field map is
-    bounded while its nodes are composed, where no YAML alias is accepted either.
+    Both documents are read under the byte bound above before anything parses them, and
+    both are parsed with a repeated key rejected at every nesting level. The sample
+    definition's text is handed to ``json.loads``, whose own recursion guard rejects
+    text nested past it, and the object that parse returns is then rejected when it
+    nests more than ``MAX_DOCUMENT_DEPTH`` containers or expands past
+    ``MAX_DOCUMENT_NODES`` values. The field map is bounded to the same depth while its
+    nodes are composed, where neither a YAML alias nor a merge key is accepted, and the
+    mapping that composition returns is bounded again by nesting and value count.
 
 WHICH FIELD MAP MEMBERS ARE FIXED
     Loading confirms, before any routing, rendering or allocation, that
@@ -43,9 +48,10 @@ WHICH FIELD MAP MEMBERS ARE FIXED
     tool must sit inside ``modernization/extraction/`` or
     ``modernization/harness/build/``. The generated record is written inside
     ``modernization/harness/build/``, or inside the directory ``--output-root`` names,
-    which must itself resolve inside that root or inside the system temporary
-    directory; an existing destination is replaced only when it is a regular file and
-    is not a symbolic link. Both read directories are composed by name from the
+    which must itself resolve inside that same ``modernization/harness/build/``
+    directory; no destination and no root outside it is accepted, the system temporary
+    directory included. An existing destination is replaced only when it is a regular
+    file and is not a symbolic link. Both read directories are composed by name from the
     repository root two levels above this script's own directory; every working
     directory yields the same two directories. A symbolic link among the components of
     either directory, or among the components of a path argument below it, is refused
@@ -55,10 +61,23 @@ WHICH FIELD MAP MEMBERS ARE FIXED
     one link, and it sits on the device its authorised input directory sits on. The
     record is written to a temporary file created inside the destination directory,
     moved onto the destination name and read back through one descriptor held open on
-    that directory. The built-in self-test runs in this process and reads its own
-    scratch documents from one throwaway directory inside the system temporary
-    directory, which it names to each reader as an extra authorised root; no command
-    line can name one.
+    that directory. The built-in self-test runs in this process and keeps every scratch
+    document it reads and every destination it offers inside one private run directory
+    ``modernization/harness/build/builder-selftest/<run>``, which it creates and removes
+    through descriptors held on its parents and which is therefore covered by the read
+    and write roots above; no command line names it and nothing of it survives the run.
+    Every fixture entry, subdirectory, FIFO and symbolic link below that run directory
+    is created, read, listed, renamed and removed relative to the descriptor held on it
+    and never through a resolved pathname. Where a run under test must be handed a
+    pathname, the destination argument names the entry below ``/proc/self/fd/<held
+    descriptor>``, so it follows the held directory rather than the visible name, and
+    the input and output-root arguments, which this tool refuses to reach through a
+    symbolic-link component, name the canonical path; the held directory is confirmed to
+    still carry the recorded device and inode, and to still be named by the entry it was
+    created under, immediately before and immediately after every such handoff. The
+    closing removal empties and removes the originally held directory, found through the
+    held descriptor's own pathname, and reports a failure when the visible run name was
+    replaced after the directory was acquired.
 
 HOW FIELDS ARE PLACED
     The buffer starts as spaces at ``COMMAREA_RECORD_LENGTH`` characters. Placement
@@ -99,15 +118,23 @@ WHAT --self-test CHECKS
     is not a regular file, a rerun comparison, a non-zero commercial status placement,
     a full-width commercial address, the motor record's inactive commercial windows,
     short values of both kinds, a numeric justification mutation compared byte for byte
-    against the literal window it moves, a protected filler's fill mutation, and the
-    literal cases, withheld statements and dbt test of the field map's product premium
-    nullability claim. Every case prints one line, and a failing case leaves status 5.
+    against the literal window it moves, a protected filler's fill mutation, an output
+    root outside the validated generated-output root, an output root reached through a
+    symbolic link, a destination reached through a symbolic link that leaves that root,
+    the removal of a scratch subtree through held descriptors, the replacement of a
+    private run directory's visible name by a symbolic link naming a canary directory
+    outside it, which must refuse the pathname handoff, keep every write inside the held
+    directory, land one whole record a run writes below the held descriptor's own
+    pathname there as well, leave the canary empty and still remove the originally held
+    directory, and the literal cases, withheld statements and dbt test of the field
+    map's product premium nullability claim. Every case prints one line, and a failing
+    case leaves status 5.
 
 WHICH VALUES IT ACCEPTS
     A required item must be supplied with one or more characters. An optional item may
-    be omitted, and an optional item whose key is present with an empty string leaves
-    its window filled with the padding character of its kind, exactly as an omitted key
-    does. A supplied value no longer than its declared length holds ASCII digits for a
+    be omitted, which leaves its window filled with the padding character of its kind;
+    a key present with an empty string is rejected instead, and the diagnostic names the
+    key and asks for it to be omitted. A supplied value no longer than its declared length holds ASCII digits for a
     ``numeric_display`` item and printable 7-bit ASCII for an ``alphanumeric`` item; it
     stays within ``moved_to_max_value`` where the layout records the host declaration
     the chain moves it into, and is a real calendar date written as YYYY-MM-DD where the
@@ -129,32 +156,35 @@ GENERATED-OUTPUT POLICY
     ``modernization/harness/build`` under the canonical repository directory that holds
     this script, and no component from that repository directory down to it may be a
     symbolic link. An explicitly designated root replaces it only while resolving inside
-    that validated directory or inside the system temporary directory tree. Every
-    destination is canonicalised through its symbolic links before anything is created;
-    a symbolic link, an existing non-regular target and every path under the
-    repository's ``base/`` directory are refused, no authored or source path is
-    reachable, and every value carried into a diagnostic or an evidence record is
-    escaped to one control-free line. This tool enforces the policy for generated
-    records; ``modernization/validation/verify_readonly.sh`` enforces it for evidence
-    logs.
+    that same validated directory, so no path this tool writes ever leaves
+    ``modernization/``. Every destination is canonicalised through its symbolic links
+    before anything is created; a symbolic link, an existing non-regular target and
+    every path under the repository's ``base/`` directory are refused, no authored or
+    source path is reachable, and every value carried into a diagnostic or an evidence
+    record is escaped to one control-free line. This tool enforces the policy for
+    generated records; ``modernization/validation/verify_readonly.sh`` enforces it for
+    evidence logs.
 
 WHERE IT WRITES
     The destination is canonicalised and must resolve inside the validated
     ``modernization/harness/build`` directory described above, unless --output-root
     names an existing directory that contains it, carries no symbolic-link component
-    and resolves inside that validated directory or inside the system temporary
-    directory tree. A destination resolving inside the repository must resolve inside
-    the validated ``modernization/harness/build`` directory whichever root is in force,
-    and a destination resolving inside the repository's ``base/`` directory is refused.
+    and resolves inside that same validated directory. A root resolving anywhere else,
+    the system temporary directory and a directory whose trailing components merely
+    spell ``modernization/harness/build`` included, is refused. A destination resolving
+    inside the repository must resolve inside the validated
+    ``modernization/harness/build`` directory whichever root is in force, and a
+    destination resolving inside the repository's ``base/`` directory is refused.
     A destination that is a symbolic link, that already exists as anything other than a
     regular file, or whose canonical form leaves the allowed root is refused before any
     directory is created and before any temporary entry is written.
 
     The write itself runs through descriptors alone. The directory the destination is
-    reached from is opened while the destination is validated, by descending its
-    canonical path one single component at a time from the filesystem root and following
-    no symbolic link at any level: the canonical repository directory holding this
-    script under the default root, and --output-root itself when one is named. That
+    reached from is opened while the destination is validated, one single component at a
+    time and following no symbolic link at any level: the canonical repository directory
+    holding this script, descended from the filesystem root, under the default root, and
+    --output-root itself, descended from the descriptor held on
+    ``modernization/harness/build``, when one is named. That
     descriptor is confirmed to still hold the directory the canonical path names, is the
     only object the write descends from, and the anchor is never resolved as a pathname
     again. Every directory below it is created where absent and opened by single
@@ -188,10 +218,9 @@ import os
 import re
 import stat
 import sys
-import tempfile
 from collections.abc import Callable, Iterable, Iterator
 from pathlib import Path
-from typing import Any, NamedTuple, NoReturn
+from typing import Any, NamedTuple, NoReturn, TypeVar
 
 import yaml
 
@@ -612,51 +641,6 @@ def _validated_read_roots() -> tuple[Path, ...]:
     return tuple(roots)
 
 
-def _designated_read_root(root: str | os.PathLike[str]) -> Path:
-    """Return one extra read root, which must be a directory in the temporary tree.
-
-    The in-process self-test names the throwaway directory holding its own scratch
-    documents, which is the only way a directory outside the validated read roots is
-    ever authorised. The root must carry no symbolic-link component, must resolve inside
-    the system temporary directory tree, and must already be a directory; every other
-    root raises ``InputOutputError`` and no byte is read through it.
-    """
-    given = _absolute_path(root)
-    _refuse_control_characters(given, "read root", "refusing to read")
-    _refuse_symbolic_component(
-        given, Path(given.anchor), "read root", "refusing to read"
-    )
-    canonical = _canonical_path(given)
-    temporary_root = _canonical_path(tempfile.gettempdir())
-    if not canonical.is_relative_to(temporary_root):
-        raise InputOutputError(
-            f"read root {_path_shown(root)} resolves to {_path_shown(canonical)}, "
-            f"which is not inside the system temporary directory "
-            f"{_path_shown(temporary_root)}; refusing to read"
-        )
-    if not canonical.is_dir():
-        raise InputOutputError(
-            f"read root {_path_shown(root)} is not an existing directory; refusing to "
-            "read"
-        )
-    return canonical
-
-
-def _authorised_read_roots(
-    extra: Iterable[str | os.PathLike[str]] | None,
-) -> tuple[Path, ...]:
-    """Return every directory an input may be read from for one invocation.
-
-    The validated read roots always authorise a read. ``extra`` adds the throwaway
-    directories the in-process self-test reads its own scratch documents from, each
-    checked by ``_designated_read_root`` before it authorises anything.
-    """
-    roots = list(_validated_read_roots())
-    for root in extra or ():
-        roots.append(_designated_read_root(root))
-    return tuple(roots)
-
-
 def _authorising_read_root(
     canonical: Path, roots: tuple[Path, ...], what: str, shown: str
 ) -> Path:
@@ -1009,18 +993,14 @@ class _FieldMapSource(NamedTuple):
     document: dict[str, Any]
 
 
-def _read_field_map(
-    path: str | os.PathLike[str] | None,
-    read_roots: Iterable[str | os.PathLike[str]] | None = None,
-) -> _FieldMapSource:
+def _read_field_map(path: str | os.PathLike[str] | None) -> _FieldMapSource:
     """Read one field map with a single bounded read and validate what it declares.
 
     The one read serves both the parse and any caller that also needs the exact bytes,
     which are returned beside the document, so the path is opened no second time and
     the bytes a caller works from are the bytes the parse saw. The path defaults to
-    ``DEFAULT_FIELD_MAP``, is confined to the authorised read roots that
-    ``read_roots`` extends, and the validation is the contract ``load_field_map``
-    states.
+    ``DEFAULT_FIELD_MAP``, is confined to the validated read roots, and the validation
+    is the contract ``load_field_map`` states.
     """
     map_path = Path(path) if path is not None else DEFAULT_FIELD_MAP
     source = _read_limited_input(
@@ -1028,7 +1008,7 @@ def _read_field_map(
         MAX_FIELD_MAP_BYTES,
         "field map",
         FieldMapError,
-        _authorised_read_roots(read_roots),
+        _validated_read_roots(),
     )
     text = source.text
 
@@ -1105,16 +1085,14 @@ def _read_field_map(
     return _FieldMapSource(path=map_path, payload=source.payload, document=document)
 
 
-def load_field_map(
-    path: str | os.PathLike[str] | None = None,
-    read_roots: Iterable[str | os.PathLike[str]] | None = None,
-) -> dict[str, Any]:
+def load_field_map(path: str | os.PathLike[str] | None = None) -> dict[str, Any]:
     """Load the field map and confirm the sections this builder reads are present.
 
     ``path`` defaults to ``copybook_field_map.yml`` in this script's directory and must
-    sit inside the authorised read roots, which ``read_roots`` extends with a throwaway
-    directory the in-process self-test reads its own scratch documents from. The
-    file must be one regular file holding at most ``MAX_FIELD_MAP_BYTES`` bytes of
+    sit inside the validated read roots, which are ``modernization/extraction`` and
+    ``modernization/harness/build`` under the canonical repository directory holding
+    this script. The file must be one regular file holding at most
+    ``MAX_FIELD_MAP_BYTES`` bytes of
     UTF-8 YAML, must not repeat a mapping key, must nest at most
     ``MAX_DOCUMENT_DEPTH`` containers, must expand to at most ``MAX_DOCUMENT_NODES``
     values without a container appearing inside itself, and must declare
@@ -1122,46 +1100,7 @@ def load_field_map(
     ``sample_definition_contract.emitted_record_length``. The returned document is the
     parsed YAML mapping.
     """
-    return _read_field_map(path, read_roots).document
-
-
-def _check_json_depth(text: str, what: str) -> None:
-    """Confirm JSON text nests no deeper than ``MAX_DOCUMENT_DEPTH`` levels.
-
-    The text is scanned before the parser materialises anything from it: every array or
-    object opening deepens the nesting, every closing shallows it, and the characters of
-    a string literal are skipped, including a quotation mark or a backslash the literal
-    escapes. ``what`` names the document in the diagnostic. Raises ``SampleError``
-    naming the depth limit and the position that breaches it.
-    """
-    depth = 0
-    line = 1
-    in_string = False
-    escaped = False
-    for position, character in enumerate(text, start=1):
-        if in_string:
-            if escaped:
-                escaped = False
-            elif character == "\\":
-                escaped = True
-            elif character == '"':
-                in_string = False
-            elif character == "\n":
-                line += 1
-            continue
-        if character == '"':
-            in_string = True
-        elif character in "[{":
-            depth += 1
-            if depth > MAX_DOCUMENT_DEPTH:
-                raise SampleError(
-                    f"{what} nests deeper than the accepted {MAX_DOCUMENT_DEPTH} "
-                    f"levels at line {line} character {position}"
-                )
-        elif character in "]}":
-            depth = max(depth - 1, 0)
-        elif character == "\n":
-            line += 1
+    return _read_field_map(path).document
 
 
 def _reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
@@ -1174,16 +1113,14 @@ def _reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     return result
 
 
-def load_sample(
-    path: str | os.PathLike[str],
-    read_roots: Iterable[str | os.PathLike[str]] | None = None,
-) -> dict[str, str]:
+def load_sample(path: str | os.PathLike[str]) -> dict[str, str]:
     """Read one sample definition and confirm it is a flat object of string values.
 
-    ``path`` must sit inside the authorised read roots, which ``read_roots`` extends
-    with a throwaway directory the in-process self-test reads its own scratch documents
-    from. The file must be one regular file holding at most ``MAX_SAMPLE_BYTES``
-    bytes of UTF-8 JSON, must nest at most ``MAX_DOCUMENT_DEPTH`` containers, must expand to at
+    ``path`` must sit inside the validated read roots, which are
+    ``modernization/extraction`` and ``modernization/harness/build`` under the canonical
+    repository directory holding this script. The file must be one regular file holding
+    at most ``MAX_SAMPLE_BYTES`` bytes of UTF-8 JSON, must nest at most
+    ``MAX_DOCUMENT_DEPTH`` containers, must expand to at
     most ``MAX_DOCUMENT_NODES`` values without a container appearing inside itself, and
     must declare at most ``MAX_SAMPLE_KEYS`` keys, none of them repeated.
     """
@@ -1193,7 +1130,7 @@ def load_sample(
         MAX_SAMPLE_BYTES,
         "sample definition",
         SampleError,
-        _authorised_read_roots(read_roots),
+        _validated_read_roots(),
     ).text
 
     try:
@@ -2091,23 +2028,52 @@ def _confirm_same_directory(descriptor: int, canonical: Path, what: str) -> None
         )
 
 
-def _opened_output_root(root: Path, given: str | os.PathLike[str]) -> int:
-    """Return a descriptor for a named output root that is an existing directory.
+def _opened_output_root(
+    root: Path, build_root: Path, build_fd: int, given: str | os.PathLike[str]
+) -> int:
+    """Return a descriptor for a named output root that stands below the build root.
 
-    The root is opened by descending its canonical components one at a time, so an
-    absent component and a component that is not a directory are both reported as a root
-    that is not an existing directory. ``given`` names the root as the command line
-    spelled it. The descriptor returned is the caller's to close.
+    ``build_fd`` is the descriptor already held on ``build_root``; the walk starts
+    from a duplicate of it, so the caller's descriptor stays the caller's to close, and
+    every component leading down to ``root`` is opened as one single name relative to
+    the descriptor above it with ``O_NOFOLLOW``. Containment is therefore established
+    through held descriptors rather than by comparing pathnames: a symbolic link at any
+    level, including one whose target spells a path inside the build root, is refused
+    instead of followed. The root is never created: an absent component and a component
+    that is not a directory are both reported as a root that is not an existing
+    directory below the build root. ``given`` names the root as the command line spelled
+    it. The descriptor returned is the caller's to close.
     """
     try:
-        return _opened_by_components(root, "output root")
-    except InputOutputError as error:
-        cause = error.__cause__
-        if isinstance(cause, (FileNotFoundError, NotADirectoryError)):
+        dirfd = os.dup(build_fd)
+    except OSError as error:
+        raise InputOutputError(
+            f"cannot duplicate the descriptor of the generated-output root "
+            f"{_path_shown(build_root)} the output root descends from: "
+            f"{error.strerror or error}"
+        ) from error
+
+    for component in root.relative_to(build_root).parts:
+        try:
+            descended = os.open(
+                component, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=dirfd
+            )
+        except (FileNotFoundError, NotADirectoryError) as error:
             raise InputOutputError(
-                f"output root {_path_shown(given)} is not an existing directory"
-            ) from cause
-        raise
+                f"output root {_path_shown(given)} is not an existing directory below "
+                f"{_path_shown(build_root)}"
+            ) from error
+        except OSError as error:
+            raise InputOutputError(
+                f"cannot open component {_escaped(component)} of output root "
+                f"{_path_shown(given)} below {_path_shown(build_root)}: "
+                f"{error.strerror or error}; refusing to write"
+            ) from error
+        finally:
+            with contextlib.suppress(OSError):
+                os.close(dirfd)
+        dirfd = descended
+    return dirfd
 
 
 class _OutputRoot(NamedTuple):
@@ -2117,8 +2083,9 @@ class _OutputRoot(NamedTuple):
     the canonical directory the write descends from: the repository directory that holds
     this script while the default generated-output root is in force, whose absent
     components below it this tool creates, and the named root itself otherwise.
-    ``descriptor`` is open on ``anchor``, obtained by descending that canonical path one
-    component at a time, and is the caller's to close.
+    ``descriptor`` is open on ``anchor``, obtained by descending one component at a time
+    from the filesystem root under the default root and from the descriptor held on the
+    validated generated-output root for a named root, and is the caller's to close.
     """
 
     path: Path
@@ -2131,12 +2098,16 @@ def _allowed_output_root(output_root: str | os.PathLike[str] | None) -> _OutputR
 
     ``None`` selects the validated generated-output root, which this tool creates when
     it is absent, and anchors the write at the canonical repository directory that holds
-    this script. A named root must already exist as a directory, must carry no
-    symbolic-link component, and must resolve inside the validated generated-output root
-    or inside the system temporary directory tree; every other root is refused. The
-    anchor is opened by descending its canonical components one at a time and that open
-    descriptor is returned with it, so the anchor is never resolved from a full path
-    again; a root refused after the descriptor is open closes it before raising.
+    this script. A named root must already exist as a directory, must carry no control
+    character and no symbolic-link component, and must resolve inside that same
+    validated generated-output root; every other root is refused, the system temporary
+    directory and a directory whose trailing components merely spell
+    ``modernization/harness/build`` included. A named root is reached by descending from
+    a descriptor held on the validated generated-output root one single component at a
+    time, so its containment is established through held descriptors and no symbolic
+    link is followed at any level. The anchor is returned with that open descriptor, so
+    the anchor is never resolved from a full path again; a root refused after a
+    descriptor is open closes it before raising.
     """
     build_root = _validated_build_root()
     if output_root is None:
@@ -2148,28 +2119,25 @@ def _allowed_output_root(output_root: str | os.PathLike[str] | None) -> _OutputR
         )
 
     given = _absolute_path(output_root)
+    _refuse_control_characters(given, "output root", "refusing to write")
     _refuse_symbolic_component(given, Path(given.anchor), "output root")
     root = _canonical_path(given)
-    descriptor = _opened_output_root(root, output_root)
+    if root != build_root and not root.is_relative_to(build_root):
+        raise InputOutputError(
+            f"output root {_path_shown(output_root)} resolves to "
+            f"{_path_shown(root)}, which is not inside the generated-output root "
+            f"{_path_shown(build_root)}; a generated record is written only inside "
+            "modernization/harness/build under the canonical repository directory "
+            "holding this script; refusing to write"
+        )
+
+    build_fd = _opened_by_components(build_root, "generated-output root")
     try:
-        try:
-            temporary_root = _canonical_path(tempfile.gettempdir())
-        except OSError as error:
-            raise InputOutputError(
-                "cannot resolve the system temporary directory to compare with output "
-                f"root {_path_shown(output_root)}: {error.strerror or error}"
-            ) from error
-        if not (root.is_relative_to(build_root) or root.is_relative_to(temporary_root)):
-            raise InputOutputError(
-                f"output root {_path_shown(output_root)} resolves to "
-                f"{_path_shown(root)}, which is neither inside "
-                f"{_path_shown(build_root)} nor inside the system temporary directory "
-                f"{_path_shown(temporary_root)}; refusing to write"
-            )
-    except BuildError:
+        _confirm_same_directory(build_fd, build_root, "generated-output root")
+        descriptor = _opened_output_root(root, build_root, build_fd, output_root)
+    finally:
         with contextlib.suppress(OSError):
-            os.close(descriptor)
-        raise
+            os.close(build_fd)
     return _OutputRoot(path=root, anchor=root, descriptor=descriptor)
 
 
@@ -2178,11 +2146,12 @@ class _Destination(NamedTuple):
 
     ``anchor`` is the canonical directory the write descends from: the repository
     directory that holds this script while the default generated-output root is in
-    force, and the named output root otherwise. ``anchor_fd`` is open on that directory,
-    opened during validation by descending the canonical ``anchor`` one component at a
-    time from the filesystem root and confirmed to still hold the directory that path
-    names; it is the only object the write descends from, the anchor is never resolved
-    as a pathname again, and closing the descriptor is the caller's to do. ``path`` is
+    force, and the named output root, itself standing inside the validated
+    generated-output root, otherwise. ``anchor_fd`` is open on that directory, opened
+    during validation one single component at a time without following a symbolic link
+    and confirmed to still hold the directory that path names; it is the only object the
+    write descends from, the anchor is never resolved as a pathname again, and closing
+    the descriptor is the caller's to do. ``path`` is
     the canonical destination, always inside ``anchor``.
     """
 
@@ -2206,11 +2175,12 @@ def _validated_destination(
     returned with the directory the write descends from and an open descriptor on it:
     the repository directory under the default root, whose
     ``modernization/harness/build`` components this tool creates where they are absent,
-    and the named output root, which must already exist, when one is given. That
-    descriptor is obtained while this function validates the destination, by descending
-    the canonical anchor one component at a time from the filesystem root, and is
-    confirmed to still hold the directory the anchor names before it is returned; it is
-    the caller's to close, and a rule refused after it is open closes it before raising.
+    and the named output root, which must already exist inside those components, when
+    one is given. That descriptor is obtained while this function validates the
+    destination, by descending one component at a time without following a symbolic
+    link, and is confirmed to still hold the directory the anchor names before it is
+    returned; it is the caller's to close, and a rule refused after it is open closes it
+    before raising.
     """
     _refuse_control_characters(path, "destination", "refusing to write")
     given = _absolute_path(path)
@@ -2460,10 +2430,11 @@ def write_record(
     """Write ``record`` to ``path`` as one line closed by a single newline.
 
     The record must already hold ``expected_length`` characters and only 7-bit ASCII.
-    The destination is canonicalised and confined to ``output_root``, defaulting to the
-    validated generated-output root, before anything is created, and that validation
-    leaves one descriptor open on the directory the write descends from, obtained by
-    descending its canonical path one component at a time. The write then runs through
+    The destination is canonicalised and confined to ``output_root``, which must itself
+    stand inside the validated generated-output root and defaults to that root, before
+    anything is created, and that validation leaves one descriptor open on the directory
+    the write descends from, obtained by descending one component at a time without
+    following a symbolic link. The write then runs through
     descriptors only: every directory below that one is created where absent and opened
     by single component relative to the descriptor above it, and the characters are
     written to a temporary entry, flushed to the device, renamed onto the destination
@@ -3053,63 +3024,59 @@ class _CliResult(NamedTuple):
     stderr: str
 
 
-def _designated_output_root(argv: list[str]) -> list[str]:
-    """Return ``argv`` with the self-test scratch directory named as the output root.
+def _designated_output_root(tree: _HeldTree, argv: list[str]) -> list[str]:
+    """Return ``argv`` with the held run directory named as the output root.
 
-    Every self-test case writes beside its own scratch destination rather than into
-    ``modernization/harness/build``, so the directory holding the ``--output`` argument
-    is named to the tool as the root that destination must resolve inside. An ``argv``
-    that already names a root, or that names no destination, is returned unchanged.
+    Every self-test case writes inside the private run directory this self-test holds
+    under ``modernization/harness/build/builder-selftest``, so that directory is named
+    to the tool as the root the ``--output`` argument must resolve inside, which
+    exercises ``--output-root`` on every case that builds or is refused a record. It is
+    named by its canonical path, the form the tool accepts for a root, and it stands
+    inside the validated generated-output root, so it is accepted for the same reason
+    any other directory below that root is. An ``argv`` that already names a root, or
+    that names no destination, is returned unchanged.
+
+    The destination it designates that root for must name an entry below the held run
+    directory, spelled either below the pathname of the descriptor held on it or below
+    its canonical path. A destination spelled any other way would receive a root it does
+    not stand inside, so it is refused here as an inconsistency of this matrix rather
+    than handed to a run under test.
     """
     if "--output" not in argv or "--output-root" in argv:
         return argv
-    root = Path(argv[argv.index("--output") + 1]).parent
-    while not root.is_dir() and root.parent != root:
-        root = root.parent
-    return [*argv, "--output-root", str(root)]
+    destination = argv[argv.index("--output") + 1]
+    accepted = (f"{tree.handoff()}{os.sep}", f"{tree.path}{os.sep}")
+    if not destination.startswith(accepted):
+        raise _SelfTestFailure(
+            f"destination {_display(destination)} names no entry below the private run "
+            f"directory {_path_shown(tree.path)} this matrix writes inside"
+        )
+    return [*argv, "--output-root", str(tree.path)]
 
 
-def _designated_read_roots(argv: list[str]) -> tuple[Path, ...]:
-    """Return the scratch directories one self-test command line reads its inputs from.
+def _run_cli(tree: _HeldTree, argv: list[str]) -> _CliResult:
+    """Run one command line in this process and capture its status and streams.
 
-    A case names its own field map and sample definition beside its scratch destination
-    rather than inside the repository, so the directory holding each of those arguments
-    is named to the tool as an authorised read root. A directory already inside the
-    validated read roots, which the packaged field map and the packaged sample
-    definitions sit in, is left out because it needs no extra authority; the nearest
-    existing directory above an absent argument is named, so a case naming a path that
-    does not exist is refused for being absent and not for being unauthorised.
+    Every scratch document a case names sits inside the private run directory below
+    ``modernization/harness/build``, which is one of the validated read roots, so no
+    command line this runner assembles needs an authority a caller could not obtain.
+    The command line is one pathname handoff: the held run directory is confirmed to
+    still be named by the entry it was created under immediately before the run starts
+    and immediately after it returns, so a visible name replaced around the run is
+    reported instead of being handed to it.
     """
-    validated = _validated_read_roots()
-    roots: list[Path] = []
-    for option in ("--field-map", "--sample"):
-        if option not in argv:
-            continue
-        position = argv.index(option) + 1
-        if position >= len(argv):
-            continue
-        directory = Path(os.path.abspath(argv[position])).parent
-        while not directory.is_dir() and directory.parent != directory:
-            directory = directory.parent
-        if any(directory.is_relative_to(root) for root in validated):
-            continue
-        if directory not in roots:
-            roots.append(directory)
-    return tuple(roots)
 
+    def _run() -> _CliResult:
+        out = io.StringIO()
+        err = io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            try:
+                status = main(_designated_output_root(tree, argv))
+            except SystemExit as request:
+                status = request.code if isinstance(request.code, int) else 1
+        return _CliResult(status=status, stdout=out.getvalue(), stderr=err.getvalue())
 
-def _run_cli(argv: list[str]) -> _CliResult:
-    """Run one command line in this process and capture its status and streams."""
-    out = io.StringIO()
-    err = io.StringIO()
-    with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
-        try:
-            status = main(
-                _designated_output_root(argv), _designated_read_roots(argv)
-            )
-        except SystemExit as request:
-            status = request.code if isinstance(request.code, int) else 1
-    return _CliResult(status=status, stdout=out.getvalue(), stderr=err.getvalue())
+    return _handed_off(tree, "self-test run directory", _run)
 
 
 def _assert_diagnostic(stderr: str) -> None:
@@ -3266,12 +3233,18 @@ def _assert_fill_windows(
         )
 
 
-def _read_record(path: Path, what: str) -> str:
-    """Return the record at ``path`` after checking its byte count and newline."""
+def _read_record(tree: _HeldTree, name: str, what: str) -> str:
+    """Return the record at ``name`` after checking its byte count and newline.
+
+    The entry is read through the descriptor held on the run directory, so the record
+    compared is the one the run under test wrote below that directory and no pathname is
+    resolved to reach it. A read of more than the emitted record and its newline is
+    reported as an oversized record rather than truncated silently.
+    """
     try:
-        payload = path.read_bytes()
-    except OSError as error:
-        raise _SelfTestFailure(f"{what} cannot be read: {_reason(error)}") from error
+        payload = tree.read(name)
+    except BuildError as error:
+        raise _SelfTestFailure(f"{what} cannot be read: {error}") from error
     expected_bytes = COMMAREA_RECORD_LENGTH + 1
     if len(payload) != expected_bytes:
         raise _SelfTestFailure(
@@ -3412,30 +3385,875 @@ def _layout_disagreements(
     return problems
 
 
+# Self-test support: the private scratch tree every case reads and writes inside.
+
+# Directory below the validated generated-output root that holds one directory per
+# self-test run, and the components leading to it from the repository directory.
+_SELF_TEST_SCRATCH_NAME = "builder-selftest"
+_SELF_TEST_SCRATCH_COMPONENTS = (
+    "modernization",
+    "harness",
+    "build",
+    _SELF_TEST_SCRATCH_NAME,
+)
+
+# Attempts made to create and open the shared scratch directory before the run is
+# refused, which a concurrent run removing the same emptied directory can cost.
+_SCRATCH_ACQUIRE_ATTEMPTS = 8
+
+# Directory of the running process the pathname handoff of a held descriptor is taken
+# from: ``<_HANDOFF_DIRECTORY>/<descriptor>/<entry>`` names the entry below the
+# directory the descriptor holds, whichever name that directory currently carries.
+_HANDOFF_DIRECTORY = "/proc/self/fd"
+
+# Bytes one fixture read takes from an entry below a held descriptor before the read is
+# reported as oversized: the emitted record, its newline and one byte more.
+_MAX_FIXTURE_READ_BYTES = COMMAREA_RECORD_LENGTH + 2
+
+# Names the adversarial name-swap case creates below the private run directory: the
+# probe subtree, the run directory inside it whose visible name is replaced, the name
+# that replacement moves it to, and the canary directory the replaced name points at,
+# which stands outside the held run directory and must gain no entry.
+_SWAP_PROBE_NAME = "name_swap_probe"
+_SWAP_HELD_NAME = "held_run"
+_SWAP_MOVED_NAME = "held_run.moved"
+_SWAP_CANARY_NAME = "outside_canary"
+
+# Bytes the name-swap case writes through the held descriptor before and after the
+# visible name is replaced, and the record a run under test is asked to write below that
+# descriptor's own pathname while the replacement stands.
+_SWAP_BEFORE_BYTES = b"HELD BEFORE THE NAME SWAP\n"
+_SWAP_AFTER_BYTES = b"HELD AFTER THE NAME SWAP\n"
+_SWAP_RECORD_NAME = "name_swap_record.rec"
+
+# Bytes a destination offered to a refused run holds before and after that run, which
+# is how a refusal that wrote nothing is told from one that wrote first.
+_SENTINEL_DESTINATION_BYTES = b"SENTINEL RECORD NOT REPLACED\n"
+
+# Value returned by a held-tree operation, carried through the pathname handoff guard.
+_HandedOff = TypeVar("_HandedOff")
+
+
+class _HeldTree:
+    """One directory this self-test holds open, and every operation rooted in it.
+
+    ``path`` is the canonical directory the descriptor held when it was opened, carried
+    in diagnostics and in the pathname arguments a run under test must be given.
+    ``name`` is the single component the directory carries below ``parent_fd``, and
+    ``device`` and ``inode`` are the identity ``descriptor`` reported when this object
+    took it.
+
+    Every fixture entry is created, read, listed, renamed and removed relative to
+    ``descriptor`` with ``O_NOFOLLOW``, and a subdirectory is held as one more
+    ``_HeldTree`` opened relative to it the same way, so no operation this object
+    performs resolves the directory as a pathname a second time and an entry replaced
+    while a case runs cannot direct one outside the tree the descriptor holds.
+
+    A pathname a run under test must be handed comes from one of two members.
+    ``handoff`` names the entry below ``/proc/self/fd/<descriptor>``, which the run
+    under test canonicalises to the directory the descriptor holds whatever name that
+    directory currently carries, and is what every destination argument uses.
+    ``named`` names the entry below the canonical path, which is the form the run under
+    test accepts for an argument it refuses to reach through a symbolic-link component,
+    and is what every input and output-root argument uses. ``confirm`` states that the
+    descriptor still reports the recorded identity and that the visible name still names
+    it, and is run immediately before and immediately after every handoff.
+    """
+
+    def __init__(
+        self,
+        path: Path,
+        name: str,
+        descriptor: int,
+        parent_fd: int,
+        device: int,
+        inode: int,
+    ) -> None:
+        self.path = path
+        self.name = name
+        self.descriptor = descriptor
+        self.parent_fd = parent_fd
+        self.device = device
+        self.inode = inode
+
+    # Identity of the held directory, and of the entry that names it.
+
+    def identity(self, what: str) -> None:
+        """Confirm the descriptor still reports the identity this object recorded.
+
+        Raises ``InputOutputError`` when the descriptor cannot be examined or reports
+        another device and inode, which no operation of this object can cause and which
+        a descriptor closed or replaced elsewhere in this process would.
+        """
+        try:
+            held = os.fstat(self.descriptor)
+        except OSError as error:
+            raise InputOutputError(
+                f"cannot confirm the {what} {_path_shown(self.path)} held for this "
+                f"self-test: {error.strerror or error}"
+            ) from error
+        if (held.st_dev, held.st_ino) != (self.device, self.inode):
+            raise InputOutputError(
+                f"the descriptor held on the {what} {_path_shown(self.path)} now "
+                f"reports device {held.st_dev} inode {held.st_ino} and not the "
+                f"device {self.device} inode {self.inode} it reported when this "
+                f"self-test took it; refusing to hand a pathname to a run under test"
+            )
+
+    def confirm(self, what: str) -> None:
+        """Confirm the visible name still names the directory the descriptor holds.
+
+        The descriptor's identity is confirmed first, then the single component below
+        ``parent_fd`` is examined without following a final symbolic link and must
+        report the same device and inode. A replaced, removed or relinked name raises
+        ``InputOutputError`` naming what changed, so a pathname handoff is refused
+        rather than made against a name that no longer names the held directory.
+        """
+        self.identity(what)
+        try:
+            named = os.stat(self.name, dir_fd=self.parent_fd, follow_symlinks=False)
+        except FileNotFoundError as error:
+            raise InputOutputError(
+                f"the {what} {_path_shown(self.path)} is no longer named by "
+                f"{_escaped(self.name)} below {_path_shown(self.path.parent)}; the "
+                f"entry was removed while this self-test was in progress; refusing to "
+                f"hand a pathname to a run under test"
+            ) from error
+        except OSError as error:
+            raise InputOutputError(
+                f"cannot examine {_escaped(self.name)} below "
+                f"{_path_shown(self.path.parent)}, which names the {what}: "
+                f"{error.strerror or error}"
+            ) from error
+        if (named.st_dev, named.st_ino) != (self.device, self.inode):
+            raise InputOutputError(
+                f"{_escaped(self.name)} below {_path_shown(self.path.parent)} no "
+                f"longer names the {what} this self-test holds open: it names device "
+                f"{named.st_dev} inode {named.st_ino} and not device {self.device} "
+                f"inode {self.inode}; the entry was replaced while this self-test was "
+                f"in progress; refusing to hand a pathname to a run under test"
+            )
+
+    def visible_name(self, what: str) -> str:
+        """Return the single component that currently names the held directory.
+
+        The descriptor's own pathname is read from ``/proc/self/fd`` and its last
+        component is confirmed, below ``parent_fd`` and without following a final
+        symbolic link, to name the device and inode the descriptor reports, so the name
+        returned is the entry the held directory stands at and not the name it stood at
+        when it was created. Raises ``InputOutputError`` when the descriptor's pathname
+        cannot be read, when it reports a directory that has been unlinked, or when no
+        entry of that name below ``parent_fd`` names the held directory.
+        """
+        self.identity(what)
+        handoff = f"{_HANDOFF_DIRECTORY}/{self.descriptor}"
+        try:
+            current = os.readlink(handoff)
+        except OSError as error:
+            raise InputOutputError(
+                f"cannot read the pathname of the descriptor held on the {what} "
+                f"{_path_shown(self.path)}: {error.strerror or error}"
+            ) from error
+        if current.endswith(" (deleted)"):
+            raise InputOutputError(
+                f"the {what} {_path_shown(self.path)} stands at no name below "
+                f"{_path_shown(self.path.parent)}: the descriptor reports "
+                f"{_path_shown(current)}; nothing of it can be removed by name"
+            )
+        candidate = os.path.basename(current)
+        try:
+            named = os.stat(candidate, dir_fd=self.parent_fd, follow_symlinks=False)
+        except OSError as error:
+            raise InputOutputError(
+                f"cannot examine {_escaped(candidate)}, the name the descriptor held "
+                f"on the {what} {_path_shown(self.path)} reports, below "
+                f"{_path_shown(self.path.parent)}: {error.strerror or error}"
+            ) from error
+        if (named.st_dev, named.st_ino) != (self.device, self.inode):
+            raise InputOutputError(
+                f"{_escaped(candidate)} below {_path_shown(self.path.parent)} does not "
+                f"name the {what} this self-test holds open; the entry changed while "
+                f"this self-test was in progress"
+            )
+        return candidate
+
+    # Pathnames handed to a run under test.
+
+    def confirm_handoff(self, what: str) -> None:
+        """Confirm the pathname handoff of this descriptor names the held directory.
+
+        The ``/proc/self/fd`` entry of the descriptor is followed and must report the
+        device and inode the descriptor itself reports, which is what makes a
+        destination named below it reach this directory. Raises ``InputOutputError``
+        when that entry cannot be examined, as a process filesystem that is not mounted
+        makes it, or when it names another directory, so the matrix stops with one
+        diagnostic instead of failing every case that hands over a destination.
+        """
+        self.identity(what)
+        handoff = self.handoff()
+        try:
+            named = os.stat(handoff)
+        except OSError as error:
+            raise InputOutputError(
+                f"cannot examine {_path_shown(handoff)}, the pathname the {what} "
+                f"{_path_shown(self.path)} is handed over as: "
+                f"{error.strerror or error}; refusing to run the self-test"
+            ) from error
+        if (named.st_dev, named.st_ino) != (self.device, self.inode):
+            raise InputOutputError(
+                f"{_path_shown(handoff)} names device {named.st_dev} inode "
+                f"{named.st_ino} and not the device {self.device} inode {self.inode} "
+                f"of the {what} {_path_shown(self.path)}; refusing to run the "
+                f"self-test"
+            )
+
+    def handoff(self, *names: str) -> Path:
+        """Return the ``/proc/self/fd`` pathname of ``names`` below this directory."""
+        return Path(f"{_HANDOFF_DIRECTORY}/{self.descriptor}", *names)
+
+    def named(self, *names: str) -> Path:
+        """Return the canonical pathname of ``names`` below this directory."""
+        return self.path.joinpath(*names)
+
+    # Fixture entries, each created, read and removed relative to the descriptor.
+
+    def create(self, name: str, payload: bytes) -> str:
+        """Create ``name`` below this directory holding exactly ``payload``.
+
+        The entry is created with ``O_EXCL`` and ``O_NOFOLLOW``, so an entry already
+        carrying the name, a symbolic link included, is reported rather than written
+        through, and every byte of ``payload`` is written before the descriptor closes.
+        Returns the name, which is what a case names in a pathname handoff.
+        """
+        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW
+        try:
+            handle = os.open(name, flags, _default_file_mode(), dir_fd=self.descriptor)
+        except OSError as error:
+            raise InputOutputError(
+                f"cannot create the self-test entry {_escaped(name)} below "
+                f"{_path_shown(self.path)}: {error.strerror or error}"
+            ) from error
+        try:
+            offset = 0
+            while offset < len(payload):
+                offset += os.write(handle, payload[offset:])
+        except OSError as error:
+            raise InputOutputError(
+                f"cannot write the {len(payload)} byte(s) of the self-test entry "
+                f"{_escaped(name)} below {_path_shown(self.path)}: "
+                f"{error.strerror or error}"
+            ) from error
+        finally:
+            with contextlib.suppress(OSError):
+                os.close(handle)
+        return name
+
+    def read(self, name: str, limit: int = _MAX_FIXTURE_READ_BYTES) -> bytes:
+        """Return at most ``limit`` bytes of ``name`` below this directory.
+
+        The entry is opened relative to the descriptor with ``O_NOFOLLOW`` and without
+        blocking, so a symbolic link or a FIFO standing at the name is reported rather
+        than followed or waited on.
+        """
+        try:
+            handle = os.open(
+                name, _NON_BLOCKING_READ | os.O_NOFOLLOW, dir_fd=self.descriptor
+            )
+        except OSError as error:
+            raise InputOutputError(
+                f"cannot read the self-test entry {_escaped(name)} below "
+                f"{_path_shown(self.path)}: {error.strerror or error}"
+            ) from error
+        try:
+            chunks: list[bytes] = []
+            pending = limit
+            while pending > 0:
+                chunk = os.read(handle, min(pending, READ_BACK_CHUNK_BYTES))
+                if not chunk:
+                    break
+                chunks.append(chunk)
+                pending -= len(chunk)
+            return b"".join(chunks)
+        except OSError as error:
+            raise InputOutputError(
+                f"cannot read the self-test entry {_escaped(name)} below "
+                f"{_path_shown(self.path)}: {error.strerror or error}"
+            ) from error
+        finally:
+            with contextlib.suppress(OSError):
+                os.close(handle)
+
+    def fifo(self, name: str) -> str:
+        """Create one FIFO at ``name`` below this directory and return the name."""
+        try:
+            os.mkfifo(name, dir_fd=self.descriptor)
+        except OSError as error:
+            raise InputOutputError(
+                f"cannot create the self-test FIFO {_escaped(name)} below "
+                f"{_path_shown(self.path)}: {error.strerror or error}"
+            ) from error
+        return name
+
+    def link(self, target: str | os.PathLike[str], name: str) -> str:
+        """Create one symbolic link at ``name`` naming ``target`` and return the name.
+
+        The link is created relative to the descriptor, so the link itself stands inside
+        the held directory whatever its target names, and nothing is followed while it
+        is created.
+        """
+        try:
+            os.symlink(target, name, dir_fd=self.descriptor)
+        except OSError as error:
+            raise InputOutputError(
+                f"cannot create the self-test symbolic link {_escaped(name)} below "
+                f"{_path_shown(self.path)}: {error.strerror or error}"
+            ) from error
+        return name
+
+    def directory(self, name: str) -> _HeldTree:
+        """Create ``name`` below this directory and return it as one more held tree.
+
+        The single component is created and opened relative to this descriptor with
+        ``O_NOFOLLOW``, so a symbolic link standing in its place is refused rather than
+        followed, and the returned tree records the identity that descriptor reports.
+        The caller closes it through ``close``.
+        """
+        try:
+            os.mkdir(name, DIRECTORY_MODE, dir_fd=self.descriptor)
+        except OSError as error:
+            raise InputOutputError(
+                f"cannot create the self-test directory {_escaped(name)} below "
+                f"{_path_shown(self.path)}: {error.strerror or error}"
+            ) from error
+        try:
+            descriptor = os.open(
+                name,
+                os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                dir_fd=self.descriptor,
+            )
+        except OSError as error:
+            with contextlib.suppress(OSError):
+                os.rmdir(name, dir_fd=self.descriptor)
+            raise InputOutputError(
+                f"cannot open the self-test directory {_escaped(name)} below "
+                f"{_path_shown(self.path)}: {error.strerror or error}"
+            ) from error
+        return _held_tree(self.path / name, name, descriptor, self.descriptor)
+
+    def status(self, name: str) -> os.stat_result | None:
+        """Return the status of ``name`` below this directory, or ``None`` if absent.
+
+        The entry is examined without following a final symbolic link, so a link is
+        reported as the link it is.
+        """
+        try:
+            return os.stat(name, dir_fd=self.descriptor, follow_symlinks=False)
+        except FileNotFoundError:
+            return None
+        except OSError as error:
+            raise InputOutputError(
+                f"cannot examine the self-test entry {_escaped(name)} below "
+                f"{_path_shown(self.path)}: {error.strerror or error}"
+            ) from error
+
+    def holds(self, name: str) -> bool:
+        """State whether any entry, a symbolic link included, stands at ``name``."""
+        return self.status(name) is not None
+
+    def entries(self) -> list[str]:
+        """Return every entry name this directory holds, taken from the descriptor."""
+        try:
+            return sorted(os.listdir(self.descriptor))
+        except OSError as error:
+            raise InputOutputError(
+                f"cannot list the self-test directory {_path_shown(self.path)}: "
+                f"{error.strerror or error}"
+            ) from error
+
+    def rename(self, name: str, replacement: str) -> None:
+        """Move ``name`` onto ``replacement``, both relative to this descriptor."""
+        try:
+            os.rename(
+                name,
+                replacement,
+                src_dir_fd=self.descriptor,
+                dst_dir_fd=self.descriptor,
+            )
+        except OSError as error:
+            raise InputOutputError(
+                f"cannot rename the self-test entry {_escaped(name)} to "
+                f"{_escaped(replacement)} below {_path_shown(self.path)}: "
+                f"{error.strerror or error}"
+            ) from error
+
+    def remove(self, name: str) -> None:
+        """Unlink ``name`` below this directory by its single name."""
+        try:
+            os.unlink(name, dir_fd=self.descriptor)
+        except FileNotFoundError:
+            return
+        except OSError as error:
+            raise InputOutputError(
+                f"cannot remove the self-test entry {_escaped(name)} below "
+                f"{_path_shown(self.path)}: {error.strerror or error}"
+            ) from error
+
+    def remove_directory(self, name: str) -> None:
+        """Remove the empty directory ``name`` below this directory."""
+        try:
+            os.rmdir(name, dir_fd=self.descriptor)
+        except FileNotFoundError:
+            return
+        except OSError as error:
+            raise InputOutputError(
+                f"cannot remove the self-test directory {_escaped(name)} below "
+                f"{_path_shown(self.path)}: {error.strerror or error}"
+            ) from error
+
+    def empty(self) -> None:
+        """Remove every entry below this directory through the held descriptor."""
+        _emptied_directory(self.descriptor)
+
+    def close(self) -> None:
+        """Close the descriptor this tree holds, whatever state the tree is in."""
+        with contextlib.suppress(OSError):
+            os.close(self.descriptor)
+
+
+def _held_tree(path: Path, name: str, descriptor: int, parent_fd: int) -> _HeldTree:
+    """Return one held tree for ``descriptor``, recording the identity it reports.
+
+    Raises ``InputOutputError`` when the descriptor cannot be examined, so no tree is
+    ever built without the identity every later confirmation compares against.
+    """
+    try:
+        status = os.fstat(descriptor)
+    except OSError as error:
+        with contextlib.suppress(OSError):
+            os.close(descriptor)
+        raise InputOutputError(
+            f"cannot examine the descriptor opened on {_path_shown(path)}: "
+            f"{error.strerror or error}"
+        ) from error
+    return _HeldTree(
+        path=path,
+        name=name,
+        descriptor=descriptor,
+        parent_fd=parent_fd,
+        device=status.st_dev,
+        inode=status.st_ino,
+    )
+
+
+def _handed_off(
+    tree: _HeldTree, what: str, action: Callable[[], _HandedOff]
+) -> _HandedOff:
+    """Run ``action`` between two confirmations that ``tree`` is still held.
+
+    ``action`` is the one step of a case that hands a pathname to a run under test, so
+    the held directory is confirmed immediately before the pathname is used and
+    immediately after the step returns. A confirmation that fails raises
+    ``InputOutputError`` and the step is not run, or its result is not accepted; a
+    failure raised by ``action`` itself reaches the caller unchanged.
+    """
+    tree.confirm(what)
+    result = action()
+    tree.confirm(what)
+    return result
+
+
+def _removed_held_directory(tree: _HeldTree, what: str) -> str:
+    """Empty and remove the directory ``tree`` holds, reporting a changed visible name.
+
+    The directory is emptied through the held descriptor, so every entry is reached by
+    one single name. The entry that names the held directory below ``parent_fd`` is then
+    removed: the visible name when it still names the held device and inode, and the
+    name the descriptor's own pathname reports otherwise, which is confirmed to name
+    that same device and inode immediately before the removal and to hold nothing
+    immediately after it. A visible name that changed is reported as
+    ``InputOutputError`` once the originally held directory has been removed, so a run
+    whose private directory was renamed or relinked while it worked fails rather than
+    passing quietly. The descriptor is closed either way.
+    """
+    changed: InputOutputError | None = None
+    try:
+        tree.empty()
+        try:
+            tree.confirm(what)
+            removable = tree.name
+        except InputOutputError as error:
+            changed = error
+            removable = tree.visible_name(what)
+        try:
+            os.rmdir(removable, dir_fd=tree.parent_fd)
+        except FileNotFoundError:
+            pass
+        except OSError as error:
+            raise InputOutputError(
+                f"cannot remove the {what} {_escaped(removable)} below "
+                f"{_path_shown(tree.path.parent)}: {error.strerror or error}"
+            ) from error
+        try:
+            standing = os.stat(
+                removable, dir_fd=tree.parent_fd, follow_symlinks=False
+            )
+        except FileNotFoundError:
+            standing = None
+        except OSError as error:
+            raise InputOutputError(
+                f"cannot confirm the {what} {_escaped(removable)} below "
+                f"{_path_shown(tree.path.parent)} was removed: "
+                f"{error.strerror or error}"
+            ) from error
+        if standing is not None and (standing.st_dev, standing.st_ino) == (
+            tree.device,
+            tree.inode,
+        ):
+            raise InputOutputError(
+                f"the {what} {_escaped(removable)} below "
+                f"{_path_shown(tree.path.parent)} still names the directory this "
+                f"self-test held open after it was removed"
+            )
+    finally:
+        tree.close()
+
+    if changed is not None:
+        raise InputOutputError(
+            f"the {what} {_path_shown(tree.path)} was removed under the name "
+            f"{_escaped(removable)} the held descriptor reported, and the name it was "
+            f"created under no longer named it: {changed}"
+        )
+    return f"removed {_path_shown(tree.path)} through the descriptor held on it"
+
+
+class _Scratch(NamedTuple):
+    """The private directory one self-test run works in, and its held descriptors.
+
+    ``tree`` holds the run directory every case creates its fixtures below, together
+    with the descriptor open on it and the descriptor open on the shared
+    ``builder-selftest`` directory above it. ``build_fd`` is open on the validated
+    generated-output root above that, so the run directory is created, emptied and
+    removed relative to a held descriptor and never through a resolved pathname.
+    """
+
+    tree: _HeldTree
+    build_fd: int
+
+
+def _opened_scratch_parent(build_fd: int, build_root: Path) -> int:
+    """Return a descriptor for the shared scratch directory below the build root.
+
+    The single component is created where absent and opened relative to ``build_fd``
+    with ``O_NOFOLLOW``, so a symbolic link standing in its place is refused rather than
+    followed. A concurrent run that removes the directory after emptying it can make the
+    open fail although the creation succeeded; that case retries up to
+    ``_SCRATCH_ACQUIRE_ATTEMPTS`` times and is reported only if every attempt loses the
+    same race. The descriptor returned is the caller's to close.
+    """
+    for _attempt in range(_SCRATCH_ACQUIRE_ATTEMPTS):
+        try:
+            os.mkdir(_SELF_TEST_SCRATCH_NAME, DIRECTORY_MODE, dir_fd=build_fd)
+        except FileExistsError:
+            pass
+        except OSError as error:
+            raise InputOutputError(
+                f"cannot create the self-test directory "
+                f"{_escaped(_SELF_TEST_SCRATCH_NAME)} below "
+                f"{_path_shown(build_root)}: {error.strerror or error}"
+            ) from error
+        try:
+            return os.open(
+                _SELF_TEST_SCRATCH_NAME,
+                os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                dir_fd=build_fd,
+            )
+        except FileNotFoundError:
+            continue
+        except OSError as error:
+            raise InputOutputError(
+                f"cannot open the self-test directory "
+                f"{_escaped(_SELF_TEST_SCRATCH_NAME)} below "
+                f"{_path_shown(build_root)}: {error.strerror or error}"
+            ) from error
+    raise InputOutputError(
+        f"cannot hold the self-test directory {_escaped(_SELF_TEST_SCRATCH_NAME)} "
+        f"below {_path_shown(build_root)}: {_SCRATCH_ACQUIRE_ATTEMPTS} attempts each "
+        "found it removed again; refusing to run the self-test"
+    )
+
+
+def _created_scratch_run(parent_fd: int, parent: Path) -> tuple[str, int]:
+    """Create one exclusive run directory below ``parent_fd`` and return name and fd.
+
+    The name carries this process identifier and six random bytes, and is created with
+    ``os.mkdir``, which fails rather than reusing an entry that already carries it, so
+    the run starts in a directory holding nothing. It is opened relative to the same
+    descriptor with ``O_NOFOLLOW``. ``parent`` names the shared scratch directory in
+    every diagnostic. The descriptor returned is the caller's to close.
+    """
+    for _attempt in range(MAX_TEMPORARY_ATTEMPTS):
+        candidate = f"{os.getpid()}.{os.urandom(6).hex()}"
+        try:
+            os.mkdir(candidate, DIRECTORY_MODE, dir_fd=parent_fd)
+        except FileExistsError:
+            continue
+        except OSError as error:
+            raise InputOutputError(
+                f"cannot create the self-test run directory {_escaped(candidate)} "
+                f"below {_path_shown(parent)}: {error.strerror or error}"
+            ) from error
+        try:
+            return (
+                candidate,
+                os.open(
+                    candidate,
+                    os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                    dir_fd=parent_fd,
+                ),
+            )
+        except OSError as error:
+            with contextlib.suppress(OSError):
+                os.rmdir(candidate, dir_fd=parent_fd)
+            raise InputOutputError(
+                f"cannot open the self-test run directory {_escaped(candidate)} below "
+                f"{_path_shown(parent)}: {error.strerror or error}"
+            ) from error
+    raise InputOutputError(
+        f"cannot create a self-test run directory below {_path_shown(parent)}: "
+        f"{MAX_TEMPORARY_ATTEMPTS} candidate names are all taken; refusing to run the "
+        "self-test"
+    )
+
+
+def _emptied_directory(descriptor: int) -> None:
+    """Remove every entry below ``descriptor`` through descriptors alone.
+
+    Each name held by the open directory is examined without following a final symbolic
+    link. A subdirectory is opened relative to the same descriptor with ``O_NOFOLLOW``,
+    emptied by this function and then removed; every other entry, a symbolic link and a
+    FIFO included, is unlinked by its single name. Nothing is resolved as a pathname, so
+    an entry replaced while the removal runs cannot direct it outside the tree it holds.
+    Raises ``InputOutputError`` naming the directory that could not be listed or the
+    entry that could not be removed, so no failure of this removal reaches the caller as
+    a bare operating-system error.
+    """
+    try:
+        held = os.listdir(descriptor)
+    except OSError as error:
+        raise InputOutputError(
+            f"cannot list the self-test directory held open for removal: "
+            f"{error.strerror or error}"
+        ) from error
+    for name in held:
+        try:
+            status = os.stat(name, dir_fd=descriptor, follow_symlinks=False)
+        except FileNotFoundError:
+            continue
+        except OSError as error:
+            raise InputOutputError(
+                f"cannot examine self-test entry {_escaped(name)} for removal: "
+                f"{error.strerror or error}"
+            ) from error
+        if stat.S_ISDIR(status.st_mode):
+            try:
+                child = os.open(
+                    name,
+                    os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                    dir_fd=descriptor,
+                )
+            except FileNotFoundError:
+                continue
+            except OSError as error:
+                raise InputOutputError(
+                    f"cannot open self-test directory {_escaped(name)} for removal: "
+                    f"{error.strerror or error}"
+                ) from error
+            try:
+                _emptied_directory(child)
+            finally:
+                with contextlib.suppress(OSError):
+                    os.close(child)
+            try:
+                os.rmdir(name, dir_fd=descriptor)
+            except FileNotFoundError:
+                continue
+            except OSError as error:
+                raise InputOutputError(
+                    f"cannot remove self-test directory {_escaped(name)}: "
+                    f"{error.strerror or error}"
+                ) from error
+            continue
+        try:
+            os.unlink(name, dir_fd=descriptor)
+        except FileNotFoundError:
+            continue
+        except OSError as error:
+            raise InputOutputError(
+                f"cannot remove self-test entry {_escaped(name)}: "
+                f"{error.strerror or error}"
+            ) from error
+
+
+def _held_scratch() -> _Scratch:
+    """Return one private run directory for the self-test, with its held descriptors.
+
+    The validated generated-output root is created where absent by descending the
+    canonical repository directory one component at a time, exactly as a record write
+    does, and the descriptor reached is confirmed to still hold that root. The shared
+    ``builder-selftest`` directory and one run directory below it are then created and
+    opened relative to the descriptor above each, so no component is followed through a
+    symbolic link and no pathname is resolved a second time. Every case reads and writes
+    inside the returned directory, which therefore stands inside the validated read
+    roots and inside the generated-output root, and no scratch document reaches the
+    system temporary directory or any other tree.
+
+    The caller owns the three descriptors returned and releases them through
+    ``_released_scratch``, which is the only step that removes what the run created. A
+    failure to acquire any level closes every descriptor already open and raises
+    ``InputOutputError`` naming the level, so nothing is left held. The run directory is
+    returned as a ``_HeldTree``, so every fixture below it is created, read and removed
+    relative to the descriptor held on it and every pathname a run under test is handed
+    is confirmed against the identity that descriptor reported here.
+    """
+    repository = _canonical_path(REPOSITORY_ROOT)
+    build_root = _validated_build_root()
+    anchor_fd = _opened_by_components(repository, "repository directory")
+    try:
+        _confirm_same_directory(anchor_fd, repository, "repository directory")
+        build_fd = _parent_descriptor(
+            anchor_fd, repository, _SELF_TEST_SCRATCH_COMPONENTS[:-1]
+        )
+    finally:
+        with contextlib.suppress(OSError):
+            os.close(anchor_fd)
+
+    try:
+        _confirm_same_directory(build_fd, build_root, "generated-output root")
+        parent = build_root / _SELF_TEST_SCRATCH_NAME
+        parent_fd = _opened_scratch_parent(build_fd, build_root)
+        try:
+            name, run_fd = _created_scratch_run(parent_fd, parent)
+        except BuildError:
+            with contextlib.suppress(OSError):
+                os.close(parent_fd)
+            raise
+    except BuildError:
+        with contextlib.suppress(OSError):
+            os.close(build_fd)
+        raise
+
+    tree = _held_tree(parent / name, name, run_fd, parent_fd)
+    try:
+        tree.confirm_handoff("self-test run directory")
+        tree.confirm("self-test run directory")
+    except BuildError:
+        # The run directory holds nothing yet, so the refusal removes it and the shared
+        # directory it stands in, which a concurrent run's own directory keeps in place.
+        tree.close()
+        with contextlib.suppress(OSError):
+            os.rmdir(name, dir_fd=parent_fd)
+        with contextlib.suppress(OSError):
+            os.close(parent_fd)
+        with contextlib.suppress(OSError):
+            os.rmdir(_SELF_TEST_SCRATCH_NAME, dir_fd=build_fd)
+        with contextlib.suppress(OSError):
+            os.close(build_fd)
+        raise
+    return _Scratch(tree=tree, build_fd=build_fd)
+
+
+def _released_scratch(scratch: _Scratch) -> str:
+    """Remove everything ``scratch`` holds and return what the removal observed.
+
+    The run directory is emptied and removed by ``_removed_held_directory`` through the
+    descriptors held on it and on its parent, so every entry is reached by one single
+    name, no pathname is resolved again, and a visible run name replaced after the
+    directory was acquired is reported as a failure once the originally held directory
+    has been removed. The shared ``builder-selftest`` directory is then removed relative
+    to the descriptor held on the generated-output root while it holds nothing, which
+    leaves a directory belonging to a concurrent run in place; whether it went is read
+    from that same descriptor without following a final symbolic link, so no pathname is
+    resolved by this removal either. Every descriptor is closed whether the removal
+    completes or not. A removal that cannot complete raises ``InputOutputError`` naming
+    the entry, and the returned text states the run directory that was removed and
+    whether the shared directory went with it.
+    """
+    parent = scratch.tree.path.parent
+    failure: BuildError | None = None
+    try:
+        _removed_held_directory(scratch.tree, "self-test run directory")
+    except BuildError as error:
+        failure = error
+    with contextlib.suppress(OSError):
+        os.close(scratch.tree.parent_fd)
+
+    shared_removed = False
+    if failure is None:
+        try:
+            os.rmdir(_SELF_TEST_SCRATCH_NAME, dir_fd=scratch.build_fd)
+            shared_removed = True
+        except OSError:
+            # The shared directory holds a concurrent run's directory, or another run
+            # removed it first; either way this run has nothing left to remove.
+            try:
+                os.stat(
+                    _SELF_TEST_SCRATCH_NAME,
+                    dir_fd=scratch.build_fd,
+                    follow_symlinks=False,
+                )
+            except FileNotFoundError:
+                shared_removed = True
+            except OSError as error:
+                failure = InputOutputError(
+                    f"cannot examine the shared self-test directory "
+                    f"{_path_shown(parent)} after the run directory was removed: "
+                    f"{error.strerror or error}"
+                )
+    with contextlib.suppress(OSError):
+        os.close(scratch.build_fd)
+
+    if failure is not None:
+        raise failure
+    return (
+        f"removed {_path_shown(scratch.tree.path)}; the shared directory "
+        f"{_path_shown(parent)} {'went with it' if shared_removed else 'remains'}"
+    )
+
+
+def _discarded_scratch(scratch: _Scratch) -> None:
+    """Release ``scratch`` while another failure is already being reported.
+
+    The removal runs exactly as ``_released_scratch`` performs it, and a removal failure
+    is suppressed so the failure the caller is already reporting reaches the caller
+    unchanged. Every descriptor is closed either way.
+    """
+    with contextlib.suppress(BuildError, OSError):
+        _released_scratch(scratch)
+
+
 # Self-test support: scratch documents, case bodies and the case runner.
 
 
-def _write_sample(directory: Path, name: str, document: dict[str, Any]) -> Path:
-    """Write one sample definition JSON document into the scratch directory."""
-    path = directory / f"{name}.json"
-    path.write_text(
-        json.dumps(document, indent=2, ensure_ascii=True) + "\n", encoding="utf-8"
+def _write_sample(tree: _HeldTree, name: str, document: dict[str, Any]) -> str:
+    """Create one sample definition JSON document below the held run directory.
+
+    The entry is created relative to the held descriptor and the name it carries is
+    returned, which is what a case names in the pathname it hands to a run under test.
+    """
+    return tree.create(
+        f"{name}.json",
+        (json.dumps(document, indent=2, ensure_ascii=True) + "\n").encode("utf-8"),
     )
-    return path
 
 
-def _write_payload(directory: Path, name: str, payload: bytes) -> Path:
-    """Write one exact byte payload into the scratch directory."""
-    path = directory / name
-    path.write_bytes(payload)
-    return path
+def _write_payload(tree: _HeldTree, name: str, payload: bytes) -> str:
+    """Create one entry holding exactly ``payload`` below the held run directory."""
+    return tree.create(name, payload)
 
 
-def _make_fifo(directory: Path, name: str) -> Path:
-    """Create one FIFO in the scratch directory and return its path."""
-    path = directory / name
-    os.mkfifo(path)
-    return path
+def _make_fifo(tree: _HeldTree, name: str) -> str:
+    """Create one FIFO below the held run directory and return its name."""
+    return tree.fifo(name)
 
 
 def _short_value_sample(motor: dict[str, str]) -> dict[str, str]:
@@ -3491,28 +4309,26 @@ def _alias_dag_text(levels: int, fanout: int) -> str:
     return "\n".join(lines) + "\n"
 
 
-def _write_field_map(directory: Path, name: str, document: dict[str, Any]) -> Path:
-    """Write one field map document into the scratch directory."""
-    path = directory / f"{name}.yml"
-    path.write_text(
+def _write_field_map(tree: _HeldTree, name: str, document: dict[str, Any]) -> str:
+    """Create one field map document below the held run directory."""
+    return tree.create(
+        f"{name}.yml",
         yaml.safe_dump(
             document, default_flow_style=False, sort_keys=True, allow_unicode=False
-        ),
-        encoding="utf-8",
+        ).encode("utf-8"),
     )
-    return path
 
 
 def _mutated_field_map(
-    directory: Path,
+    tree: _HeldTree,
     name: str,
     document: dict[str, Any],
     mutate: Callable[[dict[str, Any]], None],
-) -> Path:
-    """Write a copy of the field map with ``mutate`` applied to it."""
+) -> str:
+    """Create a copy of the field map with ``mutate`` applied to it."""
     altered = copy.deepcopy(document)
     mutate(altered)
-    return _write_field_map(directory, name, altered)
+    return _write_field_map(tree, name, altered)
 
 
 def _swap_offsets(left: dict[str, Any], right: dict[str, Any]) -> None:
@@ -3544,11 +4360,9 @@ def _protected_fill_entry(document: dict[str, Any], item: str) -> dict[str, Any]
     )
 
 
-def _seeded_destination(directory: Path, name: str) -> Path:
-    """Create a destination holding sentinel bytes and return its path."""
-    path = directory / f"{name}.out"
-    path.write_bytes(b"SENTINEL RECORD NOT REPLACED\n")
-    return path
+def _seeded_destination(tree: _HeldTree, name: str) -> str:
+    """Create a destination holding sentinel bytes and return its entry name."""
+    return tree.create(f"{name}.out", _SENTINEL_DESTINATION_BYTES)
 
 
 def _nested(depth: int) -> Any:
@@ -3560,15 +4374,21 @@ def _nested(depth: int) -> Any:
 
 
 def _assert_rejected(
-    argv: list[str], expected_status: int, destination: Path, fragment: str
+    tree: _HeldTree,
+    argv: list[str],
+    expected_status: int,
+    destination: str,
+    fragment: str,
 ) -> str:
     """Run one failing invocation and confirm status, diagnostic and destination.
 
     ``fragment`` is the text the diagnostic must contain; a matching status alone does
-    not pass the case.
+    not pass the case. ``destination`` is the entry the run was offered below the held
+    run directory, read through the descriptor held on it before and after the run, so
+    the comparison reaches the entry the run was offered and no pathname is resolved.
     """
-    before = destination.read_bytes()
-    result = _run_cli(argv)
+    before = tree.read(destination)
+    result = _run_cli(tree, argv)
     if result.status != expected_status:
         raise _SelfTestFailure(
             f"exit {result.status}, expected {expected_status}; stderr "
@@ -3584,7 +4404,7 @@ def _assert_rejected(
         raise _SelfTestFailure(
             f"wrote {len(result.stdout)} characters to stdout on failure"
         )
-    if destination.read_bytes() != before:
+    if tree.read(destination) != before:
         raise _SelfTestFailure("destination changed while the run failed")
     return (
         f"exit={expected_status} diagnostic states {_display(fragment)} "
@@ -3592,17 +4412,24 @@ def _assert_rejected(
     )
 
 
-def _assert_write_refused(destination: Path, record: str) -> str:
+def _assert_write_refused(tree: _HeldTree, destination: str, record: str) -> str:
     """Offer one record of the wrong width to ``write_record`` and confirm the refusal.
 
     ``write_record`` must raise ``FieldMapError`` stating the character count it was
-    offered and the count this builder writes, and ``destination`` must still hold the
-    bytes it held before the call.
+    offered and the count this builder writes, and ``destination``, the entry offered
+    below the held run directory, must still hold the bytes it held before the call. The
+    destination is handed over as the entry below the held descriptor's own pathname,
+    so a replaced visible run name cannot direct the call at another directory, and
+    the held directory is confirmed immediately before and after it.
     """
-    before = destination.read_bytes()
+    before = tree.read(destination)
     refusal: FieldMapError | None = None
     try:
-        write_record(destination, record)
+        _handed_off(
+            tree,
+            "self-test run directory",
+            lambda: write_record(tree.handoff(destination), record),
+        )
     except FieldMapError as error:
         refusal = error
     if refusal is None:
@@ -3613,7 +4440,7 @@ def _assert_write_refused(destination: Path, record: str) -> str:
             f"the refusal states {_display(str(refusal))}, expected "
             f"{_display(stated)}"
         )
-    after = destination.read_bytes()
+    after = tree.read(destination)
     if after != before:
         raise _SelfTestFailure(
             f"destination changed while the {len(record)} character write was refused"
@@ -3621,6 +4448,20 @@ def _assert_write_refused(destination: Path, record: str) -> str:
     return (
         f"refused {len(record)} characters with {_display(stated)}, "
         f"destination={len(after)} bytes unchanged"
+    )
+
+
+def _loaded_scratch_field_map(tree: _HeldTree, name: str) -> dict[str, Any]:
+    """Return the field map ``name`` below the held run directory, loaded once.
+
+    ``load_field_map`` reads one pathname and refuses a symbolic-link component of it,
+    so the entry is named by its canonical path below the held run directory, and that
+    directory is confirmed immediately before and after the load.
+    """
+    return _handed_off(
+        tree,
+        "self-test run directory",
+        lambda: load_field_map(tree.named(name)),
     )
 
 
@@ -3659,7 +4500,7 @@ def _case_fixture_record(
     sample: dict[str, str],
     keys: _FixtureKeys,
     expectations: dict[str, str | _Fill],
-    directory: Path,
+    tree: _HeldTree,
     name: str,
 ) -> str:
     """Build one fixture and compare its keys and every window with the literals.
@@ -3681,16 +4522,17 @@ def _case_fixture_record(
             f"{_quote_all(tabulated - covered) or 'nothing'}, only in the key sets "
             f"{_quote_all(covered - tabulated) or 'nothing'}"
         )
-    output = directory / f"{name}.rec"
+    output = f"{name}.rec"
     result = _run_cli(
+        tree,
         [
             "--field-map",
             str(map_path),
             "--sample",
             str(sample_path),
             "--output",
-            str(output),
-        ]
+            str(tree.handoff(output)),
+        ],
     )
     if result.status != EXIT_OK:
         raise _SelfTestFailure(
@@ -3704,7 +4546,7 @@ def _case_fixture_record(
         raise _SelfTestFailure("summary does not state the character count")
     if f"bytes={COMMAREA_RECORD_LENGTH + 1}" not in result.stdout:
         raise _SelfTestFailure("summary does not state the byte count")
-    record = _read_record(output, name)
+    record = _read_record(tree, output, name)
     _assert_windows(record, expectations, layout, name)
     _assert_fill_windows(record, keys.omitted, layout, name)
     expected = _expected_record(expectations, layout)
@@ -3787,7 +4629,7 @@ def _case_protected_fill_items(
 
 
 def _case_length_from_constant(
-    field_map: dict[str, Any], motor: dict[str, str], directory: Path
+    field_map: dict[str, Any], motor: dict[str, str], tree: _HeldTree
 ) -> str:
     """Confirm the emitted length is the module constant, not a field map member.
 
@@ -3805,8 +4647,8 @@ def _case_length_from_constant(
             f"render_record returned {len(record)} characters for a field map "
             f"declaring {short_length}"
         )
-    destination = _seeded_destination(directory, "length_from_constant")
-    refusal = _assert_write_refused(destination, record[:-1])
+    destination = _seeded_destination(tree, "length_from_constant")
+    refusal = _assert_write_refused(tree, destination, record[:-1])
     return (
         f"render_record emitted {COMMAREA_RECORD_LENGTH} characters from a field map "
         f"declaring {short_length}; write_record {refusal}"
@@ -3814,7 +4656,7 @@ def _case_length_from_constant(
 
 
 def _case_long_record_refused(
-    field_map: dict[str, Any], motor: dict[str, str], directory: Path
+    field_map: dict[str, Any], motor: dict[str, str], tree: _HeldTree
 ) -> str:
     """Confirm ``write_record`` refuses one character more than the constant.
 
@@ -3830,34 +4672,34 @@ def _case_long_record_refused(
             f"render_record returned {len(record)} characters, expected "
             f"{COMMAREA_RECORD_LENGTH}"
         )
-    destination = _seeded_destination(directory, "long_record_refused")
-    return _assert_write_refused(destination, record + _EXTRA_RECORD_CHARACTER)
+    destination = _seeded_destination(tree, "long_record_refused")
+    return _assert_write_refused(tree, destination, record + _EXTRA_RECORD_CHARACTER)
 
 
 def _case_rerun_identical(
-    map_path: Path, sample_path: Path, directory: Path, name: str
+    map_path: Path, sample_path: Path, tree: _HeldTree, name: str
 ) -> str:
     """Confirm two builds of the same fixture produce identical bytes."""
-    output = directory / f"{name}.rec"
+    output = f"{name}.rec"
     argv = [
         "--field-map",
         str(map_path),
         "--sample",
         str(sample_path),
         "--output",
-        str(output),
+        str(tree.handoff(output)),
         "--quiet",
     ]
-    first = _run_cli(argv)
+    first = _run_cli(tree, argv)
     if first.status != EXIT_OK:
         raise _SelfTestFailure(f"first build exit {first.status}")
     if first.stdout:
         raise _SelfTestFailure("--quiet still wrote a summary")
-    before = output.read_bytes()
-    second = _run_cli(argv)
+    before = tree.read(output)
+    second = _run_cli(tree, argv)
     if second.status != EXIT_OK:
         raise _SelfTestFailure(f"second build exit {second.status}")
-    after = output.read_bytes()
+    after = tree.read(output)
     if after != before:
         raise _SelfTestFailure("the second build differs from the first")
     return f"two builds produced the same {len(after)} bytes"
@@ -3867,30 +4709,31 @@ def _case_commercial_status_placed(
     layout: CopybookLayout,
     map_path: Path,
     commercial: dict[str, str],
-    directory: Path,
+    tree: _HeldTree,
 ) -> str:
     """Confirm a non-zero commercial status lands in its own window and nowhere else."""
     item = layout.items["CA-B-STATUS"]
     sample = dict(commercial)
     sample["CA-B-Status"] = _NON_ZERO_COMMERCIAL_STATUS
-    sample_path = _write_sample(directory, "commercial_status", sample)
-    output = directory / "commercial_status.rec"
+    sample_name = _write_sample(tree, "commercial_status", sample)
+    output = "commercial_status.rec"
     result = _run_cli(
+        tree,
         [
             "--field-map",
             str(map_path),
             "--sample",
-            str(sample_path),
+            str(tree.named(sample_name)),
             "--output",
-            str(output),
+            str(tree.handoff(output)),
             "--quiet",
-        ]
+        ],
     )
     if result.status != EXIT_OK:
         raise _SelfTestFailure(
             f"exit {result.status}: {_display(result.stderr.strip())}"
         )
-    record = _read_record(output, "commercial_status")
+    record = _read_record(tree, output, "commercial_status")
     placed = record[item.offset - 1 : item.end_byte]
     if placed != _NON_ZERO_COMMERCIAL_STATUS:
         raise _SelfTestFailure(
@@ -3926,7 +4769,7 @@ def _case_commercial_inactive_overlay(
     field_map: dict[str, Any],
     map_path: Path,
     commercial: dict[str, str],
-    directory: Path,
+    tree: _HeldTree,
 ) -> str:
     """Confirm a full-width commercial address leaves the motor premium bytes filled.
 
@@ -3941,24 +4784,25 @@ def _case_commercial_inactive_overlay(
     address = (_WIDE_ADDRESS_PATTERN * repeats)[: address_item.length]
     sample = dict(commercial)
     sample["CA-B-Address"] = address
-    sample_path = _write_sample(directory, "commercial_wide_address", sample)
-    output = directory / "commercial_wide_address.rec"
+    sample_name = _write_sample(tree, "commercial_wide_address", sample)
+    output = "commercial_wide_address.rec"
     result = _run_cli(
+        tree,
         [
             "--field-map",
             str(map_path),
             "--sample",
-            str(sample_path),
+            str(tree.named(sample_name)),
             "--output",
-            str(output),
+            str(tree.handoff(output)),
             "--quiet",
-        ]
+        ],
     )
     if result.status != EXIT_OK:
         raise _SelfTestFailure(
             f"exit {result.status}: {_display(result.stderr.strip())}"
         )
-    record = _read_record(output, "commercial_wide_address")
+    record = _read_record(tree, output, "commercial_wide_address")
     placed = record[premium_item.offset - 1 : premium_item.end_byte]
     if not placed.strip(" "):
         raise _SelfTestFailure(
@@ -3983,18 +4827,19 @@ def _case_commercial_inactive_overlay(
         )
     rejected = dict(sample)
     rejected["CA-M-PREMIUM"] = "000450"
-    rejected_path = _write_sample(
-        directory, "commercial_wide_address_motor_premium", rejected
+    rejected_name = _write_sample(
+        tree, "commercial_wide_address_motor_premium", rejected
     )
-    destination = _seeded_destination(directory, "commercial_wide_address_rejected")
+    destination = _seeded_destination(tree, "commercial_wide_address_rejected")
     _assert_rejected(
+        tree,
         [
             "--field-map",
             str(map_path),
             "--sample",
-            str(rejected_path),
+            str(tree.named(rejected_name)),
             "--output",
-            str(destination),
+            str(tree.handoff(destination)),
         ],
         EXIT_SAMPLE_REJECTED,
         destination,
@@ -4012,7 +4857,7 @@ def _case_motor_inactive_overlay(
     field_map: dict[str, Any],
     map_path: Path,
     motor: dict[str, str],
-    directory: Path,
+    tree: _HeldTree,
 ) -> str:
     """Confirm the motor record holds spaces where the commercial premiums sit.
 
@@ -4022,23 +4867,24 @@ def _case_motor_inactive_overlay(
     is rejected for that request id.
     """
     filler = layout.items["CA-M-FILLER"]
-    output = directory / "motor_inactive_overlay.rec"
+    output = "motor_inactive_overlay.rec"
     result = _run_cli(
+        tree,
         [
             "--field-map",
             str(map_path),
             "--sample",
             str(MOTOR_SAMPLE_DEFINITION),
             "--output",
-            str(output),
+            str(tree.handoff(output)),
             "--quiet",
-        ]
+        ],
     )
     if result.status != EXIT_OK:
         raise _SelfTestFailure(
             f"exit {result.status}: {_display(result.stderr.strip())}"
         )
-    record = _read_record(output, "motor_inactive_overlay")
+    record = _read_record(tree, output, "motor_inactive_overlay")
     for name in _COMMERCIAL_PREMIUM_ITEMS:
         item = layout.items[name.upper()]
         if not filler.offset <= item.offset <= item.end_byte <= filler.end_byte:
@@ -4063,16 +4909,17 @@ def _case_motor_inactive_overlay(
         )
     rejected = dict(motor)
     rejected["CA-B-FirePremium"] = _COMMERCIAL_PREMIUM_PROBE
-    rejected_path = _write_sample(directory, "motor_commercial_premium", rejected)
-    destination = _seeded_destination(directory, "motor_commercial_premium_rejected")
+    rejected_name = _write_sample(tree, "motor_commercial_premium", rejected)
+    destination = _seeded_destination(tree, "motor_commercial_premium_rejected")
     _assert_rejected(
+        tree,
         [
             "--field-map",
             str(map_path),
             "--sample",
-            str(rejected_path),
+            str(tree.named(rejected_name)),
             "--output",
-            str(destination),
+            str(tree.handoff(destination)),
         ],
         EXIT_SAMPLE_REJECTED,
         destination,
@@ -4086,7 +4933,7 @@ def _case_motor_inactive_overlay(
 
 
 def _case_short_values(
-    layout: CopybookLayout, map_path: Path, motor: dict[str, str], directory: Path
+    layout: CopybookLayout, map_path: Path, motor: dict[str, str], tree: _HeldTree
 ) -> str:
     """Confirm a value narrower than its window is justified and padded by kind.
 
@@ -4095,24 +4942,25 @@ def _case_short_values(
     other window holds the motor fixture's expected content.
     """
     name = "short_values"
-    sample_path = _write_sample(directory, name, _short_value_sample(motor))
-    output = directory / f"{name}.rec"
+    sample_name = _write_sample(tree, name, _short_value_sample(motor))
+    output = f"{name}.rec"
     result = _run_cli(
+        tree,
         [
             "--field-map",
             str(map_path),
             "--sample",
-            str(sample_path),
+            str(tree.named(sample_name)),
             "--output",
-            str(output),
+            str(tree.handoff(output)),
             "--quiet",
-        ]
+        ],
     )
     if result.status != EXIT_OK:
         raise _SelfTestFailure(
             f"exit {result.status}: {_display(result.stderr.strip())}"
         )
-    record = _read_record(output, name)
+    record = _read_record(tree, output, name)
     _assert_windows(record, _SHORT_VALUE_EXPECTED_WINDOWS, layout, name)
     expected = _expected_record(_SHORT_VALUE_EXPECTED_WINDOWS, layout)
     if record != expected:
@@ -4135,7 +4983,7 @@ def _case_short_values(
 
 
 def _case_justification_mutation(
-    mutated_map: Path, layout: CopybookLayout, sample_path: Path, directory: Path
+    tree: _HeldTree, mutated_map: str, layout: CopybookLayout, sample_name: str
 ) -> str:
     """Confirm a flipped numeric justification is refused before any record is built.
 
@@ -4144,7 +4992,9 @@ def _case_justification_mutation(
     with ``EXIT_FIELD_MAP_INVALID``, name the member that differs, and write nothing.
     The case first confirms the mutation would otherwise be observable: the window the
     two justifications expect for the short numeric value must differ, so a build that
-    accepted the mutated map could not have produced the shipped record.
+    accepted the mutated map could not have produced the shipped record. The
+    destination the run is offered must hold nothing afterwards, which is read through
+    the descriptor held on the run directory.
     """
     name = "map_left_numeric"
     shipped = _SHORT_VALUE_EXPECTED_WINDOWS[_LEFT_JUSTIFIED_NUMERIC_ITEM]
@@ -4155,21 +5005,22 @@ def _case_justification_mutation(
             f"unobservable"
         )
     item = layout.items[_LEFT_JUSTIFIED_NUMERIC_ITEM.upper()]
-    output = directory / f"{name}.rec"
+    output = f"{name}.rec"
     stated = (
         f"value_justification['{KIND_NUMERIC}'] must be "
         f"'{FIXED_JUSTIFICATION[KIND_NUMERIC]}', found '{JUSTIFY_LEFT}'"
     )
     result = _run_cli(
+        tree,
         [
             "--field-map",
-            str(mutated_map),
+            str(tree.named(mutated_map)),
             "--sample",
-            str(sample_path),
+            str(tree.named(sample_name)),
             "--output",
-            str(output),
+            str(tree.handoff(output)),
             "--quiet",
-        ]
+        ],
     )
     if result.status != EXIT_FIELD_MAP_INVALID:
         raise _SelfTestFailure(
@@ -4182,9 +5033,10 @@ def _case_justification_mutation(
             f"diagnostic {_display(result.stderr.strip())} does not state "
             f"{_display(stated)}"
         )
-    if output.exists():
+    if tree.holds(output):
         raise _SelfTestFailure(
-            f"{_display(str(output))} was written while the mutated map was refused"
+            f"{_display(output)} was written below {_path_shown(tree.path)} while the "
+            f"mutated map was refused"
         )
     return (
         f"exit={EXIT_FIELD_MAP_INVALID} diagnostic states {_display(stated)}; the "
@@ -4315,14 +5167,16 @@ def _case_nullability_claim(field_map: dict[str, Any], names: Iterable[str]) -> 
 
 
 def _case_protected_fill_mutation(
-    mutated_map: Path, layout: CopybookLayout, item: str
+    tree: _HeldTree, mutated_map: str, layout: CopybookLayout, item: str
 ) -> str:
     """Confirm the protected filler check reports a fill other than spaces.
 
     The mutated field map records the zeros fill for one protected filler entry, and
-    the contract-agreement check must report that disagreement.
+    the contract-agreement check must report that disagreement. The mutated map is
+    loaded by its canonical name below the held run directory, with that directory
+    confirmed immediately before and after the load.
     """
-    field_map = load_field_map(mutated_map, (mutated_map.parent,))
+    field_map = _loaded_scratch_field_map(tree, mutated_map)
     try:
         detail = _case_protected_fill_items(field_map, layout)
     except _SelfTestFailure as failure:
@@ -4334,37 +5188,38 @@ def _case_protected_fill_mutation(
 
 
 def _case_mutation_detected(
-    mutated_map: Path,
+    tree: _HeldTree,
+    mutated_map: str,
     layout: CopybookLayout,
     sample_path: Path,
     expectations: dict[str, str | _Fill],
-    directory: Path,
     name: str,
     expect_record_differs: bool,
 ) -> str:
     """Confirm the copybook cross-check reports a mutated field map."""
-    field_map = load_field_map(mutated_map, (mutated_map.parent,))
+    field_map = _loaded_scratch_field_map(tree, mutated_map)
     problems = _layout_disagreements(field_map, layout)
     if not problems:
         raise _SelfTestFailure("the copybook cross-check reported no disagreement")
-    output = directory / f"{name}.rec"
+    output = f"{name}.rec"
     result = _run_cli(
+        tree,
         [
             "--field-map",
-            str(mutated_map),
+            str(tree.named(mutated_map)),
             "--sample",
             str(sample_path),
             "--output",
-            str(output),
+            str(tree.handoff(output)),
             "--quiet",
-        ]
+        ],
     )
     if result.status != EXIT_OK:
         return (
             f"{len(problems)} disagreement(s) reported; the build stopped with exit "
             f"{result.status}"
         )
-    record = _read_record(output, name)
+    record = _read_record(tree, output, name)
     differs = record != _expected_record(expectations, layout)
     if expect_record_differs and not differs:
         raise _SelfTestFailure(
@@ -4375,6 +5230,550 @@ def _case_mutation_detected(
         f"{len(problems)} disagreement(s) reported; built record "
         f"{'differs from' if differs else 'equals'} the expectation"
     )
+
+
+# Self-test support: the confinement of every root and destination a run may name.
+
+
+def _entry_outside(directory: Path, name: str) -> os.stat_result | None:
+    """Return the status of ``name`` below ``directory``, or ``None`` if absent.
+
+    ``directory`` stands outside the private run directory, so no descriptor this
+    self-test holds reaches it: the canary directories a refused run must not write into
+    are the repository's ``base`` directory, the validated generated-output root, the
+    shared self-test directory the run directory stands in and the temporary directory
+    of the filesystem the repository sits on. The directory is therefore opened the way
+    this tool opens a directory it writes through, by descending the absolute path one
+    single component at a time and following no symbolic link at any level, and the
+    entry is examined relative to that descriptor without following a final symbolic
+    link. A directory that is absent, or that stands at a name no longer holding a
+    directory, holds no entry either, and both are reported as nothing standing; a
+    directory that exists and cannot be opened is raised rather than reported as empty,
+    so no unreadable directory passes a check it was never examined for. Raises
+    ``InputOutputError`` when the directory or the entry cannot be examined.
+    """
+    try:
+        dirfd = _opened_by_components(
+            directory, "directory a refused run must not write into", "refusing to read"
+        )
+    except InputOutputError as error:
+        if isinstance(error.__cause__, (FileNotFoundError, NotADirectoryError)):
+            return None
+        raise
+    try:
+        return os.stat(name, dir_fd=dirfd, follow_symlinks=False)
+    except (FileNotFoundError, NotADirectoryError):
+        return None
+    except OSError as error:
+        raise InputOutputError(
+            f"cannot examine {_escaped(name)} below {_path_shown(directory)}, which a "
+            f"refused run must not have written into: {error.strerror or error}"
+        ) from error
+    finally:
+        with contextlib.suppress(OSError):
+            os.close(dirfd)
+
+
+def _confirm_nothing_outside(paths: Iterable[Path], refused: str) -> int:
+    """Confirm every path in ``paths`` holds nothing and return how many were examined.
+
+    Each path is split into the directory holding it and the single entry name below it,
+    and is examined by ``_entry_outside``, so a symbolic-link component cannot make an
+    entry a refused run created look absent. ``refused`` states what was refused in the
+    failure this raises. Raises ``_SelfTestFailure`` naming the first path that holds
+    anything.
+    """
+    examined = 0
+    for path in paths:
+        examined += 1
+        if _entry_outside(path.parent, path.name) is not None:
+            raise _SelfTestFailure(
+                f"an entry stands at {_path_shown(path)} although {refused}"
+            )
+    return examined
+
+
+def _escape_probe_name(tree: _HeldTree) -> str:
+    """Return the entry name a refused probe would create outside its output root.
+
+    The name carries this tool's name and the private run directory's own name, so two
+    runs never examine the same entry in a directory they share.
+    """
+    return f"{_PROGRAM}.escape-probe.{tree.name}.rec"
+
+
+def _refused_output_roots() -> tuple[Path, ...]:
+    """Return existing directories that may not serve as an output root.
+
+    Each one stands outside the validated generated-output root: the repository
+    directory itself, the extraction directory a read is authorised from, the directory
+    immediately above the generated-output root, and the temporary directory of the
+    filesystem the repository sits on.
+    """
+    repository = _canonical_path(REPOSITORY_ROOT)
+    return (
+        repository,
+        repository / "modernization" / "extraction",
+        repository / "modernization" / "harness",
+        Path(repository.anchor) / "tmp",
+    )
+
+
+def _assert_nothing_created(
+    tree: _HeldTree,
+    argv: list[str],
+    expected_status: int,
+    fragment: str,
+    absent: Iterable[Path],
+) -> str:
+    """Run one failing invocation and confirm no entry stands at the named paths.
+
+    The status, the single control-free diagnostic naming this tool, the stated fragment
+    and the silent stdout are checked exactly as ``_assert_rejected`` checks them. Every
+    path in ``absent`` stands outside the held run directory and must still hold
+    nothing, examined relative to a descriptor opened on the directory holding it one
+    component at a time and without following a final symbolic link, which is how a
+    destination refused for leaving the output root is distinguished from one written
+    before the refusal.
+    """
+    named = tuple(absent)
+    result = _run_cli(tree, argv)
+    if result.status != expected_status:
+        raise _SelfTestFailure(
+            f"exit {result.status}, expected {expected_status}; stderr "
+            f"{_display(result.stderr.strip())}"
+        )
+    _assert_diagnostic(result.stderr)
+    if fragment not in result.stderr:
+        raise _SelfTestFailure(
+            f"diagnostic {_display(result.stderr.strip())} does not state "
+            f"{_display(fragment)}"
+        )
+    if result.stdout:
+        raise _SelfTestFailure(
+            f"wrote {len(result.stdout)} characters to stdout on failure"
+        )
+    examined = _confirm_nothing_outside(named, "the run was refused")
+    return (
+        f"exit={expected_status} diagnostic states {_display(fragment)}, "
+        f"{examined} named path(s) hold nothing"
+    )
+
+
+def _case_output_root_outside(map_path: Path, tree: _HeldTree) -> str:
+    """Confirm every output root outside the generated-output root is refused.
+
+    Each probe names one root with a seeded destination inside the private run
+    directory. A root resolving outside the validated generated-output root is refused
+    for standing outside it, whether or not it exists, and a root that would stand
+    inside it but is absent is refused for not existing, because a named root is never
+    created. Every probe must leave its sentinel destination unchanged.
+    """
+    build_root = _validated_build_root()
+    probes = [
+        (root, "is not inside the generated-output root")
+        for root in _refused_output_roots()
+    ]
+    probes.append((tree.named("absent_root"), "is not an existing directory below"))
+    for index, (root, fragment) in enumerate(probes, start=1):
+        destination = _seeded_destination(tree, f"output_root_refused_{index}")
+        _assert_rejected(
+            tree,
+            [
+                "--field-map",
+                str(map_path),
+                "--sample",
+                str(MOTOR_SAMPLE_DEFINITION),
+                "--output",
+                str(tree.handoff(destination)),
+                "--output-root",
+                str(root),
+            ],
+            EXIT_IO_ERROR,
+            destination,
+            fragment,
+        )
+    return (
+        f"{len(probes)} output root(s) refused with exit {EXIT_IO_ERROR} against "
+        f"{_path_shown(build_root)}, every sentinel unchanged"
+    )
+
+
+def _case_output_root_symlink(map_path: Path, tree: _HeldTree) -> str:
+    """Confirm an output root reached through a symbolic link is refused unfollowed.
+
+    The link is created relative to the descriptor held on the private run directory and
+    names the validated generated-output root itself, so its target would authorise a
+    write while the link may not: the refusal must name the link as a symbolic-link
+    component, the sentinel destination must still hold its bytes, the link must still
+    stand as a link, examined through the held descriptor, and the link's target
+    directory must not have gained an entry, examined relative to a descriptor opened on
+    that directory one component at a time.
+    """
+    build_root = _validated_build_root()
+    link = tree.link(build_root, "output_root_link")
+    destination = _seeded_destination(tree, "output_root_symlink")
+    detail = _assert_rejected(
+        tree,
+        [
+            "--field-map",
+            str(map_path),
+            "--sample",
+            str(MOTOR_SAMPLE_DEFINITION),
+            "--output",
+            str(tree.handoff(destination)),
+            "--output-root",
+            str(tree.named(link)),
+        ],
+        EXIT_IO_ERROR,
+        destination,
+        "passes through symbolic link",
+    )
+    standing = tree.status(link)
+    if standing is None or not stat.S_ISLNK(standing.st_mode):
+        raise _SelfTestFailure(
+            f"{_display(link)} no longer stands as a symbolic link below "
+            f"{_path_shown(tree.path)} after the refusal"
+        )
+    _confirm_nothing_outside((build_root / destination,), "the root was refused")
+    return f"{detail}; the link still names {_path_shown(build_root)}"
+
+
+def _case_output_escapes_root(map_path: Path, tree: _HeldTree) -> str:
+    """Confirm a destination whose canonical form leaves the output root is refused.
+
+    The destination is named below a symbolic link created relative to the descriptor
+    held on the private run directory that points at the temporary directory of the
+    filesystem the repository sits on, with the run directory itself named as the output
+    root. The destination is handed over below the held descriptor's own pathname, so
+    the link the run resolves is the one inside the held directory. Canonicalisation
+    therefore places the destination outside that root, which must be refused before
+    anything is created at the link's target.
+    """
+    target = Path(_canonical_path(REPOSITORY_ROOT).anchor) / "tmp"
+    probe = _escape_probe_name(tree)
+    link = tree.link(target, "output_escape_link")
+    detail = _assert_nothing_created(
+        tree,
+        [
+            "--field-map",
+            str(map_path),
+            "--sample",
+            str(MOTOR_SAMPLE_DEFINITION),
+            "--output",
+            str(tree.handoff(link, probe)),
+            "--output-root",
+            str(tree.path),
+        ],
+        EXIT_IO_ERROR,
+        "is not a file inside the output root",
+        (target / probe,),
+    )
+    return f"{detail}; {_path_shown(target)} gained no record"
+
+
+def _case_output_into_base_refused(tree: _HeldTree) -> str:
+    """Confirm a destination canonicalising into the read-only source tree is refused.
+
+    A symbolic link created relative to the descriptor held on the private run directory
+    names the repository's ``base`` directory, and one full-width record is offered to
+    ``write_record`` below that held descriptor's own pathname under the default
+    generated-output root. The refusal must name the canonical destination the link
+    leads to and the write it refuses, and no entry may stand at that destination
+    afterwards, examined relative to a descriptor opened on the read-only source
+    directory one component at a time.
+    """
+    source_root = _canonical_path(REPOSITORY_ROOT) / "base"
+    probe = _escape_probe_name(tree)
+    link = tree.link(source_root, "source_root_link")
+    planted = source_root / probe
+    refusal: InputOutputError | None = None
+    try:
+        _handed_off(
+            tree,
+            "self-test run directory",
+            lambda: write_record(
+                tree.handoff(link, probe), "0" * COMMAREA_RECORD_LENGTH
+            ),
+        )
+    except InputOutputError as error:
+        refusal = error
+    if refusal is None:
+        raise _SelfTestFailure(
+            f"write_record accepted a destination inside {_path_shown(source_root)}"
+        )
+    for stated in (_path_shown(planted), "refusing to write"):
+        if stated not in str(refusal):
+            raise _SelfTestFailure(
+                f"the refusal states {_display(str(refusal))}, expected "
+                f"{_display(stated)}"
+            )
+    _confirm_nothing_outside((planted,), "the write was refused")
+    return f"refused a record for {_path_shown(planted)}; that path holds nothing"
+
+
+def _case_scratch_subtree_removed(tree: _HeldTree) -> str:
+    """Confirm a scratch subtree is removed through descriptors without following links.
+
+    The probe subtree is created relative to the descriptor held on the private run
+    directory and carries a nested directory, a regular file, a FIFO and a symbolic link
+    naming a sentinel file beside it. Emptying it through the descriptor held on it must
+    remove every entry it holds, leave the sentinel's bytes in place, which is what
+    proves the link was unlinked rather than followed, and leave nothing at the
+    subtree's own name once it is removed relative to the descriptor above it.
+    """
+    sentinel_bytes = b"SENTINEL KEPT BY THE REMOVAL\n"
+    sentinel = _write_payload(tree, "removal_sentinel", sentinel_bytes)
+    probe = tree.directory("removal_probe")
+    try:
+        nested = probe.directory("nested")
+        try:
+            deeper = nested.directory("deeper")
+            try:
+                deeper.create("leaf.rec", b"LEAF RECORD\n")
+            finally:
+                deeper.close()
+        finally:
+            nested.close()
+        probe.fifo("removal_pipe")
+        probe.link(tree.named(sentinel), "sentinel_link")
+        entries = len(probe.entries())
+
+        probe.empty()
+        remaining = probe.entries()
+        if remaining:
+            raise _SelfTestFailure(
+                f"{len(remaining)} entry(s) remain below {_path_shown(probe.path)}, "
+                f"first {_escaped(remaining[0])}"
+            )
+    finally:
+        probe.close()
+
+    tree.remove_directory(probe.name)
+    if tree.holds(probe.name):
+        raise _SelfTestFailure(
+            f"{_path_shown(probe.path)} still stands after it was removed"
+        )
+    if tree.read(sentinel) != sentinel_bytes:
+        raise _SelfTestFailure(
+            f"the sentinel {_display(sentinel)} changed while the subtree holding a "
+            f"link to it was removed"
+        )
+    return (
+        f"{entries} held entry(s) removed through descriptors, "
+        f"{_path_shown(probe.path)} gone, sentinel={len(sentinel_bytes)} bytes "
+        f"unchanged"
+    )
+
+
+def _case_name_swap_not_redirected(tree: _HeldTree, map_path: Path) -> str:
+    """Confirm a replaced visible directory name redirects nothing and leaves nothing.
+
+    The probe stands below the private run directory and carries a held run directory of
+    its own and a canary directory outside that held directory. The held directory's
+    visible name is then replaced the way a concurrent run holding no descriptor on it
+    would replace it: the directory is renamed aside and a symbolic link naming the
+    canary is created at the name it stood at, both relative to the descriptor above
+    them.
+
+    With that replacement standing, the case confirms five things. A pathname handoff is
+    refused, naming the entry that no longer names the held directory, so no visible
+    pathname of it is handed to a run under test. A write made relative to the held
+    descriptor still lands in the held directory, read back through that descriptor and
+    found at the name the directory was renamed to. The pathname the held descriptor
+    itself reports still names the held directory rather than the replacement. One
+    whole record a run under test writes below that descriptor's own pathname lands in
+    the held directory too, at the emitted length and read back through the held
+    descriptor, which is what proves the replaced name redirected no write the tool
+    itself made. And the removal that closes a run empties and removes the originally
+    held directory, found through the descriptor's own pathname, while reporting the
+    changed visible name as a failure.
+
+    The canary must hold nothing throughout, which is what proves nothing was written
+    outside the held directory, and every entry the probe created is removed through
+    held descriptors, so nothing of it survives the case.
+    """
+    probe = tree.directory(_SWAP_PROBE_NAME)
+    try:
+        canary = probe.directory(_SWAP_CANARY_NAME)
+        try:
+            held = probe.directory(_SWAP_HELD_NAME)
+            closed = False
+            try:
+                held.create("before_swap.rec", _SWAP_BEFORE_BYTES)
+                probe.rename(_SWAP_HELD_NAME, _SWAP_MOVED_NAME)
+                probe.link(_SWAP_CANARY_NAME, _SWAP_HELD_NAME)
+
+                refusal: InputOutputError | None = None
+                try:
+                    _handed_off(held, "probe run directory", lambda: None)
+                except InputOutputError as error:
+                    refusal = error
+                if refusal is None:
+                    raise _SelfTestFailure(
+                        "the pathname handoff accepted a run directory whose visible "
+                        "name had been replaced"
+                    )
+                for stated in (_SWAP_HELD_NAME, "no longer names"):
+                    if stated not in str(refusal):
+                        raise _SelfTestFailure(
+                            f"the refusal states {_display(str(refusal))}, expected "
+                            f"{_display(stated)}"
+                        )
+
+                held.create("after_swap.rec", _SWAP_AFTER_BYTES)
+                if held.read("after_swap.rec") != _SWAP_AFTER_BYTES:
+                    raise _SelfTestFailure(
+                        "the entry written through the held descriptor does not hold "
+                        "the bytes it was given"
+                    )
+                if held.visible_name("probe run directory") != _SWAP_MOVED_NAME:
+                    raise _SelfTestFailure(
+                        f"the held descriptor reports a name other than "
+                        f"{_display(_SWAP_MOVED_NAME)} after the replacement"
+                    )
+                moved = probe.status(_SWAP_MOVED_NAME)
+                if moved is None or (moved.st_dev, moved.st_ino) != (
+                    held.device,
+                    held.inode,
+                ):
+                    raise _SelfTestFailure(
+                        f"{_display(_SWAP_MOVED_NAME)} does not name the directory the "
+                        f"probe holds open"
+                    )
+                written = sorted(canary.entries())
+                if written:
+                    raise _SelfTestFailure(
+                        f"the canary {_path_shown(canary.path)} holds {len(written)} "
+                        f"entry(s), first {_escaped(written[0])}, so a write followed "
+                        f"the replaced name"
+                    )
+
+                # One whole record written by a run under test, named below the held
+                # descriptor's own pathname while the replacement stands: the run
+                # resolves that pathname to the directory the descriptor holds, so the
+                # record must land there and the canary must stay empty. The output root
+                # is named here, so the run is given the run directory this matrix works
+                # inside and not the probe the destination stands below.
+                build = _run_cli(
+                    tree,
+                    [
+                        "--field-map",
+                        str(map_path),
+                        "--sample",
+                        str(MOTOR_SAMPLE_DEFINITION),
+                        "--output",
+                        str(held.handoff(_SWAP_RECORD_NAME)),
+                        "--output-root",
+                        str(tree.path),
+                        "--quiet",
+                    ],
+                )
+                if build.status != EXIT_OK:
+                    raise _SelfTestFailure(
+                        f"the record offered below the held descriptor exited "
+                        f"{build.status}: {_display(build.stderr.strip())}"
+                    )
+                if build.stdout:
+                    raise _SelfTestFailure("--quiet still wrote a summary")
+                record = _read_record(
+                    held, _SWAP_RECORD_NAME, "the record written through the descriptor"
+                )
+                if len(record) != COMMAREA_RECORD_LENGTH:
+                    raise _SelfTestFailure(
+                        f"the record written through the held descriptor holds "
+                        f"{len(record)} characters, expected {COMMAREA_RECORD_LENGTH}"
+                    )
+                redirected = sorted(canary.entries())
+                if redirected:
+                    raise _SelfTestFailure(
+                        f"the canary {_path_shown(canary.path)} holds "
+                        f"{len(redirected)} entry(s) after the record was written, "
+                        f"first {_escaped(redirected[0])}, so the run followed the "
+                        f"replaced name"
+                    )
+                replacement = probe.status(_SWAP_HELD_NAME)
+                if replacement is None or not stat.S_ISLNK(replacement.st_mode):
+                    raise _SelfTestFailure(
+                        f"{_display(_SWAP_HELD_NAME)} no longer stands as the symbolic "
+                        f"link the replacement put in place"
+                    )
+
+                removal: InputOutputError | None = None
+                closed = True
+                try:
+                    _removed_held_directory(held, "probe run directory")
+                except InputOutputError as error:
+                    removal = error
+                if removal is None:
+                    raise _SelfTestFailure(
+                        "the removal reported no failure although the visible name had "
+                        "been replaced"
+                    )
+                for stated in (_SWAP_MOVED_NAME, "no longer named it"):
+                    if stated not in str(removal):
+                        raise _SelfTestFailure(
+                            f"the removal states {_display(str(removal))}, expected "
+                            f"{_display(stated)}"
+                        )
+                if probe.holds(_SWAP_MOVED_NAME):
+                    raise _SelfTestFailure(
+                        f"{_display(_SWAP_MOVED_NAME)} still stands after the removal, "
+                        f"so the originally held directory was not removed"
+                    )
+                left = sorted(canary.entries())
+                if left:
+                    raise _SelfTestFailure(
+                        f"the canary {_path_shown(canary.path)} holds {len(left)} "
+                        f"entry(s) after the removal, first {_escaped(left[0])}"
+                    )
+            finally:
+                if not closed:
+                    held.close()
+            probe.remove(_SWAP_HELD_NAME)
+        finally:
+            canary.close()
+        probe.remove_directory(_SWAP_CANARY_NAME)
+        remaining = probe.entries()
+        if remaining:
+            raise _SelfTestFailure(
+                f"{len(remaining)} entry(s) remain below {_path_shown(probe.path)}, "
+                f"first {_escaped(remaining[0])}"
+            )
+    finally:
+        probe.close()
+
+    tree.remove_directory(_SWAP_PROBE_NAME)
+    if tree.holds(_SWAP_PROBE_NAME):
+        raise _SelfTestFailure(
+            f"{_display(_SWAP_PROBE_NAME)} still stands below {_path_shown(tree.path)} "
+            f"after the case removed it"
+        )
+    return (
+        f"the handoff was refused for {_display(_SWAP_HELD_NAME)}, the write through "
+        f"the held descriptor stayed in {_display(_SWAP_MOVED_NAME)}, the "
+        f"{COMMAREA_RECORD_LENGTH} character record a run wrote below that descriptor "
+        f"landed there too, the removal reported the replaced name and removed the "
+        f"held directory, and the canary {_display(_SWAP_CANARY_NAME)} held nothing "
+        f"and left nothing"
+    )
+
+
+def _case_scratch_removed(scratch: _Scratch) -> str:
+    """Release the private run directory and confirm nothing of it remains.
+
+    The removal runs through the descriptors this run has held on the run directory and
+    its parents, so it reaches nothing the run did not create, and it confirms through
+    those descriptors that the entry it removed holds nothing. Every descriptor is
+    closed by the time it returns, so this case confirms the same for the run
+    directory's own name by opening the shared directory holding it one component at a
+    time and examining that name without following a final symbolic link; a shared
+    directory that went with the run holds nothing either.
+    """
+    path = scratch.tree.path
+    detail = _released_scratch(scratch)
+    _confirm_nothing_outside((path,), "the removal returned")
+    return detail
 
 
 def _run_case(
@@ -4428,7 +5827,6 @@ def _run_case(
 def run_self_test(
     field_map_path: str | os.PathLike[str] | None = None,
     *,
-    read_roots: Iterable[str | os.PathLike[str]] | None = None,
     quiet: bool = False,
     stream: Any = None,
 ) -> int:
@@ -4440,13 +5838,19 @@ def run_self_test(
     read and the bytes the mutated field maps are seeded from, so the mutants carry the
     content that parse saw. Each case then prints one line to ``stream``, which defaults
     to stdout, followed by one summary line. ``quiet`` limits the case lines to the
-    failing ones. Every scratch document is written inside one temporary directory that
-    is removed when the run ends. ``read_roots`` names any extra directory the field
-    map may be read from, which a caller running this from its own scratch copy needs.
+    failing ones. Every scratch document and every destination a case offers sits inside
+    one private run directory below ``modernization/harness/build/builder-selftest``,
+    held through descriptors on its parents and removed by the final case, so a run
+    reaches no directory outside the generated-output root and leaves nothing behind.
+    Each of those entries is created, read and removed relative to the descriptor held
+    on that run directory, and every pathname a case hands to a run under test is
+    confirmed against the identity that descriptor reported immediately before and
+    after it is used, so a visible run name replaced while the matrix runs is reported
+    rather than followed.
     """
     out = sys.stdout if stream is None else stream
     layout = parse_copybook_layout()
-    selected_map = _read_field_map(field_map_path, read_roots)
+    selected_map = _read_field_map(field_map_path)
     map_path = selected_map.path
     field_map = selected_map.document
     map_text = selected_map.payload
@@ -4454,8 +5858,9 @@ def run_self_test(
     commercial = load_sample(COMMERCIAL_SAMPLE_DEFINITION)
     results: list[_CaseResult] = []
 
-    with tempfile.TemporaryDirectory(prefix=f"{_PROGRAM}.self-test.") as scratch:
-        directory = Path(scratch)
+    scratch = _held_scratch()
+    try:
+        tree = scratch.tree
 
         _run_case(
             results,
@@ -4483,7 +5888,7 @@ def run_self_test(
                 motor,
                 _MOTOR_FIXTURE_KEYS,
                 _MOTOR_EXPECTED_WINDOWS,
-                directory,
+                tree,
                 "motor",
             ),
         )
@@ -4499,7 +5904,7 @@ def run_self_test(
                 commercial,
                 _COMMERCIAL_FIXTURE_KEYS,
                 _COMMERCIAL_EXPECTED_WINDOWS,
-                directory,
+                tree,
                 "commercial",
             ),
         )
@@ -4515,14 +5920,14 @@ def run_self_test(
             out,
             quiet,
             "emitted_length_from_constant",
-            lambda: _case_length_from_constant(field_map, motor, directory),
+            lambda: _case_length_from_constant(field_map, motor, tree),
         )
         _run_case(
             results,
             out,
             quiet,
             "long_record_refused",
-            lambda: _case_long_record_refused(field_map, motor, directory),
+            lambda: _case_long_record_refused(field_map, motor, tree),
         )
         _run_case(
             results,
@@ -4530,7 +5935,7 @@ def run_self_test(
             quiet,
             "motor_rerun_identical",
             lambda: _case_rerun_identical(
-                map_path, MOTOR_SAMPLE_DEFINITION, directory, "motor_rerun"
+                map_path, MOTOR_SAMPLE_DEFINITION, tree, "motor_rerun"
             ),
         )
         _run_case(
@@ -4539,7 +5944,7 @@ def run_self_test(
             quiet,
             "commercial_status_placed",
             lambda: _case_commercial_status_placed(
-                layout, map_path, commercial, directory
+                layout, map_path, commercial, tree
             ),
         )
         _run_case(
@@ -4548,7 +5953,7 @@ def run_self_test(
             quiet,
             "commercial_inactive_overlay_filled",
             lambda: _case_commercial_inactive_overlay(
-                layout, field_map, map_path, commercial, directory
+                layout, field_map, map_path, commercial, tree
             ),
         )
         _run_case(
@@ -4557,7 +5962,7 @@ def run_self_test(
             quiet,
             "motor_inactive_overlay_spaces",
             lambda: _case_motor_inactive_overlay(
-                layout, field_map, map_path, motor, directory
+                layout, field_map, map_path, motor, tree
             ),
         )
         _run_case(
@@ -4565,19 +5970,19 @@ def run_self_test(
             out,
             quiet,
             "short_values_justified",
-            lambda: _case_short_values(layout, map_path, motor, directory),
+            lambda: _case_short_values(layout, map_path, motor, tree),
         )
 
         left_numeric = _mutated_field_map(
-            directory,
+            tree,
             "map_left_numeric",
             field_map,
             lambda document: document["sample_definition_contract"][
                 "value_justification"
             ].__setitem__(KIND_NUMERIC, JUSTIFY_LEFT),
         )
-        short_values_path = _write_sample(
-            directory, "short_values_mutation", _short_value_sample(motor)
+        short_values_sample = _write_sample(
+            tree, "short_values_mutation", _short_value_sample(motor)
         )
         _run_case(
             results,
@@ -4585,11 +5990,11 @@ def run_self_test(
             quiet,
             "map_left_numeric_justification_detected",
             lambda: _case_justification_mutation(
-                left_numeric, layout, short_values_path, directory
+                tree, left_numeric, layout, short_values_sample
             ),
         )
         zero_filler = _mutated_field_map(
-            directory,
+            tree,
             "map_zero_filled_protected_item",
             field_map,
             lambda document: _protected_fill_entry(
@@ -4602,12 +6007,12 @@ def run_self_test(
             quiet,
             "map_protected_fill_label_detected",
             lambda: _case_protected_fill_mutation(
-                zero_filler, layout, "CA-M-FILLER"
+                tree, zero_filler, layout, "CA-M-FILLER"
             ),
         )
 
         swapped = _mutated_field_map(
-            directory,
+            tree,
             "map_swapped_offsets",
             field_map,
             lambda document: _swap_offsets(
@@ -4621,17 +6026,17 @@ def run_self_test(
             quiet,
             "map_swapped_offsets_detected",
             lambda: _case_mutation_detected(
+                tree,
                 swapped,
                 layout,
                 MOTOR_SAMPLE_DEFINITION,
                 _MOTOR_EXPECTED_WINDOWS,
-                directory,
                 "map_swapped_offsets",
                 expect_record_differs=True,
             ),
         )
         shortened = _mutated_field_map(
-            directory,
+            tree,
             "map_shortened_item",
             field_map,
             lambda document: _layout_entry(
@@ -4644,18 +6049,18 @@ def run_self_test(
             quiet,
             "map_shortened_item_detected",
             lambda: _case_mutation_detected(
+                tree,
                 shortened,
                 layout,
                 MOTOR_SAMPLE_DEFINITION,
                 _MOTOR_EXPECTED_WINDOWS,
-                directory,
                 "map_shortened_item",
                 expect_record_differs=False,
             ),
         )
 
         dropped_item = _mutated_field_map(
-            directory,
+            tree,
             "map_dropped_item",
             field_map,
             lambda document: document["layout"]["motor_overlay"]["items"].remove(
@@ -4663,7 +6068,7 @@ def run_self_test(
             ),
         )
         numeric_filler = _mutated_field_map(
-            directory,
+            tree,
             "map_numeric_filler",
             field_map,
             lambda document: _layout_entry(
@@ -4671,7 +6076,7 @@ def run_self_test(
             ).__setitem__("kind", KIND_NUMERIC),
         )
         short_record = _mutated_field_map(
-            directory,
+            tree,
             "map_record_length_short",
             field_map,
             lambda document: document["record"].__setitem__(
@@ -4679,7 +6084,7 @@ def run_self_test(
             ),
         )
         long_record = _mutated_field_map(
-            directory,
+            tree,
             "map_record_length_long",
             field_map,
             lambda document: document["record"].__setitem__(
@@ -4687,7 +6092,7 @@ def run_self_test(
             ),
         )
         wrong_emitted = _mutated_field_map(
-            directory,
+            tree,
             "map_emitted_length",
             field_map,
             lambda document: document["sample_definition_contract"].__setitem__(
@@ -4695,7 +6100,7 @@ def run_self_test(
             ),
         )
         deep_map = _mutated_field_map(
-            directory,
+            tree,
             "map_deeply_nested",
             field_map,
             lambda document: document.__setitem__(
@@ -4703,27 +6108,27 @@ def run_self_test(
             ),
         )
         duplicate_map = _write_payload(
-            directory,
+            tree,
             "map_duplicate_key.yml",
             map_text + b"\nrecord:\n  length: 100\n",
         )
         map_source = map_text.decode("utf-8")
         duplicate_offset = _write_payload(
-            directory,
+            tree,
             "map_duplicate_offset.yml",
             _duplicated_key_payload(
                 map_source, "      - item: CA-PAYMENT", "        offset: 999"
             ),
         )
         duplicate_length = _write_payload(
-            directory,
+            tree,
             "map_duplicate_length.yml",
             _duplicated_key_payload(
                 map_source, "      - item: CA-M-PREMIUM", "        length: 7"
             ),
         )
         duplicate_kind = _write_payload(
-            directory,
+            tree,
             "map_duplicate_kind.yml",
             _duplicated_key_payload(
                 map_source,
@@ -4732,7 +6137,7 @@ def run_self_test(
             ),
         )
         duplicate_emitted = _write_payload(
-            directory,
+            tree,
             "map_duplicate_emitted_length.yml",
             _duplicated_key_payload(
                 map_source,
@@ -4741,32 +6146,32 @@ def run_self_test(
             ),
         )
         unhashable_map = _write_payload(
-            directory,
+            tree,
             "map_unhashable_key.yml",
             map_text + b"\n" + _UNHASHABLE_KEY_TEXT.encode("utf-8"),
         )
         cyclic_map = _write_payload(
-            directory,
+            tree,
             "map_self_referential.yml",
             map_text + b"\n" + _CYCLIC_ALIAS_TEXT.encode("utf-8"),
         )
         alias_dag_map = _write_payload(
-            directory,
+            tree,
             "map_alias_dag.yml",
             map_text
             + b"\n"
             + _alias_dag_text(_ALIAS_DAG_LEVELS, _ALIAS_DAG_FANOUT).encode("utf-8"),
         )
         undecodable_map = _write_payload(
-            directory, "map_bad_utf8.yml", map_text + b"\n# \xff\n"
+            tree, "map_bad_utf8.yml", map_text + b"\n# \xff\n"
         )
         oversized_map = _write_payload(
-            directory,
+            tree,
             "map_oversized.yml",
             map_text + b"\n# " + b"p" * MAX_FIELD_MAP_BYTES + b"\n",
         )
-        absent_map = directory / "map_absent.yml"
-        fifo_map = _make_fifo(directory, "map_fifo.yml")
+        absent_map = "map_absent.yml"
+        fifo_map = _make_fifo(tree, "map_fifo.yml")
 
         for case_name, mutated, expected_status, fragment in (
             (
@@ -4873,7 +6278,7 @@ def run_self_test(
             ),
             ("map_absent", absent_map, EXIT_IO_ERROR, "cannot read field map"),
         ):
-            destination = _seeded_destination(directory, case_name)
+            destination = _seeded_destination(tree, case_name)
             _run_case(
                 results,
                 out,
@@ -4883,13 +6288,14 @@ def run_self_test(
                 expected_status=expected_status,
                 fragment=fragment,
                 destination=destination: _assert_rejected(
+                    tree,
                     [
                         "--field-map",
-                        str(mutated),
+                        str(tree.named(mutated)),
                         "--sample",
                         str(MOTOR_SAMPLE_DEFINITION),
                         "--output",
-                        str(destination),
+                        str(tree.handoff(destination)),
                     ],
                     expected_status,
                     destination,
@@ -5022,24 +6428,25 @@ def run_self_test(
             ),
         ]
         for case_name, document, fragment in rejected_samples:
-            sample_path = _write_sample(directory, case_name, document)
-            destination = _seeded_destination(directory, case_name)
+            sample_name = _write_sample(tree, case_name, document)
+            destination = _seeded_destination(tree, case_name)
             _run_case(
                 results,
                 out,
                 quiet,
                 case_name,
-                lambda sample_path=sample_path,
+                lambda sample_name=sample_name,
                 destination=destination,
                 fragment=fragment: (
                     _assert_rejected(
+                        tree,
                         [
                             "--field-map",
                             str(map_path),
                             "--sample",
-                            str(sample_path),
+                            str(tree.named(sample_name)),
                             "--output",
-                            str(destination),
+                            str(tree.handoff(destination)),
                         ],
                         EXIT_SAMPLE_REJECTED,
                         destination,
@@ -5079,24 +6486,25 @@ def run_self_test(
             ),
         ]
         for case_name, payload, fragment in rejected_payloads:
-            sample_path = _write_payload(directory, f"{case_name}.json", payload)
-            destination = _seeded_destination(directory, case_name)
+            sample_name = _write_payload(tree, f"{case_name}.json", payload)
+            destination = _seeded_destination(tree, case_name)
             _run_case(
                 results,
                 out,
                 quiet,
                 case_name,
-                lambda sample_path=sample_path,
+                lambda sample_name=sample_name,
                 destination=destination,
                 fragment=fragment: (
                     _assert_rejected(
+                        tree,
                         [
                             "--field-map",
                             str(map_path),
                             "--sample",
-                            str(sample_path),
+                            str(tree.named(sample_name)),
                             "--output",
-                            str(destination),
+                            str(tree.handoff(destination)),
                         ],
                         EXIT_SAMPLE_REJECTED,
                         destination,
@@ -5105,21 +6513,22 @@ def run_self_test(
                 ),
             )
 
-        fifo_sample = _make_fifo(directory, "sample_fifo.json")
-        fifo_destination = _seeded_destination(directory, "sample_not_regular_file")
+        fifo_sample = _make_fifo(tree, "sample_fifo.json")
+        fifo_destination = _seeded_destination(tree, "sample_not_regular_file")
         _run_case(
             results,
             out,
             quiet,
             "sample_not_regular_file",
             lambda: _assert_rejected(
+                tree,
                 [
                     "--field-map",
                     str(map_path),
                     "--sample",
-                    str(fifo_sample),
+                    str(tree.named(fifo_sample)),
                     "--output",
-                    str(fifo_destination),
+                    str(tree.handoff(fifo_destination)),
                 ],
                 EXIT_SAMPLE_REJECTED,
                 fifo_destination,
@@ -5127,25 +6536,68 @@ def run_self_test(
             ),
         )
 
-        blocked = _write_payload(directory, "blocked_output", b"NOT A DIRECTORY\n")
+        blocked = _write_payload(tree, "blocked_output", b"NOT A DIRECTORY\n")
         _run_case(
             results,
             out,
             quiet,
             "output_directory_unusable",
             lambda: _assert_rejected(
+                tree,
                 [
                     "--field-map",
                     str(map_path),
                     "--sample",
                     str(MOTOR_SAMPLE_DEFINITION),
                     "--output",
-                    str(blocked / "record.rec"),
+                    str(tree.handoff(blocked, "record.rec")),
                 ],
                 EXIT_IO_ERROR,
                 blocked,
                 "cannot open directory 'blocked_output'",
             ),
+        )
+        _run_case(
+            results,
+            out,
+            quiet,
+            "output_root_outside_build_refused",
+            lambda: _case_output_root_outside(map_path, tree),
+        )
+        _run_case(
+            results,
+            out,
+            quiet,
+            "output_root_symlink_refused",
+            lambda: _case_output_root_symlink(map_path, tree),
+        )
+        _run_case(
+            results,
+            out,
+            quiet,
+            "output_escapes_root_refused",
+            lambda: _case_output_escapes_root(map_path, tree),
+        )
+        _run_case(
+            results,
+            out,
+            quiet,
+            "output_into_base_refused",
+            lambda: _case_output_into_base_refused(tree),
+        )
+        _run_case(
+            results,
+            out,
+            quiet,
+            "scratch_subtree_removed",
+            lambda: _case_scratch_subtree_removed(tree),
+        )
+        _run_case(
+            results,
+            out,
+            quiet,
+            "run_directory_name_swap_refused",
+            lambda: _case_name_swap_not_redirected(tree, map_path),
         )
 
         ran = [result.name for result in results]
@@ -5156,6 +6608,17 @@ def run_self_test(
             "nullability_claim_matches_matrix",
             lambda: _case_nullability_claim(field_map, ran),
         )
+    except BaseException:
+        _discarded_scratch(scratch)
+        raise
+
+    _run_case(
+        results,
+        out,
+        quiet,
+        "self_test_scratch_removed",
+        lambda: _case_scratch_removed(scratch),
+    )
 
     passed = sum(1 for result in results if result.passed)
     failed = len(results) - passed
@@ -5183,17 +6646,23 @@ def build_arg_parser() -> argparse.ArgumentParser:
         epilog=(
             "The destination must resolve inside modernization/harness/build under the "
             "canonical repository directory holding this script, or inside "
-            "--output-root; that root must itself resolve inside "
-            "modernization/harness/build or inside the system temporary directory "
-            "tree. A destination resolving inside that repository must stay under "
+            "--output-root; that root must itself already exist inside "
+            "modernization/harness/build, so no path this tool writes leaves "
+            "modernization, and the system temporary directory, an arbitrary temporary "
+            "root and a directory whose trailing components merely spell "
+            "modernization/harness/build are all refused. A destination resolving "
+            "inside that repository must stay under "
             "modernization/harness/build under either root, and a destination "
             "resolving inside the repository's base directory is always refused. A "
             "symbolic link, a symbolic-link component of a root, an existing "
             "non-regular file and a canonical form outside the allowed root are "
             "refused before any directory is created. Validation itself opens the "
-            "directory the write descends from, by descending its canonical path one "
-            "single component at a time from the filesystem root and following no "
-            "symbolic link at any level, and the write descends from that descriptor "
+            "directory the write descends from, by descending one single component at "
+            "a time and following no "
+            "symbolic link at any level: from the filesystem root under the default "
+            "root, and from the descriptor held on modernization/harness/build for a "
+            "named root, so containment is established through held descriptors. The "
+            "write descends from that descriptor "
             "alone, creating and opening each directory below it by single component, "
             "so a symbolic link is refused at every level and the directory is never "
             "resolved as a pathname again.\n"
@@ -5253,9 +6722,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
         metavar="PATH",
         help=(
             "existing directory the destination must resolve inside, replacing the "
-            "default modernization/harness/build root; it must carry no symbolic-link "
-            "component and resolve inside that default root or inside the system "
-            "temporary directory tree"
+            "default modernization/harness/build root; it must already exist inside "
+            "that default root and carry no symbolic-link component, and no directory "
+            "outside it is accepted"
         ),
     )
     parser.add_argument(
@@ -5264,7 +6733,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help=(
             "run the built-in case matrix against the field map, both sample "
             "definitions and the read-only copybook, then exit; accepts neither "
-            "--sample nor --output"
+            "--sample nor --output, and works inside one private run directory below "
+            "modernization/harness/build/builder-selftest that it creates, reads, "
+            "writes and removes through the descriptor it holds on that directory, "
+            "confirming that descriptor before and after every pathname it hands to a "
+            "run under test, and removes before it returns"
         ),
     )
     parser.add_argument(
@@ -5278,19 +6751,16 @@ def build_arg_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main(
-    argv: list[str] | None = None,
-    read_roots: Iterable[str | os.PathLike[str]] | None = None,
-) -> int:
+def main(argv: list[str] | None = None) -> int:
     """Build one COMMAREA record, or run the self-test, and return the exit status.
 
     Every diagnostic reaches stderr as one line free of control characters, and the
     success summary reaches stdout the same way. A rejected command line is reported
     through the same single line, without a usage block, and returns the status a
     refused input or output returns, while ``--help`` prints the full help and exits
-    with status 0. ``read_roots`` is the in-process self-test naming the throwaway
-    directory its own scratch inputs sit in; a command line never supplies it, so a
-    path a caller names is read only from the authorised read roots.
+    with status 0. Every path this invocation reads is confined to the validated read
+    roots and every path it writes to the validated generated-output root, whichever
+    arguments it carries.
     """
     parser = build_arg_parser()
     try:
@@ -5298,13 +6768,11 @@ def main(
         if args.self_test:
             if args.sample is not None or args.output is not None:
                 parser.error("--self-test accepts neither --sample nor --output")
-            return run_self_test(
-                args.field_map, read_roots=read_roots, quiet=args.quiet
-            )
+            return run_self_test(args.field_map, quiet=args.quiet)
         if args.sample is None or args.output is None:
             parser.error("--sample and --output are required unless --self-test is given")
-        field_map = load_field_map(args.field_map, read_roots)
-        sample = load_sample(args.sample, read_roots)
+        field_map = load_field_map(args.field_map)
+        sample = load_sample(args.sample)
         routing = resolve_overlay(field_map, _sample_request_id(field_map, sample))
         values = validate_sample(field_map, sample, routing)
         record = render_record(field_map, routing, values)

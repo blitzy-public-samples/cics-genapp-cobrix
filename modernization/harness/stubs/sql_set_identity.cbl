@@ -64,8 +64,9 @@
       * call.
       *
       * Rationale for the deterministic seeding of the identity and for
-      * the always-zero SQLCODE is recorded in
-      * modernization/docs/decision-log.md.
+      * the always-zero SQLCODE is to be recorded in
+      * modernization/docs/decision-log.md (planned deliverable; not
+      * present at this milestone).
       *
       * Harness topology: Figure 5 — Validation Harness Control Flow
       * in modernization/docs/architecture.md.
@@ -130,8 +131,8 @@
       *----------------------------------------------------------------*
        STAMP-CAPTURE-CONTROL.
            MOVE 'Y' TO HC-IDENT-PRESENT
-           ADD 1 TO HC-IDENT-COUNT
-           ADD 1 TO HC-EVENT-SEQ
+           ADD 1 TO HC-IDENT-COUNT END-ADD
+           ADD 1 TO HC-EVENT-SEQ END-ADD
            MOVE HC-EVENT-SEQ TO HC-IDENT-SEQ
            MOVE 'set_identity' TO HC-ORDER-LAST-STMT.
       *
@@ -145,4 +146,5 @@
                DISPLAY 'SQL-SET-IDENTITY: HC-SEED-POLICYNUM HOLDS '
                        HC-SEED-POLICYNUM
                        ' - SQL-INSERT-POLICY DID NOT RUN FIRST'
+               END-DISPLAY
            END-IF.

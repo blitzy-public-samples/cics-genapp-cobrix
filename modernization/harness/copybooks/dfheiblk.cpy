@@ -2,12 +2,12 @@
       *                                                                *
       *  DFHEIBLK - EXEC Interface Block surrogate                     *
       *                                                                *
-      *  Milestone note: modernization/harness/translate.py,           *
-      *  modernization/harness/driver.cbl and the generated tree       *
-      *  modernization/harness/build/ are planned artifacts and are    *
-      *  not present in the tree at this milestone; every statement    *
-      *  below about the harness or about a translated program is      *
-      *  the planned contract.                                         *
+      *  Harness status: modernization/harness/translate.py and        *
+      *  modernization/harness/driver.cbl stand in the tree, and every *
+      *  run of the harness regenerates the tree                       *
+      *  modernization/harness/build/. Every statement below about the *
+      *  harness or about a translated program describes the           *
+      *  delivered contract.                                           *
       *                                                                *
       *  Declares the five EXEC Interface Block fields that the        *
       *  translated Policy-Issue chain references without declaring:   *
@@ -16,15 +16,14 @@
       *  data items in one EXTERNAL group, and every compilation unit  *
       *  that COPYs this member addresses the same storage.            *
       *                                                                *
-      *  To be COPYed by the translated LGAPOL01, LGAPDB01 and         *
-      *  LGAPVS01 and by the harness driver. translate.py is to copy   *
-      *  this member verbatim into the generated build tree; it is     *
-      *  never preprocessed in place.                                  *
+      *  COPYed by the translated LGAPOL01, LGAPDB01 and LGAPVS01 and  *
+      *  by the harness driver. translate.py copies this member        *
+      *  verbatim into the generated build tree; it is never           *
+      *  preprocessed in place.                                        *
       *                                                                *
       *  No item is initialised in this member. The harness driver     *
-      *  will seed all five procedurally before it calls the chain,    *
-      *  and the translated programs will refresh EIBCALEN before      *
-      *  each CALL.                                                    *
+      *  seeds all five procedurally before it calls the chain, and    *
+      *  the translated programs refresh EIBCALEN before each CALL.    *
       *                                                                *
       *  Rationale is to be recorded in                                *
       *  modernization/docs/decision-log.md (planned deliverable; not  *
@@ -91,6 +90,6 @@
       *   on the KSDSPOLY write error path.
       *   Receiver WS-RESP2 PIC S9(8) COMP at
       *   base/src/lgapvs01.cbl:19.
-      *   The translated chain will read this item and never write it.
+      *   The translated chain reads this item and never writes it.
            03 EIBRESP2                 PIC S9(8) COMP.
       *----------------------------------------------------------------*

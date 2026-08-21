@@ -54,11 +54,15 @@
       * constraint, policy_before_commercial; insert_house is neither
       * of its two members and has no prerequisite ordinal of its own.
       *
-      * SQLCODE of the shared SQLCA is set to zero on every call. The
-      * translated LGAPDB01 tests it with IF SQLCODE NOT EQUAL 0 at
-      * [base/src/lgapdb01.cbl:427]; the unequal branch at
-      * [base/src/lgapdb01.cbl:428-432] moves '90' to CA-RETURN-CODE
-      * and abends with ABCODE 'LGSQ'. Zero leaves that branch untaken.
+      * SQLCODE of the shared SQLCA reports HC-INJECT-SUB-SQLCODE on
+      * every call. The translated LGAPDB01 tests it with IF SQLCODE
+      * NOT EQUAL 0 at [base/src/lgapdb01.cbl:427]; the unequal branch
+      * at [base/src/lgapdb01.cbl:428-432] moves '90' to
+      * CA-RETURN-CODE, writes the diagnostic, abends with ABCODE
+      * 'LGSQ' and returns. Zero leaves that branch untaken. The seven
+      * host values and the capture control items are recorded before
+      * the code is reported, on both paths: the block executed
+      * whatever it then reported.
       *
       * The block is reached on request id '01AHOU', routed at
       * [base/src/lgapdb01.cbl:228-229]. The samples 01AMOT and 01ACOM
@@ -67,11 +71,14 @@
       *
       * No item of the caller's COMMAREA is addressed here, and no
       * capture item outside HC-SQL-HOUSE, HC-EVENT-SEQ and
-      * HC-ORDER-LAST-STMT is written.
+      * HC-ORDER-LAST-STMT is written. HC-INJECT-SUB-SQLCODE is read
+      * here and never written.
       *
       * Rationale for compiling a route the two samples do not exercise
-      * and for the always-zero SQLCODE is recorded in
-      * modernization/docs/decision-log.md.
+      * and for the reported SQLCODE belongs to
+      * modernization/docs/decision-log.md (planned deliverable; not
+      * present at this milestone), row: deterministic failure
+      * injection through shared harness state.
       *
       * Harness topology: Figure 5 — Validation Harness Control Flow
       * in modernization/docs/architecture.md.
@@ -83,7 +90,8 @@
        WORKING-STORAGE SECTION.
       *
       * Shared capture state. This module writes the HOUSE group, the
-      * shared event sequence and the last-statement name.
+      * shared event sequence and the last-statement name, and reads
+      * the injected SQLCODE.
        COPY HCAPTURE.
       *
       * Shared SQL communications area read by the translated LGAPDB01.
@@ -143,12 +151,12 @@
       *
       *----------------------------------------------------------------*
       * Records the seven host values, stamps the capture control      *
-      * items and reports success to the caller.                       *
+      * items and reports the SQLCODE this run selected.               *
       *----------------------------------------------------------------*
        MAINLINE.
            PERFORM CAPTURE-HOUSE-VALUES
            PERFORM STAMP-CAPTURE-CONTROL
-           MOVE ZERO TO SQLCODE
+           MOVE HC-INJECT-SUB-SQLCODE TO SQLCODE
            GOBACK.
       *
       *----------------------------------------------------------------*
@@ -172,6 +180,8 @@
        STAMP-CAPTURE-CONTROL.
            MOVE 'Y' TO HC-HOU-PRESENT
            ADD 1 TO HC-HOU-COUNT
+           END-ADD
            ADD 1 TO HC-EVENT-SEQ
+           END-ADD
            MOVE HC-EVENT-SEQ TO HC-HOU-SEQ
            MOVE 'insert_house' TO HC-ORDER-LAST-STMT.

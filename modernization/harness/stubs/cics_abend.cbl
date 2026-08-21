@@ -23,13 +23,15 @@
       *   base/src/lgapdb01.cbl:551   'LGSQ'
       * Every site states NODUMP, which has no harness counterpart.
       *
-      * Milestone note: modernization/harness/translate.py, the three
-      * translated programs it produces, modernization/harness/
-      * driver.cbl, modernization/harness/run_harness.sh and the
-      * generated tree modernization/harness/build/ are planned
-      * artifacts and are not present in the tree at this milestone;
-      * every statement below about the harness, about a translated
-      * program or about the driver is the planned contract.
+      * Harness status: modernization/harness/translate.py,
+      * modernization/harness/driver.cbl and
+      * modernization/harness/run_harness.sh stand in the tree, every
+      * run of the harness regenerates the tree
+      * modernization/harness/build/, and the three translated
+      * programs the translator produces are compiled and executed
+      * from it. Every statement below about the harness, about a
+      * translated program or about the driver describes the delivered
+      * contract.
       *
       * Caller: modernization/harness/translate.py emits, at each of
       * the six sites, a move of that site's literal into the
@@ -54,7 +56,7 @@
       * initialised procedurally by modernization/harness/driver.cbl,
       * which this module never repeats.
       *
-      * Rationale is recorded in modernization/docs/decision-log.md
+      * Rationale belongs to modernization/docs/decision-log.md
       * (planned deliverable; not present at this milestone), rows:
       * called abend stub records and returns; shared EXTERNAL harness
       * state; shared event-sequence ordering witness and order guard;
@@ -114,6 +116,7 @@
       * Count this site. A case that reaches no site leaves the count
       * at the zero the driver set.
            ADD  1                   TO HC-ABEND-COUNT
+           END-ADD
       *
       * Stamp the execution ordinal from the shared event sequence and
       * report this module as the statement captured most recently.
@@ -121,6 +124,7 @@
       * HC-ORDER-VIOLATION and HC-ORDER-VIOLATION-STMT holding the
       * values the driver set.
            ADD  1                   TO HC-EVENT-SEQ
+           END-ADD
            MOVE HC-EVENT-SEQ        TO HC-ABEND-SEQ
            MOVE WS-STMT-NAME        TO HC-ORDER-LAST-STMT.
       *

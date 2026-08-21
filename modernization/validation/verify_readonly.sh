@@ -99,8 +99,9 @@
 #     validated", with exit 1 and no measurement taken;
 #   - a path substituted for a FIFO inside that window blocks that open: the run
 #     stops there and reports nothing further.
-# Decisions taken about the open sequence are recorded in
-# modernization/docs/decision-log.md.
+# Decisions taken about the open sequence will be recorded in
+# modernization/docs/decision-log.md (planned deliverable; not present at this
+# milestone).
 #
 # Externally supplied text - the --stage label, the requested and resolved log
 # paths, the repository root and every git output line - is emitted with
@@ -226,8 +227,9 @@
 # reduced, a log replaced between its open and its status read, a log whose name
 # becomes a symbolic link and a log whose name becomes a FIFO between its open
 # and its status read, a log whose append does not complete, the inode of a log
-# across two runs, four runs appending to one log at the same time, an evidence
-# directory that appears while this run creates it, an evidence directory a
+# across two runs, four runs appending to one log at the same time, a log whose
+# exclusive lock another descriptor already holds, an evidence directory that
+# appears while this run creates it, an evidence directory a
 # symbolic link takes over while this run creates it, a committed symlinked
 # source, a committed symlinked source directory, a FIFO and
 # a directory in place of sources, a committed source content change, a removed
@@ -248,9 +250,18 @@
 # every call to the real tool. The incomplete append is driven by a file-size
 # limit with SIGXFSZ ignored. The concurrent case starts its four runs at once
 # against one log and then reads that log back for balanced markers, one verdict
-# per run and no BEGIN marker opened inside another block. No case drives a
-# substitution into the window that holds no command, between a builtin check and
-# the open that follows it.
+# per run and no BEGIN marker opened inside another block. The held-lock case
+# holds an exclusive lock on the evidence log through a descriptor of its own,
+# which the run it starts does not inherit and which is closed as soon as that
+# run returns, and drives that run's wait through a "flock" shim placed ahead of
+# PATH: the shim records the bounded wait each call asks for, hands the real tool
+# a shorter one, supplies a bounded wait to a call that carries none, and
+# forwards every other argument, the descriptor and the exit status unchanged.
+# That case asserts the recorded wait, the exit code, the diagnostic and the
+# digest of the log. No option and no environment value of a verification run
+# changes the wait that run asks for. No case drives a substitution into the
+# window that holds no command, between a builtin check and the open that
+# follows it.
 # It prints one PASS or FAIL line per case plus a count summary, checks after
 # every case that nothing was written outside the throwaway tree, removes that
 # tree on exit, and writes no path in the repository it is started from. It runs
@@ -1267,7 +1278,21 @@ readonly SELF_TEST_EXPECTED_TOOLS=(git sha256sum wc date mkdir stat flock)
 
 # Number of case lines --self-test reports, including the case that checks this
 # number. A case that is added or removed changes it.
-readonly SELF_TEST_CASE_COUNT=47
+readonly SELF_TEST_CASE_COUNT=48
+
+# Seconds the "flock" shim of the held-lock case hands the real tool in place of
+# the bounded wait the run under test asks for. It applies to that one shim
+# alone: a verification run always asks for LOG_LOCK_WAIT_SECONDS.
+readonly SELF_TEST_LOCK_INJECTED_WAIT_SECONDS=0.2
+
+# Seconds --self-test waits for the exclusive lock it takes itself on the
+# evidence log of the held-lock case, before that case starts its run. Nothing
+# else holds that log, so the lock is taken at once; a wait that reaches this
+# value is an environment error.
+readonly SELF_TEST_LOCK_HOLD_WAIT_SECONDS=10
+
+# Value the "flock" shim records for a call that carries no bounded wait.
+readonly SELF_TEST_LOCK_WAIT_UNBOUNDED="none"
 
 # Content written to the escape canary and to the stub dependency manifest of
 # each case work tree.
@@ -1295,6 +1320,11 @@ ST_CONCURRENT_STATUS=()
 
 # Number of those runs that wrote a byte on stdout or on stderr.
 ST_CONCURRENT_NOISE=0
+
+# Bounded wait, in seconds, that each "flock" call of the run the held-lock case
+# started asked for, one entry per call, in call order. An entry reads
+# SELF_TEST_LOCK_WAIT_UNBOUNDED when that call carried no bounded wait.
+ST_LOCK_WAIT_REQUESTED=()
 
 # Removes the throwaway tree. Registered on EXIT while --self-test runs.
 self_test_cleanup() {
@@ -1671,6 +1701,97 @@ st_run_concurrently() {
       ST_CONCURRENT_NOISE=$((ST_CONCURRENT_NOISE + 1))
     fi
   done
+}
+
+# Runs one copy under test against an evidence log whose exclusive lock this
+# function already holds, so that the run's own acquisition of that lock cannot
+# succeed. The lock is taken on a descriptor this function opens, before the run
+# starts; the run is started with that descriptor closed, so it holds no lock of
+# its own through it; and the descriptor is closed as soon as the run returns,
+# on the run's failing path as well as on its succeeding one, which releases the
+# lock.
+#
+# The run's wait for that lock reaches a "flock" shim placed ahead of PATH. The
+# shim records the bounded wait of every call it receives in
+# ST_LOCK_WAIT_REQUESTED, one entry per call and
+# SELF_TEST_LOCK_WAIT_UNBOUNDED for a call that carries none, hands the real
+# tool SELF_TEST_LOCK_INJECTED_WAIT_SECONDS in place of that wait, supplies that
+# same value to a call that carries no wait, and forwards every other argument,
+# the descriptor number and the real tool's exit status unchanged.
+#
+# Positional parameters:
+#   1  evidence log the lock is held on, as an absolute path
+#   2+ options handed to the copy under test
+st_run_with_held_log_lock() {
+  local log_abs="$1" bin="" real="" line="" record="" held=-1
+  shift
+
+  bin="${ST_CASE_DIR}/bin-flock-shim"
+  if ! mkdir -p -- "$bin"; then
+    fail_env "--self-test could not create the flock-shim PATH directory for ${ST_CASE}"
+  fi
+  if ! real="$(command -v flock)" || [[ -z "$real" ]]; then
+    fail_env "--self-test could not resolve the real flock for ${ST_CASE}"
+  fi
+  record="${bin}/requested-wait"
+  {
+    printf '%s\n' '#!/usr/bin/env bash'
+    printf '%s\n' '# Forwards every call to the real flock with a shortened bounded wait.'
+    printf '%s\n' 'set -u'
+    printf 'readonly REAL=%q\n' "$real"
+    printf 'readonly WAIT=%q\n' "$SELF_TEST_LOCK_INJECTED_WAIT_SECONDS"
+    printf 'readonly UNBOUNDED=%q\n' "$SELF_TEST_LOCK_WAIT_UNBOUNDED"
+    printf 'readonly RECORD=%q\n' "$record"
+    while IFS= read -r line; do
+      printf '%s\n' "$line"
+    done <<'FLOCK_SHIM_BODY'
+args=("$@")
+requested="$UNBOUNDED"
+index=0
+# The value that follows -w is the bounded wait the caller asked for. Every other
+# argument, the descriptor number among them, is forwarded as it was received.
+for index in "${!args[@]}"; do
+  if [[ "${args[index]}" == "-w" ]] && ((index + 1 < ${#args[@]})); then
+    requested="${args[index + 1]}"
+    args[index + 1]="$WAIT"
+  fi
+done
+# A call that asked for no bounded wait is given one, so it returns instead of
+# waiting for a lock this run cannot take.
+if [[ "$requested" == "$UNBOUNDED" ]]; then
+  args=("-w" "$WAIT" "${args[@]}")
+fi
+if ! printf '%s\n' "$requested" >>"$RECORD"; then
+  printf 'flock shim: could not record %s\n' "$RECORD" >&2
+  exit 1
+fi
+exec "$REAL" "${args[@]}"
+FLOCK_SHIM_BODY
+  } >"${bin}/flock"
+  if ! chmod 0755 -- "${bin}/flock"; then
+    fail_env "--self-test could not make the flock shim executable for ${ST_CASE}"
+  fi
+
+  if ! { exec {held}>>"$log_abs"; } 2>/dev/null; then
+    fail_env "--self-test could not open the evidence log of ${ST_CASE} to hold its lock"
+  fi
+  if ! flock -x -w "$SELF_TEST_LOCK_HOLD_WAIT_SECONDS" "$held" 2>/dev/null; then
+    exec {held}>&-
+    fail_env "--self-test could not take the exclusive lock it holds for ${ST_CASE} within ${SELF_TEST_LOCK_HOLD_WAIT_SECONDS} seconds"
+  fi
+
+  ST_OUTPUT=""
+  ST_EXIT=0
+  ST_OUTPUT="$(cd "$ST_REPO" && PATH="${bin}:${PATH}" "$BASH" "$ST_SCRIPT" "$@" 2>&1 {held}>&-)" ||
+    ST_EXIT=$?
+  exec {held}>&-
+
+  ST_LOCK_WAIT_REQUESTED=()
+  if [[ -f "$record" ]]; then
+    while IFS= read -r line; do
+      ST_LOCK_WAIT_REQUESTED+=("$line")
+    done <"$record"
+  fi
 }
 
 st_expect_exit() {
@@ -2162,6 +2283,39 @@ st_case_log_concurrent_blocks() {
   st_expect_prefix_count "$log_abs" "stage: concurrent-" "$runs"
   st_expect_contiguous_blocks "$log_abs" "$runs"
   st_end "${runs} runs at once leave ${runs} contiguous blocks in one log, silently and with exit 0"
+}
+
+# One run meets an evidence log whose exclusive lock a descriptor of this
+# self-test holds for the whole of that run. The run asks for the bounded wait a
+# verification run always asks for, reaches the end of the wait it is given,
+# reports the log on stderr and appends nothing to it.
+st_case_log_lock_timeout() {
+  local log_rel="${LOG_DIR_REL}/locked.log" log_abs=""
+  local body="self-test held evidence log" before="" after=""
+  st_begin "log-lock-timeout"
+  log_abs="${ST_REPO}/${log_rel}"
+  if ! mkdir -p -- "${ST_REPO}/${LOG_DIR_REL}"; then
+    fail_env "--self-test could not create the evidence directory for ${ST_CASE}"
+  fi
+  printf '%s\n' "$body" >"$log_abs"
+  before="$(st_digest_of "$log_abs")"
+  [[ -n "$before" ]] || st_note "the held evidence log has no digest before the run"
+  st_run_with_held_log_lock "$log_abs" --stage self-test --log "$log_rel"
+  st_expect_exit "$EXIT_ENV"
+  st_expect_output "unable to take the exclusive lock on the evidence log within ${LOG_LOCK_WAIT_SECONDS} seconds: ${log_rel}"
+  st_expect_no_output "BEGIN readonly-check"
+  st_expect_no_output "verdict: PASS"
+  ((${#ST_LOCK_WAIT_REQUESTED[@]} == 1)) ||
+    st_note "${#ST_LOCK_WAIT_REQUESTED[@]} lock acquisition(s) reached the tool, expected 1"
+  [[ "${ST_LOCK_WAIT_REQUESTED[0]-}" == "$LOG_LOCK_WAIT_SECONDS" ]] ||
+    st_note "the run asked for a wait of ${ST_LOCK_WAIT_REQUESTED[0]-(none recorded)} seconds, expected ${LOG_LOCK_WAIT_SECONDS}"
+  st_expect_body "$log_abs" "$body"
+  st_expect_substring_count "$log_abs" "readonly-check" 0
+  after="$(st_digest_of "$log_abs")"
+  [[ -n "$after" && "$after" == "$before" ]] ||
+    st_note "the held evidence log changed while its lock was held elsewhere"
+  st_expect_absent "${ST_REPO}/${DEFAULT_LOG_REL}"
+  st_end "exit 4 when the exclusive lock is not taken within the bounded wait, log named and its bytes unchanged"
 }
 
 # The evidence directory is a real directory by the time this run's creation of
@@ -2694,6 +2848,7 @@ run_self_test() {
   st_case_log_write_failure
   st_case_log_inode_stability
   st_case_log_concurrent_blocks
+  st_case_log_lock_timeout
   st_case_log_dir_appeared
   st_case_log_dir_link_appeared
   st_case_source_symlink

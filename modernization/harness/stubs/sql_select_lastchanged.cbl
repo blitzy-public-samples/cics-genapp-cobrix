@@ -27,11 +27,23 @@
       * The value moved into parameter 1 is HC-SEED-LASTCHANGED, the
       * 26-character timestamp that
       * modernization/harness/stubs/sql_insert_policy.cbl leaves
-      * resolved in the shared seed group on every call. The move is
-      * unconditional and fills all 26 characters, in the Db2 external
-      * form YYYY-MM-DD-HH.MM.SS.NNNNNN. No environment variable is
-      * read here, no default is applied here, no clock is read and the
-      * value is neither trimmed nor reformatted.
+      * resolved in the shared seed group on every call. The move fills
+      * all 26 characters, in the Db2 external form
+      * YYYY-MM-DD-HH.MM.SS.NNNNNN. No environment variable is read
+      * here, no clock is read and the value is neither trimmed nor
+      * reformatted.
+      *
+      * The seed is validated before it is returned: the six separators
+      * in their fixed positions, a digit in every other position, a
+      * year of 0001 through 9999, a month of 01 through 12, a day the
+      * month and year allow under the Gregorian leap rule, an hour of
+      * 00 through 23, a minute and a second of 00 through 59, and six
+      * fractional digits. A seed that names an impossible date or time
+      * is named in the log and replaced by the same documented default
+      * the policy insert of the harness applies,
+      * 2026-08-19-12.00.00.000000, in the shared seed item and in
+      * parameter 1 alike, so this module returns a real timestamp on
+      * every call.
       *
       * Parameter 1 addresses CA-LASTCHANGED [base/src/lgcmarea.cpy:40]
       * within the caller's DFHCOMMAREA. The move reaches the post-chain
@@ -58,13 +70,15 @@
       *
       * No item of the caller's COMMAREA other than parameter 1 is
       * addressed here, no capture item outside
-      * HC-SQL-SELECT-LASTCHANGED, HC-EVENT-CONTROL and
-      * HC-ORDER-LAST-STMT is written, and the shared group is never
-      * initialised here.
+      * HC-SQL-SELECT-LASTCHANGED, HC-EVENT-CONTROL,
+      * HC-ORDER-LAST-STMT and HC-SEED-LASTCHANGED is written, that
+      * last one only to replace a seed the validation rejected, and
+      * the shared group is never initialised here.
       *
       * Rationale for the deterministic seeding of the timestamp and for
-      * the always-zero SQLCODE is recorded in
-      * modernization/docs/decision-log.md.
+      * the always-zero SQLCODE is to be recorded in
+      * modernization/docs/decision-log.md (planned deliverable; not
+      * present at this milestone).
       *
       * Harness topology: Figure 5 — Validation Harness Control Flow
       * in modernization/docs/architecture.md.
@@ -84,6 +98,58 @@
       *
       * Shared SQL communications area read by the translated LGAPDB01.
        COPY HSQLCA.
+      *
+      *----------------------------------------------------------------*
+      * Local items used to validate the seeded timestamp              *
+      *----------------------------------------------------------------*
+      * The seed under validation, laid out as the Db2 external form
+      * YYYY-MM-DD-HH.MM.SS.NNNNNN. The character view carries the
+      * class tests; the redefinition below reads the same characters
+      * as the numbers they spell, and is addressed only after every
+      * one of them has been found numeric.
+       01  WS-STAMP.
+           03 WS-STAMP-YEAR        PIC X(4).
+           03 WS-STAMP-SEP1        PIC X.
+           03 WS-STAMP-MONTH       PIC X(2).
+           03 WS-STAMP-SEP2        PIC X.
+           03 WS-STAMP-DAY         PIC X(2).
+           03 WS-STAMP-SEP3        PIC X.
+           03 WS-STAMP-HOUR        PIC X(2).
+           03 WS-STAMP-SEP4        PIC X.
+           03 WS-STAMP-MINUTE      PIC X(2).
+           03 WS-STAMP-SEP5        PIC X.
+           03 WS-STAMP-SECOND      PIC X(2).
+           03 WS-STAMP-SEP6        PIC X.
+           03 WS-STAMP-MICROS      PIC X(6).
+      *
+       01  WS-STAMP-NUM REDEFINES WS-STAMP.
+           03 WS-NUM-YEAR          PIC 9(4).
+           03 FILLER               PIC X.
+           03 WS-NUM-MONTH         PIC 9(2).
+           03 FILLER               PIC X.
+           03 WS-NUM-DAY           PIC 9(2).
+           03 FILLER               PIC X.
+           03 WS-NUM-HOUR          PIC 9(2).
+           03 FILLER               PIC X.
+           03 WS-NUM-MINUTE        PIC 9(2).
+           03 FILLER               PIC X.
+           03 WS-NUM-SECOND        PIC 9(2).
+           03 FILLER               PIC X.
+           03 WS-NUM-MICROS        PIC 9(6).
+      *
+      * Outcome of the validation, the element that failed it, the
+      * highest day the month and year allow, and 'Y' while that year
+      * is a leap year under the Gregorian rule.
+       01  WS-STAMP-OK             PIC X.
+       01  WS-STAMP-REASON         PIC X(48).
+       01  WS-STAMP-MAX-DAY        PIC 9(2).
+       01  WS-STAMP-LEAP           PIC X.
+      *
+      * The timestamp returned when the seed does not name a real date
+      * and time. It is the default
+      * modernization/harness/stubs/sql_insert_policy.cbl applies.
+       01  WS-DEFAULT-LASTCHANGED  PIC X(26)
+                                   VALUE '2026-08-19-12.00.00.000000'.
       *
       ******************************************************************
       *    L I N K A G E     S E C T I O N                             *
@@ -128,10 +194,161 @@
       *
       *----------------------------------------------------------------*
       * Moves the seeded 26-character timestamp into the INTO          *
-      * target. The field is copied in full, under no condition.       *
+      * target. The field is copied in full. A seed that does not name *
+      * a real date and time is named in the log and replaced by the   *
+      * documented default in the shared seed item and in the INTO     *
+      * target alike.                                                 *
       *----------------------------------------------------------------*
        RETURN-LASTCHANGED.
+           MOVE HC-SEED-LASTCHANGED TO WS-STAMP
+           PERFORM VALIDATE-TIMESTAMP-SEED
+           IF WS-STAMP-OK NOT = 'Y'
+               DISPLAY 'SQL-SELECT-LASTCHANGED: the seeded timestamp '
+                       'was rejected: '
+                       FUNCTION TRIM(WS-STAMP-REASON)
+               END-DISPLAY
+               DISPLAY 'SQL-SELECT-LASTCHANGED: the read-back returns '
+                       'the documented default '
+                       WS-DEFAULT-LASTCHANGED
+               END-DISPLAY
+               MOVE WS-DEFAULT-LASTCHANGED TO HC-SEED-LASTCHANGED
+           END-IF
            MOVE HC-SEED-LASTCHANGED TO CA-LASTCHANGED.
+      *
+      *----------------------------------------------------------------*
+      * Judges the 26 characters of WS-STAMP as a Db2 external         *
+      * timestamp: the six separators in their fixed positions, every  *
+      * other position a digit, a year of 0001 through 9999, a month   *
+      * of 01 through 12, a day the month and year allow under the     *
+      * Gregorian leap rule, an hour of 00 through 23, a minute and a  *
+      * second of 00 through 59, and six fractional digits.            *
+      *----------------------------------------------------------------*
+       VALIDATE-TIMESTAMP-SEED.
+           MOVE 'Y' TO WS-STAMP-OK
+           MOVE SPACES TO WS-STAMP-REASON
+           PERFORM CHECK-TIMESTAMP-LAYOUT
+           IF WS-STAMP-OK = 'Y'
+               PERFORM CHECK-TIMESTAMP-RANGES
+           END-IF
+           IF WS-STAMP-OK = 'Y'
+               PERFORM CHECK-TIMESTAMP-DAY
+           END-IF.
+      *
+      *----------------------------------------------------------------*
+      * Confirms the separators and that every remaining position      *
+      * holds a digit. The numeric redefinition of WS-STAMP is read    *
+      * only after this paragraph has passed.                          *
+      *----------------------------------------------------------------*
+       CHECK-TIMESTAMP-LAYOUT.
+           EVALUATE TRUE
+             WHEN WS-STAMP-SEP1 NOT = '-'
+               MOVE 'character 5 is not a hyphen' TO WS-STAMP-REASON
+               MOVE 'N' TO WS-STAMP-OK
+             WHEN WS-STAMP-SEP2 NOT = '-'
+               MOVE 'character 8 is not a hyphen' TO WS-STAMP-REASON
+               MOVE 'N' TO WS-STAMP-OK
+             WHEN WS-STAMP-SEP3 NOT = '-'
+               MOVE 'character 11 is not a hyphen' TO WS-STAMP-REASON
+               MOVE 'N' TO WS-STAMP-OK
+             WHEN WS-STAMP-SEP4 NOT = '.'
+               MOVE 'character 14 is not a point' TO WS-STAMP-REASON
+               MOVE 'N' TO WS-STAMP-OK
+             WHEN WS-STAMP-SEP5 NOT = '.'
+               MOVE 'character 17 is not a point' TO WS-STAMP-REASON
+               MOVE 'N' TO WS-STAMP-OK
+             WHEN WS-STAMP-SEP6 NOT = '.'
+               MOVE 'character 20 is not a point' TO WS-STAMP-REASON
+               MOVE 'N' TO WS-STAMP-OK
+             WHEN WS-STAMP-YEAR NOT NUMERIC
+               MOVE 'the year is not four digits' TO WS-STAMP-REASON
+               MOVE 'N' TO WS-STAMP-OK
+             WHEN WS-STAMP-MONTH NOT NUMERIC
+               MOVE 'the month is not two digits' TO WS-STAMP-REASON
+               MOVE 'N' TO WS-STAMP-OK
+             WHEN WS-STAMP-DAY NOT NUMERIC
+               MOVE 'the day is not two digits' TO WS-STAMP-REASON
+               MOVE 'N' TO WS-STAMP-OK
+             WHEN WS-STAMP-HOUR NOT NUMERIC
+               MOVE 'the hour is not two digits' TO WS-STAMP-REASON
+               MOVE 'N' TO WS-STAMP-OK
+             WHEN WS-STAMP-MINUTE NOT NUMERIC
+               MOVE 'the minute is not two digits'
+                   TO WS-STAMP-REASON
+               MOVE 'N' TO WS-STAMP-OK
+             WHEN WS-STAMP-SECOND NOT NUMERIC
+               MOVE 'the second is not two digits'
+                   TO WS-STAMP-REASON
+               MOVE 'N' TO WS-STAMP-OK
+             WHEN WS-STAMP-MICROS NOT NUMERIC
+               MOVE 'the fraction is not six digits'
+                   TO WS-STAMP-REASON
+               MOVE 'N' TO WS-STAMP-OK
+           END-EVALUATE.
+      *
+      *----------------------------------------------------------------*
+      * Confirms the range of every element except the day, which the  *
+      * month and the year decide.                                     *
+      *----------------------------------------------------------------*
+       CHECK-TIMESTAMP-RANGES.
+           EVALUATE TRUE
+             WHEN WS-NUM-YEAR < 1
+               MOVE 'the year is 0000' TO WS-STAMP-REASON
+               MOVE 'N' TO WS-STAMP-OK
+             WHEN WS-NUM-MONTH < 1 OR WS-NUM-MONTH > 12
+               MOVE 'the month is outside 01 through 12'
+                   TO WS-STAMP-REASON
+               MOVE 'N' TO WS-STAMP-OK
+             WHEN WS-NUM-HOUR > 23
+               MOVE 'the hour is outside 00 through 23'
+                   TO WS-STAMP-REASON
+               MOVE 'N' TO WS-STAMP-OK
+             WHEN WS-NUM-MINUTE > 59
+               MOVE 'the minute is outside 00 through 59'
+                   TO WS-STAMP-REASON
+               MOVE 'N' TO WS-STAMP-OK
+             WHEN WS-NUM-SECOND > 59
+               MOVE 'the second is outside 00 through 59'
+                   TO WS-STAMP-REASON
+               MOVE 'N' TO WS-STAMP-OK
+           END-EVALUATE.
+      *
+      *----------------------------------------------------------------*
+      * Confirms the day against the length of the month, taking       *
+      * February from the Gregorian leap rule: a year divisible by     *
+      * four is a leap year unless it is divisible by 100 without      *
+      * being divisible by 400.                                       *
+      *----------------------------------------------------------------*
+       CHECK-TIMESTAMP-DAY.
+           MOVE 'N' TO WS-STAMP-LEAP
+           IF FUNCTION MOD(WS-NUM-YEAR 4) = ZERO
+               IF FUNCTION MOD(WS-NUM-YEAR 100) NOT = ZERO
+                   MOVE 'Y' TO WS-STAMP-LEAP
+               ELSE
+                   IF FUNCTION MOD(WS-NUM-YEAR 400) = ZERO
+                       MOVE 'Y' TO WS-STAMP-LEAP
+                   END-IF
+               END-IF
+           END-IF
+           EVALUATE WS-NUM-MONTH
+             WHEN 2
+               IF WS-STAMP-LEAP = 'Y'
+                   MOVE 29 TO WS-STAMP-MAX-DAY
+               ELSE
+                   MOVE 28 TO WS-STAMP-MAX-DAY
+               END-IF
+             WHEN 4
+             WHEN 6
+             WHEN 9
+             WHEN 11
+               MOVE 30 TO WS-STAMP-MAX-DAY
+             WHEN OTHER
+               MOVE 31 TO WS-STAMP-MAX-DAY
+           END-EVALUATE
+           IF WS-NUM-DAY < 1 OR WS-NUM-DAY > WS-STAMP-MAX-DAY
+               MOVE 'the day is outside the length of the month'
+                   TO WS-STAMP-REASON
+               MOVE 'N' TO WS-STAMP-OK
+           END-IF.
       *
       *----------------------------------------------------------------*
       * Records the timestamp handed back and the predicate value      *
@@ -148,8 +365,8 @@
       *----------------------------------------------------------------*
        STAMP-CAPTURE-CONTROL.
            SET  HC-LCHG-CAPTURED    TO TRUE
-           ADD  1                   TO HC-LCHG-COUNT
-           ADD  1                   TO HC-EVENT-SEQ
+           ADD  1                   TO HC-LCHG-COUNT  END-ADD
+           ADD  1                   TO HC-EVENT-SEQ   END-ADD
            MOVE HC-EVENT-SEQ        TO HC-LCHG-SEQ
            MOVE 'select_lastchanged' TO HC-ORDER-LAST-STMT.
       *----------------------------------------------------------------*

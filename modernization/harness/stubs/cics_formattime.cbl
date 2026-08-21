@@ -48,25 +48,25 @@
       *                    WRITE-ERROR-MESSAGE paragraphs that hold all
       *                    three sites
       *
-      * Milestone note: modernization/harness/driver.cbl,
-      * modernization/harness/run_harness.sh,
-      * modernization/harness/translation-rules.md, eight of the other
-      * eleven members of modernization/harness/stubs/, the generated
-      * tree modernization/harness/build/,
+      * Harness status: modernization/harness/driver.cbl,
+      * modernization/harness/run_harness.sh and the other eleven
+      * members of modernization/harness/stubs/ stand in the tree, and
+      * every run of the harness regenerates the tree
+      * modernization/harness/build/.
+      * modernization/harness/translation-rules.md,
       * modernization/validation/diff_harness_vs_warehouse.py,
       * modernization/docs/decision-log.md and
       * modernization/docs/traceability-matrix.md are planned artifacts
-      * and are not present in the tree at this milestone; every
-      * statement below about the harness or about a translated program
-      * is the planned contract.
+      * and are not present in the tree; a statement below about one of
+      * those four is the planned contract.
       *
-      * modernization/harness/run_harness.sh is to compile this file as
-      * a callable module with cobc -m -std=ibm -ffold-copy=LOWER -ext
+      * modernization/harness/run_harness.sh compiles this file as a
+      * callable module with cobc -m -std=ibm -ffold-copy=LOWER -ext
       * cpy -I build/src -o build/bin/CICS-FORMATTIME.so. The module
       * basename equals the PROGRAM-ID, which is the name the dynamic
       * CALL resolves.
       *
-      * Each translated program is to call this module where its source
+      * Each translated program calls this module where its source
       * issues FORMATTIME, passing the abstime item its own ASKTIME site
       * filled. Every one of the three sites sits inside a
       * WRITE-ERROR-MESSAGE paragraph. A case that returns '00' loads

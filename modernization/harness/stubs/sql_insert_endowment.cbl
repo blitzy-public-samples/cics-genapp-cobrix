@@ -74,11 +74,15 @@
       * constraint, policy_before_commercial, and neither endowment
       * block is a member of it.
       *
-      * SQLCODE of the shared SQLCA is set to zero on every call. The
-      * translated LGAPDB01 tests it at [base/src/lgapdb01.cbl:389];
-      * zero keeps the run clear of the '90' return code at
-      * [base/src/lgapdb01.cbl:390] and of the ABEND ABCODE('LGSQ')
-      * at [base/src/lgapdb01.cbl:393].
+      * SQLCODE of the shared SQLCA reports HC-INJECT-SUB-SQLCODE on
+      * every call. The translated LGAPDB01 tests it at
+      * [base/src/lgapdb01.cbl:389]; zero keeps the run clear of the
+      * '90' return code at [base/src/lgapdb01.cbl:390] and of the
+      * ABEND ABCODE('LGSQ') at [base/src/lgapdb01.cbl:393], and any
+      * other value takes both. The eight fixed hosts, the padding host
+      * and the capture control items are recorded before the code is
+      * reported, on both paths: the block executed whatever it then
+      * reported.
       *
       * Request ids '01AMOT' and '01ACOM' do not reach paragraph
       * INSERT-ENDOW: on those cases this module is compiled and
@@ -87,13 +91,16 @@
       *
       * No item of the caller's COMMAREA is addressed here. Of the
       * shared capture state, only HC-SQL-ENDOWMENT, HC-EVENT-SEQ and
-      * HC-ORDER-LAST-STMT are written. That state carries no VALUE
-      * clause and is never initialised here.
+      * HC-ORDER-LAST-STMT are written, and HC-INJECT-SUB-SQLCODE is
+      * read and never written. That state carries no VALUE clause and
+      * is never initialised here.
       *
       * Rationale for the single-superset signature standing for both
-      * source blocks, for the always-zero SQLCODE and for the
-      * length-keyed padding rule is recorded in
-      * modernization/docs/decision-log.md.
+      * source blocks, for the reported SQLCODE and for the
+      * length-keyed padding rule belongs to
+      * modernization/docs/decision-log.md (planned deliverable; not
+      * present at this milestone), row: deterministic failure
+      * injection through shared harness state.
       *
       * Harness topology: Figure 5 — Validation Harness Control Flow
       * in modernization/docs/architecture.md.
@@ -105,7 +112,8 @@
        WORKING-STORAGE SECTION.
       *
       * Shared capture state. This module writes the ENDOWMENT group,
-      * the shared event sequence and the last-statement name.
+      * the shared event sequence and the last-statement name, and
+      * reads the injected SQLCODE.
        COPY HCAPTURE.
       *
       * Shared SQL communications area read by the translated LGAPDB01.
@@ -200,13 +208,13 @@
       *----------------------------------------------------------------*
       * Records the eight fixed hosts, applies the length-keyed        *
       * padding rule, stamps the capture control items and reports     *
-      * success to the translated LGAPDB01.                            *
+      * the SQLCODE this run selected to the translated LGAPDB01.      *
       *----------------------------------------------------------------*
        MAINLINE.
            PERFORM CAPTURE-FIXED-HOSTS
            PERFORM CAPTURE-PADDING-HOST
            PERFORM STAMP-CAPTURE-CONTROL
-           MOVE ZERO TO SQLCODE
+           MOVE HC-INJECT-SUB-SQLCODE TO SQLCODE
            GOBACK.
       *
       *----------------------------------------------------------------*
@@ -225,12 +233,16 @@
            MOVE LK-LIFE-ASSURED   TO HC-END-LIFE-ASSURED.
       *
       *----------------------------------------------------------------*
-      * Records the varchar host. The length reaches its capture       *
-      * slot on every call and decides whether the character body      *
-      * is read: a length of 1 through 3900 is read, a length of       *
-      * zero or below and a length above 3900 are not.                 *
+      * Records the varchar host. The character capture slot is set    *
+      * to spaces on every call, ahead of the length guard, so a call  *
+      * whose body is not read leaves no characters of an earlier      *
+      * call behind. The length reaches its capture slot on every      *
+      * call and decides whether the character body is read: a length  *
+      * of 1 through 3900 is read, a length of zero or below and a     *
+      * length above 3900 are not.                                    *
       *----------------------------------------------------------------*
        CAPTURE-PADDING-HOST.
+           MOVE SPACES TO HC-END-VARY-CHAR
            MOVE LK-VARY-LEN TO HC-END-VARY-LEN
            IF LK-VARY-LEN IS GREATER THAN ZERO
                IF LK-VARY-LEN IS GREATER THAN 3900
@@ -242,14 +254,14 @@
       *
       *----------------------------------------------------------------*
       * Records the leading characters of the varchar body for a       *
-      * length of 1 through 3900. The capture slot is set to spaces    *
-      * and then receives exactly the passed number of characters,     *
-      * holding the data of this call alone. Both fields are 3900      *
-      * characters wide and the guard above bounds the length;         *
-      * neither reference modification reaches past its own field.     *
+      * length of 1 through 3900. The capture slot was set to spaces   *
+      * by the caller above and receives exactly the passed number of  *
+      * characters here, holding the data of this call alone. Both     *
+      * fields are 3900 characters wide and the guard above bounds     *
+      * the length; neither reference modification reaches past its    *
+      * own field.                                                    *
       *----------------------------------------------------------------*
        RECORD-PADDING-CHARACTERS.
-           MOVE SPACES TO HC-END-VARY-CHAR
            MOVE LK-VARY-CHAR(1:LK-VARY-LEN)
              TO HC-END-VARY-CHAR(1:LK-VARY-LEN).
       *
@@ -264,7 +276,8 @@
            DISPLAY 'SQL-INSERT-ENDOWMENT: PADDING LENGTH '
                    LK-VARY-LEN
                    ' EXCEEDS THE 3900 CHARACTER BODY'
-                   ' - NO CHARACTERS RECORDED'.
+                   ' - NO CHARACTERS RECORDED'
+           END-DISPLAY.
       *
       *----------------------------------------------------------------*
       * Marks the statement captured, counts the execution, stamps     *
@@ -275,6 +288,8 @@
        STAMP-CAPTURE-CONTROL.
            MOVE 'Y' TO HC-END-PRESENT
            ADD 1 TO HC-END-COUNT
+           END-ADD
            ADD 1 TO HC-EVENT-SEQ
+           END-ADD
            MOVE HC-EVENT-SEQ TO HC-END-SEQ
            MOVE 'insert_endowment' TO HC-ORDER-LAST-STMT.

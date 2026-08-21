@@ -60,22 +60,29 @@
       * constraint, policy_before_commercial; insert_motor is neither
       * of its two members and has no prerequisite ordinal of its own.
       *
-      * SQLCODE of the shared SQLCA is set to zero on every call. The
-      * translated LGAPDB01 tests IF SQLCODE NOT EQUAL 0 at
-      * [base/src/lgapdb01.cbl:473]; the '90' return code at line 474
-      * and the ABCODE 'LGSQ' abend at line 477 follow a non-zero
-      * value.
+      * SQLCODE of the shared SQLCA reports HC-INJECT-SUB-SQLCODE on
+      * every call. The translated LGAPDB01 tests IF SQLCODE NOT EQUAL
+      * 0 at [base/src/lgapdb01.cbl:473]: zero leaves that branch
+      * untaken, and any other value takes the '90' return code at line
+      * 474, the diagnostic write at line 475, the ABCODE 'LGSQ' abend
+      * at line 477 and the return at line 478. The ten host values and
+      * the capture control items are recorded before the code is
+      * reported, on both paths: the block executed whatever it then
+      * reported.
       *
       * No item of the caller's COMMAREA is addressed here. Of the
       * shared capture state, only HC-SQL-MOTOR, HC-EVENT-SEQ and
-      * HC-ORDER-LAST-STMT are written. The group is EXTERNAL, carries
+      * HC-ORDER-LAST-STMT are written, and HC-INJECT-SUB-SQLCODE is
+      * read and never written. The group is EXTERNAL, carries
       * no VALUE clause and is initialised by
       * modernization/harness/driver.cbl before each case; no item of
       * it is initialised here.
       *
-      * Rationale for the always-zero SQLCODE, for the passthrough
+      * Rationale for the reported SQLCODE, for the passthrough
       * handling of the amounts and for the amount comparison
-      * tolerance is recorded in modernization/docs/decision-log.md.
+      * tolerance belongs to modernization/docs/decision-log.md
+      * (planned deliverable; not present at this milestone), row:
+      * deterministic failure injection through shared harness state.
       *
       * Harness topology: Figure 5 — Validation Harness Control Flow
       * in modernization/docs/architecture.md.
@@ -87,7 +94,8 @@
        WORKING-STORAGE SECTION.
       *
       * Shared capture state. This module writes the MOTOR group, the
-      * shared event sequence and the last-statement name.
+      * shared event sequence and the last-statement name, and reads
+      * the injected SQLCODE.
        COPY HCAPTURE.
       *
       * Shared SQL communications area read by the translated LGAPDB01.
@@ -158,12 +166,12 @@
       *
       *----------------------------------------------------------------*
       * Records the ten host values, stamps the capture control items  *
-      * and reports success.                                           *
+      * and reports the SQLCODE this run selected.                     *
       *----------------------------------------------------------------*
        MAINLINE.
            PERFORM CAPTURE-MOTOR-HOSTS
            PERFORM STAMP-CAPTURE-CONTROL
-           MOVE ZERO TO SQLCODE
+           MOVE HC-INJECT-SUB-SQLCODE TO SQLCODE
            GOBACK.
       *
       *----------------------------------------------------------------*
@@ -191,6 +199,8 @@
        STAMP-CAPTURE-CONTROL.
            MOVE 'Y' TO HC-MOT-PRESENT
            ADD 1 TO HC-MOT-COUNT
+           END-ADD
            ADD 1 TO HC-EVENT-SEQ
+           END-ADD
            MOVE HC-EVENT-SEQ TO HC-MOT-SEQ
            MOVE 'insert_motor' TO HC-ORDER-LAST-STMT.

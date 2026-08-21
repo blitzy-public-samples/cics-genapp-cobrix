@@ -12,6 +12,16 @@ Behaviour
 * Applies the rewrite rules R1-R14 of AAP section 0.4.4 to the generated
   copies only.  Every rule carries an expected site count and every count
   mismatch is a hard failure.
+* Holds each rewritten construct to the contract its source declares: every
+  ``EXEC SQL`` DML block is compared with ``statement_map.yml`` on verb, table,
+  ordered column list, ordered host list with declared directions, the whole
+  predicate region token for token against the declared predicate, and non-host
+  column expressions; both chain LINK sites are held to their target program,
+  ``DFHCOMMAREA`` and length 32500; the KSDSPOLY write is held to
+  ``KSDSPOLY``, length 64 and key length 21, and all six of its operands reach
+  the capture module.
+* Writes only inside the build tree of its own checkout, through
+  descriptor-relative operations that follow no symbolic link.
 * Copies ``lgcmarea.cpy`` and ``lgpolicy.cpy`` byte-for-byte, and the four
   harness copybooks named by ``--copybook-dir``, into the generated source
   directory; a single ``-I <build-dir>/src`` then resolves every ``COPY``.
@@ -27,17 +37,19 @@ non-zero, with a precise message on standard error, on any failure.
 
 Rule-to-construct coverage is carried by the JSON report and its per-rule
 totals, which account for every rewritten construct and for every source line
-carried through unchanged.  The reasoning behind the translation strategy is
-recorded in ``modernization/docs/decision-log.md``; this module states only
-what it does.  Harness topology is Figure 5 "Validation Harness Control Flow"
-in ``modernization/docs/architecture.md``.
+carried through unchanged.  The reasoning behind the translation strategy
+belongs to ``modernization/docs/decision-log.md`` (planned deliverable; not
+present at this milestone); this module states only what it does.  Harness
+topology is Figure 5 — Validation Harness Control Flow in
+``modernization/docs/architecture.md``.
 """
 
 import argparse
 import hashlib
 import json
+import os
 import re
-import shutil
+import stat
 import subprocess
 import sys
 from dataclasses import dataclass, field
@@ -75,14 +87,63 @@ SOURCE_ALLOW_LIST = frozenset(PROGRAM_SOURCES + VERBATIM_SOURCE_COPYBOOKS)
 # Harness copybooks copied verbatim out of --copybook-dir into <build>/src.
 HARNESS_COPYBOOKS = ("dfheiblk.cpy", "dfhresp.cpy", "hsqlca.cpy", "hcapture.cpy")
 
+# The directories the five authorized sources and the four harness copybooks
+# are read from, relative to the repository root this module belongs to.  A
+# --source-dir or --copybook-dir naming anything else is refused before a file
+# is opened, so the read surface cannot be moved to another tree.
+EXPECTED_SOURCE_DIR = REPO_ROOT / "base" / "src"
+EXPECTED_COPYBOOK_DIR = REPO_ROOT / "modernization" / "harness" / "copybooks"
+
+# SHA-256 of each authorized source as this translator was written against it.
+# The bytes read are compared with these values before any generation, so the
+# content cannot certify itself: a source that differs by a single byte is
+# refused even when its line count and statement census still agree.  The four
+# harness copybooks carry no pinned digest because they are authored files of
+# this project and change with it.
+AUTHORIZED_SOURCE_DIGESTS = {
+    "lgapol01.cbl":
+        "4dddd29539dd96aaec9f6885d3d62d19d40a1c6c888636623164bc5f5b232f6f",
+    "lgapdb01.cbl":
+        "3d21ad353a03c63d05defc511372e14477613fa4c51068a51a84d3c840c29815",
+    "lgapvs01.cbl":
+        "e0bca62eed2d6390852befdbaddd684833040c8be183d23f4fca368834709215",
+    "lgcmarea.cpy":
+        "4ecc9ed8dbf0936a8b0738cbb03a947e937206100b0e34f749fbb9e0b03f701d",
+    "lgpolicy.cpy":
+        "717c8f5c50738a2ef4d432e4b397e21bdc0423a9fc789246eb3360aa3f99eaa5",
+}
+
+# Largest statement map this translator reads, in bytes, and the deepest and
+# widest document it accepts once composed.
+MAX_STATEMENT_MAP_BYTES = 1_048_576
+MAX_MAP_DEPTH = 32
+MAX_MAP_NODES = 200_000
+
 # --------------------------------------------------------------------------
 # Write-path guard
 # --------------------------------------------------------------------------
-# Every write goes through BuildTree, whose root must resolve to a path whose
-# final three components are exactly these.  modernization/.gitignore ignores
-# /harness/build/; the guard confines every write to that directory.
+# Every write goes through BuildTree, whose root must resolve to exactly
+# CANONICAL_BUILD_ROOT: the build tree of the checkout this module belongs to.
+# modernization/.gitignore ignores /harness/build/; the guard confines every
+# write to that one directory.
 BUILD_DIR_TAIL = ("modernization", "harness", "build")
 BUILD_SUBDIRS = ("src", "bin", "samples", "logs", "run")
+CANONICAL_BUILD_ROOT = REPO_ROOT.joinpath(*BUILD_DIR_TAIL)
+
+# Directory descriptors are opened read-only, must be directories, and must
+# not be symbolic links; the descriptors are not inherited by the git
+# subprocess this module runs.
+NOFOLLOW_DIR_FLAGS = (
+    os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0)
+)
+# Regular files are created without O_TRUNC: the descriptor's file type and
+# link count are examined, and only then is the file truncated and written.
+# The descriptor is also readable, and a verbatim copy is read back through it.
+NOFOLLOW_FILE_FLAGS = (
+    os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0)
+)
+BUILD_DIR_MODE = 0o755
+BUILD_FILE_MODE = 0o644
 
 # --------------------------------------------------------------------------
 # Fixed-format geometry
@@ -203,6 +264,31 @@ DIAGNOSTIC_LINK_PROGRAM = "LGSTSQ"
 
 R1_NOTE = "(R1: commented for the harness build)"
 
+# --------------------------------------------------------------------------
+# Chain-link contract (R5) and file-write contract (R9)
+# --------------------------------------------------------------------------
+# One chain LINK per program, each with its own required target.  The PROGRAM
+# operand of both sites is a data item, so the target is taken from the VALUE
+# clause of that item's declaration in the program being translated.
+CHAIN_LINK_TARGETS = {
+    "lgapol01.cbl": "LGAPDB01",
+    "lgapdb01.cbl": "LGAPVS01",
+}
+CHAIN_LINK_COMMAREA = "DFHCOMMAREA"
+CHAIN_LINK_LENGTH = 32500
+
+# The one KSDSPOLY write: file name, record length and key length are required
+# to be exactly these, and all six operands reach the capture module.
+WRITE_FILE_NAME = "KSDSPOLY"
+WRITE_FILE_NAME_LENGTH = 8
+WRITE_RECORD_LENGTH = 64
+WRITE_KEY_LENGTH = 21
+# The two lengths travel as zero-padded alphanumeric literals of this width,
+# read by PIC 9(5) receivers in the capture module.  That choice belongs to
+# modernization/docs/decision-log.md (planned deliverable; not present at this
+# milestone), row: WRITE length operands as 5-digit literals.
+WRITE_LENGTH_LITERAL_DIGITS = 5
+
 
 class TranslationError(Exception):
     """A condition that stops generation with a precise, actionable message."""
@@ -242,27 +328,40 @@ class ExecBlock:
 
 @dataclass
 class RuleApplication:
-    """One applied rewrite site, as recorded in the JSON report."""
+    """One applied rewrite site, as recorded in the JSON report.
+
+    ``details`` carries the machine-readable operand or contract values a rule
+    enforced at the site; it is omitted from the report when a rule records
+    nothing beyond its prose note.
+    """
 
     rule_id: str
     source_lines: str
     source_text: str
     generated_text: str
     notes: str
+    details: dict = field(default_factory=dict)
 
     def as_dict(self) -> dict:
-        return {
+        recorded = {
             "rule_id": self.rule_id,
             "source_lines": self.source_lines,
             "source_text": self.source_text,
             "generated_text": self.generated_text,
             "notes": self.notes,
         }
+        if self.details:
+            recorded["details"] = self.details
+        return recorded
 
 
 @dataclass
 class ProgramResult:
-    """Generation outcome for one translated program."""
+    """Generation outcome for one translated program.
+
+    ``chain_links`` holds one entry per chain LINK site the program carries,
+    each recording the enforced program target, COMMAREA operand and length.
+    """
 
     source_name: str
     source_line_count: int
@@ -274,6 +373,7 @@ class ProgramResult:
     exec_sql_blocks: int = 0
     generated_rule_lines: int = 0
     abend_return_adjacencies: int = 0
+    chain_links: list = field(default_factory=list)
 
     @property
     def consumed_source_lines(self) -> int:
@@ -397,11 +497,44 @@ def sha256_of_bytes(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
+def require_expected_read_directory(supplied: Path, expected: Path,
+                                    option: str) -> None:
+    """Require ``supplied`` to resolve to exactly ``expected``.
+
+    ``option`` names the command-line option the value came from.  The
+    comparison is made on the resolved paths, so a relative value, a value
+    carrying ``..`` and a value reached through a symbolic link are all
+    reduced to the directory they name before it is compared.
+    """
+    resolved = supplied.resolve()
+    if resolved != expected.resolve():
+        raise TranslationError(
+            f"{option} names {resolved}; this translator reads only "
+            f"{expected}, the directory of the checkout holding "
+            f"{Path(__file__).resolve()}"
+        )
+
+
+def require_authorized_source_digest(name: str, data: bytes) -> None:
+    """Assert the bytes read for ``name`` carry the pinned SHA-256 digest."""
+    expected = AUTHORIZED_SOURCE_DIGESTS.get(name)
+    if expected is None:
+        raise TranslationError(f"no pinned digest for authorized source {name!r}")
+    actual = sha256_of_bytes(data)
+    if actual != expected:
+        raise TranslationError(
+            f"{name} does not carry its pinned digest: expected {expected}, "
+            f"read {actual}"
+        )
+
+
 def read_authorized_source(source_dir: Path, name: str) -> bytes:
     """Read one allow-listed source file in binary mode.
 
     Refuses any name outside SOURCE_ALLOW_LIST, any name carrying a path
-    separator, and any path that resolves outside ``source_dir``.
+    separator, and any path that resolves outside ``source_dir``.  The bytes
+    read are compared with the pinned digest of that name before they are
+    returned.
     """
     if name not in SOURCE_ALLOW_LIST:
         raise TranslationError(
@@ -422,7 +555,9 @@ def read_authorized_source(source_dir: Path, name: str) -> bytes:
             f"({resolved})"
         )
     with resolved.open("rb") as handle:
-        return handle.read()
+        data = handle.read()
+    require_authorized_source_digest(name, data)
+    return data
 
 
 def read_harness_copybook(copybook_dir: Path, name: str) -> bytes:
@@ -443,19 +578,48 @@ def read_harness_copybook(copybook_dir: Path, name: str) -> bytes:
 class BuildTree:
     """The single write gate for the generated harness tree.
 
-    Construction fails unless the resolved root's final three path components
-    are ``modernization/harness/build``, and every write is checked to land
-    inside that root.
+    Construction fails unless the resolved root is exactly
+    ``CANONICAL_BUILD_ROOT``, the build tree of the checkout this module lives
+    in, and unless every path component from the repository root down to that
+    directory is a real directory rather than a symbolic link.  Every removal
+    and every write is then performed through descriptor-relative, no-follow
+    operations inside that root, and every target path is checked to land
+    inside it.
     """
 
     def __init__(self, root: Path) -> None:
         resolved = root.expanduser().resolve()
-        if tuple(part.lower() for part in resolved.parts[-3:]) != BUILD_DIR_TAIL:
+        if resolved != CANONICAL_BUILD_ROOT:
             raise TranslationError(
-                f"refusing to write to {resolved}: the build directory must end "
-                f"with {'/'.join(BUILD_DIR_TAIL)}"
+                f"refusing to write to {resolved}: the build directory must be "
+                f"{CANONICAL_BUILD_ROOT}, the {'/'.join(BUILD_DIR_TAIL)} tree of "
+                f"the checkout holding {Path(__file__).resolve()}"
             )
+        self._reject_symlink_components(resolved)
         self.root = resolved
+
+    @staticmethod
+    def _reject_symlink_components(resolved: Path) -> None:
+        """Assert no component below the repository root is a symbolic link.
+
+        ``REPO_ROOT`` is itself a fully resolved path, so its own components
+        carry no link; the components below it are checked one at a time and
+        each one that exists must be a directory.
+        """
+        walked = REPO_ROOT
+        for part in resolved.relative_to(REPO_ROOT).parts:
+            walked = walked / part
+            if walked.is_symlink():
+                raise TranslationError(
+                    f"refusing to write to {resolved}: {walked} is a symbolic "
+                    f"link, and the build tree is reached through real "
+                    f"directories only"
+                )
+            if walked.exists() and not walked.is_dir():
+                raise TranslationError(
+                    f"refusing to write to {resolved}: {walked} exists and is "
+                    f"not a directory"
+                )
 
     def path_for(self, relative: str) -> Path:
         """Resolve a build-relative path and assert it stays inside the root."""
@@ -469,54 +633,1159 @@ class BuildTree:
             )
         return target
 
+    # -- descriptor-relative primitives -----------------------------------
+    def _open_root_fd(self) -> int:
+        """Open the build root itself as a no-follow directory descriptor."""
+        try:
+            return os.open(str(self.root), NOFOLLOW_DIR_FLAGS)
+        except OSError as error:
+            raise TranslationError(
+                f"cannot open the build tree {self.root} as a directory: {error}"
+            ) from error
+
+    def _mkdir_if_absent(self, parent_fd: int, name: str, display: Path) -> bool:
+        """Create the directory ``name`` below ``parent_fd``.
+
+        Returns True when this call created it and False when it was already
+        there; any other failure is reported.
+        """
+        try:
+            os.mkdir(name, BUILD_DIR_MODE, dir_fd=parent_fd)
+        except FileExistsError:
+            return False
+        except OSError as error:
+            raise TranslationError(
+                f"cannot create the build directory {display}: {error}"
+            ) from error
+        return True
+
+    def _open_child_fd(
+        self, parent_fd: int, name: str, display: Path, *, create: bool
+    ) -> int:
+        """Open ``name`` below ``parent_fd``, creating it when asked to.
+
+        The open refuses to follow a symbolic link and refuses anything that is
+        not a directory; ``create`` tolerates an existing directory and nothing
+        else.  ``display`` is the full path the message names.
+        """
+        if create:
+            self._mkdir_if_absent(parent_fd, name, display)
+        try:
+            return os.open(name, NOFOLLOW_DIR_FLAGS, dir_fd=parent_fd)
+        except OSError as error:
+            raise TranslationError(
+                f"refusing to descend into {display}: it is not a directory this "
+                f"run may open without following a link ({error})"
+            ) from error
+
+    def _open_directory_fd(self, parts, *, create: bool) -> int:
+        """Open the directory named by ``parts`` relative to the build root."""
+        current = self._open_root_fd()
+        walked = self.root
+        try:
+            for part in parts:
+                walked = walked / part
+                child = self._open_child_fd(current, part, walked, create=create)
+                os.close(current)
+                current = child
+        except BaseException:
+            os.close(current)
+            raise
+        return current
+
+    def _lexical_parts(self, relative: str) -> tuple:
+        """Split a build-relative path into components without resolving it.
+
+        ``.`` is dropped and ``..`` cancels the component before it, so the
+        components handed to the descriptor walk are the ones the caller asked
+        for; the no-follow open then refuses a symbolic link standing at any of
+        them.
+        """
+        candidate = Path(relative)
+        if candidate.is_absolute():
+            raise TranslationError(f"build paths must be relative, got {relative!r}")
+        parts = []
+        for part in candidate.parts:
+            if part == ".":
+                continue
+            if part == "..":
+                if not parts:
+                    raise TranslationError(
+                        f"refusing to write outside the build tree: {relative!r} "
+                        f"leaves {self.root}"
+                    )
+                parts.pop()
+                continue
+            parts.append(part)
+        if not parts:
+            raise TranslationError(
+                f"refusing to write to the build root itself, requested as "
+                f"{relative!r}"
+            )
+        return tuple(parts)
+
+    def _write_through_descriptor(
+        self, dir_fd: int, name: str, data: bytes, target: Path
+    ) -> bytes:
+        """Write ``data`` to ``name`` below ``dir_fd`` without following links.
+
+        The open fails on a symbolic link and carries no O_TRUNC; the
+        descriptor is then checked for being a regular file with a single hard
+        link, and the file is truncated and written only after those checks
+        hold.  Returns the bytes read back through the same descriptor.
+        """
+        try:
+            handle = os.open(name, NOFOLLOW_FILE_FLAGS, BUILD_FILE_MODE, dir_fd=dir_fd)
+        except OSError as error:
+            raise TranslationError(
+                f"refusing to write {target}: it cannot be opened without "
+                f"following a link ({error})"
+            ) from error
+        try:
+            info = os.fstat(handle)
+            if not stat.S_ISREG(info.st_mode):
+                raise TranslationError(
+                    f"refusing to write {target}: it is not a regular file"
+                )
+            if info.st_nlink > 1:
+                raise TranslationError(
+                    f"refusing to write {target}: it carries {info.st_nlink} hard "
+                    f"links, so a write would reach content outside the build tree"
+                )
+            os.ftruncate(handle, 0)
+            written = 0
+            while written < len(data):
+                written += os.write(handle, data[written:])
+            os.lseek(handle, 0, os.SEEK_SET)
+            return self._read_all(handle)
+        except OSError as error:
+            raise TranslationError(f"cannot write {target}: {error}") from error
+        finally:
+            os.close(handle)
+
+    @staticmethod
+    def _read_all(handle: int) -> bytes:
+        chunks = []
+        while True:
+            chunk = os.read(handle, 65536)
+            if not chunk:
+                return b"".join(chunks)
+            chunks.append(chunk)
+
+    # -- public write gate -------------------------------------------------
     def prepare(self) -> None:
         """Create the build subdirectories and reset the generated source dir.
 
-        ``src`` is removed and recreated; afterwards it holds only files
-        written by the current run.
+        ``src`` is removed and recreated through descriptor-relative
+        operations, so afterwards it holds only files written by the current
+        run.
         """
-        self.root.mkdir(parents=True, exist_ok=True)
-        src_dir = self.path_for("src")
-        if src_dir.exists():
-            if not src_dir.is_dir():
-                raise TranslationError(f"{src_dir} exists and is not a directory")
-            shutil.rmtree(src_dir)
-        for name in BUILD_SUBDIRS:
-            self.path_for(name).mkdir(parents=True, exist_ok=True)
+        self._ensure_root()
+        root_fd = self._open_root_fd()
+        try:
+            source_dir = self.root / "src"
+            try:
+                info = os.stat("src", dir_fd=root_fd, follow_symlinks=False)
+            except FileNotFoundError:
+                info = None
+            if info is not None and not stat.S_ISDIR(info.st_mode):
+                raise TranslationError(
+                    f"{source_dir} exists and is not a directory"
+                )
+            self._remove_entry(root_fd, "src", source_dir)
+            for name in BUILD_SUBDIRS:
+                os.close(
+                    self._open_child_fd(
+                        root_fd, name, self.root / name, create=True
+                    )
+                )
+        finally:
+            os.close(root_fd)
+
+    def _ensure_root(self) -> None:
+        """Create the build root below its parent without following links."""
+        parent = self.root.parent
+        try:
+            parent_fd = os.open(str(parent), NOFOLLOW_DIR_FLAGS)
+        except OSError as error:
+            raise TranslationError(
+                f"cannot open {parent}, the parent of the build tree: {error}"
+            ) from error
+        try:
+            self._mkdir_if_absent(parent_fd, self.root.name, self.root)
+            info = os.stat(self.root.name, dir_fd=parent_fd, follow_symlinks=False)
+            if stat.S_ISLNK(info.st_mode):
+                raise TranslationError(
+                    f"refusing to write to {self.root}: it is a symbolic link"
+                )
+            if not stat.S_ISDIR(info.st_mode):
+                raise TranslationError(
+                    f"{self.root} exists and is not a directory"
+                )
+        finally:
+            os.close(parent_fd)
+
+    def _remove_entry(self, parent_fd: int, name: str, display: Path) -> int:
+        """Remove ``name`` below ``parent_fd``, recursing into directories.
+
+        Returns the number of entries removed; a name that does not exist
+        removes nothing.  Symbolic links are unlinked, never followed, so a
+        planted link cannot redirect the removal outside the build tree.
+        """
+        try:
+            info = os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
+        except FileNotFoundError:
+            return 0
+        except OSError as error:
+            raise TranslationError(
+                f"cannot inspect {display} before removing it: {error}"
+            ) from error
+        if not stat.S_ISDIR(info.st_mode):
+            try:
+                os.unlink(name, dir_fd=parent_fd)
+            except OSError as error:
+                raise TranslationError(
+                    f"cannot remove {display}: {error}"
+                ) from error
+            return 1
+        child_fd = self._open_child_fd(parent_fd, name, display, create=False)
+        removed = 0
+        try:
+            for entry in os.listdir(child_fd):
+                removed += self._remove_entry(child_fd, entry, display / entry)
+        finally:
+            os.close(child_fd)
+        try:
+            os.rmdir(name, dir_fd=parent_fd)
+        except OSError as error:
+            raise TranslationError(
+                f"cannot remove the directory {display}: {error}"
+            ) from error
+        return removed + 1
 
     def write_text(self, relative: str, text: str) -> Path:
         """Write ASCII text with LF endings; non-ASCII content is reported."""
-        target = self.path_for(relative)
-        target.parent.mkdir(parents=True, exist_ok=True)
         try:
             encoded = text.encode("ascii")
         except UnicodeEncodeError as error:
             raise TranslationError(
-                f"refusing to write non-ASCII content to {target}: {error}"
+                f"refusing to write non-ASCII content to "
+                f"{self.path_for(relative)}: {error}"
             ) from error
-        with target.open("wb") as handle:
-            handle.write(encoded)
-        return target
+        return self.write_bytes(relative, encoded)
 
     def write_bytes(self, relative: str, data: bytes) -> Path:
-        target = self.path_for(relative)
-        target.parent.mkdir(parents=True, exist_ok=True)
-        with target.open("wb") as handle:
-            handle.write(data)
+        """Write ``data`` inside the build tree through no-follow operations."""
+        target, _ = self._write(relative, data)
         return target
 
+    def _write(self, relative: str, data: bytes) -> tuple:
+        """Write ``data`` and return the target path and the bytes read back.
+
+        ``path_for`` checks that the request resolves inside the build tree and
+        the descriptor walk then opens the requested components themselves, so
+        the path written is the path asked for.
+        """
+        self.path_for(relative)
+        parts = self._lexical_parts(relative)
+        target = self.root.joinpath(*parts)
+        dir_fd = self._open_directory_fd(parts[:-1], create=True)
+        try:
+            written = self._write_through_descriptor(
+                dir_fd, parts[-1], data, target
+            )
+        finally:
+            os.close(dir_fd)
+        return target, written
+
     def copy_verbatim(self, relative: str, data: bytes, expected_digest: str) -> Path:
-        """Write ``data`` and assert the written copy's digest is unchanged."""
-        target = self.write_bytes(relative, data)
-        with target.open("rb") as handle:
-            written = sha256_of_bytes(handle.read())
-        if written != expected_digest:
+        """Write ``data`` and assert the written copy's digest is unchanged.
+
+        The copy is read back through the same descriptor the write used, so
+        the digest covers the bytes that reached the file this run opened.
+        """
+        target, written = self._write(relative, data)
+        digest = sha256_of_bytes(written)
+        if digest != expected_digest:
             raise TranslationError(
-                f"verbatim copy {target} digest {written} does not match source "
+                f"verbatim copy {target} digest {digest} does not match source "
                 f"digest {expected_digest}"
             )
         return target
 
+
+
+# --------------------------------------------------------------------------
+# SQL contract: normalisation, parsing and comparison against statement_map.yml
+# --------------------------------------------------------------------------
+# The verbs the eight mapped DML blocks use and the two host directions the map
+# spells.  A map entry naming anything else is refused before generation.
+SUPPORTED_SQL_VERBS = frozenset({"INSERT", "SET", "SELECT"})
+HOST_DIRECTIONS = frozenset({"in", "out"})
+
+# ``present_in_source_block`` lists the ``<start>-<end>`` source ranges a host
+# is referenced by.  A host whose list omits the range of the entry carrying it
+# is not referenced by that source block and reaches the stub as a superset
+# argument.  That choice belongs to modernization/docs/decision-log.md
+# (planned deliverable; not present at this milestone), row: single-superset
+# SQL-INSERT-ENDOWMENT call.
+SOURCE_BLOCK_RANGE_RE = re.compile(r"^\s*(\d+)\s*-\s*(\d+)\s*$")
+
+SQL_ENVELOPE_RE = re.compile(
+    r"^EXEC\s+SQL\s+(?P<body>.*?)\s*END-EXEC\s*\.?\s*$", re.IGNORECASE | re.DOTALL
+)
+SQL_LEADING_VERB_RE = re.compile(r"^([A-Za-z][A-Za-z0-9_]*)\b")
+SQL_TABLE_PATTERN = r"[A-Za-z][A-Za-z0-9_$#@]*(?:\.[A-Za-z][A-Za-z0-9_$#@]*)?"
+SQL_INSERT_HEAD_RE = re.compile(
+    rf"^INSERT\s+INTO\s+(?P<table>{SQL_TABLE_PATTERN})\s*(?=\()", re.IGNORECASE
+)
+SQL_VALUES_HEAD_RE = re.compile(r"^VALUES\s*(?=\()", re.IGNORECASE)
+SQL_SET_RE = re.compile(
+    r"^SET\s+:(?P<host>[A-Za-z][A-Za-z0-9\-]*)\s*=\s*(?P<expression>.+)$",
+    re.IGNORECASE,
+)
+SQL_SELECT_RE = re.compile(
+    r"^SELECT\s+(?P<columns>.+?)\s+INTO\s+(?P<targets>.+?)\s+FROM\s+"
+    rf"(?P<table>{SQL_TABLE_PATTERN})(?P<tail>\s.*)?$",
+    re.IGNORECASE,
+)
+HOST_REFERENCE_RE = re.compile(r"^:([A-Za-z][A-Za-z0-9\-]*)$")
+
+# A declared ``predicate`` fragment is one complete comparison less its host
+# reference: a boolean connector, the column being compared and the comparison
+# operator, as in ``WHERE POLICYNUMBER =``.  Nothing else is a fragment.
+SQL_PREDICATE_FRAGMENT_RE = re.compile(
+    r"^(?P<connector>WHERE|AND|OR)\s+"
+    rf"(?P<column>{SQL_TABLE_PATTERN})\s*"
+    r"(?P<operator><>|!=|<=|>=|=|<|>)$",
+    re.IGNORECASE,
+)
+# The first condition of a predicate opens with WHERE; every later one opens
+# with a boolean connector.
+SQL_FIRST_PREDICATE_CONNECTOR = "WHERE"
+SQL_LATER_PREDICATE_CONNECTORS = ("AND", "OR")
+
+# The complete token vocabulary of a predicate region: a host reference, a
+# quoted literal, a number, a possibly qualified identifier, a two-character
+# comparison operator, and the single characters SQL predicates spell.  A
+# character outside this vocabulary is reported rather than skipped, so no
+# predicate text can pass unread.
+SQL_PREDICATE_TOKEN_RE = re.compile(
+    r":[A-Za-z][A-Za-z0-9\-]*"
+    r"|'[^']*'"
+    r"|\d+(?:\.\d+)?"
+    r"|[A-Za-z][A-Za-z0-9_$#@]*(?:\.[A-Za-z][A-Za-z0-9_$#@]*)*"
+    r"|<>|!=|<=|>="
+    r"|[=<>(),+\-*/]"
+)
+# WHERE standing as a whole word, used to split a statement tail at the point
+# its predicate region begins.
+SQL_WHERE_KEYWORD_RE = re.compile(
+    r"(?<![A-Za-z0-9_$#@\-])WHERE(?![A-Za-z0-9_$#@\-])", re.IGNORECASE
+)
+# The part of each statement form whose text the predicate contract accounts
+# for.  Each value is the phrase a rejection message uses to name that text.
+PREDICATE_REGION_LABELS = {
+    "INSERT": "the text following the VALUES list",
+    "SET": "the text following the assigned expression",
+    "SELECT": "the text following the FROM clause",
+}
+
+
+def normalise_sql_expression(text: str) -> str:
+    """Fold one SQL fragment to a comparable form.
+
+    Runs of whitespace collapse to a single space, the space around
+    parentheses is removed and the result is upper-cased, so
+    ``IDENTITY_VAL_LOCAL ( )`` and ``identity_val_local()`` compare equal
+    while ``CURRENT TIMESTAMP`` keeps its separating space.
+    """
+    collapsed = re.sub(r"\s+", " ", str(text)).strip()
+    collapsed = re.sub(r"\s*\(\s*", "(", collapsed)
+    collapsed = re.sub(r"\s*\)", ")", collapsed)
+    return collapsed.upper()
+
+
+def normalise_sql_body(program: str, block: ExecBlock) -> str:
+    """Strip the ``EXEC SQL`` / ``END-EXEC`` envelope and collapse whitespace."""
+    match = SQL_ENVELOPE_RE.match(block.body)
+    if match is None:
+        raise TranslationError(
+            f"{program}:{block.locator}: the EXEC SQL block does not carry the "
+            f"expected EXEC SQL ... END-EXEC envelope: {block.body[:80]!r}"
+        )
+    return re.sub(r"\s+", " ", match.group("body")).strip()
+
+
+def read_balanced_group(text: str, start: int, program: str, locator: str) -> tuple:
+    """Return the contents of the parenthesised group at ``start``.
+
+    ``start`` indexes the opening parenthesis, possibly preceded by spaces.
+    The returned tuple is the text between the balanced parentheses and the
+    index just past the closing one.
+    """
+    cursor = start
+    while cursor < len(text) and text[cursor].isspace():
+        cursor += 1
+    if cursor >= len(text) or text[cursor] != "(":
+        raise TranslationError(
+            f"{program}:{locator}: expected a parenthesised list at "
+            f"{text[start:start + 40]!r}"
+        )
+    depth = 0
+    for index in range(cursor, len(text)):
+        if text[index] == "(":
+            depth += 1
+        elif text[index] == ")":
+            depth -= 1
+            if depth == 0:
+                return text[cursor + 1:index], index + 1
+    raise TranslationError(
+        f"{program}:{locator}: unbalanced parenthesis in {text[cursor:cursor + 40]!r}"
+    )
+
+
+def split_top_level_commas(text: str) -> list:
+    """Split a list on the commas that sit outside every parenthesis."""
+    items = []
+    depth = 0
+    current = []
+    for character in text:
+        if character == "(":
+            depth += 1
+        elif character == ")":
+            depth -= 1
+        if character == "," and depth == 0:
+            items.append("".join(current).strip())
+            current = []
+            continue
+        current.append(character)
+    items.append("".join(current).strip())
+    return items
+
+
+def split_predicate_region(text: str) -> tuple:
+    """Split a statement tail at the first predicate-opening ``WHERE``.
+
+    The keyword is recognised only where it stands as a whole word outside
+    every parenthesis and outside every quoted literal.  Returns the text
+    before that point and the predicate region from it onwards; a tail holding
+    no such keyword yields the whole text and an empty region.
+    """
+    depth = 0
+    index = 0
+    while index < len(text):
+        character = text[index]
+        if character == "'":
+            closing = text.find("'", index + 1)
+            index = len(text) if closing < 0 else closing + 1
+            continue
+        if character == "(":
+            depth += 1
+        elif character == ")":
+            depth -= 1
+        elif depth == 0 and SQL_WHERE_KEYWORD_RE.match(text, index) is not None:
+            return text[:index].strip(), text[index:].strip()
+        index += 1
+    return text.strip(), ""
+
+
+def parse_sql_insert(program: str, locator: str, body: str) -> dict:
+    """Parse ``INSERT INTO <table> ( columns ) VALUES ( values )``.
+
+    Any text standing after the VALUES list is returned as ``tail``, the
+    block's predicate region, and is accounted for by the predicate contract.
+    """
+    head = SQL_INSERT_HEAD_RE.match(body)
+    if head is None:
+        raise TranslationError(
+            f"{program}:{locator}: the source does not open with "
+            f"INSERT INTO <table> ( ... ): {body[:80]!r}"
+        )
+    columns_text, cursor = read_balanced_group(body, head.end(), program, locator)
+    remainder = body[cursor:].lstrip()
+    values_head = SQL_VALUES_HEAD_RE.match(remainder)
+    if values_head is None:
+        raise TranslationError(
+            f"{program}:{locator}: the column list is not followed by "
+            f"VALUES ( ... ): {remainder[:80]!r}"
+        )
+    values_text, after = read_balanced_group(
+        remainder, values_head.end(), program, locator
+    )
+    return {
+        "table": head.group("table"),
+        "columns": split_top_level_commas(columns_text),
+        "values": split_top_level_commas(values_text),
+        "tail": remainder[after:].strip(),
+    }
+
+
+def parse_sql_set(program: str, locator: str, body: str) -> dict:
+    """Parse ``SET :<host> = <expression>``.
+
+    The assigned expression ends where a predicate-opening ``WHERE`` stands;
+    that keyword and everything after it are returned as ``tail``, the block's
+    predicate region.
+    """
+    match = SQL_SET_RE.match(body)
+    if match is None:
+        raise TranslationError(
+            f"{program}:{locator}: the source does not carry the "
+            f"SET :<host> = <expression> form: {body[:80]!r}"
+        )
+    expression, tail = split_predicate_region(match.group("expression").strip())
+    return {
+        "target_host": match.group("host"),
+        "expression": expression,
+        "tail": tail,
+    }
+
+
+def parse_sql_select(program: str, locator: str, body: str) -> dict:
+    """Parse ``SELECT <columns> INTO <targets> FROM <table> [tail]``.
+
+    Everything standing after the table name is returned as ``tail``, the
+    block's predicate region, whether or not it opens with ``WHERE``.
+    """
+    match = SQL_SELECT_RE.match(body)
+    if match is None:
+        raise TranslationError(
+            f"{program}:{locator}: the source does not carry the "
+            f"SELECT ... INTO ... FROM ... form: {body[:80]!r}"
+        )
+    tail = match.group("tail")
+    return {
+        "table": match.group("table"),
+        "columns": split_top_level_commas(match.group("columns")),
+        "targets": split_top_level_commas(match.group("targets")),
+        "tail": tail.strip() if tail else "",
+    }
+
+
+def source_block_range(entry: dict) -> str:
+    """Render an entry's source range in the ``<start>-<end>`` map spelling."""
+    return f"{int(entry['start_line'])}-{int(entry['end_line'])}"
+
+
+def normalise_source_block_range(value, label: str) -> str:
+    match = SOURCE_BLOCK_RANGE_RE.match(str(value))
+    if match is None:
+        raise TranslationError(
+            f"{label} holds {value!r}, which is not a <start>-<end> source range"
+        )
+    return f"{int(match.group(1))}-{int(match.group(2))}"
+
+
+def host_is_referenced_by(entry: dict, host: dict) -> bool:
+    """True when the host is referenced by this entry's own source block.
+
+    A host with no ``present_in_source_block`` marker is referenced by every
+    block that maps to it; a host carrying the marker is referenced only by the
+    ranges the marker lists.
+    """
+    marker = host.get("present_in_source_block")
+    if marker is None:
+        return True
+    own = source_block_range(entry)
+    label = f"dml[{entry['id']}].using[{host['host']}].present_in_source_block"
+    return any(
+        normalise_source_block_range(value, label) == own for value in marker
+    )
+
+
+def expected_source_hosts(entry: dict) -> tuple:
+    """Split an entry's mapped hosts into those its source block references.
+
+    Returns the hosts the source block must reference, in map order, and the
+    hosts the map marks as absent from that block, which reach the stub as
+    superset arguments.
+    """
+    referenced = []
+    omitted = []
+    for host in entry["using"]:
+        if host_is_referenced_by(entry, host):
+            referenced.append(host)
+        else:
+            omitted.append(host)
+    return referenced, omitted
+
+
+def _validate_presence_metadata(entry: dict, host: dict, label: str) -> None:
+    """Check one host's ``present_in_source_block`` marker is well formed."""
+    marker = host.get("present_in_source_block")
+    if marker is None:
+        return
+    ranges = _require_sequence(marker, f"{label}.present_in_source_block")
+    if not ranges:
+        raise TranslationError(
+            f"{label}.present_in_source_block is empty; a host referenced by no "
+            f"source block cannot be validated against one"
+        )
+    for value in ranges:
+        normalise_source_block_range(value, f"{label}.present_in_source_block")
+
+
+def _host_signature(entry: dict) -> tuple:
+    """Render an entry's ``using`` list as a comparable signature."""
+    signature = []
+    for host in entry["using"]:
+        marker = host.get("present_in_source_block")
+        listed = (
+            tuple(
+                normalise_source_block_range(
+                    value, f"dml[{entry['id']}].using.present_in_source_block"
+                )
+                for value in marker
+            )
+            if marker is not None
+            else None
+        )
+        signature.append(
+            (
+                str(host["host"]).upper(),
+                normalise_sql_expression(str(host["column"])),
+                str(host["direction"]).strip().lower(),
+                normalise_sql_expression(str(host["pic"])),
+                listed,
+            )
+        )
+    return tuple(signature)
+
+
+def _validate_shared_call_signatures(dml: list) -> None:
+    """Check the entries that share one stub declare one identical signature.
+
+    Two DML entries may name the same ``call_program`` only when their
+    ``using`` lists are identical host by host, which is what makes the shared
+    list the superset both source branches are measured against.  Every host of
+    that shared list must be referenced by at least one of those blocks, and a
+    ``present_in_source_block`` marker may name only the ranges of the blocks
+    that share the stub.
+    """
+    by_program = {}
+    for entry in dml:
+        by_program.setdefault(str(entry["call_program"]), []).append(entry)
+    for call_program, entries in sorted(by_program.items()):
+        ranges = {source_block_range(entry) for entry in entries}
+        reference = entries[0]
+        reference_signature = _host_signature(reference)
+        for entry in entries[1:]:
+            if _host_signature(entry) != reference_signature:
+                raise TranslationError(
+                    f"dml entries {reference['id']!r} and {entry['id']!r} both map "
+                    f"to {call_program} but declare different USING lists; entries "
+                    f"sharing one stub must declare one identical signature"
+                )
+        for position, host in enumerate(reference["using"]):
+            marker = host.get("present_in_source_block")
+            if marker is None:
+                continue
+            label = (
+                f"dml[{reference['id']}].using[{position}]"
+                f".present_in_source_block"
+            )
+            listed = {
+                normalise_source_block_range(value, label) for value in marker
+            }
+            unknown = sorted(listed - ranges)
+            if unknown:
+                raise TranslationError(
+                    f"{label} names source range(s) {unknown} that no dml entry "
+                    f"mapping to {call_program} declares; the known ranges are "
+                    f"{sorted(ranges)}"
+                )
+        for entry in entries:
+            referenced, _omitted = expected_source_hosts(entry)
+            if not referenced:
+                raise TranslationError(
+                    f"dml[{entry['id']}] marks every mapped host as absent from "
+                    f"its own source block {source_block_range(entry)}"
+                )
+        for position, host in enumerate(reference["using"]):
+            if not any(host_is_referenced_by(entry, host) for entry in entries):
+                raise TranslationError(
+                    f"dml[{reference['id']}].using[{position}] host "
+                    f"{host['host']!r} is marked absent from every source block "
+                    f"that maps to {call_program}"
+                )
+
+
+def _require_declared_table(
+    program: str, block: ExecBlock, entry: dict, table: str
+) -> str:
+    """Assert the table the source addresses is the one the map declares."""
+    declared = str(entry["table"]).strip()
+    if table.upper() != declared.upper():
+        raise TranslationError(
+            f"{program}:{block.locator}: statement map entry {entry['id']!r} "
+            f"declares table {declared!r} but the source block addresses "
+            f"{table!r}"
+        )
+    return table
+
+
+def _validate_insert_contract(
+    program: str, block: ExecBlock, entry: dict, referenced: list, body: str
+) -> dict:
+    """Compare an INSERT block's columns, values and directions with the map."""
+    parsed = parse_sql_insert(program, block.locator, body)
+    _require_declared_table(program, block, entry, parsed["table"])
+    columns = parsed["columns"]
+    values = parsed["values"]
+    if len(columns) != len(values):
+        raise TranslationError(
+            f"{program}:{block.locator}: the source names {len(columns)} column(s) "
+            f"and supplies {len(values)} value(s)"
+        )
+    declared_non_host = {
+        normalise_sql_expression(str(column)): (str(column), str(expression))
+        for column, expression in (entry.get("non_host_values") or {}).items()
+    }
+    bindings = []
+    cursor = 0
+    for column, value in zip(columns, values):
+        if not column:
+            raise TranslationError(
+                f"{program}:{block.locator}: the column list holds an empty entry"
+            )
+        host_reference = HOST_REFERENCE_RE.match(value)
+        if host_reference is not None:
+            if cursor >= len(referenced):
+                raise TranslationError(
+                    f"{program}:{block.locator}: column {column!r} takes host "
+                    f"{value!r}, beyond the {len(referenced)} host(s) statement map "
+                    f"entry {entry['id']!r} declares for this block"
+                )
+            item = referenced[cursor]
+            if host_reference.group(1).upper() != str(item["host"]).upper():
+                raise TranslationError(
+                    f"{program}:{block.locator}: value position {cursor + 1} holds "
+                    f"host {host_reference.group(1)!r}; statement map entry "
+                    f"{entry['id']!r} declares {item['host']!r} there"
+                )
+            if normalise_sql_expression(column) != normalise_sql_expression(
+                str(item["column"])
+            ):
+                raise TranslationError(
+                    f"{program}:{block.locator}: the source pairs host "
+                    f"{item['host']!r} with column {column!r}; statement map entry "
+                    f"{entry['id']!r} pairs it with {item['column']!r}"
+                )
+            if str(item["direction"]).strip().lower() != "in":
+                raise TranslationError(
+                    f"{program}:{block.locator}: host {item['host']!r} stands in an "
+                    f"INSERT VALUES position, which requires direction 'in'; "
+                    f"statement map entry {entry['id']!r} declares "
+                    f"{item['direction']!r}"
+                )
+            bindings.append(
+                {
+                    "column": column,
+                    "value": value,
+                    "host": str(item["host"]),
+                    "direction": "in",
+                }
+            )
+            cursor += 1
+            continue
+        key = normalise_sql_expression(column)
+        declared = declared_non_host.pop(key, None)
+        if declared is None:
+            raise TranslationError(
+                f"{program}:{block.locator}: column {column!r} is supplied by the "
+                f"expression {value!r}, and statement map entry {entry['id']!r} "
+                f"declares no non_host_values entry for it"
+            )
+        if normalise_sql_expression(value) != normalise_sql_expression(declared[1]):
+            raise TranslationError(
+                f"{program}:{block.locator}: statement map entry {entry['id']!r} "
+                f"declares non_host_values[{declared[0]!r}]={declared[1]!r}; the "
+                f"source supplies {value!r}"
+            )
+        bindings.append(
+            {
+                "column": column,
+                "value": value,
+                "host": None,
+                "direction": "expression",
+            }
+        )
+    if cursor != len(referenced):
+        raise TranslationError(
+            f"{program}:{block.locator}: statement map entry {entry['id']!r} "
+            f"declares {len(referenced)} host(s) for this block but only {cursor} "
+            f"stand in a VALUES position"
+        )
+    if declared_non_host:
+        missing = sorted(column for column, _ in declared_non_host.values())
+        raise TranslationError(
+            f"{program}:{block.locator}: statement map entry {entry['id']!r} "
+            f"declares non-host column(s) {missing} that the source column list "
+            f"does not name"
+        )
+    return {
+        "table": parsed["table"],
+        "columns": columns,
+        "column_bindings": bindings,
+        "predicate": parsed["tail"] or None,
+    }
+
+
+def _validate_set_contract(
+    program: str, block: ExecBlock, entry: dict, referenced: list, body: str
+) -> dict:
+    """Compare a SET block's target host and expression with the map."""
+    parsed = parse_sql_set(program, block.locator, body)
+    if len(referenced) != 1:
+        raise TranslationError(
+            f"{program}:{block.locator}: statement map entry {entry['id']!r} "
+            f"declares {len(referenced)} host(s) for a SET statement, which "
+            f"assigns exactly one"
+        )
+    item = referenced[0]
+    if parsed["target_host"].upper() != str(item["host"]).upper():
+        raise TranslationError(
+            f"{program}:{block.locator}: the SET target is "
+            f"{parsed['target_host']!r}; statement map entry {entry['id']!r} "
+            f"declares {item['host']!r}"
+        )
+    if str(item["direction"]).strip().lower() != "out":
+        raise TranslationError(
+            f"{program}:{block.locator}: host {item['host']!r} stands in the SET "
+            f"target position, which requires direction 'out'; statement map entry "
+            f"{entry['id']!r} declares {item['direction']!r}"
+        )
+    if normalise_sql_expression(parsed["expression"]) != normalise_sql_expression(
+        str(item["column"])
+    ):
+        raise TranslationError(
+            f"{program}:{block.locator}: the SET expression is "
+            f"{parsed['expression']!r}; statement map entry {entry['id']!r} pairs "
+            f"host {item['host']!r} with {item['column']!r}"
+        )
+    return {
+        "table": None,
+        "columns": [str(item["column"])],
+        "column_bindings": [
+            {
+                "column": str(item["column"]),
+                "value": parsed["expression"],
+                "host": str(item["host"]),
+                "direction": "out",
+            }
+        ],
+        "predicate": parsed["tail"] or None,
+    }
+
+
+def _validate_select_contract(
+    program: str, block: ExecBlock, entry: dict, referenced: list, body: str
+) -> dict:
+    """Compare a SELECT block's INTO targets, table and predicate with the map."""
+    parsed = parse_sql_select(program, block.locator, body)
+    _require_declared_table(program, block, entry, parsed["table"])
+    out_items = [
+        item
+        for item in referenced
+        if str(item["direction"]).strip().lower() == "out"
+    ]
+    in_items = [
+        item for item in referenced if str(item["direction"]).strip().lower() == "in"
+    ]
+    targets = []
+    for target in parsed["targets"]:
+        reference = HOST_REFERENCE_RE.match(target)
+        if reference is None:
+            raise TranslationError(
+                f"{program}:{block.locator}: the INTO list holds {target!r}, which "
+                f"is not a host variable reference"
+            )
+        targets.append(reference.group(1))
+    if len(parsed["columns"]) != len(targets):
+        raise TranslationError(
+            f"{program}:{block.locator}: the source selects "
+            f"{len(parsed['columns'])} column(s) into {len(targets)} target(s)"
+        )
+    if [name.upper() for name in targets] != [
+        str(item["host"]).upper() for item in out_items
+    ]:
+        raise TranslationError(
+            f"{program}:{block.locator}: the INTO target position holds {targets}; "
+            f"statement map entry {entry['id']!r} declares the output host(s) "
+            f"{[str(item['host']) for item in out_items]} in that order"
+        )
+    for column, item in zip(parsed["columns"], out_items):
+        if normalise_sql_expression(column) != normalise_sql_expression(
+            str(item["column"])
+        ):
+            raise TranslationError(
+                f"{program}:{block.locator}: the source reads column {column!r} "
+                f"into host {item['host']!r}; statement map entry {entry['id']!r} "
+                f"pairs it with {item['column']!r}"
+            )
+    predicate_hosts = HOST_VARIABLE_RE.findall(parsed["tail"])
+    if [name.upper() for name in predicate_hosts] != [
+        str(item["host"]).upper() for item in in_items
+    ]:
+        raise TranslationError(
+            f"{program}:{block.locator}: the predicate position holds "
+            f"{predicate_hosts}; statement map entry {entry['id']!r} declares the "
+            f"input host(s) {[str(item['host']) for item in in_items]} in that "
+            f"order"
+        )
+    return {
+        "table": parsed["table"],
+        "columns": parsed["columns"],
+        "column_bindings": [
+            {
+                "column": column,
+                "value": f":{item['host']}",
+                "host": str(item["host"]),
+                "direction": "out",
+            }
+            for column, item in zip(parsed["columns"], out_items)
+        ],
+        "predicate": parsed["tail"] or None,
+    }
+
+
+def parse_sql_predicate_fragment(label: str, fragment: str) -> dict:
+    """Parse one declared ``predicate`` fragment into its three parts.
+
+    A fragment is exactly ``<connector> <column> <operator>``: the boolean
+    connector opening the condition, the column being compared and the
+    comparison operator.  Anything else - a second condition, a literal, a
+    function call, a parenthesis, a missing operator - is refused here, so a
+    fragment can never declare more than one comparison.
+    """
+    match = SQL_PREDICATE_FRAGMENT_RE.match(str(fragment).strip())
+    if match is None:
+        raise TranslationError(
+            f"{label} holds {fragment!r}, which is not one predicate condition "
+            f"of the form <WHERE|AND|OR> <column> <comparison operator>"
+        )
+    return {
+        "connector": match.group("connector").upper(),
+        "column": normalise_sql_expression(match.group("column")),
+        "operator": match.group("operator"),
+    }
+
+
+def tokenise_sql_predicate(program: str, locator: str, text: str) -> list:
+    """Split a predicate region into its comparable tokens, reading all of it.
+
+    Identifiers, host references and operators are upper-cased; a quoted
+    literal keeps its own case.  Every non-blank character must belong to a
+    token: text the vocabulary cannot read is reported, so a predicate region
+    is never partly examined.
+    """
+    tokens = []
+    cursor = 0
+    for match in SQL_PREDICATE_TOKEN_RE.finditer(text):
+        skipped = text[cursor:match.start()].strip()
+        if skipped:
+            raise TranslationError(
+                f"{program}:{locator}: the predicate text {skipped[:40]!r} is "
+                f"not readable as SQL predicate tokens"
+            )
+        token = match.group(0)
+        tokens.append(token if token.startswith("'") else token.upper())
+        cursor = match.end()
+    remainder = text[cursor:].strip()
+    if remainder:
+        raise TranslationError(
+            f"{program}:{locator}: the predicate text {remainder[:40]!r} is not "
+            f"readable as SQL predicate tokens"
+        )
+    return tokens
+
+
+def expected_predicate_conditions(entry: dict, referenced: list) -> list:
+    """Build the predicate the statement map declares for one block.
+
+    Walks the entry's hosts in map order, parses each declared ``predicate``
+    fragment and renders the condition it stands for as the token sequence
+    ``<connector> <column> <operator> :<host>``.  The first condition must open
+    with WHERE and every later one with a boolean connector, and each
+    condition must compare the column its own host declares.  Nothing in the
+    source block contributes to the result.
+    """
+    conditions = []
+    for item in referenced:
+        fragment = item.get("predicate")
+        if fragment is None:
+            continue
+        label = f"dml[{entry['id']}].using[{item['host']}].predicate"
+        parsed = parse_sql_predicate_fragment(label, fragment)
+        declared_column = normalise_sql_expression(str(item["column"]))
+        if parsed["column"] != declared_column:
+            raise TranslationError(
+                f"{label} compares column {parsed['column']!r}; the host it "
+                f"belongs to declares column {item['column']!r}"
+            )
+        if conditions:
+            if parsed["connector"] not in SQL_LATER_PREDICATE_CONNECTORS:
+                raise TranslationError(
+                    f"{label} opens condition {len(conditions) + 1} with "
+                    f"{parsed['connector']!r}; conditions after the first open "
+                    f"with one of {list(SQL_LATER_PREDICATE_CONNECTORS)}"
+                )
+        elif parsed["connector"] != SQL_FIRST_PREDICATE_CONNECTOR:
+            raise TranslationError(
+                f"{label} opens the first condition with "
+                f"{parsed['connector']!r}; a predicate opens with "
+                f"{SQL_FIRST_PREDICATE_CONNECTOR}"
+            )
+        host = str(item["host"])
+        conditions.append(
+            {
+                "host": host,
+                "predicate": str(fragment),
+                "connector": parsed["connector"],
+                "column": parsed["column"],
+                "operator": parsed["operator"],
+                "tokens": [
+                    parsed["connector"],
+                    parsed["column"],
+                    parsed["operator"],
+                    f":{host.upper()}",
+                ],
+            }
+        )
+    return conditions
+
+
+def _validate_predicate_contract(
+    program: str,
+    block: ExecBlock,
+    entry: dict,
+    referenced: list,
+    region,
+    region_label: str,
+) -> list:
+    """Compare a block's whole predicate region with the declared predicate.
+
+    The expected token sequence is built from the statement map alone by
+    ``expected_predicate_conditions``; the actual sequence is every token of
+    the block's complete predicate region.  The two must be equal token for
+    token and hold the same number of tokens, so an added condition, a changed
+    connector, column, operator or host, a negation, a parenthesised subclause
+    and any trailing clause are each rejected, and a declared condition the
+    source no longer carries is rejected as well.  Returns the conditions that
+    were enforced.
+    """
+    conditions = expected_predicate_conditions(entry, referenced)
+    expected = [token for condition in conditions for token in condition["tokens"]]
+    actual = tokenise_sql_predicate(program, block.locator, str(region or ""))
+    expected_text = " ".join(expected)
+    actual_text = " ".join(actual)
+    if not expected and actual:
+        raise TranslationError(
+            f"{program}:{block.locator}: statement map entry {entry['id']!r} "
+            f"declares no predicate for this block; {region_label} holds "
+            f"{actual_text!r}"
+        )
+    for position, token in enumerate(expected):
+        if position >= len(actual):
+            raise TranslationError(
+                f"{program}:{block.locator}: statement map entry "
+                f"{entry['id']!r} declares {token!r} as predicate token "
+                f"{position + 1}; {region_label} ends after {len(actual)} "
+                f"token(s). Declared predicate {expected_text!r}; source "
+                f"predicate {actual_text!r}"
+            )
+        if actual[position] != token:
+            raise TranslationError(
+                f"{program}:{block.locator}: statement map entry "
+                f"{entry['id']!r} declares {token!r} as predicate token "
+                f"{position + 1}; the source holds {actual[position]!r}. "
+                f"Declared predicate {expected_text!r}; source predicate "
+                f"{actual_text!r}"
+            )
+    if len(actual) > len(expected):
+        residual = " ".join(actual[len(expected):])
+        raise TranslationError(
+            f"{program}:{block.locator}: statement map entry {entry['id']!r} "
+            f"declares the predicate {expected_text!r}, and {region_label} "
+            f"holds the undeclared trailing condition(s) {residual!r}. Source "
+            f"predicate {actual_text!r}"
+        )
+    return conditions
+
+
+def validate_sql_contract(program: str, block: ExecBlock, entry: dict) -> dict:
+    """Compare one source EXEC SQL DML block with its statement map entry.
+
+    Checks the SQL verb, the table, the ordered column list, the ordered host
+    list with each host's declared direction and position, the block's complete
+    predicate region against the predicate the map declares, and every non-host
+    column expression.  Returns the contract that was enforced, for the report;
+    any drift raises TranslationError naming the program, the locator, the
+    expectation and what the source holds.
+    """
+    body = normalise_sql_body(program, block)
+    declared_verb = str(entry["sql_verb"]).strip().upper()
+    leading = SQL_LEADING_VERB_RE.match(body)
+    if leading is None:
+        raise TranslationError(
+            f"{program}:{block.locator}: the EXEC SQL block opens with no SQL "
+            f"verb: {body[:80]!r}"
+        )
+    body_verb = leading.group(1).upper()
+    if body_verb != declared_verb:
+        raise TranslationError(
+            f"{program}:{block.locator}: statement map entry {entry['id']!r} "
+            f"declares sql_verb {declared_verb!r} but the source block opens with "
+            f"{body_verb!r}"
+        )
+
+    referenced, omitted = expected_source_hosts(entry)
+    source_hosts = HOST_VARIABLE_RE.findall(body)
+    if [name.upper() for name in source_hosts] != [
+        str(item["host"]).upper() for item in referenced
+    ]:
+        message = (
+            f"{program}:{block.locator}: statement map entry {entry['id']!r} "
+            f"requires host variable(s) {[str(item['host']) for item in referenced]} "
+            f"in that order; the source block references {source_hosts}"
+        )
+        if omitted:
+            message += (
+                f"; mapped host(s) "
+                f"{[str(item['host']) for item in omitted]} are marked absent from "
+                f"this block by present_in_source_block"
+            )
+        raise TranslationError(message)
+
+    validators = {
+        "INSERT": _validate_insert_contract,
+        "SET": _validate_set_contract,
+        "SELECT": _validate_select_contract,
+    }
+    contract = validators[declared_verb](program, block, entry, referenced, body)
+    predicates = _validate_predicate_contract(
+        program,
+        block,
+        entry,
+        referenced,
+        contract.get("predicate"),
+        PREDICATE_REGION_LABELS[declared_verb],
+    )
+    return {
+        "entry_id": str(entry["id"]),
+        "sql_verb": declared_verb,
+        "source_block": source_block_range(entry),
+        "normalised_source": body,
+        "hosts_referenced": [str(item["host"]) for item in referenced],
+        "hosts_omitted": [str(item["host"]) for item in omitted],
+        "non_host_values": {
+            str(column): str(expression)
+            for column, expression in (entry.get("non_host_values") or {}).items()
+        },
+        "predicates": predicates,
+        **contract,
+    }
 
 
 # --------------------------------------------------------------------------
@@ -525,8 +1794,9 @@ class BuildTree:
 def using_counts_key(call_program: str) -> str:
     """Map a stub program name onto its ``checks.using_counts`` key.
 
-    ``SQL-INSERT-ENDOWMENT`` yields ``insert_endowment``, which is why the two
-    endowment branches share a single key while remaining two dml entries.
+    Strips surrounding whitespace, lower-cases the name, replaces every hyphen
+    with an underscore and removes a leading ``sql_``.  ``SQL-INSERT-ENDOWMENT``
+    returns ``insert_endowment``.
     """
     key = str(call_program).strip().lower().replace("-", "_")
     return key.removeprefix("sql_")
@@ -550,18 +1820,193 @@ def _require_keys(entry: dict, keys, label: str) -> None:
         raise TranslationError(f"{label} is missing required key(s): {missing}")
 
 
+def _require_text(value, label: str) -> str:
+    """Return ``value`` when it is a non-empty string, else raise."""
+    if not isinstance(value, str):
+        raise TranslationError(
+            f"{label} holds {type(value).__name__} {value!r}; a string is required"
+        )
+    if not value.strip():
+        raise TranslationError(f"{label} holds only blanks; a value is required")
+    return value
+
+
+def _require_integer(value, label: str) -> int:
+    """Return ``value`` when it is an integer, else raise.
+
+    ``bool`` and ``float`` are refused: ``True`` would compare equal to 1 and
+    ``268.9`` would be accepted as a line number by a numeric comparison.
+    """
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise TranslationError(
+            f"{label} holds {type(value).__name__} {value!r}; an integer is required"
+        )
+    return value
+
+
+def _require_boolean(value, label: str) -> bool:
+    """Return ``value`` when it is a boolean, else raise."""
+    if not isinstance(value, bool):
+        raise TranslationError(
+            f"{label} holds {type(value).__name__} {value!r}; true or false is "
+            f"required"
+        )
+    return value
+
+
+class _StrictMapLoader(yaml.SafeLoader):
+    """A safe loader that refuses aliases, merge keys and duplicate keys.
+
+    An anchor may be declared, but composing an alias of it is refused, so no
+    node of the loaded document is shared with another and no part of it can be
+    expanded more than once.  A ``<<`` merge key is refused for the same
+    reason, and a mapping repeating a key is refused rather than silently
+    keeping the last value.
+    """
+
+    def compose_node(self, parent, index):
+        if self.check_event(yaml.events.AliasEvent):
+            event = self.peek_event()
+            raise TranslationError(
+                f"statement map uses the YAML alias *{event.anchor} at "
+                f"{event.start_mark.line + 1}: aliases are not accepted"
+            )
+        return super().compose_node(parent, index)
+
+    def construct_mapping(self, node, deep=False):
+        seen = set()
+        for key_node, _ in node.value:
+            key = self.construct_object(key_node, deep=deep)
+            if key == "<<":
+                raise TranslationError(
+                    f"statement map uses a YAML merge key at "
+                    f"{key_node.start_mark.line + 1}: merge keys are not accepted"
+                )
+            if isinstance(key, (str, int, float, bool, type(None))):
+                if key in seen:
+                    raise TranslationError(
+                        f"statement map repeats the key {key!r} at "
+                        f"{key_node.start_mark.line + 1}"
+                    )
+                seen.add(key)
+        return super().construct_mapping(node, deep=deep)
+
+
+def _bound_loaded_document(value, label: str, depth: int = 0) -> int:
+    """Return the node count of ``value``, refusing an over-deep or wide map."""
+    if depth > MAX_MAP_DEPTH:
+        raise TranslationError(
+            f"{label} nests more than {MAX_MAP_DEPTH} containers"
+        )
+    count = 1
+    if isinstance(value, dict):
+        for key, item in value.items():
+            count += 1 + _bound_loaded_document(item, label, depth + 1)
+            if count > MAX_MAP_NODES:
+                raise TranslationError(
+                    f"{label} holds more than {MAX_MAP_NODES} values"
+                )
+    elif isinstance(value, (list, tuple)):
+        for item in value:
+            count += _bound_loaded_document(item, label, depth + 1)
+            if count > MAX_MAP_NODES:
+                raise TranslationError(
+                    f"{label} holds more than {MAX_MAP_NODES} values"
+                )
+    return count
+
+
+def _validate_map_scalar_types(data: dict, label: str) -> None:
+    """Type-check every scalar this translator later reads from the map.
+
+    Each value is checked before any hashing, comparison, upper-casing or
+    numeric use, so a member of the wrong type is reported by name instead of
+    escaping as a TypeError from the code that consumes it.
+    """
+    checks = data.get("checks")
+    if isinstance(checks, dict):
+        for key in ("include_count", "dml_count", "total_blocks"):
+            if key in checks:
+                _require_integer(checks[key], f"{label}: checks.{key}")
+        programs = checks.get("call_programs")
+        if isinstance(programs, list):
+            for index, name in enumerate(programs):
+                _require_text(name, f"{label}: checks.call_programs[{index}]")
+        counts = checks.get("using_counts")
+        if isinstance(counts, dict):
+            for key, value in counts.items():
+                _require_text(key, f"{label}: checks.using_counts key")
+                _require_integer(value, f"{label}: checks.using_counts[{key}]")
+    for group, text_keys, integer_keys, boolean_keys in (
+        ("includes", ("id", "include_name", "replacement"),
+         ("start_line", "end_line"), ("terminating_period",)),
+        ("dml", ("id", "call_program"),
+         ("start_line", "end_line"), ("terminating_period",)),
+    ):
+        entries = data.get(group)
+        if not isinstance(entries, list):
+            continue
+        for index, entry in enumerate(entries):
+            if not isinstance(entry, dict):
+                continue
+            where = f"{label}: {group}[{index}]"
+            for key in text_keys:
+                if key in entry:
+                    _require_text(entry[key], f"{where}.{key}")
+            for key in integer_keys:
+                if key in entry:
+                    _require_integer(entry[key], f"{where}.{key}")
+            for key in boolean_keys:
+                if key in entry:
+                    _require_boolean(entry[key], f"{where}.{key}")
+            for key in ("sql_verb",):
+                if key in entry and entry[key] is not None:
+                    _require_text(entry[key], f"{where}.{key}")
+            hosts = entry.get("using")
+            if isinstance(hosts, list):
+                for position, host in enumerate(hosts):
+                    if isinstance(host, dict):
+                        for key in ("name", "direction"):
+                            if key in host:
+                                _require_text(
+                                    host[key], f"{where}.using[{position}].{key}"
+                                )
+                    else:
+                        _require_text(host, f"{where}.using[{position}]")
+
+
 def load_statement_map(path: Path) -> dict:
     """Load and validate ``statement_map.yml`` before any generation happens.
 
-    Checks the ``checks`` block against the expected census (3 includes, 8 dml
-    entries, 11 blocks in total, one ``using_counts`` entry per stub and seven
-    ``call_programs``) and the internal consistency of every entry.
+    The document is read under a byte bound, composed with aliases, merge keys
+    and duplicate keys refused, bounded again by nesting depth and value count,
+    and then type-checked member by member.  The ``checks`` block is compared
+    with the expected census (3 includes, 8 dml entries, 11 blocks in total,
+    one ``using_counts`` entry per stub and seven ``call_programs``) and every
+    entry is checked for internal consistency.
     """
     if not path.is_file():
         raise TranslationError(f"statement map not found: {path}")
+    size = path.stat().st_size
+    if size > MAX_STATEMENT_MAP_BYTES:
+        raise TranslationError(
+            f"statement map {path} holds {size} bytes; at most "
+            f"{MAX_STATEMENT_MAP_BYTES} are read"
+        )
     with path.open("r", encoding="utf-8") as handle:
-        data = yaml.safe_load(handle)
+        text = handle.read(MAX_STATEMENT_MAP_BYTES + 1)
+    if len(text.encode("utf-8")) > MAX_STATEMENT_MAP_BYTES:
+        raise TranslationError(
+            f"statement map {path} exceeds {MAX_STATEMENT_MAP_BYTES} bytes"
+        )
+    loader = _StrictMapLoader(text)
+    try:
+        data = loader.get_single_data()
+    finally:
+        loader.dispose()
+    _bound_loaded_document(data, f"statement map {path}")
     data = _require_mapping(data, f"{path}")
+    _validate_map_scalar_types(data, f"statement map {path}")
 
     _require_keys(data, ("includes", "dml", "checks", "source_program"), f"{path}")
     includes = _require_sequence(data["includes"], "includes")
@@ -669,15 +2114,101 @@ def load_statement_map(path: Path) -> dict:
                 f"dml[{entry['id']}] call_program {entry['call_program']!r} is not "
                 f"listed in checks.call_programs"
             )
-        using = _require_sequence(entry["using"], f"dml[{entry['id']}].using")
-        for position, raw_host in enumerate(using):
-            host = _require_mapping(
-                raw_host, f"dml[{entry['id']}].using[{position}]"
+        _require_keys(entry, ("sql_verb", "table"), f"dml[{entry['id']}]")
+        verb = str(entry["sql_verb"]).strip().upper()
+        if verb not in SUPPORTED_SQL_VERBS:
+            raise TranslationError(
+                f"dml[{entry['id']}] declares sql_verb {entry['sql_verb']!r}; the "
+                f"supported verbs are {sorted(SUPPORTED_SQL_VERBS)}"
             )
-            if "host" not in host:
+        if verb == "SET":
+            if entry["table"] is not None:
                 raise TranslationError(
-                    f"dml[{entry['id']}].using[{position}] has no 'host' key"
+                    f"dml[{entry['id']}] is a SET statement, which names no "
+                    f"table, but declares table {entry['table']!r}"
                 )
+        elif not str(entry["table"] or "").strip():
+            raise TranslationError(
+                f"dml[{entry['id']}] declares sql_verb {verb} and must name the "
+                f"table it addresses"
+            )
+        using = _require_sequence(entry["using"], f"dml[{entry['id']}].using")
+        if not using:
+            raise TranslationError(
+                f"dml[{entry['id']}].using declares no host variable"
+            )
+        seen_columns = {}
+        seen_hosts = set()
+        for position, raw_host in enumerate(using):
+            label = f"dml[{entry['id']}].using[{position}]"
+            host = _require_mapping(raw_host, label)
+            _require_keys(host, ("host", "column", "direction", "pic"), label)
+            name = str(host["host"]).strip().upper()
+            if not name:
+                raise TranslationError(f"{label} declares an empty host name")
+            if name in seen_hosts:
+                raise TranslationError(
+                    f"{label} repeats host {host['host']!r} inside one entry"
+                )
+            seen_hosts.add(name)
+            direction = str(host["direction"]).strip().lower()
+            if direction not in HOST_DIRECTIONS:
+                raise TranslationError(
+                    f"{label} declares direction {host['direction']!r}; the "
+                    f"supported directions are {sorted(HOST_DIRECTIONS)}"
+                )
+            column = normalise_sql_expression(str(host["column"]))
+            if not column:
+                raise TranslationError(f"{label} declares an empty column")
+            if column in seen_columns:
+                raise TranslationError(
+                    f"{label} pairs host {host['host']!r} with column "
+                    f"{host['column']!r}, already paired with host "
+                    f"{seen_columns[column]!r} by the same entry"
+                )
+            seen_columns[column] = host["host"]
+            predicate = host.get("predicate")
+            if verb == "SELECT" and direction == "in":
+                if not predicate:
+                    raise TranslationError(
+                        f"{label} is an input host of a SELECT and must declare "
+                        f"the predicate fragment it appears in"
+                    )
+            elif predicate is not None:
+                raise TranslationError(
+                    f"{label} declares predicate {predicate!r}; only an input "
+                    f"host of a SELECT stands in a predicate, and this entry "
+                    f"declares sql_verb {verb} with direction {direction!r}"
+                )
+            if predicate is not None:
+                parsed_fragment = parse_sql_predicate_fragment(
+                    f"{label}.predicate", predicate
+                )
+                if parsed_fragment["column"] != column:
+                    raise TranslationError(
+                        f"{label}.predicate compares column "
+                        f"{parsed_fragment['column']!r}; the same host declares "
+                        f"column {host['column']!r}"
+                    )
+            _validate_presence_metadata(entry, host, label)
+        non_host = entry.get("non_host_values")
+        if non_host is not None:
+            non_host = _require_mapping(
+                non_host, f"dml[{entry['id']}].non_host_values"
+            )
+            for column, expression in non_host.items():
+                normalised = normalise_sql_expression(str(column))
+                if normalised in seen_columns:
+                    raise TranslationError(
+                        f"dml[{entry['id']}].non_host_values names column "
+                        f"{column!r}, which host {seen_columns[normalised]!r} "
+                        f"already supplies"
+                    )
+                if not str(expression).strip():
+                    raise TranslationError(
+                        f"dml[{entry['id']}].non_host_values[{column!r}] declares "
+                        f"no expression"
+                    )
         key = using_counts_key(entry["call_program"])
         if using_counts[key] != len(using):
             raise TranslationError(
@@ -692,6 +2223,7 @@ def load_statement_map(path: Path) -> dict:
             f"{sorted(mapped_call_programs)} do not match checks.call_programs "
             f"{sorted(call_programs)}"
         )
+    _validate_shared_call_signatures(dml)
     return {
         "path": path,
         "source_program": source_program,
@@ -727,6 +2259,7 @@ OPERAND_HEAD_RE = re.compile(r"\b([A-Za-z][A-Za-z0-9]*)\s*\(")
 HOST_VARIABLE_RE = re.compile(r":([A-Za-z][A-Za-z0-9\-]*)")
 LENGTH_OF_RE = re.compile(r"^LENGTH\s+OF\s+([A-Za-z0-9][A-Za-z0-9\-]*)$", re.IGNORECASE)
 QUOTED_LITERAL_RE = re.compile(r"^'([^']*)'$")
+DATA_NAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9\-]*$")
 
 
 def read_exec_block(lines: list, start_index: int, program: str) -> ExecBlock:
@@ -861,6 +2394,10 @@ DFHRESP_CALL_RE = re.compile(
     r"DFHRESP\s*\(\s*([A-Za-z][A-Za-z0-9]*)\s*\)", re.IGNORECASE
 )
 LEVEL_01_ITEM_RE = re.compile(r"^\s*01\s+([A-Za-z0-9][A-Za-z0-9\-]*)")
+DATA_ITEM_DECLARATION_RE = re.compile(
+    r"^\s*(?P<level>0?[1-9]|[1-4][0-9])\s+(?P<name>[A-Za-z][A-Za-z0-9\-]*)\b"
+)
+VALUE_LITERAL_RE = re.compile(r"\bVALUE\s+'([^']*)'", re.IGNORECASE)
 INTEGER_LITERAL_RE = re.compile(r"^[+-]?\d+$")
 SQL_INCLUDE_BODY_RE = re.compile(
     r"^EXEC\s+SQL\s+INCLUDE\s+([A-Za-z0-9][A-Za-z0-9\-_]*)\s+END-EXEC\s*\.?$",
@@ -917,10 +2454,12 @@ class ProgramTranslator:
         self.map_index = map_index
         self.dfhresp_item = dfhresp_item
         self.result = None
+        self.source_lines = []
 
     # -- entry point -------------------------------------------------------
     def translate(self) -> ProgramResult:
         lines = split_source_lines(self.text)
+        self.source_lines = lines
         self.result = ProgramResult(
             source_name=self.name,
             source_line_count=len(lines),
@@ -972,12 +2511,14 @@ class ProgramTranslator:
         generated: list,
         notes: str,
         consumed_lines: int,
+        details: dict | None = None,
     ) -> None:
         """Append the generated lines and record the site in the report.
 
         ``consumed_lines`` is the number of source lines the replacement
         stands in for; the corresponding line numbers are derived from
         ``locator`` and must not have been claimed by another rule.
+        ``details`` carries the operand or contract values the rule enforced.
         """
         if consumed_lines:
             claimed = self._locator_line_numbers(locator)
@@ -1005,6 +2546,7 @@ class ProgramTranslator:
                 source_text=source_text,
                 generated_text="\n".join(generated),
                 notes=notes,
+                details=dict(details) if details else {},
             )
         )
 
@@ -1166,9 +2708,22 @@ class ProgramTranslator:
     def _apply_r5(self, block: ExecBlock, operands: dict, program_operand: str) -> None:
         """Chain LINK: set the shared COMMAREA length, then call dynamically.
 
-        The length literal and the program operand are both taken from the
-        parsed block; neither is fixed in this module.
+        The site is held to one exact tuple: the PROGRAM data item's VALUE must
+        be the target this program links, the COMMAREA operand must be
+        DFHCOMMAREA and the LENGTH must be the shared 32,500-byte length.  The
+        enforced tuple is recorded on the result for the report's chain-link
+        contract.
         """
+        expected_target = CHAIN_LINK_TARGETS.get(self.name)
+        if expected_target is None:
+            known = sorted(
+                f"{name} -> {target}"
+                for name, target in CHAIN_LINK_TARGETS.items()
+            )
+            raise TranslationError(
+                f"{self.name}:{block.locator}: this program carries no chain LINK "
+                f"site; the chain links are {known}"
+            )
         commarea = require_operand(block, operands, "COMMAREA")
         length = require_operand(block, operands, "LENGTH")
         if not INTEGER_LITERAL_RE.match(length):
@@ -1176,22 +2731,102 @@ class ProgramTranslator:
                 f"{self.name}:{block.locator}: chain LINK LENGTH({length}) is not "
                 f"an integer literal"
             )
+        if int(length) != CHAIN_LINK_LENGTH:
+            raise TranslationError(
+                f"{self.name}:{block.locator}: chain LINK LENGTH({length}) is not "
+                f"the shared COMMAREA length {CHAIN_LINK_LENGTH}"
+            )
+        if commarea.upper() != CHAIN_LINK_COMMAREA:
+            raise TranslationError(
+                f"{self.name}:{block.locator}: chain LINK COMMAREA({commarea}) is "
+                f"not {CHAIN_LINK_COMMAREA}"
+            )
+        declared = self._resolve_program_item_value(block, program_operand)
+        if declared["value"].upper() != expected_target:
+            raise TranslationError(
+                f"{self.name}:{block.locator}: chain LINK PROGRAM"
+                f"({program_operand}) resolves to {declared['value']!r} through the "
+                f"declaration at {self.name}:{declared['line']}; this site must "
+                f"link {expected_target}"
+            )
         generated = emit_statement(block.indent, ["MOVE", length, "TO", "EIBCALEN"])
         generated += emit_statement(
             block.indent,
             ["CALL", program_operand, "USING", commarea],
             block.terminating_period,
         )
+        site = {
+            "program": self.name,
+            "locator": block.locator,
+            "program_operand": program_operand,
+            "target_program": declared["value"].upper(),
+            "target_declared_at": f"{self.name}:{declared['line']}",
+            "target_declaration": declared["text"],
+            "commarea_operand": commarea.upper(),
+            "length": int(length),
+        }
+        self.result.chain_links.append(site)
         self._record(
             rule_id="R5",
             locator=block.locator,
             source_text=block.source_text,
             generated=generated,
-            notes=f"PROGRAM({program_operand}) names a data item and the "
+            notes=f"PROGRAM({program_operand}) names a data item whose VALUE is "
+            f"{declared['value']!r} at {self.name}:{declared['line']} and the "
             f"dynamic CALL passes that item; LENGTH({length}) is carried into "
             f"EIBCALEN and COMMAREA({commarea}) is passed by reference",
             consumed_lines=len(block.source_lines),
+            details={"chain_link": site},
         )
+
+    def _resolve_program_item_value(self, block: ExecBlock, item: str) -> dict:
+        """Return the VALUE literal of a data item declared by this program.
+
+        The declaration is located by its level number and name on a code line;
+        its text is read to the terminating period so a declaration continued
+        over several lines resolves too.  An item that is not declared, that is
+        declared more than once, or that is declared without exactly one
+        alphanumeric VALUE literal, is reported.
+        """
+        lines = self.source_lines
+        declarations = []
+        for index, line in enumerate(lines):
+            if is_comment_line(line):
+                continue
+            match = DATA_ITEM_DECLARATION_RE.match(code_of(line))
+            if match is None or match.group("name").upper() != item.upper():
+                continue
+            collected = []
+            for offset in range(index, len(lines)):
+                if is_comment_line(lines[offset]):
+                    continue
+                collected.append(code_of(lines[offset]).strip())
+                if "." in code_of(lines[offset]):
+                    break
+            declarations.append(
+                (index + 1, re.sub(r"\s+", " ", " ".join(collected)).strip())
+            )
+        if not declarations:
+            raise TranslationError(
+                f"{self.name}:{block.locator}: {item!r} is used as a LINK PROGRAM "
+                f"operand but this program declares no such data item"
+            )
+        if len(declarations) > 1:
+            raise TranslationError(
+                f"{self.name}:{block.locator}: {item!r} is declared at line(s) "
+                f"{[line for line, _ in declarations]}; a single declaration is "
+                f"required to resolve the link target"
+            )
+        line_number, text = declarations[0]
+        values = VALUE_LITERAL_RE.findall(text)
+        if len(values) != 1:
+            raise TranslationError(
+                f"{self.name}:{block.locator}: the declaration of {item!r} at "
+                f"{self.name}:{line_number} carries {len(values)} alphanumeric "
+                f"VALUE literal(s); exactly one is required to resolve the link "
+                f"target: {text!r}"
+            )
+        return {"line": line_number, "text": text, "value": values[0]}
 
     def _apply_r6(self, block: ExecBlock, operands: dict, program_operand: str) -> None:
         """Diagnostic LINK: set the area length, then call the stub."""
@@ -1248,8 +2883,10 @@ class ProgramTranslator:
             locator=block.locator,
             source_text=block.source_text,
             generated=generated,
-            notes="control returns to the caller at this point; see "
-            "modernization/docs/decision-log.md: no called RETURN stub",
+            notes="control returns to the caller at this point; the choice "
+            "belongs to modernization/docs/decision-log.md (planned "
+            "deliverable; not present at this milestone), row: no called "
+            "RETURN stub",
             consumed_lines=len(block.source_lines),
         )
 
@@ -1304,7 +2941,14 @@ class ProgramTranslator:
 
     # -- R9: WRITE --------------------------------------------------------
     def _apply_r9(self, block: ExecBlock) -> None:
-        """Rewrite the KSDSPOLY write to the capture stub."""
+        """Rewrite the KSDSPOLY write to the capture module.
+
+        The site is held to one exact tuple: FILE must be the 8-character
+        literal ``KSDSPOLY``, LENGTH must be 64, KEYLENGTH must be 21, FROM and
+        RIDFLD must name data items and RESP must name a data item.  All six
+        operands reach the capture module in source-operand order, the two
+        lengths as zero-padded 5-digit alphanumeric literals.
+        """
         operands = parse_cics_operands(block)
         file_name = unquote_literal(
             block, require_operand(block, operands, "FILE"), "FILE"
@@ -1314,15 +2958,61 @@ class ProgramTranslator:
         resp = require_operand(block, operands, "RESP")
         length = require_operand(block, operands, "LENGTH")
         key_length = require_operand(block, operands, "KEYLENGTH")
-        for label, value in (("LENGTH", length), ("KEYLENGTH", key_length)):
+        if file_name != WRITE_FILE_NAME:
+            raise TranslationError(
+                f"{self.name}:{block.locator}: WRITE FILE('{file_name}') is not the "
+                f"projection file '{WRITE_FILE_NAME}'"
+            )
+        if len(file_name) != WRITE_FILE_NAME_LENGTH:
+            raise TranslationError(
+                f"{self.name}:{block.locator}: WRITE FILE('{file_name}') is "
+                f"{len(file_name)} character(s) long; the file name operand is "
+                f"exactly {WRITE_FILE_NAME_LENGTH} characters"
+            )
+        expected_lengths = {
+            "LENGTH": (length, WRITE_RECORD_LENGTH),
+            "KEYLENGTH": (key_length, WRITE_KEY_LENGTH),
+        }
+        for label, (value, expected) in expected_lengths.items():
             if not INTEGER_LITERAL_RE.match(value):
                 raise TranslationError(
                     f"{self.name}:{block.locator}: WRITE {label}({value}) is not an "
                     f"integer literal"
                 )
-        generated = emit_statement(
+            if int(value) != expected:
+                raise TranslationError(
+                    f"{self.name}:{block.locator}: WRITE {label}({value}) is not "
+                    f"{expected}"
+                )
+        for label, value in (
+            ("FROM", from_area),
+            ("RIDFLD", ridfld),
+            ("RESP", resp),
+        ):
+            if QUOTED_LITERAL_RE.match(value) or INTEGER_LITERAL_RE.match(value):
+                raise TranslationError(
+                    f"{self.name}:{block.locator}: WRITE {label}({value}) is a "
+                    f"literal; this operand must name a data item the capture "
+                    f"module can read"
+                )
+            if DATA_NAME_RE.match(value) is None:
+                raise TranslationError(
+                    f"{self.name}:{block.locator}: WRITE {label}({value}) is not a "
+                    f"single data name"
+                )
+        length_literal = str(WRITE_RECORD_LENGTH).zfill(WRITE_LENGTH_LITERAL_DIGITS)
+        key_length_literal = str(WRITE_KEY_LENGTH).zfill(WRITE_LENGTH_LITERAL_DIGITS)
+        generated = emit_call_with_operand_lines(
             block.indent,
-            ["CALL", f"'{STUB_WRITE}'", "USING", from_area, ridfld, resp],
+            STUB_WRITE,
+            [
+                f"'{file_name}'",
+                from_area,
+                f"'{length_literal}'",
+                ridfld,
+                f"'{key_length_literal}'",
+                resp,
+            ],
             block.terminating_period,
         )
         self._record(
@@ -1330,10 +3020,28 @@ class ProgramTranslator:
             locator=block.locator,
             source_text=block.source_text,
             generated=generated,
-            notes=f"FROM({from_area}), RIDFLD({ridfld}) and RESP({resp}) are passed in "
-            f"that order; FILE('{file_name}'), LENGTH({length}) and "
-            f"KEYLENGTH({key_length}) are constants of the {STUB_WRITE} stub",
+            notes=f"FILE('{file_name}'), FROM({from_area}), LENGTH({length}), "
+            f"RIDFLD({ridfld}), KEYLENGTH({key_length}) and RESP({resp}) are all "
+            f"passed to {STUB_WRITE} in source-operand order; the two lengths "
+            f"travel as the {WRITE_LENGTH_LITERAL_DIGITS}-digit literals "
+            f"'{length_literal}' and '{key_length_literal}'",
             consumed_lines=len(block.source_lines),
+            details={
+                "file_write": {
+                    "program": self.name,
+                    "locator": block.locator,
+                    "file": file_name,
+                    "file_length": len(file_name),
+                    "from_item": from_area,
+                    "record_length": int(length),
+                    "record_length_literal": length_literal,
+                    "ridfld_item": ridfld,
+                    "key_length": int(key_length),
+                    "key_length_literal": key_length_literal,
+                    "resp_item": resp,
+                    "call_program": STUB_WRITE,
+                }
+            },
         )
 
     # -- R10: ASKTIME -----------------------------------------------------
@@ -1438,41 +3146,87 @@ class ProgramTranslator:
                 f"{include_name!r} but the statement map entry "
                 f"{entry['id']!r} names {entry['include_name']!r}"
             )
+        enclosing = entry.get("enclosing_group")
+        enclosing_locator = None
+        if enclosing is not None:
+            enclosing_locator = self._require_enclosing_group(
+                block, entry, str(enclosing)
+            )
         replacement = str(entry["replacement"]).strip()
         words = replacement.removesuffix(".").split()
         generated = emit_statement(block.indent, words, block.terminating_period)
+        notes = (
+            f"statement map entry {entry['id']!r}; the COPY resolves to "
+            f"{entry.get('resolves_to', 'the generated build source directory')} "
+            f"under -ffold-copy=LOWER -ext cpy"
+        )
+        if enclosing_locator is not None:
+            notes += (
+                f"; the copybook is included beneath {enclosing!r} at "
+                f"{enclosing_locator}"
+            )
         self._record(
             rule_id="R2",
             locator=block.locator,
             source_text=block.source_text,
             generated=generated,
-            notes=f"statement map entry {entry['id']!r}; the COPY resolves to "
-            f"{entry.get('resolves_to', 'the generated build source directory')} "
-            f"under -ffold-copy=LOWER -ext cpy",
+            notes=notes,
             consumed_lines=len(block.source_lines),
+            details={
+                "include_contract": {
+                    "entry_id": str(entry["id"]),
+                    "include_name": str(entry["include_name"]),
+                    "replacement": replacement,
+                    "resolves_to": entry.get("resolves_to"),
+                    "enclosing_group": enclosing,
+                    "enclosing_group_at": enclosing_locator,
+                }
+            },
+        )
+
+    def _require_enclosing_group(
+        self, block: ExecBlock, entry: dict, declared: str
+    ) -> str:
+        """Assert the code line before the block is the declared group item.
+
+        The nearest preceding line that is neither a comment nor blank must be
+        the ``enclosing_group`` the map declares, compared with runs of
+        whitespace collapsed and letter case folded.  Returns that line's
+        locator.
+        """
+        expected = re.sub(r"\s+", " ", declared).strip()
+        for index in range(block.start_line - 2, -1, -1):
+            line = self.source_lines[index]
+            if is_comment_line(line) or not code_of(line).strip():
+                continue
+            found = re.sub(r"\s+", " ", code_of(line)).strip()
+            if found.upper() != expected.upper():
+                raise TranslationError(
+                    f"{self.name}:{block.locator}: statement map entry "
+                    f"{entry['id']!r} declares enclosing_group {expected!r} but "
+                    f"line {index + 1} of the source holds {found!r}"
+                )
+            return f"{self.name}:{index + 1}"
+        raise TranslationError(
+            f"{self.name}:{block.locator}: statement map entry {entry['id']!r} "
+            f"declares enclosing_group {expected!r} but no code line precedes "
+            f"the block"
         )
 
     def _apply_r13(self, block: ExecBlock, entry: dict) -> None:
         """Replace an EXEC SQL DML block with the mapped stub CALL.
 
-        The host variables parsed from the source must be an exact prefix of the
-        mapped ``using`` list; any mapped host beyond that prefix is emitted as
-        a superset argument and recorded.
+        The block's SQL text is compared with the mapped contract first: verb,
+        table, ordered column list, ordered host list with declared directions
+        and positions, the complete predicate region against the declared
+        predicate, and non-host column expressions.  The source must reference
+        exactly the hosts the map marks as present in this block; a mapped host
+        that ``present_in_source_block`` marks as absent from this block is
+        still passed to the stub, as a superset argument.
         """
+        contract = validate_sql_contract(self.name, block, entry)
         hosts = [str(item["host"]) for item in entry["using"]]
-        source_hosts = HOST_VARIABLE_RE.findall(block.body)
-        mapped_upper = [name.upper() for name in hosts]
-        source_upper = [name.upper() for name in source_hosts]
-        if source_upper == mapped_upper:
-            superset = []
-        elif source_upper == mapped_upper[: len(source_upper)]:
-            superset = hosts[len(source_upper):]
-        else:
-            raise TranslationError(
-                f"{self.name}:{block.locator}: host variables {source_hosts} do "
-                f"not prefix-match the statement map USING list {hosts} of entry "
-                f"{entry['id']!r}"
-            )
+        superset = list(contract["hosts_omitted"])
         generated = emit_call_with_operand_lines(
             block.indent,
             str(entry["call_program"]),
@@ -1481,8 +3235,18 @@ class ProgramTranslator:
         )
         notes = (
             f"statement map entry {entry['id']!r} -> {entry['call_program']}; "
-            f"{len(hosts)} host variable(s) passed by reference in source order"
+            f"{len(hosts)} host variable(s) passed by reference in source order; "
+            f"{contract['sql_verb']} contract verified against the source block"
         )
+        if contract["predicates"]:
+            enforced = " ".join(
+                token
+                for condition in contract["predicates"]
+                for token in condition["tokens"]
+            )
+            notes += f"; predicate held to {enforced}"
+        else:
+            notes += "; no predicate declared and none found"
         if superset:
             notes += (
                 f"; superset argument(s) {superset} appear in the mapped USING "
@@ -1501,6 +3265,11 @@ class ProgramTranslator:
             generated=generated,
             notes=notes,
             consumed_lines=len(block.source_lines),
+            details={
+                "call_program": str(entry["call_program"]),
+                "using": hosts,
+                "sql_contract": contract,
+            },
         )
 
 
@@ -1696,6 +3465,62 @@ def verify_rule_totals(results: list) -> dict:
     }
 
 
+def verify_chain_link_contract(results: list) -> dict:
+    """Aggregate the chain LINK sites and check the whole chain is present.
+
+    Each program that carries a chain link must carry exactly one, to the
+    target that program links, with the shared COMMAREA operand and the shared
+    32,500-byte length.  The returned block is the machine-readable chain-link
+    contract the report publishes for the runner to cross-check.
+    """
+    sites = []
+    for result in results:
+        for site in result.chain_links:
+            sites.append(site)
+    by_program = {}
+    for site in sites:
+        by_program.setdefault(site["program"], []).append(site)
+    for program, target in sorted(CHAIN_LINK_TARGETS.items()):
+        found = by_program.get(program, [])
+        if len(found) != 1:
+            raise TranslationError(
+                f"{program} carries {len(found)} chain LINK site(s), expected "
+                f"exactly one linking {target}"
+            )
+        site = found[0]
+        if site["target_program"] != target:
+            raise TranslationError(
+                f"{program}:{site['locator']} links {site['target_program']}, "
+                f"expected {target}"
+            )
+        if site["commarea_operand"] != CHAIN_LINK_COMMAREA:
+            raise TranslationError(
+                f"{program}:{site['locator']} passes COMMAREA"
+                f"({site['commarea_operand']}), expected {CHAIN_LINK_COMMAREA}"
+            )
+        if site["length"] != CHAIN_LINK_LENGTH:
+            raise TranslationError(
+                f"{program}:{site['locator']} passes LENGTH({site['length']}), "
+                f"expected {CHAIN_LINK_LENGTH}"
+            )
+    unexpected = sorted(set(by_program) - set(CHAIN_LINK_TARGETS))
+    if unexpected:
+        raise TranslationError(
+            f"chain LINK site(s) found in {unexpected}, which the chain does not "
+            f"link through"
+        )
+    return {
+        "expected_sites": len(CHAIN_LINK_TARGETS),
+        "observed_sites": len(sites),
+        "commarea_operand": CHAIN_LINK_COMMAREA,
+        "length": CHAIN_LINK_LENGTH,
+        "expected_targets": {
+            program: target for program, target in sorted(CHAIN_LINK_TARGETS.items())
+        },
+        "sites": sorted(sites, key=lambda site: (site["program"], site["locator"])),
+    }
+
+
 def verify_sources_unchanged(source_dir: Path, baseline: dict) -> None:
     """Re-read every authorized source and assert its digest is unchanged."""
     for name, digest in baseline.items():
@@ -1795,6 +3620,7 @@ def build_report(
     dfhresp_item: str,
     git_check: dict,
     commented_tokens: dict,
+    chain_link_contract: dict,
 ) -> dict:
     """Assemble the translation report.
 
@@ -1802,6 +3628,8 @@ def build_report(
     every rewritten construct and for every source line carried through
     unchanged, which is the coverage
     ``modernization/docs/traceability-matrix.md`` consumes.
+    ``chain_link_contract`` publishes the nested link events - target program,
+    COMMAREA operand and length per site - for the runner to cross-check.
     """
     programs = []
     for result in results:
@@ -1873,6 +3701,7 @@ def build_report(
             for label, count in sorted(structural_counts.items())
         },
         "resolved_copies": resolved_copies,
+        "chain_link_contract": chain_link_contract,
         "response_condition_item": dfhresp_item,
         "commented_source_tokens": {
             program: occurrences
@@ -1916,6 +3745,17 @@ def translate_all(
         raise TranslationError(f"source directory not found: {source_dir}")
     if not copybook_dir.is_dir():
         raise TranslationError(f"copybook directory not found: {copybook_dir}")
+    require_expected_read_directory(source_dir, EXPECTED_SOURCE_DIR, "--source-dir")
+    require_expected_read_directory(
+        copybook_dir, EXPECTED_COPYBOOK_DIR, "--copybook-dir"
+    )
+    if report_path is not None:
+        expected_report = (CANONICAL_BUILD_ROOT / REPORT_RELATIVE).resolve()
+        if report_path.resolve() != expected_report:
+            raise TranslationError(
+                f"--report names {report_path.resolve()}; the report of a run is "
+                f"published only as {expected_report}"
+            )
 
     build_tree = BuildTree(build_dir)
     statement_map = load_statement_map(statement_map_path)
@@ -1995,6 +3835,7 @@ def translate_all(
     structural_counts = verify_structural_counts(generated)
     resolved_copies = verify_copy_resolution(generated, build_tree)
     totals = verify_rule_totals(results)
+    chain_link_contract = verify_chain_link_contract(results)
     verify_sources_unchanged(source_dir, baseline)
     git_check = verify_no_tracked_source_modification(source_dir)
 
@@ -2013,6 +3854,7 @@ def translate_all(
         dfhresp_item=dfhresp_item,
         git_check=git_check,
         commented_tokens=commented_tokens,
+        chain_link_contract=chain_link_contract,
     )
     if report_path is None:
         report_relative = REPORT_RELATIVE
@@ -2037,6 +3879,7 @@ def translate_all(
         "totals": totals,
         "verbatim_copies": verbatim_copies,
         "dfhresp_item": dfhresp_item,
+        "chain_link_contract": chain_link_contract,
     }
 
 
@@ -2061,6 +3904,13 @@ def summarise(outcome: dict) -> str:
         "  rules applied: "
         + ", ".join(f"{rule}={per_rule[rule]}" for rule in EXPECTED_RULE_SITES)
     )
+    for site in outcome["chain_link_contract"]["sites"]:
+        lines.append(
+            f"  chain link {site['program']}:{site['locator']} -> "
+            f"{site['target_program']} via {site['program_operand']} declared at "
+            f"{site['target_declared_at']}; COMMAREA {site['commarea_operand']}, "
+            f"LENGTH {site['length']}"
+        )
     lines.append(
         f"  verbatim copies: {len(outcome['verbatim_copies'])}; "
         f"response-condition item: {outcome['dfhresp_item']}"
@@ -2101,8 +3951,9 @@ def build_parser() -> argparse.ArgumentParser:
         default=DEFAULT_BUILD_DIR,
         metavar="DIR",
         help=(
-            "generated harness build tree; its path must end with "
-            f"{'/'.join(BUILD_DIR_TAIL)} (default: {DEFAULT_BUILD_DIR})"
+            "generated harness build tree; it must resolve to "
+            f"{DEFAULT_BUILD_DIR} of this checkout, reached through real "
+            f"directories (default: {DEFAULT_BUILD_DIR})"
         ),
     )
     parser.add_argument(
@@ -2136,6 +3987,26 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def one_line(text: str, limit: int = 400) -> str:
+    """Render ``text`` as one bounded line of printable ASCII.
+
+    Every byte outside printable ASCII, including the line separators a
+    supplied value could carry, is rendered as ``\\xNN``, so a diagnostic that
+    quotes a caller-supplied value cannot forge additional log lines.
+    """
+    rendered = []
+    for character in str(text):
+        if character == " " or ("!" <= character <= "~"):
+            rendered.append(character)
+        else:
+            for byte in character.encode("utf-8", "surrogatepass"):
+                rendered.append(f"\\x{byte:02x}")
+    line = "".join(rendered)
+    if len(line) > limit:
+        line = line[: limit - 3] + "..."
+    return line
+
+
 def main(argv=None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -2150,14 +4021,24 @@ def main(argv=None) -> int:
             ),
         )
     except TranslationError as error:
-        print(f"translate.py: error: {error}", file=sys.stderr)
+        print(f"translate.py: error: {one_line(error)}", file=sys.stderr)
         return 1
     except yaml.YAMLError as error:
-        print(f"translate.py: error: statement map is not valid YAML: {error}",
-              file=sys.stderr)
+        print(
+            "translate.py: error: statement map is not valid YAML: "
+            f"{one_line(error)}",
+            file=sys.stderr,
+        )
         return 1
     except OSError as error:
-        print(f"translate.py: error: {error}", file=sys.stderr)
+        print(f"translate.py: error: {one_line(error)}", file=sys.stderr)
+        return 1
+    except (TypeError, ValueError, AttributeError, KeyError, IndexError) as error:
+        print(
+            "translate.py: error: the statement map or a source held a value this "
+            f"translator cannot use: {one_line(f'{type(error).__name__}: {error}')}",
+            file=sys.stderr,
+        )
         return 1
     print(summarise(outcome))
     return 0
@@ -2165,4 +4046,3 @@ def main(argv=None) -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
-

@@ -86,23 +86,31 @@
       * items as the driver set them. This module is the only member of
       * modernization/harness/stubs/ that writes those two items.
       *
-      * SQLCODE of the shared SQLCA is set to zero on every call. The
-      * translated LGAPDB01 tests it with IF SQLCODE NOT EQUAL 0 at
-      * [base/src/lgapdb01.cbl:547]; zero leaves the '90' move at
-      * [base/src/lgapdb01.cbl:548], the diagnostic write at
-      * [base/src/lgapdb01.cbl:549] and the ABEND ABCODE('LGSQ') at
-      * [base/src/lgapdb01.cbl:551] unexecuted.
+      * SQLCODE of the shared SQLCA reports HC-INJECT-SUB-SQLCODE on
+      * every call. The translated LGAPDB01 tests it with IF SQLCODE
+      * NOT EQUAL 0 at [base/src/lgapdb01.cbl:547]; zero leaves the
+      * '90' move at [base/src/lgapdb01.cbl:548], the diagnostic write
+      * at [base/src/lgapdb01.cbl:549] and the ABEND ABCODE('LGSQ') at
+      * [base/src/lgapdb01.cbl:551] unexecuted, and any other value
+      * takes all three and the return at
+      * [base/src/lgapdb01.cbl:552]. The twenty host values, the
+      * capture control items and the order test are recorded before
+      * the code is reported, on both paths: the block executed
+      * whatever it then reported.
       *
       * No item of the caller's COMMAREA is addressed here, no
       * parameter is assigned to, and no capture item outside
       * HC-SQL-COMMERCIAL, HC-EVENT-SEQ and the HC-ORDER items named
-      * above is written. The shared group is never initialised here.
+      * above is written. HC-INJECT-SUB-SQLCODE is read here and never
+      * written. The shared group is never initialised here.
       *
-      * Rationale for the always-zero SQLCODE, for recording the
+      * Rationale for the reported SQLCODE, for recording the
       * premiums as passed, for excluding the peril codes from the
       * canonical schema, for the amount comparison tolerance and for
-      * the arity of twenty is recorded in
-      * modernization/docs/decision-log.md.
+      * the arity of twenty belongs to
+      * modernization/docs/decision-log.md (planned deliverable; not
+      * present at this milestone), row: deterministic failure
+      * injection through shared harness state.
       *
       * Harness topology: Figure 5 — Validation Harness Control Flow
       * in modernization/docs/architecture.md.
@@ -114,7 +122,8 @@
        WORKING-STORAGE SECTION.
       *
       * Shared capture state. This module writes the COMMERCIAL group,
-      * the shared event sequence and the order items.
+      * the shared event sequence and the order items, and reads the
+      * injected SQLCODE.
        COPY HCAPTURE.
       *
       * Shared SQL communications area read by the translated LGAPDB01.
@@ -295,14 +304,14 @@
       *
       *----------------------------------------------------------------*
       * Records the block, stamps its capture control items, tests the *
-      * declared predecessor ordinal and reports success to the        *
-      * caller.                                                        *
+      * declared predecessor ordinal and reports the SQLCODE this run  *
+      * selected to the caller.                                        *
       *----------------------------------------------------------------*
        MAINLINE.
            PERFORM CAPTURE-COMMERCIAL-VALUES
            PERFORM STAMP-CAPTURE-CONTROL
            PERFORM CHECK-CAPTURE-ORDER
-           MOVE ZERO TO SQLCODE
+           MOVE HC-INJECT-SUB-SQLCODE TO SQLCODE
            GOBACK.
       *
       *----------------------------------------------------------------*
@@ -344,7 +353,9 @@
        STAMP-CAPTURE-CONTROL.
            MOVE 'Y'                 TO HC-COM-PRESENT
            ADD  1                   TO HC-COM-COUNT
+           END-ADD
            ADD  1                   TO HC-EVENT-SEQ
+           END-ADD
            MOVE HC-EVENT-SEQ        TO HC-COM-SEQ
            MOVE 'insert_commercial' TO HC-ORDER-LAST-STMT.
       *
@@ -362,4 +373,3 @@
                MOVE 'insert_commercial' TO HC-ORDER-VIOLATION-STMT
            END-IF.
       *----------------------------------------------------------------*
-

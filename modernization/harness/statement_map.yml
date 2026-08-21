@@ -1,15 +1,15 @@
 # ---------------------------------------------------------------------------
 # statement_map.yml - EXEC SQL block map for base/src/lgapdb01.cbl
 #
-# Milestone note: modernization/harness/translate.py, the stub members under
-# modernization/harness/stubs/ and the generated tree
-# modernization/harness/build/ are planned artifacts and are not present in
-# the tree at this milestone; every statement below about the translator, a
-# stub or a generated copy is the planned contract.
+# Harness status: modernization/harness/translate.py and the twelve stub
+# members under modernization/harness/stubs/ stand in the tree, and every run
+# of the harness regenerates the tree modernization/harness/build/; every
+# statement below about the translator, a stub or a generated copy describes
+# the delivered contract.
 #
-# Machine-readable map to be consumed by modernization/harness/translate.py.
+# Machine-readable map consumed by modernization/harness/translate.py.
 # Each entry names one EXEC SQL block in the read-only source program and the
-# construct that is to replace that block in the generated copy written to
+# construct that replaces that block in the generated copy written to
 # modernization/harness/build/. translate.py is required to fail when a block
 # found in the source cannot be matched to an entry in this file.
 #
@@ -19,8 +19,8 @@
 # byte-identical; nothing here edits it.
 #
 # `terminating_period` records whether the block's END-EXEC line carries a
-# trailing period. The last statement of the generated replacement is to
-# inherit that period.
+# trailing period. The last statement of the generated replacement inherits
+# that period.
 #
 # `using` lists the host variables of a DML block in source order. Each item
 # carries the host name exactly as the source spells it, the DB2 column it is
@@ -56,8 +56,8 @@ source_program:
   exec_cics_blocks: 20
   max_line_length: 72
 
-# EXEC SQL INCLUDE blocks. Each is to be replaced by a COPY statement that
-# resolves against the generated build directory under -ffold-copy=LOWER
+# EXEC SQL INCLUDE blocks. Each is replaced by a COPY statement that resolves
+# against the generated build directory under -ffold-copy=LOWER
 # -ext cpy.
 includes:
   # WORKING-STORAGE: length constants and Db2 host-variable definitions.
@@ -68,8 +68,8 @@ includes:
     terminating_period: true
     replacement: 'COPY LGPOLICY.'
     resolves_to: 'lgpolicy.cpy'
-  # WORKING-STORAGE: SQL communications area. The generated copy is to
-  # resolve to the harness copybook hsqlca.cpy.
+  # WORKING-STORAGE: SQL communications area. The generated copy resolves
+  # to the harness copybook hsqlca.cpy.
   - id: 'include_sqlca'
     include_name: 'SQLCA'
     start_line: 124
@@ -89,9 +89,9 @@ includes:
     resolves_to: 'lgcmarea.cpy'
     enclosing_group: '01  DFHCOMMAREA.'
 
-# EXEC SQL DML blocks. Each is to be replaced by a dynamic CALL to the stub
+# EXEC SQL DML blocks. Each is replaced by a dynamic CALL to the stub
 # named in `call_program`, passing the `using` hosts BY REFERENCE in the
-# listed order. The stub PROGRAM-IDs are to live in
+# listed order. The stub PROGRAM-IDs live in
 # modernization/harness/stubs/.
 dml:
   # ---------------------------------------------------------------------
@@ -649,7 +649,7 @@ capture_ordinals:
   # The seven distinct values of by_dml_id plus vsam_write_ordinal_item.
   distinct_ordinal_items: 8
 
-# Counts to be asserted by modernization/harness/translate.py after loading
+# Counts asserted by modernization/harness/translate.py after loading
 # this file. using_counts is keyed by call target: the call_program value with
 # the SQL- prefix removed, lower-cased, hyphens replaced by underscores. The
 # two ENDOWMENT blocks share the insert_endowment key; both name the same stub
