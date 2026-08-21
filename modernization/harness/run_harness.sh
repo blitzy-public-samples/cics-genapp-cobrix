@@ -76,7 +76,12 @@
 # Row 01AMOT-LGCA carries no expected return code: the chain abends at
 # [base/src/lgapol01.cbl:96-102] before the MOVE '00' that follows it, so
 # CA-RETURN-CODE keeps the value the generated record carries, and that is what
-# this script asserts.
+# this script asserts. That value is the chain_populated_items seed of
+# modernization/extraction/copybook_field_map.yml, which stands outside the
+# codes of RETURN_CODE_DOMAIN, so the value this row asserts is one no step of
+# the chain writes and the code every other row asserts is one the chain wrote.
+# Every executed case asserts both the seed it read and that the seed is outside
+# that domain.
 # The endowment route is not executed: no row of the table selects it and every
 # row asserts the endowment capture group absent. See
 # modernization/docs/decision-log.md (planned deliverable; not present at this
@@ -747,12 +752,26 @@ declare -rA CAPTURE_KEY_NAMES=(
 # it read; a case is asserted against RECORD_CHARACTERS, so a record the sample
 # step generated short, or one a broken stream truncated, fails the case instead
 # of running the chain on a record the reader padded with spaces.
+# FIXTURE_RETURN_CODE carries the two characters the record held in the
+# CA-RETURN-CODE window before the chain ran, so a driver that stops publishing
+# the value CA_RETURN_CODE is read against fails the case.
 readonly -a CAPTURE_KEYS_BASE=("CASE" "FIXTURE" "SAMPLE_RECORD_LENGTH"
-  "EIBCALEN_AT_CALL" "CA_REQUEST_ID"
+  "EIBCALEN_AT_CALL" "CA_REQUEST_ID" "FIXTURE_RETURN_CODE"
   "CA_RETURN_CODE" "CA_PAYMENT" "DRIVER_STATUS" "ABEND_PRESENT" "ABEND_CODE"
   "DIAG_LINK_COUNT" "SQL_POLICY_PRESENT" "SQL_IDENTITY_PRESENT"
   "SQL_LASTCHANGED_PRESENT" "SQL_MOTOR_PRESENT" "SQL_COMMERCIAL_PRESENT"
   "SQL_ENDOWMENT_PRESENT" "SQL_HOUSE_PRESENT" "SQLCODE_LAST" "VSAM_PRESENT")
+
+# The codes the chain writes into CA-RETURN-CODE [base/src/lgapol01.cbl:105,114;
+# base/src/lgapdb01.cbl:172,204,211,239,293,296,301,390,428,474,548;
+# base/src/lgapvs01.cbl:144], which are also the codes
+# modernization/extraction/copybook_field_map.yml records as the domain of its
+# return_code logical entry. The generated record carries the
+# chain_populated_items seed of that file in the CA-RETURN-CODE window, and
+# every executed case asserts that the seed it read is none of these values, so
+# a row that expects one of them cannot pass on a window the chain left
+# untouched.
+readonly -a RETURN_CODE_DOMAIN=("00" "70" "80" "90" "98" "99")
 
 # Capture keys a case whose policy insert succeeded is required to carry: the
 # identity read and the timestamp read of [base/src/lgapdb01.cbl:307-321] then
@@ -4592,6 +4611,29 @@ assert_case_keys() {
   emit_step "case ${label}: capture keys present: ${present_count}"
 }
 
+# Ends the run when the CA-RETURN-CODE window of the generated record carries
+# one of the codes the chain writes. The window holds the chain_populated_items
+# seed of modernization/extraction/copybook_field_map.yml, which stands outside
+# RETURN_CODE_DOMAIN, so the return-code assertion of a row that expects a code
+# fails on a chain that did not write that window, and the row that expects no
+# code asserts a surviving value no chain step produces.
+assert_fixture_return_code_outside_domain() {
+  local label="$1" record="$2"
+  local observed="" code=""
+
+  observed="$(fixture_field "$record" return_code)"
+  for code in "${RETURN_CODE_DOMAIN[@]}"; do
+    if [[ "$observed" == "$code" ]]; then
+      die "$EXIT_EXECUTE" \
+        "case ${label}: the generated record carries '${observed}' in the CA-RETURN-CODE window, which is a code the chain writes" \
+        "the record is ${record}" \
+        "the return-code assertion of this case cannot fail on a chain that leaves that window untouched" \
+        "regenerate the record so the window holds the chain_populated_items seed of modernization/extraction/copybook_field_map.yml"
+    fi
+  done
+  count_assertion
+}
+
 # Checks the outcome of the case: the length it called with, the request id the
 # chain read, the return code, the abend state, the product the chain selected,
 # the count and the ordinal of every captured statement, the order of those
@@ -4629,6 +4671,16 @@ assert_case_outcome() {
   assert_capture_number "$label" "$capt" "EIBCALEN_AT_CALL" "$CASE_CALEN"
   assert_capture_text "$label" "$capt" "CA_REQUEST_ID" "$CASE_REQUEST_ID"
   assert_capture_text "$label" "$capt" "DRIVER_STATUS" "PASS"
+
+  # FIXTURE_RETURN_CODE is the CA-RETURN-CODE window of the record the driver
+  # read, published before the chain ran. It is asserted against the same window
+  # read out of the generated record by this script, so the value the next
+  # assertion is read against comes from the record and not from the driver
+  # alone, and it is asserted to be none of the codes the chain writes, so a
+  # window the chain left untouched cannot carry the code a row expects.
+  assert_capture_text "$label" "$capt" "FIXTURE_RETURN_CODE" \
+    "$(fixture_field "$CASE_SAMPLE" return_code)"
+  assert_fixture_return_code_outside_domain "$label" "$CASE_SAMPLE"
 
   expected_rc="$CASE_EXPECT_RC"
   if [[ "$expected_rc" == "NONE" ]]; then

@@ -21,8 +21,9 @@ gate B base working tree clean:
   git status --porcelain -- base/ produced no output
 gate B result: PASS
 gate C no pre-existing tracked modification:
-  git diff --name-only HEAD raw output:
-    (no tracked modification)
+  paths under modernization/ are outside gate C's scope and are not recorded
+  git diff --name-only HEAD, tracked paths outside modernization/:
+    (no tracked modification outside modernization/)
   tracked paths outside modernization/: 0
 gate C result: PASS
 verdict: PASS
@@ -52,8 +53,9 @@ gate B base working tree clean:
   git status --porcelain -- base/ produced no output
 gate B result: PASS
 gate C no pre-existing tracked modification:
-  git diff --name-only HEAD raw output:
-    (no tracked modification)
+  paths under modernization/ are outside gate C's scope and are not recorded
+  git diff --name-only HEAD, tracked paths outside modernization/:
+    (no tracked modification outside modernization/)
   tracked paths outside modernization/: 0
 gate C result: PASS
 verdict: PASS
@@ -83,8 +85,9 @@ gate B base working tree clean:
   git status --porcelain -- base/ produced no output
 gate B result: PASS
 gate C no pre-existing tracked modification:
-  git diff --name-only HEAD raw output:
-    (no tracked modification)
+  paths under modernization/ are outside gate C's scope and are not recorded
+  git diff --name-only HEAD, tracked paths outside modernization/:
+    (no tracked modification outside modernization/)
   tracked paths outside modernization/: 0
 gate C result: PASS
 verdict: PASS
@@ -114,8 +117,9 @@ gate B base working tree clean:
   git status --porcelain -- base/ produced no output
 gate B result: PASS
 gate C no pre-existing tracked modification:
-  git diff --name-only HEAD raw output:
-    (no tracked modification)
+  paths under modernization/ are outside gate C's scope and are not recorded
+  git diff --name-only HEAD, tracked paths outside modernization/:
+    (no tracked modification outside modernization/)
   tracked paths outside modernization/: 0
 gate C result: PASS
 verdict: PASS

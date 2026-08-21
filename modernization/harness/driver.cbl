@@ -20,6 +20,18 @@
       * compared with the seeds this program supplied and with the
       * values the returned COMMAREA carries.
       *
+      * The two characters that image holds in the CA-RETURN-CODE window
+      * are emitted as the FIXTURE_RETURN_CODE capture, beside the
+      * CA_RETURN_CODE the chain returned. The expected return code is
+      * required to differ from them: a case that expects the chain to
+      * write the value the fixture image already carries is reported
+      * and ends the run with status 6, since a comparison against that
+      * value cannot tell a code the chain wrote from the content of the
+      * record it was handed. The chain-populated windows of the
+      * generated record carry the content chain_populated_items of that
+      * field map states for them, and the CA-RETURN-CODE seed recorded
+      * there stands outside the codes the chain writes.
+      *
       * The file statements of this program open no path it composed and
       * no path any environment item supplied. Each of its three files
       * is one descriptor its caller opened before the run:
@@ -46,14 +58,30 @@
       * than '00' is reported naming the descriptor and the caller
       * redirection that supplies it, and ends the run with status 4.
       *
+      * Descriptors 3 and 4 are required to be opened for writing by the
+      * caller, as in 3>commarea_post.dat and 4>captures.txt. The
+      * run-time opens each output by the pathname /dev/fd/N with write
+      * access, and that open reaches the file the descriptor holds
+      * whichever access the caller opened it with: a descriptor opened
+      * read-only, as in 3<file, therefore has its target truncated and
+      * rewritten with the post-chain record or the capture text, and
+      * the open, the write and the close all report file status '00',
+      * so the run reports success. COBOL states no writability test
+      * for an open file, and this program has no path of its own to
+      * test, so the form of the redirection is the caller's to get
+      * right. modernization/harness/run_harness.sh opens both
+      * descriptors as "exec 3>" and "exec 4>" and checks each open
+      * before it runs this program, so no run of the harness reaches
+      * that state.
+      *
       * A stream that carries no record, a record holding more than
-      * 32,500 characters, and a record holding fewer than 32,500
-      * characters, are each reported and end the run with status 4
-      * before the chain is called. The width the record carried is
-      * measured through the RECORD VARYING clause of SAMPLEFILE and
-      * emitted as the SAMPLE_RECORD_LENGTH capture, so every capture
-      * file this program writes states the width of the record its run
-      * read.
+      * 32,500 characters, a record holding fewer than 32,500
+      * characters, and a stream carrying a record after the one read,
+      * are each reported and end the run with status 4 before the chain
+      * is called. The width the record carried is measured through the
+      * RECORD VARYING clause of SAMPLEFILE and emitted as the
+      * SAMPLE_RECORD_LENGTH capture, so every capture file this program
+      * writes states the width of the record its run read.
       *
       * Environment items read:
       *   HARNESS_CASE           case label. Required, 1 to 24
@@ -129,22 +157,42 @@
       *   3  a required capture is missing or inconsistent
       *   4  a file input-output operation failed: standard input
       *      carried no record, the record it carried held other than
-      *      32,500 characters, or an open, write or close failed on
-      *      one of the three descriptors
+      *      32,500 characters, standard input carried a record after
+      *      the one read, or an open, write or close failed on one of
+      *      the three descriptors
       *   5  a required environment item was not provided or was
       *      rejected
       *   6  a captured value differs from the fixture-derived expected
-      *      value
+      *      value, or the expected return code equals the value the
+      *      fixture image carries
       *   7  the translated chain could not be called
+      *
+      * One failure of the run reports a status this program did not
+      * choose. A module the run-time cannot resolve below the guarded
+      * CALL of this program - one of the two programs the chain calls,
+      * or one of the emulated services any of the three calls - aborts
+      * the process from inside that chain, and libcob reports its own
+      * exit status 1, the status this table gives to a return code that
+      * differs from the expected code. The two are told apart by what
+      * the run left behind: the libcob message naming the module and
+      * the call stack reach standard error, and the capture file and
+      * the post-chain record are both 0 bytes, because the abort
+      * happens before either is written. This program's own
+      * CALL 'LGAPOL01' is guarded and reports status 7 instead.
+      * modernization/harness/run_harness.sh recompiles all fifteen
+      * modules and asserts that each one is present before it runs this
+      * program, so no run of the harness reaches that state.
       *
       * Rationale belongs to modernization/docs/decision-log.md
       * (planned deliverable; not present at this milestone), rows:
-      * fixture-derived expected values in the driver; deterministic
+      * fixture-derived expected values in the driver; chain-populated
+      * windows seeded outside the produced domain; deterministic
       * failure injection through shared harness state; driver sample
       * record on standard input; driver refuses a sample record of any
-      * other width; driver outputs written into caller-opened
-      * descriptors; length-preserving VSAM record evidence; driver
-      * exit-status contract; shared EXTERNAL harness state.
+      * other width; driver refuses a stream carrying more than one
+      * record; driver outputs written into caller-opened descriptors;
+      * length-preserving VSAM record evidence; driver exit-status
+      * contract; shared EXTERNAL harness state.
       *
       * Harness topology: Figure 5 — Validation Harness Control Flow
       * in modernization/docs/architecture.md.
@@ -242,6 +290,13 @@
       * taken from a value an emulated service produced.
        01  WS-FIXTURE-CHARS            PIC X(32500).
       *
+      * The two characters that image holds at offset 7, the
+      * CA-RETURN-CODE window of [base/src/lgcmarea.cpy:11], before the
+      * chain ran. The value is emitted as the FIXTURE_RETURN_CODE
+      * capture and is compared with the expected code by
+      * CHECK-RETURN-CODE-ORACLE.
+       01  WS-FIXTURE-RETURN-CODE      PIC XX.
+      *
       *----------------------------------------------------------------*
       * File handling                                                  *
       *----------------------------------------------------------------*
@@ -260,12 +315,28 @@
        01  WS-SAMPLE-LEN               PIC S9(9) COMP.
        01  WS-SAMPLE-LEN-EXPECTED      PIC S9(9) COMP VALUE +32500.
       *
+      * The width the accepted record carried, held while the read that
+      * probes for a second record sets WS-SAMPLE-LEN again, and moved
+      * back into it afterwards.
+       01  WS-SAMPLE-LEN-ACCEPTED      PIC S9(9) COMP.
+      *
       * The /dev/fd entry of the descriptor each output record is
       * written into, opened through the dynamic ASSIGN of that file and
       * reported in the run header. Each item carries the entry from its
       * VALUE clause and no statement of this program writes to it, so
       * the descriptor opened is the one named here and no name is
       * assembled for either output.
+      *
+      * The caller is required to open each of the two descriptors for
+      * writing, as in 3>commarea_post.dat and 4>captures.txt. The
+      * run-time opens the entry named here by pathname with write
+      * access and reaches the file the descriptor holds whichever
+      * access the caller opened it with, so a descriptor opened
+      * read-only has its target truncated and rewritten while the open,
+      * the write and the close each report file status '00'. No
+      * statement of this program can test the access of an open file,
+      * and modernization/harness/run_harness.sh opens both descriptors
+      * for writing and checks each open before this program runs.
        01  WS-POST-PATH                PIC X(9) VALUE '/dev/fd/3'.
        01  WS-CAPT-PATH                PIC X(9) VALUE '/dev/fd/4'.
       *
@@ -770,6 +841,7 @@
            MOVE SPACES TO WS-CHECK-NAME
            MOVE '?' TO WS-PRODUCT-WANTED
            MOVE SPACES TO WS-FIXTURE-CHARS
+           MOVE SPACES TO WS-FIXTURE-RETURN-CODE
            MOVE SPACES TO WS-FIXTURE
            MOVE ZERO TO WS-FIXTURE-LEN
            MOVE SPACES TO WS-CASE
@@ -780,6 +852,7 @@
            MOVE ZERO TO WS-ALPHABET-LEN
            MOVE ZERO TO WS-STRICT-MAX-LEN
            MOVE 'N' TO WS-CHAR-OK
+           MOVE ZERO TO WS-SAMPLE-LEN-ACCEPTED
            MOVE 32500 TO WS-CALL-LENGTH
            MOVE SPACES TO WS-REQUEST-ID-INPUT
            MOVE SPACES TO WS-EFFECTIVE-REQUEST-ID
@@ -1359,11 +1432,23 @@
       * supplied. Every value derived here is known before the chain
       * runs, so no expectation is taken from a capture.
        RESOLVE-EXPECTATIONS.
+           PERFORM DERIVE-FIXTURE-RETURN-CODE
            PERFORM DERIVE-EXPECTED-PRODUCT
            PERFORM DERIVE-EXPECTED-POLICY-TYPE
            PERFORM DERIVE-EXPECTED-SEEDS
            PERFORM DERIVE-EXPECTED-SQLCODE
            PERFORM DERIVE-EXPECTED-EVENTS.
+      *
+      * The two characters the fixture image holds in the CA-RETURN-CODE
+      * window [base/src/lgcmarea.cpy:11], read before the chain ran and
+      * held apart from the COMMAREA the chain writes into. The value is
+      * emitted as the FIXTURE_RETURN_CODE capture and is what
+      * CHECK-RETURN-CODE-ORACLE compares the expected code with.
+       DERIVE-FIXTURE-RETURN-CODE.
+           MOVE 7 TO WS-DEC-OFFSET
+           MOVE 2 TO WS-DEC-LENGTH
+           PERFORM DECODE-FIXTURE-TEXT
+           MOVE WS-DEC-TEXT(1:2) TO WS-FIXTURE-RETURN-CODE.
       *
       * The product table the case expects. An unset
       * HARNESS_EXPECT_PRODUCT selects MOTOR for request id '01AMOT'
@@ -1625,8 +1710,20 @@
       * run-time pads it with spaces to the width of the record area,
       * and the checks of this program cover only the leading fields
       * such a record still carries.
+      *
+      * The stream is required to carry that one record and nothing
+      * after it. One further read is attempted once the record is
+      * accepted, and it is required to reach the end of the stream: a
+      * second record is reported and ends the run with status 4 before
+      * the chain is called, so trailing content is never discarded
+      * unreported. That read is made after the accepted record has
+      * been copied out of the record area, and the measured width is
+      * restored from WS-SAMPLE-LEN-ACCEPTED, so probing for a second
+      * record changes neither the COMMAREA the chain is called with nor
+      * the width the SAMPLE_RECORD_LENGTH capture states.
        READ-SAMPLE-RECORD.
            MOVE ZERO TO WS-SAMPLE-LEN
+           MOVE ZERO TO WS-SAMPLE-LEN-ACCEPTED
            OPEN INPUT SAMPLE-FILE
            IF WS-SAMPLE-STATUS NOT = '00'
                DISPLAY 'DRIVER: open input failed on SAMPLEFILE, '
@@ -1643,6 +1740,8 @@
                    IF WS-SAMPLE-LEN = WS-SAMPLE-LEN-EXPECTED
                        MOVE SAMPLE-REC TO WS-COMMAREA-CHARS
                        MOVE SAMPLE-REC TO WS-FIXTURE-CHARS
+                       MOVE WS-SAMPLE-LEN TO WS-SAMPLE-LEN-ACCEPTED
+                       PERFORM READ-TRAILING-RECORD
                    ELSE
                        PERFORM REPORT-SAMPLE-LENGTH
                        MOVE 04 TO WS-EXIT-CODE
@@ -1670,6 +1769,42 @@
                    MOVE 04 TO WS-EXIT-CODE
                END-IF
            END-IF.
+      *
+      * Attempts one read past the accepted record. The end of the
+      * stream is the required outcome and leaves file status '10'. Any
+      * other status is a stream carrying more than the one record this
+      * program runs: it is reported and the run ends with status 4
+      * before the chain is called. The width the accepted record
+      * carried is restored from WS-SAMPLE-LEN-ACCEPTED, because this
+      * read sets WS-SAMPLE-LEN through the RECORD VARYING clause of
+      * SAMPLEFILE as the first one did.
+       READ-TRAILING-RECORD.
+           READ SAMPLE-FILE
+               AT END
+                   CONTINUE
+           END-READ
+           IF WS-SAMPLE-STATUS NOT = '10'
+               PERFORM REPORT-TRAILING-RECORD
+               MOVE 04 TO WS-EXIT-CODE
+           END-IF
+           MOVE WS-SAMPLE-LEN-ACCEPTED TO WS-SAMPLE-LEN.
+      *
+      * Names the rule a stream carrying a second record breaks and the
+      * redirection that meets it. The accepted record is left unused:
+      * the run ends with status 4 before the chain is called, so no
+      * post-chain record and no capture file are written from a stream
+      * carrying more than the one record of the case.
+       REPORT-TRAILING-RECORD.
+           DISPLAY 'DRIVER: standard input carried a record after the '
+                   '32500-character record read, and exactly one '
+                   'record is required, file status '
+                   WS-SAMPLE-STATUS
+           END-DISPLAY
+           DISPLAY 'DRIVER:   redirect standard input from the '
+                   'generated 32500-character record of one case; a '
+                   'stream carrying anything after that record is '
+                   'rejected rather than read in part'
+           END-DISPLAY.
       *
       * Names the width the record read carried beside the width one
       * generated record holds. The record is left unused: the run ends
@@ -2038,11 +2173,18 @@
            PERFORM EMIT-INTEGER.
       *
       * What the case required of the run, as the checks below applied
-      * it, including the values derived from the effective request id
-      * and from the seeds this program supplied.
+      * it, including the values derived from the effective request id,
+      * from the fixture image and from the seeds this program supplied.
+      * FIXTURE_RETURN_CODE carries the two characters the fixture image
+      * holds in the CA-RETURN-CODE window before the chain ran, so the
+      * capture file states that value beside the CA_RETURN_CODE the
+      * chain returned and a reader can tell one from the other.
        EMIT-CASE-EXPECTATIONS.
            MOVE 'EXPECT_RETURN_CODE' TO WS-KEY-NAME
            MOVE WS-WANT-RETURN-CODE TO WS-VALUE
+           PERFORM EMIT-VALUE
+           MOVE 'FIXTURE_RETURN_CODE' TO WS-KEY-NAME
+           MOVE WS-FIXTURE-RETURN-CODE TO WS-VALUE
            PERFORM EMIT-VALUE
            MOVE 'EXPECT_ABEND' TO WS-KEY-NAME
            MOVE WS-WANT-ABEND TO WS-VALUE
@@ -2693,6 +2835,7 @@
       * counted again against the status it selects.
        EVALUATE-VERDICT.
            PERFORM CHECK-CHAIN-CALLED
+           PERFORM CHECK-RETURN-CODE-ORACLE
            PERFORM CHECK-RETURN-CODE
            PERFORM CHECK-ABEND-STATE
            PERFORM CHECK-STATEMENT-CAPTURES
@@ -2710,6 +2853,37 @@
            IF WS-CALL-FAILED = 'Y'
                MOVE 'CHAIN-MODULE-CALLED' TO WS-CHECK-NAME
                PERFORM REPORT-FAILED-CHECK
+           END-IF.
+      *
+      * Holds the comparison CHECK-RETURN-CODE makes to one it can
+      * fail. The fixture image carries a value in the CA-RETURN-CODE
+      * window before the chain runs, and a case that expects the chain
+      * to write a code equal to that value would pass whether the chain
+      * wrote it or not, so the expected code and the fixture value are
+      * required to differ. 'NONE' compares no code and the fixture
+      * value is what such a case asserts, so this check does not apply
+      * to it.
+       CHECK-RETURN-CODE-ORACLE.
+           IF WS-WANT-RETURN-CODE NOT = 'NONE'
+               IF WS-FIXTURE-RETURN-CODE = WS-WANT-RETURN-CODE(1:2)
+                   MOVE 'FIXTURE_RETURN_CODE' TO WS-CMP-FIELD
+                   PERFORM NAME-VALUE-CHECK
+                   PERFORM REPORT-VALUE-FAILURE
+                   DISPLAY 'DRIVER:   field FIXTURE_RETURN_CODE holds ['
+                           WS-FIXTURE-RETURN-CODE '] before the chain '
+                           'runs and the expected code is ['
+                           WS-WANT-RETURN-CODE(1:2) ']; the two are '
+                           'required to differ'
+                   END-DISPLAY
+                   DISPLAY 'DRIVER:   generate the sample record with '
+                           'the chain_populated_items seed of '
+                           'modernization/extraction/'
+                           'copybook_field_map.yml, which stands '
+                           'outside the codes the chain writes, or set '
+                           'HARNESS_EXPECT_RETURN_CODE to NONE to '
+                           'assert the surviving fixture value'
+                   END-DISPLAY
+               END-IF
            END-IF.
       *
       * The chain returned the code the case expects. 'NONE' compares

@@ -29,7 +29,14 @@
 #   gate B     "git status --porcelain -- base/" produces no output.
 #   gate C     "git diff --name-only HEAD", after paths under the new-work
 #              prefix "modernization/" are filtered out, lists no remaining
-#              path.
+#              path. The block records exactly that filtered list - the tracked
+#              paths outside "modernization/", one escaped line each, or one
+#              marker line when there are none - beside one fixed statement
+#              that paths under "modernization/" are outside this gate and are
+#              not recorded. A path under that prefix therefore reaches neither
+#              the decision nor the evidence log, and one stage of two runs
+#              over one unchanged pre-existing tracked state records the same
+#              bytes however this work's own tracked files stand.
 #
 # Evidence log location rules, all applied before anything is written:
 #   - a supplied path is not empty, and an empty --log value never falls back to
@@ -243,49 +250,53 @@
 # then asserts one case at a time: rejected log locations, a symlinked log
 # target, a symlinked log directory, a hard-linked log target, a FIFO log
 # target, a log whose open cannot succeed, a log directory whose mode is
-# reduced, a log replaced between its open and its status read, a log whose name
-# becomes a symbolic link and a log whose name becomes a FIFO between its open
-# and its status read, a log whose append does not complete, the inode of a log
-# across two runs, three --reproducible runs of one stage from two checkout
-# paths beside one run without that option, four runs appending to one log at
-# the same time, a log whose exclusive lock another descriptor already holds, an
-# evidence directory that appears while this run creates it, an evidence
-# directory a symbolic link takes over while this run creates it, a committed
-# symlinked source, a committed symlinked source directory, a FIFO and
-# a directory in place of sources, a committed source content change, a removed
-# source, a source whose line count and digest both moved, a source replaced
-# between its status read and its open, a source replaced by a symbolic link and
-# a source replaced by a FIFO between its status read and its open, a source
-# whose name becomes a symbolic link and a source whose name becomes a FIFO
-# between its open and the status read that follows it, a source replaced while
-# it is measured through its descriptor, an unclean base/ working tree, a
-# modified tracked file outside modernization/, one missing required tool per
-# case, a failing status read of a held descriptor, an injected --stage label,
-# clean positive runs, and the declared case count. The substitution cases and
-# the descriptor-status case drive their fault through a "stat" shim placed
-# ahead of PATH that otherwise forwards every call to the real tool. The two
+# reduced, a log replaced between its open and its status read, a log whose
+# name becomes a symbolic link and a log whose name becomes a FIFO between its
+# open and its status read, a log whose append does not complete, the inode of
+# a log across two runs, three --reproducible runs of one stage from two
+# checkout paths beside one run without that option, four runs appending to one
+# log at the same time, a log whose exclusive lock another descriptor already
+# holds, an evidence directory that appears while this run creates it, an
+# evidence directory a symbolic link takes over while this run creates it, a
+# committed symlinked source, a committed symlinked source directory, a FIFO
+# and a directory in place of sources, a committed source content change, a
+# removed source, a source whose line count and digest both moved, a source
+# replaced between its status read and its open, a source replaced by a
+# symbolic link and a source replaced by a FIFO between its status read and its
+# open, a source whose name becomes a symbolic link and a source whose name
+# becomes a FIFO between its open and the status read that follows it, a source
+# replaced while it is measured through its descriptor, an unclean base/
+# working tree, a modified tracked file outside modernization/, a modified
+# tracked file under modernization/ beside the clean tree of the same work
+# tree, one missing required tool per case, a failing status read of a held
+# descriptor, an injected --stage label, clean positive runs, and the declared
+# case count. The case that modifies a tracked file under modernization/
+# compares the gate C records of its two runs line by line and reads its log
+# back for two identical blocks. The substitution cases and the
+# descriptor-status case drive their fault through a "stat" shim placed ahead
+# of PATH that otherwise forwards every call to the real tool. The two
 # evidence-directory cases drive theirs through a "mkdir" shim placed ahead of
 # PATH that places one name, writes its own stderr line and reports a failure
 # for the single-component creation it selects, and that otherwise forwards
 # every call to the real tool. The incomplete append is driven by a file-size
 # limit with SIGXFSZ ignored. The concurrent case starts its four runs at once
-# against one log and then reads that log back for balanced markers, one verdict
-# per run and no BEGIN marker opened inside another block. The held-lock case
-# holds an exclusive lock on the evidence log through a descriptor of its own,
-# which the run it starts does not inherit and which is closed as soon as that
-# run returns, and drives that run's wait through a "flock" shim placed ahead of
-# PATH: the shim records the bounded wait each call asks for, hands the real tool
-# a shorter one, supplies a bounded wait to a call that carries none, and
-# forwards every other argument, the descriptor and the exit status unchanged.
-# That case asserts the recorded wait, the exit code, the diagnostic and the
-# digest of the log. No option and no environment value of a verification run
-# changes the wait that run asks for. No case drives a substitution into the
-# window that holds no command, between a builtin check and the open that
-# follows it.
-# It prints one PASS or FAIL line per case plus a count summary, checks after
-# every case that nothing was written outside the throwaway tree, removes that
-# tree on exit, and writes no path in the repository it is started from. It runs
-# alone: no other option may accompany it.
+# against one log and then reads that log back for balanced markers, one
+# verdict per run and no BEGIN marker opened inside another block. The
+# held-lock case holds an exclusive lock on the evidence log through a
+# descriptor of its own, which the run it starts does not inherit and which is
+# closed as soon as that run returns, and drives that run's wait through a
+# "flock" shim placed ahead of PATH: the shim records the bounded wait each
+# call asks for, hands the real tool a shorter one, supplies a bounded wait to
+# a call that carries none, and forwards every other argument, the descriptor
+# and the exit status unchanged. That case asserts the recorded wait, the exit
+# code, the diagnostic and the digest of the log. No option and no environment
+# value of a verification run changes the wait that run asks for. No case
+# drives a substitution into the window that holds no command, between a
+# builtin check and the open that follows it. It prints one PASS or FAIL line
+# per case plus a count summary, checks after every case that nothing was
+# written outside the throwaway tree, removes that tree on exit, and writes no
+# path in the repository it is started from. It runs alone: no other option may
+# accompany it.
 #
 # Options and per-option behavior are listed by --help.
 #
@@ -501,7 +512,13 @@ Stages, in execution order:
              equals the embedded baseline value.
   gate B     "git status --porcelain -- base/" produces no output.
   gate C     "git diff --name-only HEAD", after paths under modernization/ are
-             filtered out, lists no remaining path.
+             filtered out, lists no remaining path. The block records that
+             filtered list alone - the tracked paths outside modernization/,
+             one escaped line each, or one marker line when there are none -
+             beside one fixed statement that paths under modernization/ are
+             outside this gate and are not recorded, so two runs of one stage
+             over one unchanged pre-existing tracked state record the same
+             bytes however this work's own tracked files stand.
 
 Substitution of a path between its check and its open:
   A path that is a symbolic link, that exists as something other than a regular
@@ -1289,6 +1306,22 @@ gate_b() {
 }
 
 # Gate C: no tracked path outside the new-work prefix differs from HEAD.
+#
+# The whole reported list of "git diff --name-only HEAD" is read, and a path
+# under NEW_WORK_PREFIX is dropped from it before anything is recorded: the
+# block names the tracked paths outside that prefix, one sanitized line each, or
+# one marker line when there are none, under one fixed statement that paths
+# inside the prefix are neither evaluated nor recorded. The recorded lines
+# therefore hold the same bytes whether or not this work's own tracked files -
+# the authored bridge and the evidence set a harness run replaces - differ from
+# HEAD while the gate runs, so one stage of two runs over one unchanged
+# pre-existing tracked state appends byte-identical blocks. The decision, its
+# count line, its stderr summary and its exit code read the same list as
+# before: a path outside the prefix is counted, named in the record and returned
+# as EXIT_TRACKED.
+# See planned decision-log row: gate C records only the tracked paths it
+# evaluates, in modernization/docs/decision-log.md (planned deliverable; not
+# present at this milestone).
 gate_c() {
   local output="" line="" entry="" count=0
   local remaining=()
@@ -1298,21 +1331,27 @@ gate_c() {
     fail_env "git diff --name-only HEAD did not complete: $(sanitize "$output")"
   fi
 
-  emit "  git diff --name-only HEAD raw output:"
-  if [[ -z "$output" ]]; then
-    emit "    (no tracked modification)"
-  else
+  if [[ -n "$output" ]]; then
     while IFS= read -r line; do
       [[ -n "$line" ]] || continue
-      emit "    $(sanitize "$line")"
       case "$line" in
         "${NEW_WORK_PREFIX}"*) : ;;
         *) remaining+=("$(sanitize "$line")") ;;
       esac
     done <<<"$output"
   fi
-
   count="${#remaining[@]}"
+
+  emit "  paths under ${NEW_WORK_PREFIX} are outside gate C's scope and are not recorded"
+  emit "  git diff --name-only HEAD, tracked paths outside ${NEW_WORK_PREFIX}:"
+  if ((count == 0)); then
+    emit "    (no tracked modification outside ${NEW_WORK_PREFIX})"
+  else
+    for entry in "${remaining[@]}"; do
+      emit "    ${entry}"
+    done
+  fi
+
   printf -v line '  tracked paths outside %s: %d' "$NEW_WORK_PREFIX" "$count"
   emit "$line"
 
@@ -1321,9 +1360,6 @@ gate_c() {
     return 0
   fi
 
-  for entry in "${remaining[@]}"; do
-    emit "    ${entry}"
-  done
   emit "gate C result: FAIL"
   printf '%s: error: gate C %d pre-existing tracked file(s) outside %s modified\n' \
     "$PROG" "$count" "$NEW_WORK_PREFIX" >&2
@@ -1350,7 +1386,7 @@ readonly SELF_TEST_EXPECTED_TOOLS=(git sha256sum wc date mkdir stat flock)
 
 # Number of case lines --self-test reports, including the case that checks this
 # number. A case that is added or removed changes it.
-readonly SELF_TEST_CASE_COUNT=49
+readonly SELF_TEST_CASE_COUNT=50
 
 # Seconds the "flock" shim of the held-lock case hands the real tool in place of
 # the bounded wait the run under test asks for. It applies to that one shim
@@ -2021,6 +2057,35 @@ st_expect_identical_blocks() {
     st_note "${index} complete block(s), expected ${want}"
   ((differing == 0)) ||
     st_note "${differing} block(s) differ from the first"
+}
+
+# Prints the gate C records of the run the case last made: every line from the
+# gate C header line to the gate C result line that follows it, in order and
+# unchanged. Reads the captured output of that run alone, so two runs of one
+# stage can be compared record by record. Prints nothing when the run reported
+# no gate C header, which the caller reports as a missing block.
+st_gate_c_block() {
+  local line="" reading=0
+
+  while IFS= read -r line; do
+    case "$line" in
+      "gate C no pre-existing tracked modification:")
+        reading=1
+        printf '%s\n' "$line"
+        ;;
+      "gate C result: "*)
+        if ((reading == 1)); then
+          printf '%s\n' "$line"
+          reading=0
+        fi
+        ;;
+      *)
+        if ((reading == 1)); then
+          printf '%s\n' "$line"
+        fi
+        ;;
+    esac
+  done <<<"$ST_OUTPUT"
 }
 
 # Confirms the case wrote nothing outside its throwaway tree: the escape
@@ -2856,6 +2921,10 @@ st_case_base_dirty() {
   st_end "exit 2 at gate B on a modified tracked and an untracked base/ path, gate C not reached"
 }
 
+# Modifies one tracked path outside the new-work prefix and one tracked path
+# under it. Gate C names and counts the path outside the prefix and fails on it,
+# and the path under the prefix reaches no line of the run: the record holds the
+# paths the gate evaluates and nothing else.
 st_case_tracked_outside() {
   local outside_rel="NOTES.txt"
   st_begin "tracked-outside"
@@ -2868,12 +2937,56 @@ st_case_tracked_outside() {
   st_expect_exit "$EXIT_TRACKED"
   st_expect_output "gate A result: PASS (5 of 5 baseline entries matched)"
   st_expect_output "gate B result: PASS"
-  st_expect_output "    ${SELF_TEST_MANIFEST_REL}"
+  st_expect_no_output "${SELF_TEST_MANIFEST_REL}"
   st_expect_output "    ${outside_rel}"
   st_expect_output "  tracked paths outside ${NEW_WORK_PREFIX}: 1"
   st_expect_output "gate C result: FAIL"
   st_expect_output "verdict: FAIL-PREEXISTING-TRACKED-MODIFICATION"
-  st_end "exit 3 at gate C on one tracked path outside ${NEW_WORK_PREFIX}, the prefix change filtered"
+  st_end "exit 3 at gate C on one tracked path outside ${NEW_WORK_PREFIX}, the prefix change unrecorded"
+}
+
+# Runs one stage twice over one work tree, into one log and with --reproducible:
+# once with every tracked path at HEAD, then with one tracked path under the
+# new-work prefix modified and nothing else. The second run records the gate C
+# header, the scope statement, the marker line for an empty list, the count and
+# the result exactly as the first did, names no path, still counts no path
+# outside the prefix and still exits 0, and the two blocks the log holds are
+# identical, so a block of published evidence carries no state of this work's
+# own tracked files.
+st_case_new_work_modified() {
+  local log_rel="${LOG_DIR_REL}/new-work.log"
+  local log_abs="" clean_block="" dirty_block="" reported=""
+  st_begin "new-work-modified"
+  log_abs="${ST_REPO}/${log_rel}"
+
+  st_run --stage fixed-stage --log "$log_rel" --reproducible
+  st_expect_exit "$EXIT_OK"
+  st_expect_output "  tracked paths outside ${NEW_WORK_PREFIX}: 0"
+  st_expect_output "gate C result: PASS"
+  clean_block="$(st_gate_c_block)"
+  [[ -n "$clean_block" ]] || st_note "the run over the clean tree recorded no gate C block"
+
+  printf '%s\njsonschema==4.26.0\n' "$SELF_TEST_MANIFEST_BODY" \
+    >"${ST_REPO}/${SELF_TEST_MANIFEST_REL}"
+  reported="$(cd "$ST_REPO" && git diff --name-only HEAD)"
+  [[ "$reported" == "$SELF_TEST_MANIFEST_REL" ]] ||
+    st_note "the work tree reports '${reported}' where only ${SELF_TEST_MANIFEST_REL} was modified"
+
+  st_run --stage fixed-stage --log "$log_rel" --reproducible
+  st_expect_exit "$EXIT_OK"
+  st_expect_output "  paths under ${NEW_WORK_PREFIX} are outside gate C's scope and are not recorded"
+  st_expect_output "    (no tracked modification outside ${NEW_WORK_PREFIX})"
+  st_expect_output "  tracked paths outside ${NEW_WORK_PREFIX}: 0"
+  st_expect_output "gate C result: PASS"
+  st_expect_output "verdict: PASS"
+  st_expect_no_output "${SELF_TEST_MANIFEST_REL}"
+  dirty_block="$(st_gate_c_block)"
+  [[ "$dirty_block" == "$clean_block" ]] ||
+    st_note "the gate C block changed while a tracked path under ${NEW_WORK_PREFIX} was modified"
+
+  st_expect_identical_blocks "$log_abs" 2
+  st_expect_exact_count "$log_abs" "verdict: PASS" 2
+  st_end "exit 0 and one gate C block for a clean tree and a modified tracked ${NEW_WORK_PREFIX} path"
 }
 
 st_case_tool_list() {
@@ -3044,6 +3157,7 @@ run_self_test() {
   st_case_source_swapped_measure
   st_case_base_dirty
   st_case_tracked_outside
+  st_case_new_work_modified
   st_case_tool_list
   for tool in "${SELF_TEST_EXPECTED_TOOLS[@]}"; do
     st_case_missing_tool "$tool"

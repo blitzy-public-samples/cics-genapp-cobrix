@@ -32,8 +32,10 @@ WHICH FIELD MAP MEMBERS ARE FIXED
     ``record.length`` and ``sample_definition_contract.emitted_record_length`` are
     both 32,500, that ``value_padding`` is the digit zero for ``numeric_display`` and
     one space for ``alphanumeric``, that ``value_justification`` is right for
-    ``numeric_display`` and left for ``alphanumeric``, and that every layout item
-    flagged ``chain_required_numeric`` records kind ``numeric_display``. Loading also
+    ``numeric_display`` and left for ``alphanumeric``, that ``fill_by_kind`` is
+    ``zeros`` for ``numeric_display`` and ``spaces`` for ``alphanumeric``, and that
+    every layout item flagged ``chain_required_numeric`` records kind
+    ``numeric_display``. Loading also
     confirms the container and element types of every member this builder reads: each
     ``layout`` group name and each ``request_routing.map`` request id is a non-empty
     string, and ``sample_definition_contract.required_keys``, where it is recorded, is a
@@ -87,7 +89,16 @@ HOW FIELDS ARE PLACED
     instead. A ``numeric_display`` window receives the supplied value right-justified
     and zero-padded, and all zeros when the sample omits the item. An ``alphanumeric``
     window receives the supplied value left-justified and space-padded, and stays
-    spaces when the sample omits the item. The record is always emitted at
+    spaces when the sample omits the item. A window the chain assigns receives the
+    content ``sample_definition_contract.chain_populated_items`` states for it instead:
+    the padding character of its kind across the whole window where the entry records a
+    ``fill``, or the literal it records as its ``seed``. That section is required to
+    hold exactly one entry per logical entry recording ``populated_by: chain``, each
+    entry's ``kind`` must be the kind the layout declares for the item, and a ``seed``
+    must be as long as the window, must hold digits only for a numeric window and must
+    stand outside the ``domain`` the item's logical entry declares, so a seeded window
+    holds no value the chain produces. The assembled record is compared with that stated
+    content before it is written. The record is always emitted at
     ``COMMAREA_RECORD_LENGTH`` characters followed by one newline, and the field map
     must declare that same length under both ``record.length`` and
     ``sample_definition_contract.emitted_record_length``.
@@ -110,9 +121,14 @@ WHAT --self-test CHECKS
     It parses ``base/src/lgcmarea.cpy`` for every item offset, length and kind without
     reading the field map, compares that parse with the field map's exercised layout
     entries in both directions, asserts each fixture's exact supplied key set, the
-    fill of every window it omits and its rendered bytes against a table of literal
-    expected window contents, and runs the failure matrix: mutated field maps,
-    rejected sample definitions, including two keys that name one item by differing
+    fill or the stated chain-populated content of every window it omits and its rendered
+    bytes against a table of literal expected window contents, confirms that
+    ``chain_populated_items``, the logical entries, the copybook parse and that table
+    state the same pre-execution content, and runs the failure matrix: mutated field
+    maps, including a chain-populated seed inside its declared domain, a seed of the
+    wrong length, a non-digit seed for a numeric window, a chain-populated item missing
+    from the section and a foreign item present in it, rejected sample definitions,
+    including two keys that name one item by differing
     case, a record one character short of and one character past the emitted length
     offered to the writer, an unwritable output, an unreadable field map, an input that
     is not a regular file, a rerun comparison, a non-zero commercial status placement,
@@ -312,6 +328,22 @@ KNOWN_VALUE_SEMANTICS = (SEMANTICS_ISO_DATE,)
 # Fill labels the field map records for a window left at its padding character.
 FILL_LABEL_SPACES = "spaces"
 FILL_LABEL_ZEROS = "zeros"
+
+# Fill label each item kind must record under sample_definition_contract.fill_by_kind
+# and under every chain_populated_items entry that records a fill instead of a seed.
+FILL_LABEL_BY_KIND = {
+    KIND_NUMERIC: FILL_LABEL_ZEROS,
+    KIND_ALPHANUMERIC: FILL_LABEL_SPACES,
+}
+
+# The two members a chain_populated_items entry chooses between: the padding character
+# of its kind across the whole window, or the literal the entry records.
+CHAIN_CONTENT_FILL = "fill"
+CHAIN_CONTENT_SEED = "seed"
+
+# Section of sample_definition_contract that states the content of every window the
+# chain assigns, one entry per logical entry recording populated_by chain.
+CHAIN_POPULATED_SECTION = "chain_populated_items"
 
 # Filler and padding items of base/src/lgcmarea.cpy: CA-E-PADDING-DATA at line 54,
 # CA-H-FILLER at 63, CA-M-FILLER at 75, CA-B-FILLER at 94 and CA-C-FILLER at 103. A
@@ -1728,14 +1760,15 @@ def _record_length(field_map: dict[str, Any]) -> int:
 def _fill_rules(field_map: dict[str, Any]) -> dict[str, tuple[str, str]]:
     """Return the padding character and justification recorded for each item kind.
 
-    Each kind must record the padding character listed in ``FIXED_PADDING`` and the
-    justification listed in ``FIXED_JUSTIFICATION``; any other value raises
-    ``FieldMapError`` naming the member.
+    Each kind must record the padding character listed in ``FIXED_PADDING``, the
+    justification listed in ``FIXED_JUSTIFICATION`` and the fill label listed in
+    ``FILL_LABEL_BY_KIND``; any other value raises ``FieldMapError`` naming the member.
     """
     where = "field map sample_definition_contract"
     contract = field_map["sample_definition_contract"]
     padding = _mapping_section(contract, "value_padding", where)
     justification = _mapping_section(contract, "value_justification", where)
+    fills = _mapping_section(contract, "fill_by_kind", where)
 
     rules: dict[str, tuple[str, str]] = {}
     for kind in (KIND_NUMERIC, KIND_ALPHANUMERIC):
@@ -1751,8 +1784,199 @@ def _fill_rules(field_map: dict[str, Any]) -> dict[str, tuple[str, str]]:
                 f"{where}.value_justification['{kind}'] must be "
                 f"'{FIXED_JUSTIFICATION[kind]}', found {_shown(side)}"
             )
+        label = fills.get(kind)
+        if label != FILL_LABEL_BY_KIND[kind]:
+            raise FieldMapError(
+                f"{where}.fill_by_kind['{kind}'] must be "
+                f"'{FILL_LABEL_BY_KIND[kind]}', found {_shown(label)}"
+            )
         rules[kind] = (character, side)
     return rules
+
+
+def _item_domains(field_map: dict[str, Any]) -> dict[str, tuple[str, tuple[str, ...]]]:
+    """Return the value domain every logical entry declares, keyed by COMMAREA item.
+
+    Each result entry maps the upper-case item name to the name of the logical entry
+    that declares the domain and the members it lists. Raises ``FieldMapError`` when a
+    recorded ``domain`` is not a non-empty sequence of non-empty strings.
+    """
+    domains: dict[str, tuple[str, tuple[str, ...]]] = {}
+    for entry in _logical_entries(field_map):
+        declared = entry.get("domain")
+        if declared is None:
+            continue
+        item = _commarea_item(entry)
+        if item is None:
+            continue
+        name = str(entry.get("logical_entry"))
+        if not isinstance(declared, list) or not declared:
+            raise FieldMapError(
+                f"field map fields entry {_display(name)}: 'domain' must be a "
+                f"non-empty sequence when recorded, found {_shown(declared)}"
+            )
+        members: list[str] = []
+        for member in declared:
+            if not isinstance(member, str) or not member:
+                raise FieldMapError(
+                    f"field map fields entry {_display(name)}: 'domain' holds "
+                    f"{_shown(member)}, and every member must be a non-empty string"
+                )
+            members.append(member)
+        domains[item.upper()] = (name, tuple(members))
+    return domains
+
+
+def _chain_content_characters(
+    entry: dict[str, Any], window: Window, domain: tuple[str, tuple[str, ...]] | None
+) -> str:
+    """Return the characters one ``chain_populated_items`` entry places in its window.
+
+    The entry records exactly one of ``fill`` and ``seed``. ``fill`` yields the padding
+    character of the window's kind across the whole window and must carry the label
+    ``FILL_LABEL_BY_KIND`` lists for that kind. ``seed`` yields the literal itself,
+    which must be as long as the window, must hold digits only for a numeric window,
+    must hold printable 7-bit ASCII only for an alphanumeric window, and must stand
+    outside ``domain`` where the item's logical entry declares one, so a seeded window
+    cannot already hold a value the chain produces.
+    """
+    where = (
+        f"field map sample_definition_contract.chain_populated_items entry "
+        f"{_display(window.item)}"
+    )
+    fill = entry.get(CHAIN_CONTENT_FILL)
+    seed = entry.get(CHAIN_CONTENT_SEED)
+    if (fill is None) == (seed is None):
+        raise FieldMapError(
+            f"{where} must record exactly one of '{CHAIN_CONTENT_FILL}' and "
+            f"'{CHAIN_CONTENT_SEED}', found {_shown(fill)} and {_shown(seed)}"
+        )
+    if seed is None:
+        if fill != FILL_LABEL_BY_KIND[window.kind]:
+            raise FieldMapError(
+                f"{where} records '{CHAIN_CONTENT_FILL}' {_shown(fill)} while a "
+                f"'{window.kind}' window is filled with "
+                f"'{FILL_LABEL_BY_KIND[window.kind]}'"
+            )
+        return FIXED_PADDING[window.kind] * window.length
+
+    if not isinstance(seed, str):
+        raise FieldMapError(
+            f"{where}: '{CHAIN_CONTENT_SEED}' must be a string, "
+            f"found {_type_name(seed)}"
+        )
+    if len(seed) != window.length:
+        raise FieldMapError(
+            f"{where}: '{CHAIN_CONTENT_SEED}' holds {len(seed)} character(s) and the "
+            f"declared length of the window is {window.length}"
+        )
+    if window.kind == KIND_NUMERIC:
+        if not _ASCII_DIGITS.fullmatch(seed):
+            position, offender = next(
+                (index, character)
+                for index, character in enumerate(seed, start=1)
+                if character not in _DIGITS
+            )
+            raise FieldMapError(
+                f"{where}: '{CHAIN_CONTENT_SEED}' holds a character outside digits "
+                f"0-9 at position {position} (code point {ord(offender)}) and the "
+                f"window is numeric"
+            )
+    elif not _PRINTABLE_ASCII.fullmatch(seed):
+        position, offender = next(
+            (index, character)
+            for index, character in enumerate(seed, start=1)
+            if not 0x20 <= ord(character) <= 0x7E
+        )
+        raise FieldMapError(
+            f"{where}: '{CHAIN_CONTENT_SEED}' holds a character at position "
+            f"{position} (code point {ord(offender)}), outside printable 7-bit ASCII"
+        )
+    if domain is not None and seed in domain[1]:
+        raise FieldMapError(
+            f"{where}: '{CHAIN_CONTENT_SEED}' {_escaped(seed)} is a member of the "
+            f"domain logical entry {_display(domain[0])} declares "
+            f"({_quote_all(domain[1])}); a seeded window holds no value the chain "
+            f"produces"
+        )
+    return seed
+
+
+def _chain_populated_content(
+    field_map: dict[str, Any], routing: Routing, windows: Iterable[Window]
+) -> dict[str, str]:
+    """Return the characters every chain-populated window carries, keyed upper-case.
+
+    ``sample_definition_contract.chain_populated_items`` is the authoritative statement
+    of that content and is required to hold exactly one entry per logical entry
+    recording ``populated_by: chain``: a missing, repeated or foreign entry raises
+    ``FieldMapError``, as does an entry whose ``kind`` differs from the kind the layout
+    declares for the item or whose recorded content breaches
+    ``_chain_content_characters``. Every returned value is exactly as long as its
+    window, so ``render_record`` places it without padding or justification.
+    """
+    where = "field map sample_definition_contract.chain_populated_items"
+    contract = field_map["sample_definition_contract"]
+    declared = contract.get(CHAIN_POPULATED_SECTION)
+    if not isinstance(declared, list) or not declared:
+        raise FieldMapError(
+            f"{where} must be a non-empty sequence, found {_shown(declared)}"
+        )
+
+    chain_items = _items_populated_by(field_map, POPULATED_BY_CHAIN)
+    if not chain_items:
+        raise FieldMapError(
+            "field map records no logical entry with "
+            f"'populated_by: {POPULATED_BY_CHAIN}' while {where} holds "
+            f"{len(declared)} entry/entries"
+        )
+    index = _window_index(windows)
+    domains = _item_domains(field_map)
+
+    content: dict[str, str] = {}
+    for position, entry in enumerate(declared, start=1):
+        if not isinstance(entry, dict):
+            raise FieldMapError(
+                f"{where} entry {position} must be a mapping, found {_type_name(entry)}"
+            )
+        item = entry.get("item")
+        if not isinstance(item, str) or not item:
+            raise FieldMapError(
+                f"{where} entry {position}: 'item' must be a non-empty string, "
+                f"found {_display(item)}"
+            )
+        key = item.upper()
+        if key in content:
+            raise FieldMapError(
+                f"{where} entry {position} repeats item {_display(item)}"
+            )
+        if key not in chain_items:
+            raise FieldMapError(
+                f"{where} entry {position} names item {_display(item)}, which no "
+                f"logical entry records as 'populated_by: {POPULATED_BY_CHAIN}'"
+            )
+        window = index.get(key)
+        if window is None:
+            raise FieldMapError(
+                f"{where} entry {position} names item {_display(item)}, for which the "
+                f"layout declares no window under request id "
+                f"{_display(routing.request_id)}"
+            )
+        kind = entry.get("kind")
+        if kind != window.kind:
+            raise FieldMapError(
+                f"{where} entry {position} records item {_display(item)} as "
+                f"{_shown(kind)} while the layout declares it "
+                f"'{window.kind}'"
+            )
+        content[key] = _chain_content_characters(entry, window, domains.get(key))
+
+    absent = [name for key, name in chain_items.items() if key not in content]
+    if absent:
+        raise FieldMapError(
+            f"{where} records no entry for chain-populated item(s) {_quote_all(absent)}"
+        )
+    return content
 
 
 def _placed_characters(
@@ -1803,19 +2027,23 @@ def render_record(
 
     Every window of the base groups and of the resolved overlay is written from the
     field map's own offsets and lengths. Numeric windows receive digits, alphanumeric
-    windows receive their value or the padding character, and any byte no window claims
-    stays a space. The buffer is allocated only after ``record.length`` is confirmed to
-    be ``RECORD_LENGTH``, so the result always carries 32,500 characters.
-    stays a space. The result always carries ``COMMAREA_RECORD_LENGTH`` characters, and
-    every window of ``PROTECTED_FILL_ITEMS`` the layout selects holds spaces only.
+    windows receive their value or the padding character, a window the chain assigns
+    receives the content ``chain_populated_items`` states for it, and any byte no window
+    claims stays a space. The buffer is allocated only after ``record.length`` is
+    confirmed to be ``RECORD_LENGTH``, so the result always carries 32,500 characters.
+    The result always carries ``COMMAREA_RECORD_LENGTH`` characters, every window of
+    ``PROTECTED_FILL_ITEMS`` the layout selects holds spaces only, and every
+    chain-populated window holds exactly the content that section states.
 
     Raises ``FieldMapError`` when two windows overlap, when a window falls outside the
-    record, when a selected filler window did not stay spaces, or when the assembled
-    record does not match ``COMMAREA_RECORD_LENGTH``.
+    record, when a selected filler window did not stay spaces, when a chain-populated
+    window did not receive its stated content, or when the assembled record does not
+    match ``COMMAREA_RECORD_LENGTH``.
     """
     length = COMMAREA_RECORD_LENGTH
     rules = _fill_rules(field_map)
     windows = _layout_windows(field_map, routing)
+    chain_content = _chain_populated_content(field_map, routing, windows)
 
     placeable = {window.item.upper() for window in windows}
     unplaceable = [item for item in values if item.upper() not in placeable]
@@ -1840,7 +2068,11 @@ def render_record(
                 f"{furthest.offset}-{furthest.end_byte}) and {_display(window.item)} "
                 f"(bytes {window.offset}-{window.end_byte}) claim the same bytes"
             )
-        text = _placed_characters(window, supplied.get(window.item.upper()), rules)
+        stated = chain_content.get(window.item.upper())
+        if stated is None:
+            text = _placed_characters(window, supplied.get(window.item.upper()), rules)
+        else:
+            text = stated
         buffer[window.offset - 1 : window.end_byte] = list(text)
         if furthest is None or window.end_byte > furthest.end_byte:
             furthest = window
@@ -1859,6 +2091,17 @@ def render_record(
                 f"field map layout item {_display(window.item)} filled bytes "
                 f"{window.offset}-{window.end_byte} with characters other than "
                 f"spaces; that window holds spaces only"
+            )
+    for window in windows:
+        stated = chain_content.get(window.item.upper())
+        if stated is None:
+            continue
+        placed = record[window.offset - 1 : window.end_byte]
+        if placed != stated:
+            raise FieldMapError(
+                f"chain-populated item {_display(window.item)} holds "
+                f"{_escaped(placed)} in bytes {window.offset}-{window.end_byte}, and "
+                f"{CHAIN_POPULATED_SECTION} states {_escaped(stated)}"
             )
     return record
 
@@ -2767,6 +3010,32 @@ class _Fill(NamedTuple):
 
 
 _FILL_SPACES = _Fill(" ")
+_FILL_ZEROS = _Fill("0")
+
+# The literal the field map seeds the CA-RETURN-CODE window with, held here so the
+# matrix compares the emitted record against a value of its own rather than against the
+# document under test. It stands outside the return_codes domain the field map declares
+# for that item, so a run that reports one of those codes reports a value the chain
+# wrote.
+_CHAIN_RETURN_CODE_SEED = "55"
+
+# Content every chain-populated window carries on the emitted record, before the chain
+# runs. The three names are the items sample_definition_contract.chain_populated_items
+# records: the seeded return-code window, the zero-filled identity window and the
+# space-filled timestamp window.
+_CHAIN_WINDOW_CONTENT: dict[str, str | _Fill] = {
+    "CA-RETURN-CODE": _CHAIN_RETURN_CODE_SEED,
+    "CA-POLICY-NUM": _FILL_ZEROS,
+    "CA-LASTCHANGED": _FILL_SPACES,
+}
+
+# Seeds the adversarial chain-populated cases offer in place of the accepted one: the
+# success code, a member of the domain the return_code logical entry declares; a
+# two-character value whose second character is not a digit; and, for the foreign-entry
+# case, one request-supplied numeric item the chain does not assign.
+_RETURN_CODE_DOMAIN_MEMBER = "00"
+_NON_DIGIT_SEED = "5X"
+_FOREIGN_CHAIN_ITEM = "CA-PAYMENT"
 
 
 class _FixtureKeys(NamedTuple):
@@ -2784,12 +3053,12 @@ class _FixtureKeys(NamedTuple):
 
 _MOTOR_EXPECTED_WINDOWS: dict[str, str | _Fill] = {
     "CA-REQUEST-ID": "01AMOT",
-    "CA-RETURN-CODE": "00",
+    "CA-RETURN-CODE": _CHAIN_WINDOW_CONTENT["CA-RETURN-CODE"],
     "CA-CUSTOMER-NUM": "0000001001",
-    "CA-POLICY-NUM": "0000000000",
+    "CA-POLICY-NUM": _CHAIN_WINDOW_CONTENT["CA-POLICY-NUM"],
     "CA-ISSUE-DATE": "2026-08-19",
     "CA-EXPIRY-DATE": "2027-08-18",
-    "CA-LASTCHANGED": " " * 26,
+    "CA-LASTCHANGED": _CHAIN_WINDOW_CONTENT["CA-LASTCHANGED"],
     "CA-BROKERID": "0000000042",
     "CA-BROKERSREF": "BRMOT001" + " " * 2,
     "CA-PAYMENT": "000500",
@@ -2807,12 +3076,12 @@ _MOTOR_EXPECTED_WINDOWS: dict[str, str | _Fill] = {
 
 _COMMERCIAL_EXPECTED_WINDOWS: dict[str, str | _Fill] = {
     "CA-REQUEST-ID": "01ACOM",
-    "CA-RETURN-CODE": "00",
+    "CA-RETURN-CODE": _CHAIN_WINDOW_CONTENT["CA-RETURN-CODE"],
     "CA-CUSTOMER-NUM": "0000002002",
-    "CA-POLICY-NUM": "0000000000",
+    "CA-POLICY-NUM": _CHAIN_WINDOW_CONTENT["CA-POLICY-NUM"],
     "CA-ISSUE-DATE": "2026-08-19",
     "CA-EXPIRY-DATE": "2027-08-18",
-    "CA-LASTCHANGED": " " * 26,
+    "CA-LASTCHANGED": _CHAIN_WINDOW_CONTENT["CA-LASTCHANGED"],
     "CA-BROKERID": "0000000084",
     "CA-BROKERSREF": "BRCOM001" + " " * 2,
     "CA-PAYMENT": "001750",
@@ -3200,11 +3469,15 @@ def _assert_fixture_keys(
 def _assert_fill_windows(
     record: str, omitted: Iterable[str], layout: CopybookLayout, what: str
 ) -> None:
-    """Confirm every window the fixture omits holds the fill its kind declares.
+    """Confirm every window the fixture omits holds the content declared for it.
 
-    A numeric window holds the digit zero across its whole length and an alphanumeric
-    window holds spaces. The expected characters come from the copybook parse, not from
-    the field map or the expected-window table.
+    A window named by ``_CHAIN_WINDOW_CONTENT`` is a window the chain assigns and holds
+    the pre-execution content that table records for it, which is what the chain
+    overwrites; the comparison therefore states what the record carried before the run
+    rather than what a fill character would have put there. Every other omitted window
+    holds the fill its kind declares: the digit zero across a numeric window, spaces
+    across an alphanumeric one. The expected characters come from the copybook parse and
+    from that table, not from the field map or the expected-window table.
     """
     for name in sorted(omitted):
         item = layout.items.get(name.upper())
@@ -3212,24 +3485,35 @@ def _assert_fill_windows(
             raise _SelfTestFailure(
                 f"copybook declares no item {_display(name)} for the omitted window"
             )
-        if item.kind == KIND_NUMERIC:
-            fill = "0"
-        elif item.kind == KIND_ALPHANUMERIC:
-            fill = " "
+        stated = _CHAIN_WINDOW_CONTENT.get(name.upper())
+        if stated is not None:
+            expected = _expectation_text(stated, item)
+            if len(expected) != item.length:
+                raise _SelfTestFailure(
+                    f"the declared content of chain-populated item {_display(name)} is "
+                    f"{len(expected)} characters, copybook declares {item.length}"
+                )
+            wanted = f"the declared content {_display(expected)}"
         else:
-            raise _SelfTestFailure(
-                f"copybook declares {_display(name)} as {item.kind}, which no fill "
-                f"character covers"
-            )
+            if item.kind == KIND_NUMERIC:
+                fill = "0"
+            elif item.kind == KIND_ALPHANUMERIC:
+                fill = " "
+            else:
+                raise _SelfTestFailure(
+                    f"copybook declares {_display(name)} as {item.kind}, which no fill "
+                    f"character covers"
+                )
+            expected = fill * item.length
+            wanted = f"the {_display(fill)} fill"
         placed = record[item.offset - 1 : item.end_byte]
-        expected = fill * item.length
         if placed == expected:
             continue
         position = _first_difference(placed, expected)
         raise _SelfTestFailure(
             f"{what} omitted item {_display(name)} holds "
             f"{_display(placed[position : position + 12])} at byte "
-            f"{item.offset + position}, expected the {_display(fill)} fill"
+            f"{item.offset + position}, expected {wanted}"
         )
 
 
@@ -4360,6 +4644,18 @@ def _protected_fill_entry(document: dict[str, Any], item: str) -> dict[str, Any]
     )
 
 
+def _chain_populated_entry(document: dict[str, Any], item: str) -> dict[str, Any]:
+    """Return one chain_populated_items entry of a field map document."""
+    contract = document["sample_definition_contract"]
+    for entry in contract[CHAIN_POPULATED_SECTION]:
+        if isinstance(entry, dict) and str(entry.get("item", "")).upper() == item:
+            return entry
+    raise SelfTestError(
+        f"field map sample_definition_contract.{CHAIN_POPULATED_SECTION} declares no "
+        f"item {_display(item)}"
+    )
+
+
 def _seeded_destination(tree: _HeldTree, name: str) -> str:
     """Create a destination holding sentinel bytes and return its entry name."""
     return tree.create(f"{name}.out", _SENTINEL_DESTINATION_BYTES)
@@ -4625,6 +4921,106 @@ def _case_protected_fill_items(
     return (
         f"{len(names)} protected filler item(s) agree with the contract, the "
         f"{_display(FILL_LABEL_SPACES)} fill and the copybook"
+    )
+
+
+def _case_chain_populated_items(
+    field_map: dict[str, Any], layout: CopybookLayout
+) -> str:
+    """Confirm the chain-populated block, the logical entries, the copybook and the
+    literals of this matrix all state the same pre-execution content.
+
+    ``sample_definition_contract.chain_populated_items`` must hold one entry per logical
+    entry recording ``populated_by: chain`` and no repeated entry; each entry's ``kind``
+    must be the kind the copybook parse reports for the item; a ``fill`` entry must
+    record the label ``FILL_LABEL_BY_KIND`` lists for that kind; a ``seed`` entry must
+    be as long as the copybook window, must hold digits only for a numeric window and
+    must stand outside the domain the item's logical entry declares. The resolved
+    content is then compared with ``_CHAIN_WINDOW_CONTENT``, so a seed changed in the
+    document under test cannot silently change what the fixture cases assert.
+    """
+    declared = field_map["sample_definition_contract"].get(CHAIN_POPULATED_SECTION)
+    if not isinstance(declared, list) or not declared:
+        raise _SelfTestFailure(
+            f"sample_definition_contract declares no {CHAIN_POPULATED_SECTION} sequence"
+        )
+    chain_items = _items_populated_by(field_map, POPULATED_BY_CHAIN)
+    domains = _item_domains(field_map)
+    seeded = 0
+    resolved: dict[str, str] = {}
+    for position, entry in enumerate(declared, start=1):
+        if not isinstance(entry, dict):
+            raise _SelfTestFailure(
+                f"{CHAIN_POPULATED_SECTION} entry {_display(entry)} is not a mapping"
+            )
+        name = str(entry.get("item"))
+        key = name.upper()
+        if key in resolved:
+            raise _SelfTestFailure(
+                f"{CHAIN_POPULATED_SECTION} entry {position} repeats item "
+                f"{_display(name)}"
+            )
+        if key not in chain_items:
+            raise _SelfTestFailure(
+                f"{CHAIN_POPULATED_SECTION} entry {position} names {_display(name)}, "
+                f"which no logical entry records as populated_by "
+                f"{_display(POPULATED_BY_CHAIN)}"
+            )
+        parsed = layout.items.get(key)
+        if parsed is None:
+            raise _SelfTestFailure(f"copybook declares no item {_display(name)}")
+        if parsed.kind not in FILL_LABEL_BY_KIND:
+            raise _SelfTestFailure(
+                f"copybook declares {_display(name)} as {_display(parsed.kind)}, "
+                f"which no chain-populated content covers"
+            )
+        if entry.get("kind") != parsed.kind:
+            raise _SelfTestFailure(
+                f"{CHAIN_POPULATED_SECTION} states kind {_display(entry.get('kind'))} "
+                f"for {_display(name)}, copybook shows {_display(parsed.kind)}"
+            )
+        window = Window(
+            item=parsed.name,
+            group=CHAIN_POPULATED_SECTION,
+            offset=parsed.offset,
+            length=parsed.length,
+            kind=parsed.kind,
+        )
+        try:
+            content = _chain_content_characters(entry, window, domains.get(key))
+        except FieldMapError as error:
+            raise _SelfTestFailure(
+                f"{CHAIN_POPULATED_SECTION} entry {position} for {_display(name)} is "
+                f"not placeable: {error}"
+            ) from error
+        if entry.get(CHAIN_CONTENT_SEED) is not None:
+            seeded += 1
+        resolved[key] = content
+
+    absent = [item for key, item in chain_items.items() if key not in resolved]
+    if absent:
+        raise _SelfTestFailure(
+            f"{CHAIN_POPULATED_SECTION} records no entry for chain-populated item(s) "
+            f"{_quote_all(absent)}"
+        )
+    tabulated = {name.upper() for name in _CHAIN_WINDOW_CONTENT}
+    if tabulated != set(resolved):
+        raise _SelfTestFailure(
+            f"this matrix tabulates {_quote_all(tabulated)} while the contract records "
+            f"{_quote_all(resolved)}"
+        )
+    for key, content in sorted(resolved.items()):
+        parsed = layout.items[key]
+        expected = _expectation_text(_CHAIN_WINDOW_CONTENT[key], parsed)
+        if content != expected:
+            raise _SelfTestFailure(
+                f"{CHAIN_POPULATED_SECTION} states {_display(content)} for "
+                f"{_display(key)} while this matrix expects {_display(expected)}"
+            )
+    return (
+        f"{len(resolved)} chain-populated window(s) agree with the logical entries, "
+        f"the copybook and this matrix, {seeded} of them seeded outside a declared "
+        f"domain"
     )
 
 
@@ -5919,6 +6315,13 @@ def run_self_test(
             results,
             out,
             quiet,
+            "chain_populated_items_agree",
+            lambda: _case_chain_populated_items(field_map, layout),
+        )
+        _run_case(
+            results,
+            out,
+            quiet,
             "emitted_length_from_constant",
             lambda: _case_length_from_constant(field_map, motor, tree),
         )
@@ -6075,6 +6478,52 @@ def run_self_test(
                 document, "motor_overlay", "CA-M-FILLER"
             ).__setitem__("kind", KIND_NUMERIC),
         )
+        seed_in_domain = _mutated_field_map(
+            tree,
+            "map_chain_seed_in_domain",
+            field_map,
+            lambda document: _chain_populated_entry(
+                document, "CA-RETURN-CODE"
+            ).__setitem__(CHAIN_CONTENT_SEED, _RETURN_CODE_DOMAIN_MEMBER),
+        )
+        seed_wrong_length = _mutated_field_map(
+            tree,
+            "map_chain_seed_short",
+            field_map,
+            lambda document: _chain_populated_entry(
+                document, "CA-RETURN-CODE"
+            ).__setitem__(CHAIN_CONTENT_SEED, _CHAIN_RETURN_CODE_SEED[:1]),
+        )
+        seed_not_numeric = _mutated_field_map(
+            tree,
+            "map_chain_seed_not_numeric",
+            field_map,
+            lambda document: _chain_populated_entry(
+                document, "CA-RETURN-CODE"
+            ).__setitem__(CHAIN_CONTENT_SEED, _NON_DIGIT_SEED),
+        )
+        chain_item_missing = _mutated_field_map(
+            tree,
+            "map_chain_item_missing",
+            field_map,
+            lambda document: document["sample_definition_contract"][
+                CHAIN_POPULATED_SECTION
+            ].remove(_chain_populated_entry(document, "CA-LASTCHANGED")),
+        )
+        chain_item_foreign = _mutated_field_map(
+            tree,
+            "map_chain_item_foreign",
+            field_map,
+            lambda document: document["sample_definition_contract"][
+                CHAIN_POPULATED_SECTION
+            ].append(
+                {
+                    "item": _FOREIGN_CHAIN_ITEM,
+                    "kind": KIND_NUMERIC,
+                    CHAIN_CONTENT_FILL: FILL_LABEL_ZEROS,
+                }
+            ),
+        )
         short_record = _mutated_field_map(
             tree,
             "map_record_length_short",
@@ -6185,6 +6634,48 @@ def run_self_test(
                 numeric_filler,
                 EXIT_FIELD_MAP_INVALID,
                 "that window holds spaces only",
+            ),
+            (
+                "map_chain_seed_in_domain_rejected",
+                seed_in_domain,
+                EXIT_FIELD_MAP_INVALID,
+                (
+                    f"'{CHAIN_CONTENT_SEED}' '{_RETURN_CODE_DOMAIN_MEMBER}' is a "
+                    "member of the domain logical entry 'return_code' declares"
+                ),
+            ),
+            (
+                "map_chain_seed_short_rejected",
+                seed_wrong_length,
+                EXIT_FIELD_MAP_INVALID,
+                (
+                    f"'{CHAIN_CONTENT_SEED}' holds 1 character(s) and the declared "
+                    "length of the window is 2"
+                ),
+            ),
+            (
+                "map_chain_seed_not_numeric_rejected",
+                seed_not_numeric,
+                EXIT_FIELD_MAP_INVALID,
+                (
+                    f"'{CHAIN_CONTENT_SEED}' holds a character outside digits 0-9 at "
+                    "position 2"
+                ),
+            ),
+            (
+                "map_chain_item_missing_rejected",
+                chain_item_missing,
+                EXIT_FIELD_MAP_INVALID,
+                "records no entry for chain-populated item(s) 'CA-LASTCHANGED'",
+            ),
+            (
+                "map_chain_item_foreign_rejected",
+                chain_item_foreign,
+                EXIT_FIELD_MAP_INVALID,
+                (
+                    f"names item '{_FOREIGN_CHAIN_ITEM}', which no logical entry "
+                    f"records as 'populated_by: {POPULATED_BY_CHAIN}'"
+                ),
             ),
             (
                 "map_record_length_short",

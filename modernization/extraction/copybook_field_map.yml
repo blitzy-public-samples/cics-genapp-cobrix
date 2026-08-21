@@ -2184,6 +2184,19 @@ sample_definition_contract:
     - >-
       a supplied numeric value must not exceed the item's moved_to_max_value where the layout
       records one
+    - >-
+      chain_populated_items holds one entry per logical entry recording populated_by chain, and
+      each entry states the content of its window on the emitted record
+    - >-
+      a chain-populated window whose entry records a fill holds the padding character of its kind
+      across its whole length
+    - >-
+      a chain-populated window whose entry records a seed holds that literal, whose length equals
+      the declared length of the window
+    - a seed recorded for a numeric chain-populated window holds digits only
+    - >-
+      a seed is not a member of the domain the item's logical entry declares, so the emitted
+      CA-RETURN-CODE window holds none of the codes under return_codes
   # Filler and padding items whose windows hold their fill character on every emitted
   # record. Each entry is the declaration at base/src/lgcmarea.cpy:<line>.
   protected_fill_items:
@@ -2202,10 +2215,29 @@ sample_definition_contract:
     - item: CA-C-FILLER
       line: 103
       fill: spaces
+  # Windows the chain assigns. A sample definition must not supply one, and this block
+  # states what each of those windows carries on the emitted record, before the chain
+  # runs. An entry recording `fill` carries the padding character its kind records under
+  # value_padding across the whole window. An entry recording `seed` carries that
+  # literal, whose length equals the declared length of the window and which holds
+  # digits only for a numeric window. Where the item's logical entry under `fields`
+  # declares a `domain`, the seed recorded here stands outside that domain, so the
+  # emitted window holds no value the chain produces.
+  #
+  # One entry stands here for every logical entry recording `populated_by: chain`:
+  # return_code (CA-RETURN-CODE), policy_number (CA-POLICY-NUM) and last_changed
+  # (CA-LASTCHANGED). modernization/extraction/build_sample_commarea.py places this
+  # content and rejects a block that omits one of those items, repeats one, names an
+  # item that is not chain populated, records a kind the copybook does not declare for
+  # the item, or records a seed of the wrong length, a non-digit seed for a numeric
+  # window or a seed inside the declared domain.
+  #
+  # Rationale: modernization/docs/decision-log.md (planned deliverable; not present at
+  # this milestone), row: chain-populated windows seeded outside the produced domain.
   chain_populated_items:
     - item: CA-RETURN-CODE
       kind: numeric_display
-      fill: zeros
+      seed: "55"
     - item: CA-POLICY-NUM
       kind: numeric_display
       fill: zeros
