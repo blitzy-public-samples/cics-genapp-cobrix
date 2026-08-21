@@ -57,11 +57,23 @@
       * becomes 'Y', HC-LCHG-COUNT counts the executions of the block,
       * HC-EVENT-SEQ is advanced and its new value is stamped into
       * HC-LCHG-SEQ, and HC-ORDER-LAST-STMT receives this statement's
-      * key select_lastchanged. HC-ORDER-VIOLATION and
-      * HC-ORDER-VIOLATION-STMT are not written here: the
-      * execution_order block of
-      * modernization/harness/statement_map.yml declares no prerequisite
-      * for select_lastchanged.
+      * key select_lastchanged.
+      *
+      * Order guard. The predecessor of this block is the SET
+      * :DB2-POLICYNUM-INT = IDENTITY_VAL_LOCAL() block at
+      * [base/src/lgapdb01.cbl:308-310]: it stands ahead of this one in
+      * paragraph INSERT-POLICY and supplies the WHERE predicate host
+      * of parameter 2. HC-IDENT-SEQ carries that predecessor. This
+      * module reads it after stamping its own ordinal: a HC-IDENT-SEQ
+      * still at zero reports the predecessor unrun in
+      * HC-ORDER-VIOLATION and HC-ORDER-VIOLATION-STMT, and a non-zero
+      * HC-IDENT-SEQ leaves both items as
+      * modernization/harness/driver.cbl set them. The INSERT INTO
+      * POLICY block ahead of both is the predecessor the SET block
+      * tests for itself. The execution_order block of
+      * modernization/harness/statement_map.yml declares no constraint
+      * naming select_lastchanged; the constraint tested here is the one
+      * the source paragraph states.
       *
       * SQLCODE of the shared SQLCA is set to zero on every call. The
       * translated LGAPDB01 issues no SQLCODE test after this block; the
@@ -71,14 +83,17 @@
       * No item of the caller's COMMAREA other than parameter 1 is
       * addressed here, no capture item outside
       * HC-SQL-SELECT-LASTCHANGED, HC-EVENT-CONTROL,
-      * HC-ORDER-LAST-STMT and HC-SEED-LASTCHANGED is written, that
+      * HC-ORDER-LAST-STMT, the two order-guard items named above and
+      * HC-SEED-LASTCHANGED is written, that
       * last one only to replace a seed the validation rejected, and
-      * the shared group is never initialised here.
+      * the shared group is never initialised here. HC-IDENT-SEQ is
+      * read here and never written.
       *
-      * Rationale for the deterministic seeding of the timestamp and for
-      * the always-zero SQLCODE is to be recorded in
-      * modernization/docs/decision-log.md (planned deliverable; not
-      * present at this milestone).
+      * Rationale for the deterministic seeding of the timestamp, for
+      * the order guard and for the always-zero SQLCODE is to be
+      * recorded in modernization/docs/decision-log.md (planned
+      * deliverable; not present at this milestone), rows: uniform
+      * stub-side capture-order guard.
       *
       * Harness topology: Figure 5 — Validation Harness Control Flow
       * in modernization/docs/architecture.md.
@@ -182,13 +197,14 @@
       *
       *----------------------------------------------------------------*
       * Returns the seeded timestamp, records both host slots,         *
-      * stamps the capture control items and reports success to the    *
-      * caller.                                                        *
+      * stamps the capture control items, tests the predecessor        *
+      * ordinal and reports success to the caller.                     *
       *----------------------------------------------------------------*
        MAINLINE.
            PERFORM RETURN-LASTCHANGED
            PERFORM CAPTURE-SELECT-VALUES
            PERFORM STAMP-CAPTURE-CONTROL
+           PERFORM CHECK-CAPTURE-ORDER
            MOVE ZERO TO SQLCODE
            GOBACK.
       *
@@ -361,7 +377,8 @@
       *----------------------------------------------------------------*
       * Marks the block captured, counts the execution, stamps the     *
       * ordinal from the shared event sequence and names the           *
-      * statement. The order-guard items are not written here.         *
+      * statement. The order-guard items are written by                *
+      * CHECK-CAPTURE-ORDER below and not here.                        *
       *----------------------------------------------------------------*
        STAMP-CAPTURE-CONTROL.
            SET  HC-LCHG-CAPTURED    TO TRUE
@@ -369,4 +386,18 @@
            ADD  1                   TO HC-EVENT-SEQ   END-ADD
            MOVE HC-EVENT-SEQ        TO HC-LCHG-SEQ
            MOVE 'select_lastchanged' TO HC-ORDER-LAST-STMT.
+      *
+      *----------------------------------------------------------------*
+      * Tests the predecessor ordinal of this block, read after it     *
+      * stamped its own. HC-IDENT-SEQ at zero reports that the SET     *
+      * block at [base/src/lgapdb01.cbl:308-310] was not captured      *
+      * ahead of this read-back, which leaves the WHERE predicate host *
+      * of parameter 2 unpopulated. A non-zero HC-IDENT-SEQ leaves     *
+      * both order items as the driver set them.                       *
+      *----------------------------------------------------------------*
+       CHECK-CAPTURE-ORDER.
+           IF HC-IDENT-SEQ = ZERO
+               MOVE 'Y' TO HC-ORDER-VIOLATION
+               MOVE 'select_lastchanged' TO HC-ORDER-VIOLATION-STMT
+           END-IF.
       *----------------------------------------------------------------*

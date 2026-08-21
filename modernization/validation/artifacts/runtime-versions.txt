@@ -3,7 +3,8 @@ report: system runtime and Python package versions measured in this
         checkout against modernization/requirements.txt and the
         environment contract of the technical specification
 timestamp_utc: 2026-08-20T08:59:11Z
-repository_root: /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4_93f37d
+repository_root: . (every path of this report is relative to the repository
+        root, so the report reads the same from every checkout)
 host_release: Ubuntu 25.10
 apt_suites: questing questing-updates questing-backports questing-security
 status_label: validated against local substitute, not AWS
@@ -40,9 +41,39 @@ direct Python dependency pins (required == measured for every entry):
   import surfaces exercised: 12 of 12
   dbt: Core 1.12.2 with duckdb 1.11.0 and redshift 1.11.0 adapters
 
+compiler dialect resolution (measured 2026-08-21T02:30:30Z, cobc 3.2.0):
+  COB_CONFIG_DIR      /usr/share/gnucobol/config, the directory cobc --info
+        reports as its own; modernization/harness/run_harness.sh pins it, and
+        pins COB_CFLAGS, and leaves COB_RUNTIME_CONFIG unset, before the first
+        compile of a run, reporting any ambient value it replaced
+  dialect chain of the mandated -std=ibm (file, kind, sha256):
+    ibm.conf         dialect  9220624ee67056073268e58bd16fdf819afd1e17f249c4603c06270717a3995c
+    ibm-strict.conf  dialect  e1eebcdcebae06278a533875e20e7cac809465dac8ba2211d7d41dd3b1a25ce6
+    ibm.words        words    e13017258080c6a41f596724aec3d4aa6c65082368d3dd94d1bbb6344ab8054d
+    lax.conf-inc     dialect  f813b082f706e369eac184f653b0af82566f88448af277acc2c9c149d7454f3d
+  numeric-store keys the harness depends on (key, resolved value, file):
+    binary-size        2-4-8        ibm-strict.conf
+    binary-truncate    no           ibm-strict.conf
+    binary-byteorder   big-endian   ibm-strict.conf
+    hostsign           yes          ibm-strict.conf
+    defaultbyte        0            ibm-strict.conf
+  binary truncation in force        yes, from the mandated -fbinary-truncate,
+        over the binary-truncate the chain resolves. Measured on a probe
+        performing the SUBTRACT of [base/src/lgapdb01.cbl:339-340] into a
+        PIC S9(4) COMP item at EIBCALEN=32500: 32348 without the option, 2348
+        with it, and 32500 unchanged in the PIC S9(4) COMP-5 EIBCALEN item
+  COB_CFLAGS pinned to             -std=c17 -finline-functions -pipe
+        -Wdate-time -Wno-unused -fsigned-char -Wno-pointer-sign
+        -D_FORTIFY_SOURCE=3: the C options cobc --info reports, with the
+        _FORTIFY_SOURCE definition its host toolchain states twice reduced to
+        the one that takes effect. Measured: 16 host redefinition warnings
+        before the pin, 0 after it, and a COBOL warning still reported
+
 capability probes on the measured runtimes (command, observed):
-  cobc -m -std=ibm -ffold-copy=LOWER -ext cpy   exit 0, module produced
-  cobc -x -std=ibm -ffold-copy=LOWER -ext cpy   exit 0, driver produced
+  cobc -m -std=ibm -fbinary-truncate -ffold-copy=LOWER -ext cpy
+        exit 0, module produced
+  cobc -x -std=ibm -fbinary-truncate -ffold-copy=LOWER -ext cpy
+        exit 0, driver produced
   module lookup through COB_LIBRARY_PATH        exit 0 for an upper-case -o
         module name and for a file-named module with COB_LOAD_CASE=LOWER
   cross-module EXTERNAL storage                 EIBCALEN=+32500,
@@ -61,6 +92,7 @@ capability probes on the measured runtimes (command, observed):
 
 verdict: three system runtime versions deviate from the required values and
         the required apt versions are not present in the configured suites;
-        every Python pin matches and every probed capability the harness,
+        every Python pin matches, the dialect the harness compiles under is
+        resolved and recorded, and every probed capability the harness,
         the record builder and the read-only gate rely on is present
 END runtime-version-report

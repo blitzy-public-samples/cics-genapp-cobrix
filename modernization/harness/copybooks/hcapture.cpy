@@ -207,26 +207,38 @@
       * ordinal reports that its statement was never captured.
       *
       * The execution_order block of
-      * modernization/harness/statement_map.yml declares one
-      * constraint, policy_before_commercial: predecessor
-      * insert_policy, successor insert_commercial, reason_kind
-      * data_dependency, host CA-LASTCHANGED. For a case that captured
-      * INSERT-COMMERCIAL the constraint holds when HC-POL-SEQ is
-      * non-zero and lower than HC-COM-SEQ. That block declares no
-      * other ordering.
+      * modernization/harness/statement_map.yml declares the ordering
+      * constraints measured from the source. Every capturing member of
+      * modernization/harness/stubs/ that carries one reads its
+      * prerequisite ordinal after stamping its own: a prerequisite
+      * still at zero moves 'Y' into HC-ORDER-VIOLATION and the name of
+      * the member that read it into HC-ORDER-VIOLATION-STMT, and a
+      * prerequisite present leaves both items as the driver set them.
       *
-      * A capturing member of modernization/harness/stubs/ whose
-      * prerequisite ordinal in that block is still zero when it runs
-      * moves 'Y' into HC-ORDER-VIOLATION and its own name into
-      * HC-ORDER-VIOLATION-STMT; sql_insert_commercial.cbl reads
-      * HC-POL-SEQ for that test. The other members have no declared
-      * prerequisite and leave the flag as the driver set it. A case
-      * whose HC-ORDER-VIOLATION reports 'Y' did not keep the declared
-      * order.
+      * The prerequisite each member reads:
+      *   sql_insert_policy.cbl       HC-POL-SEQ equal to 1, the first
+      *                               captured event of the case
+      *   sql_set_identity.cbl        HC-POL-SEQ
+      *   sql_select_lastchanged.cbl  HC-IDENT-SEQ
+      *   sql_insert_motor.cbl        HC-POL-SEQ
+      *   sql_insert_commercial.cbl   HC-POL-SEQ
+      *   sql_insert_house.cbl        HC-POL-SEQ
+      *   sql_insert_endowment.cbl    HC-POL-SEQ
+      *   cics_write.cbl              HC-POL-SEQ and one of
+      *                               HC-MOT-SEQ, HC-COM-SEQ,
+      *                               HC-END-SEQ, HC-HOU-SEQ
+      *
+      * cics_abend.cbl, cics_asktime.cbl, cics_formattime.cbl and
+      * cics_diag_link.cbl carry no prerequisite, so they neither read
+      * nor write the two items above. Where more than one member
+      * reports, HC-ORDER-VIOLATION-STMT names the one that reported
+      * most recently. A case whose HC-ORDER-VIOLATION reports 'Y' did
+      * not keep the declared order.
       *
       * See modernization/docs/decision-log.md (planned deliverable;
-      * not present at this milestone), row: shared event-sequence
-      * ordering witness and order guard.
+      * not present at this milestone), rows: shared event-sequence
+      * ordering witness and order guard; uniform stub-side
+      * capture-order guard.
            03 HC-ORDER.
       *
       * Name of the item captured most recently. The SQL groups use the

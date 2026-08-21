@@ -380,6 +380,16 @@ The order in which the gates run when the harness is executed: baseline, sample 
 execution, transformation, comparison and read-only verification. A failure at any gate stops the run. Each step carries
 its delivery-state marker.
 
+Two properties of the `RO` and `DRIVER` steps as delivered, both carried by the edges of the figure below and stated by
+neither node label. `RO` writes its evidence block into `modernization/harness/build/logs/readonly-check.log`, the
+generated log directory of the harness, and `run_harness.sh` runs that gate for the fourth time before it collects the
+evidence of the run, so the copy published at `modernization/validation/artifacts/readonly-check.log` carries all four
+gate blocks of one run and is replaced as one member of the published evidence set — five fixed names plus three per
+success case that ran — rather than appended to in place. `DRIVER` measures the record it reads on standard input and
+refuses any width other than 32,500 characters before it calls `LGAPOL01`, and publishes the width it read as the
+`SAMPLE_RECORD_LENGTH` capture that every case asserts, so the `DRIVER` to `CAP` edge cannot carry a result taken from
+an incomplete record. Both properties are validated against local substitute, not AWS.
+
 ```mermaid
 flowchart TD
     SRC["Five read-only source files<br/>DELIVERED"]

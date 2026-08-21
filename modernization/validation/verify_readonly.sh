@@ -36,8 +36,9 @@
 #     the default;
 #   - the path resolves inside the repository root, and that root is resolved
 #     physically;
-#   - its directory is exactly modernization/validation/artifacts, with no
-#     sub-directory, no trailing "/" and no ".." component;
+#   - its directory is exactly modernization/harness/build/logs, the generated
+#     log directory of the harness, with no sub-directory, no trailing "/" and
+#     no ".." component;
 #   - its basename ends in ".log" and holds only letters, digits, ".", "_"
 #     and "-";
 #   - no component of that directory chain and no existing log is a symbolic
@@ -108,6 +109,16 @@
 # control bytes, non-ASCII bytes and backslashes replaced by "\xNN" escapes, so
 # one supplied value occupies exactly one output line.
 #
+# One record of a run block carries a value that differs between two runs of
+# one stage: "timestamp_utc:" holds the UTC time of the run. --reproducible
+# writes fixed text in place of it, and fixed text of its own in place of
+# "repository_root:", keeping both keys and the order of the block, so two runs
+# of one stage over one unchanged tracked state append byte-identical blocks in
+# any checkout. Neither mode records the absolute path of a checkout: the
+# default block names the root relative to itself. Nothing else changes: the
+# same gates run, the same records are written, and the same exit codes are
+# returned.
+#
 # Exit codes:
 #   0  every gate passed
 #   1  SHA-256 or line-count mismatch, or a missing, irregular or symlinked
@@ -130,11 +141,12 @@
 #            including an empty value or one carrying whitespace, a control
 #            character or a shell metacharacter, is a usage error and exits 4.
 #   --log    a path that names a file directly inside
-#            modernization/validation/artifacts/: that directory, then one name
+#            modernization/harness/build/logs/: that directory, then one name
 #            starting with a letter or a digit and continuing with letters,
 #            digits, ".", "_" or "-". No path below a subdirectory of that
 #            directory is accepted, so the only directory this script ever
-#            creates is modernization/validation/artifacts/ itself. An absolute
+#            creates is modernization/harness/build/logs/ itself, which the
+#            ignore rules of modernization/.gitignore cover. An absolute
 #            path is accepted when it lies under the repository root; a relative
 #            path resolves from the repository root. A path carrying a control
 #            character, a ".." component, a trailing "/", a character outside
@@ -155,7 +167,7 @@
 #            once for appending on one descriptor, addressed by its name alone
 #            inside that entered directory, and the object that descriptor holds
 #            must be a regular file, must carry exactly one link, must still
-#            resolve inside modernization/validation/artifacts/, and must not be
+#            resolve inside modernization/harness/build/logs/, and must not be
 #            the file any baseline source path names. That object must also be
 #            the exact entry the run resolved: the path the descriptor reports
 #            equals the resolved requested path character for character, and the
@@ -178,21 +190,28 @@
 #            wait for that lock is bounded at 60 seconds; a lock that is not
 #            taken within that wait names the evidence log on stderr, appends
 #            nothing and exits 4.
+#   --reproducible
+#            records the run block with fixed text in place of the two values
+#            that would otherwise identify the run: "timestamp_utc:" reads
+#            "not recorded (--reproducible)" and "repository_root:" reads
+#            "this checkout (--reproducible)". The clock is not read at all in
+#            this mode. Without it, the block records the UTC time of the run
+#            and names the root relative to itself. It takes no value, and it
+#            changes no gate, no other record and no exit code.
 #
 # Generated-output policy: one policy governs every path this bridge writes. A
-# generated record or translated copy resolves inside
-# modernization/harness/build/ and a generated evidence log resolves inside
-# modernization/validation/artifacts/. Every destination is canonicalised
+# generated record, a translated copy and a generated evidence log all resolve
+# inside modernization/harness/build/. Every destination is canonicalised
 # through its symbolic links before anything is created, a symbolic link and an
 # existing non-regular target are refused, no authored or source path is
 # reachable, and every value carried into a diagnostic or an evidence record is
 # escaped to one control-free line. An evidence log names one file directly
-# inside modernization/validation/artifacts/, that directory is created and
+# inside modernization/harness/build/logs/, that directory is created and
 # entered one component at a time so each creation and the open address a single
 # name in the directory the process holds rather than a multi-component
 # pathname, and the log is additionally validated after it is opened: the opened
 # object is a single-link regular file inside
-# modernization/validation/artifacts/, it is the exact entry the run resolved as
+# modernization/harness/build/logs/, it is the exact entry the run resolved as
 # proven by the descriptor's own reported path and by the device and inode of
 # that entry read without following a symbolic link, and every later record is
 # written through that one descriptor rather than through the pathname again. A
@@ -227,11 +246,12 @@
 # reduced, a log replaced between its open and its status read, a log whose name
 # becomes a symbolic link and a log whose name becomes a FIFO between its open
 # and its status read, a log whose append does not complete, the inode of a log
-# across two runs, four runs appending to one log at the same time, a log whose
-# exclusive lock another descriptor already holds, an evidence directory that
-# appears while this run creates it, an evidence directory a
-# symbolic link takes over while this run creates it, a committed symlinked
-# source, a committed symlinked source directory, a FIFO and
+# across two runs, three --reproducible runs of one stage from two checkout
+# paths beside one run without that option, four runs appending to one log at
+# the same time, a log whose exclusive lock another descriptor already holds, an
+# evidence directory that appears while this run creates it, an evidence
+# directory a symbolic link takes over while this run creates it, a committed
+# symlinked source, a committed symlinked source directory, a FIFO and
 # a directory in place of sources, a committed source content change, a removed
 # source, a source whose line count and digest both moved, a source replaced
 # between its status read and its open, a source replaced by a symbolic link and
@@ -295,19 +315,47 @@ readonly BASELINE=(
   "base/src/lgpolicy.cpy|107|717c8f5c50738a2ef4d432e4b397e21bdc0423a9fc789246eb3360aa3f99eaa5"
 )
 
-# Repository-relative prefix holding this work. Gate C ignores paths under it.
+# Repository-relative prefix holding this work. Gate C ignores paths under it:
+# the bridge is authored there and its published evidence set is replaced there
+# by every harness run, so a modification under it is this work rather than a
+# pre-existing file. A path outside it is what gate C reports.
 readonly NEW_WORK_PREFIX="modernization/"
 
 # The only directory an evidence log may live in, relative to the repository
-# root. No sub-directory of it is accepted.
-readonly LOG_DIR_REL="modernization/validation/artifacts"
+# root. No sub-directory of it is accepted. It is a generated directory covered
+# by the ignore rules of modernization/.gitignore, so a run of this script
+# leaves no tracked file changed and gate C checks a working tree this script
+# did not write into. The harness publishes an immutable copy of the log it
+# collects under modernization/validation/artifacts, as part of the evidence set
+# it replaces in one step once every gate has passed.
+# See planned decision-log row: read-only gate writes its evidence log into the
+# generated build tree.
+readonly LOG_DIR_REL="modernization/harness/build/logs"
 
 # Evidence log used when --log is not supplied, relative to the repository root.
 readonly DEFAULT_LOG_REL="${LOG_DIR_REL}/readonly-check.log"
 
+# Value the "repository_root" record of an evidence block carries. Every path a
+# block names - the baseline entries, the evidence log and the paths git
+# reports - is repository-relative, so the root is recorded as the "." those
+# paths are relative to rather than as the absolute path of one checkout, and
+# two checkouts of the same commit produce the same block. The absolute path
+# still reaches the operator: a diagnostic that rejects a path names the root it
+# resolved.
+# See planned decision-log row: evidence paths recorded relative to the
+# repository root.
+readonly REPO_ROOT_DISPLAY=". (every path of this block is relative to the repository root)"
+
 # Longest a run waits for the exclusive lock on the evidence log, in seconds. A
 # wait that reaches it ends the run with exit 4 and appends nothing.
 readonly LOG_LOCK_WAIT_SECONDS=60
+
+# Text --reproducible records in the two run-block lines that would otherwise
+# identify the run: the UTC time of the run and the root the block's paths are
+# relative to. Both keys keep their place in the block, the clock is not read in
+# that mode, and neither text names a checkout path.
+readonly REPRODUCIBLE_TIMESTAMP_TEXT="not recorded (--reproducible)"
+readonly REPRODUCIBLE_ROOT_TEXT="this checkout (--reproducible)"
 
 # External tools every verification run invokes, in first-use order. A missing
 # entry is an environment error, reported before the evidence log is opened.
@@ -325,7 +373,7 @@ readonly STAGE_PATTERN='^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$'
 readonly LOG_PATH_PATTERN='^/?[A-Za-z0-9][A-Za-z0-9._/-]*$'
 
 # Accepted evidence log name: the one path component that follows
-# modernization/validation/artifacts/, a leading alphanumeric then
+# modernization/harness/build/logs/, a leading alphanumeric then
 # alphanumerics, ".", "_" or "-". No "/" is accepted, so no path below a
 # subdirectory of the evidence directory can be named.
 readonly LOG_NAME_PATTERN='^[A-Za-z0-9][A-Za-z0-9._-]*$'
@@ -368,6 +416,11 @@ STDOUT_FAILED=0
 BASELINE_ONLY=0
 QUIET=0
 SELF_TEST=0
+
+# 1 once --reproducible has been accepted: the run block then records fixed text
+# in place of the UTC time of the run and the absolute repository root.
+REPRODUCIBLE=0
+
 REPO_ROOT=""
 SANITIZED=""
 
@@ -390,10 +443,13 @@ Options:
                     bytes and backslashes in the label are emitted as "\xNN"
                     escapes. Default: unspecified.
   --log PATH        Evidence log to append to. Must resolve to a ".log" file
-                    directly inside modernization/validation/artifacts within
+                    directly inside modernization/harness/build/logs within
                     this repository, reached without a symbolic link, and must
                     be a regular file with exactly one hard link; any other
                     location is rejected with exit 4 and nothing is written.
+                    That directory is generated and ignored, so a run of this
+                    script changes no tracked file; the harness publishes the
+                    log it collects as part of its evidence set.
                     The log is opened once onto a descriptor held for the whole
                     run, every line is written through that descriptor, and an
                     append that fails is reported on stderr only and exits 4. A
@@ -407,7 +463,18 @@ Options:
                     lock that is not taken within it names the log on stderr,
                     appends nothing and exits 4.
                     Default:
-                    modernization/validation/artifacts/readonly-check.log
+                    modernization/harness/build/logs/readonly-check.log
+  --reproducible    Record the run block with fixed text in place of the two
+                    values that vary between runs and between checkouts:
+                    "timestamp_utc:" reads "not recorded (--reproducible)" and
+                    "repository_root:" reads "this checkout (--reproducible)".
+                    The clock is not read in this mode. Two runs of one stage
+                    over one unchanged tracked state then append byte-identical
+                    blocks in any checkout. Every gate, every other record and
+                    every exit code are unchanged. Without it, the block records
+                    the UTC time of the run; the root is recorded relative to
+                    itself in both modes, so neither carries the absolute path
+                    of one checkout.
   --baseline-only   Print the embedded baseline and exit 0. Runs no gate,
                     invokes no external tool and writes no log.
   --quiet           Suppress stdout. The evidence log is still written.
@@ -669,6 +736,10 @@ parse_args() {
         LOG_SET=1
         shift
         ;;
+      --reproducible)
+        REPRODUCIBLE=1
+        shift
+        ;;
       --baseline-only)
         BASELINE_ONLY=1
         shift
@@ -701,7 +772,8 @@ parse_args() {
   [[ -z "$LOG_REQUESTED" || "$LOG_REQUESTED" != -* ]] ||
     fail_usage "--log requires a path value, received: $(sanitize "$LOG_REQUESTED")"
   if ((SELF_TEST == 1)); then
-    if ((STAGE_SET == 1 || BASELINE_ONLY == 1 || QUIET == 1 || LOG_SET == 1)); then
+    if ((STAGE_SET == 1 || BASELINE_ONLY == 1 || QUIET == 1 || LOG_SET == 1 ||
+      REPRODUCIBLE == 1)); then
       fail_usage "--self-test accepts no other option"
     fi
   fi
@@ -1278,7 +1350,7 @@ readonly SELF_TEST_EXPECTED_TOOLS=(git sha256sum wc date mkdir stat flock)
 
 # Number of case lines --self-test reports, including the case that checks this
 # number. A case that is added or removed changes it.
-readonly SELF_TEST_CASE_COUNT=48
+readonly SELF_TEST_CASE_COUNT=49
 
 # Seconds the "flock" shim of the held-lock case hands the real tool in place of
 # the bounded wait the run under test asks for. It applies to that one shim
@@ -1906,6 +1978,51 @@ st_expect_contiguous_blocks() {
     st_note "${begun} BEGIN and ${ended} END marker(s), expected ${want} of each"
 }
 
+# Reads a log block by block and checks that the expected number of complete
+# blocks is present and that every one of them holds the same lines, in the same
+# order, as the first. Every line from a BEGIN marker to the END marker that
+# follows it belongs to the block being read; a line outside a block is ignored.
+st_expect_identical_blocks() {
+  local path="$1" want="$2" line="" index=0 differing=0 reading=0
+  local -a first=() current=()
+
+  if [[ ! -f "$path" ]]; then
+    st_note "missing log ${path#"${SELF_TEST_ROOT}/"}"
+    return 0
+  fi
+  while IFS= read -r line; do
+    case "$line" in
+      "BEGIN readonly-check")
+        reading=1
+        current=("$line")
+        ;;
+      "END readonly-check")
+        if ((reading == 1)); then
+          current+=("$line")
+          index=$((index + 1))
+          if ((index == 1)); then
+            first=("${current[@]}")
+          elif [[ "${current[*]}" != "${first[*]}" ]]; then
+            differing=$((differing + 1))
+          fi
+          reading=0
+          current=()
+        fi
+        ;;
+      *)
+        if ((reading == 1)); then
+          current+=("$line")
+        fi
+        ;;
+    esac
+  done <"$path"
+
+  ((index == want)) ||
+    st_note "${index} complete block(s), expected ${want}"
+  ((differing == 0)) ||
+    st_note "${differing} block(s) differ from the first"
+}
+
 # Confirms the case wrote nothing outside its throwaway tree: the escape
 # directory still holds only its unchanged canary, the five protected sources of
 # the repository this run started from still match the embedded baseline, and no
@@ -2021,7 +2138,11 @@ st_case_log_symlinked_target() {
 
 st_case_log_symlinked_parent() {
   st_begin "log-symlinked-parent"
+  # The components above the evidence directory are created first, so the link
+  # stands at the name of that directory itself and the walk of the chain meets
+  # it at its last component.
   if ! mkdir -p -- "${ST_CASE_DIR}/diverted" ||
+    ! mkdir -p -- "${ST_REPO}/${LOG_DIR_REL%/*}" ||
     ! ln -s -- "${ST_CASE_DIR}/diverted" "${ST_REPO}/${LOG_DIR_REL}"; then
     fail_env "--self-test could not create the symlinked log directory"
   fi
@@ -2259,6 +2380,63 @@ st_case_log_inode_stability() {
   st_expect_exact_count "$log_abs" "exit_code: 0" 2
   st_expect_exact_count "$log_abs" "END readonly-check" 2
   st_end "two complete evidence blocks in one unchanged single-link inode"
+}
+
+# Three --reproducible runs of one stage over one unchanged tracked state: two
+# from the path the case work tree is created at and one from the path that tree
+# is renamed to. Every block of that log holds the same lines, none of them
+# names either path, and one run of the same stage without the option records
+# its own UTC time in a log of its own while still naming the root relative to
+# itself rather than as a checkout path.
+st_case_reproducible_block() {
+  local log_rel="${LOG_DIR_REL}/reproducible.log"
+  local dated_rel="${LOG_DIR_REL}/dated.log"
+  local log_abs="" dated_abs="" moved="" moved_output=""
+  local moved_exit=0
+  st_begin "reproducible-block"
+  dated_abs="${ST_REPO}/${dated_rel}"
+
+  st_run --stage fixed-stage --log "$log_rel" --reproducible
+  st_expect_exit "$EXIT_OK"
+  st_expect_output "timestamp_utc: ${REPRODUCIBLE_TIMESTAMP_TEXT}"
+  st_expect_output "repository_root: ${REPRODUCIBLE_ROOT_TEXT}"
+  st_expect_no_output "$ST_REPO"
+  st_run --stage fixed-stage --log "$log_rel" --reproducible
+  st_expect_exit "$EXIT_OK"
+
+  st_run --stage fixed-stage --log "$dated_rel"
+  st_expect_exit "$EXIT_OK"
+  st_expect_prefix_count "$dated_abs" "timestamp_utc: " 1
+  st_expect_prefix_count "$dated_abs" \
+    "timestamp_utc: ${REPRODUCIBLE_TIMESTAMP_TEXT}" 0
+  st_expect_prefix_count "$dated_abs" \
+    "repository_root: ${REPO_ROOT_DISPLAY}" 1
+  st_expect_prefix_count "$dated_abs" "repository_root: ${ST_REPO}" 0
+  st_expect_substring_count "$dated_abs" "$ST_CASE_DIR" 0
+
+  moved="${ST_CASE_DIR}/repo-under-a-longer-second-path"
+  if ! mv -- "$ST_REPO" "$moved"; then
+    fail_env "--self-test could not rename the work tree of ${ST_CASE}"
+  fi
+  log_abs="${moved}/${log_rel}"
+  moved_output="$(cd "$moved" &&
+    "${moved}/${SELF_TEST_SCRIPT_REL}" --stage fixed-stage --log "$log_rel" \
+      --reproducible 2>&1)" || moved_exit=$?
+  ((moved_exit == EXIT_OK)) ||
+    st_note "the run from the second path exited ${moved_exit}, expected ${EXIT_OK}"
+  [[ "$moved_output" == *"verdict: PASS"* ]] ||
+    st_note "the run from the second path reported no passing verdict"
+
+  st_expect_prefix_count "$log_abs" \
+    "timestamp_utc: ${REPRODUCIBLE_TIMESTAMP_TEXT}" 3
+  st_expect_prefix_count "$log_abs" \
+    "repository_root: ${REPRODUCIBLE_ROOT_TEXT}" 3
+  st_expect_prefix_count "$log_abs" "stage: fixed-stage" 3
+  st_expect_substring_count "$log_abs" "$ST_CASE_DIR" 0
+  st_expect_exact_count "$log_abs" "verdict: PASS" 3
+  st_expect_exact_count "$log_abs" "exit_code: 0" 3
+  st_expect_identical_blocks "$log_abs" 3
+  st_end "three identical blocks from two checkout paths, dated block unchanged without the option"
 }
 
 # Four runs append to one evidence log at the same time, from an evidence
@@ -2847,6 +3025,7 @@ run_self_test() {
   st_case_log_name_swapped
   st_case_log_write_failure
   st_case_log_inode_stability
+  st_case_reproducible_block
   st_case_log_concurrent_blocks
   st_case_log_lock_timeout
   st_case_log_dir_appeared
@@ -2885,7 +3064,7 @@ run_self_test() {
 }
 
 main() {
-  local timestamp=""
+  local timestamp="" root_recorded=""
 
   parse_args "$@"
 
@@ -2904,8 +3083,19 @@ main() {
   preflight_descriptor_view
   resolve_repo_root
 
-  if ! timestamp="$(date -u +%Y-%m-%dT%H:%M:%SZ)"; then
-    fail_env "unable to read the current UTC time"
+  # The record that differs between two runs of one stage. --reproducible
+  # records fixed text and reads no clock; without it the run records its own
+  # UTC time. The root record never carries the absolute path of a checkout:
+  # the default block names it relative to itself, and --reproducible names the
+  # mode instead, so a block reads the same from every checkout either way.
+  if ((REPRODUCIBLE == 1)); then
+    timestamp="$REPRODUCIBLE_TIMESTAMP_TEXT"
+    root_recorded="$REPRODUCIBLE_ROOT_TEXT"
+  else
+    if ! timestamp="$(date -u +%Y-%m-%dT%H:%M:%SZ)"; then
+      fail_env "unable to read the current UTC time"
+    fi
+    root_recorded="$REPO_ROOT_DISPLAY"
   fi
 
   open_log
@@ -2913,7 +3103,12 @@ main() {
   emit "BEGIN readonly-check"
   emit "stage: $(sanitize "$STAGE")"
   emit "timestamp_utc: ${timestamp}"
-  emit "repository_root: $(sanitize "$REPO_ROOT")"
+  # The root itself, named as the block names every other path: relative to it.
+  # A block therefore reads the same from every checkout of this repository, and
+  # the checkout it was written in is the one the file stands in. --reproducible
+  # substitutes its own fixed text for that record as well, so the mode a block
+  # was written in is legible from the block.
+  emit "repository_root: ${root_recorded}"
   emit "evidence_log: $(sanitize "$LOG_PATH")"
   print_baseline
 

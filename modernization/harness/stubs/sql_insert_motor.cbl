@@ -53,12 +53,23 @@
       * becomes 'Y', HC-MOT-COUNT counts the executions of the block,
       * HC-EVENT-SEQ is advanced and its new value is stamped into
       * HC-MOT-SEQ, and HC-ORDER-LAST-STMT receives this statement's
-      * key insert_motor. HC-ORDER-VIOLATION and
-      * HC-ORDER-VIOLATION-STMT are not written here. The
-      * execution_order block of
-      * modernization/harness/statement_map.yml declares one
-      * constraint, policy_before_commercial; insert_motor is neither
-      * of its two members and has no prerequisite ordinal of its own.
+      * key insert_motor.
+      *
+      * Order guard. The predecessor of this block is the INSERT INTO
+      * POLICY block at [base/src/lgapdb01.cbl:268-288]: the source
+      * performs INSERT-POLICY at [base/src/lgapdb01.cbl:219] ahead of
+      * the product routing that reaches INSERT-MOTOR at
+      * [base/src/lgapdb01.cbl:231-232], and the identity that
+      * paragraph recovers is parameter 1 here. HC-POL-SEQ carries that
+      * predecessor. This module reads it after stamping its own
+      * ordinal: a HC-POL-SEQ still at zero reports the predecessor
+      * unrun in HC-ORDER-VIOLATION and HC-ORDER-VIOLATION-STMT, and a
+      * non-zero HC-POL-SEQ leaves both items as
+      * modernization/harness/driver.cbl set them. The execution_order
+      * block of modernization/harness/statement_map.yml declares one
+      * constraint, policy_before_commercial, of which insert_motor is
+      * not a member; the constraint tested here is the one the source
+      * routing states.
       *
       * SQLCODE of the shared SQLCA reports HC-INJECT-SUB-SQLCODE on
       * every call. The translated LGAPDB01 tests IF SQLCODE NOT EQUAL
@@ -71,18 +82,21 @@
       * reported.
       *
       * No item of the caller's COMMAREA is addressed here. Of the
-      * shared capture state, only HC-SQL-MOTOR, HC-EVENT-SEQ and
-      * HC-ORDER-LAST-STMT are written, and HC-INJECT-SUB-SQLCODE is
+      * shared capture state, only HC-SQL-MOTOR, HC-EVENT-SEQ,
+      * HC-ORDER-LAST-STMT and the two order-guard items named above
+      * are written, and HC-INJECT-SUB-SQLCODE and HC-POL-SEQ are
       * read and never written. The group is EXTERNAL, carries
       * no VALUE clause and is initialised by
       * modernization/harness/driver.cbl before each case; no item of
       * it is initialised here.
       *
       * Rationale for the reported SQLCODE, for the passthrough
-      * handling of the amounts and for the amount comparison
-      * tolerance belongs to modernization/docs/decision-log.md
-      * (planned deliverable; not present at this milestone), row:
-      * deterministic failure injection through shared harness state.
+      * handling of the amounts, for the order guard and for the amount
+      * comparison tolerance belongs to
+      * modernization/docs/decision-log.md
+      * (planned deliverable; not present at this milestone), rows:
+      * deterministic failure injection through shared harness state;
+      * uniform stub-side capture-order guard.
       *
       * Harness topology: Figure 5 — Validation Harness Control Flow
       * in modernization/docs/architecture.md.
@@ -165,12 +179,14 @@
                                 LK-M-ACCIDENTS-INT.
       *
       *----------------------------------------------------------------*
-      * Records the ten host values, stamps the capture control items  *
-      * and reports the SQLCODE this run selected.                     *
+      * Records the ten host values, stamps the capture control items, *
+      * tests the predecessor ordinal and reports the SQLCODE this run *
+      * selected.                                                      *
       *----------------------------------------------------------------*
        MAINLINE.
            PERFORM CAPTURE-MOTOR-HOSTS
            PERFORM STAMP-CAPTURE-CONTROL
+           PERFORM CHECK-CAPTURE-ORDER
            MOVE HC-INJECT-SUB-SQLCODE TO SQLCODE
            GOBACK.
       *
@@ -194,7 +210,8 @@
       *----------------------------------------------------------------*
       * Marks the block captured, counts the execution, stamps the     *
       * ordinal from the shared event sequence and names the           *
-      * statement. The order-guard items are not written here.         *
+      * statement. The order-guard items are written by                *
+      * CHECK-CAPTURE-ORDER below and not here.                        *
       *----------------------------------------------------------------*
        STAMP-CAPTURE-CONTROL.
            MOVE 'Y' TO HC-MOT-PRESENT
@@ -204,3 +221,18 @@
            END-ADD
            MOVE HC-EVENT-SEQ TO HC-MOT-SEQ
            MOVE 'insert_motor' TO HC-ORDER-LAST-STMT.
+      *
+      *----------------------------------------------------------------*
+      * Tests the predecessor ordinal of this block, read after it     *
+      * stamped its own. HC-POL-SEQ at zero reports that the INSERT    *
+      * INTO POLICY block at [base/src/lgapdb01.cbl:268-288] was not   *
+      * captured ahead of this insert, which leaves parameter 1 short  *
+      * of the identity [base/src/lgapdb01.cbl:308-311] recovers. A    *
+      * non-zero HC-POL-SEQ leaves both order items as the driver set  *
+      * them.                                                          *
+      *----------------------------------------------------------------*
+       CHECK-CAPTURE-ORDER.
+           IF HC-POL-SEQ = ZERO
+               MOVE 'Y' TO HC-ORDER-VIOLATION
+               MOVE 'insert_motor' TO HC-ORDER-VIOLATION-STMT
+           END-IF.

@@ -46,9 +46,14 @@
       * than '00' is reported naming the descriptor and the caller
       * redirection that supplies it, and ends the run with status 4.
       *
-      * A stream that carries no record, and a record holding more than
-      * 32,500 characters, are each reported and end the run with
-      * status 4.
+      * A stream that carries no record, a record holding more than
+      * 32,500 characters, and a record holding fewer than 32,500
+      * characters, are each reported and end the run with status 4
+      * before the chain is called. The width the record carried is
+      * measured through the RECORD VARYING clause of SAMPLEFILE and
+      * emitted as the SAMPLE_RECORD_LENGTH capture, so every capture
+      * file this program writes states the width of the record its run
+      * read.
       *
       * Environment items read:
       *   HARNESS_CASE           case label. Required, 1 to 24
@@ -123,7 +128,8 @@
       *   2  the abend state differs from the expected abend state
       *   3  a required capture is missing or inconsistent
       *   4  a file input-output operation failed: standard input
-      *      carried no record, or an open, write or close failed on
+      *      carried no record, the record it carried held other than
+      *      32,500 characters, or an open, write or close failed on
       *      one of the three descriptors
       *   5  a required environment item was not provided or was
       *      rejected
@@ -135,10 +141,10 @@
       * (planned deliverable; not present at this milestone), rows:
       * fixture-derived expected values in the driver; deterministic
       * failure injection through shared harness state; driver sample
-      * record on standard input; driver outputs written into
-      * caller-opened descriptors; length-preserving VSAM record
-      * evidence; driver exit-status contract; shared EXTERNAL harness
-      * state.
+      * record on standard input; driver refuses a sample record of any
+      * other width; driver outputs written into caller-opened
+      * descriptors; length-preserving VSAM record evidence; driver
+      * exit-status contract; shared EXTERNAL harness state.
       *
       * Harness topology: Figure 5 — Validation Harness Control Flow
       * in modernization/docs/architecture.md.
@@ -182,7 +188,13 @@
        DATA DIVISION.
        FILE SECTION.
       *
-       FD  SAMPLE-FILE.
+      * The record read carries its own length, so a line shorter than
+      * the 32,500 characters one generated record holds is reported by
+      * the length it carried rather than read as a record the runtime
+      * padded with spaces.
+       FD  SAMPLE-FILE
+           RECORD IS VARYING IN SIZE FROM 1 TO 32500 CHARACTERS
+               DEPENDING ON WS-SAMPLE-LEN.
        01  SAMPLE-REC                  PIC X(32500).
       *
        FD  POST-FILE.
@@ -237,6 +249,16 @@
            03 WS-SAMPLE-STATUS         PIC XX.
            03 WS-POST-STATUS           PIC XX.
            03 WS-CAPT-STATUS           PIC XX.
+      *
+      * Characters the record read from standard input carried, set by
+      * the read itself through the RECORD VARYING clause of
+      * SAMPLE-FILE, and the width one generated record holds. A record
+      * of any other width is reported and the run ends with status 4
+      * before the chain is called; the value reached is emitted as the
+      * SAMPLE_RECORD_LENGTH capture, so every capture file states the
+      * width of the record its case ran on.
+       01  WS-SAMPLE-LEN               PIC S9(9) COMP.
+       01  WS-SAMPLE-LEN-EXPECTED      PIC S9(9) COMP VALUE +32500.
       *
       * The /dev/fd entry of the descriptor each output record is
       * written into, opened through the dynamic ASSIGN of that file and
@@ -1593,7 +1615,18 @@
       * no reader can be opened on is reported the same way. None of
       * them waits for a record that is not coming: an empty stream, a
       * closed standard input and /dev/null each end the read at once.
+      *
+      * A record the read accepts is measured before it is used: the
+      * RECORD VARYING clause of SAMPLEFILE leaves the characters the
+      * line carried in WS-SAMPLE-LEN, and a record narrower than
+      * 32,500 characters is reported by that length and ends the run
+      * with status 4. A shorter line is otherwise indistinguishable
+      * from a complete one, because the line-sequential reader of the
+      * run-time pads it with spaces to the width of the record area,
+      * and the checks of this program cover only the leading fields
+      * such a record still carries.
        READ-SAMPLE-RECORD.
+           MOVE ZERO TO WS-SAMPLE-LEN
            OPEN INPUT SAMPLE-FILE
            IF WS-SAMPLE-STATUS NOT = '00'
                DISPLAY 'DRIVER: open input failed on SAMPLEFILE, '
@@ -1607,8 +1640,13 @@
                        CONTINUE
                END-READ
                IF WS-SAMPLE-STATUS = '00'
-                   MOVE SAMPLE-REC TO WS-COMMAREA-CHARS
-                   MOVE SAMPLE-REC TO WS-FIXTURE-CHARS
+                   IF WS-SAMPLE-LEN = WS-SAMPLE-LEN-EXPECTED
+                       MOVE SAMPLE-REC TO WS-COMMAREA-CHARS
+                       MOVE SAMPLE-REC TO WS-FIXTURE-CHARS
+                   ELSE
+                       PERFORM REPORT-SAMPLE-LENGTH
+                       MOVE 04 TO WS-EXIT-CODE
+                   END-IF
                ELSE
                    DISPLAY 'DRIVER: read failed on SAMPLEFILE, the '
                            'record read from standard input, file '
@@ -1632,6 +1670,23 @@
                    MOVE 04 TO WS-EXIT-CODE
                END-IF
            END-IF.
+      *
+      * Names the width the record read carried beside the width one
+      * generated record holds. The record is left unused: the run ends
+      * with status 4 before the chain is called, so no post-chain
+      * record and no capture file are written from a record of the
+      * wrong width.
+       REPORT-SAMPLE-LENGTH.
+           MOVE WS-SAMPLE-LEN TO WS-COUNT-EDIT
+           DISPLAY 'DRIVER: the record read from standard input '
+                   'holds ' FUNCTION TRIM(WS-COUNT-EDIT)
+                   ' characters and exactly 32500 are required'
+           END-DISPLAY
+           DISPLAY 'DRIVER:   redirect standard input from the '
+                   'generated 32500-character record of the case; '
+                   'a shorter line is padded with spaces by the '
+                   'reader and is not run'
+           END-DISPLAY.
       *
       *================================================================*
       * Chain execution                                                *
@@ -1954,6 +2009,9 @@
            MOVE 'FIXTURE' TO WS-KEY-NAME
            MOVE WS-FIXTURE TO WS-VALUE
            PERFORM EMIT-VALUE
+           MOVE 'SAMPLE_RECORD_LENGTH' TO WS-KEY-NAME
+           MOVE WS-SAMPLE-LEN TO WS-INT-VALUE
+           PERFORM EMIT-INTEGER
            MOVE 'EIBCALEN_AT_CALL' TO WS-KEY-NAME
            MOVE WS-EIBCALEN-AT-CALL TO WS-INT-VALUE
            PERFORM EMIT-INTEGER

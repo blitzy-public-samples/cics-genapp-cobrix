@@ -56,11 +56,26 @@
       * initialised procedurally by modernization/harness/driver.cbl,
       * which this module never repeats.
       *
+      * Order guard: this module carries no prerequisite, and the
+      * absence is deliberate rather than an omission. The six command
+      * sites listed above are of two kinds - the two zero-length
+      * COMMAREA checks at base/src/lgapol01.cbl:98-102 and
+      * base/src/lgapdb01.cbl:165-169, which precede every other
+      * statement of their program, and the four product-insert failure
+      * branches - and neither kind requires a statement of the
+      * read-only source to have been captured first. The eight stubs
+      * whose sites do carry an ordering constraint of that source test
+      * it and write HC-ORDER-VIOLATION and HC-ORDER-VIOLATION-STMT;
+      * this module reads neither item and writes neither, so an abend
+      * leaves the order verdict of the case exactly as the statements
+      * before it left it.
+      *
       * Rationale belongs to modernization/docs/decision-log.md
       * (planned deliverable; not present at this milestone), rows:
       * called abend stub records and returns; shared EXTERNAL harness
       * state; shared event-sequence ordering witness and order guard;
-      * abend sites unexercised by the two passing samples.
+      * uniform stub-side capture-order guard; abend sites unexercised
+      * by the two passing samples.
       *
       * Harness topology: Figure 5 — Validation Harness Control Flow
       * in modernization/docs/architecture.md.

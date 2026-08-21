@@ -83,8 +83,15 @@
       * own. An HC-POL-SEQ still at zero
       * reports the constraint as violated in HC-ORDER-VIOLATION and
       * HC-ORDER-VIOLATION-STMT; a non-zero HC-POL-SEQ leaves both
-      * items as the driver set them. This module is the only member of
-      * modernization/harness/stubs/ that writes those two items.
+      * items as the driver set them. Each of the seven other members
+      * of modernization/harness/stubs/ that carries an ordering
+      * constraint of the read-only source tests it in this same shape
+      * and writes the same two items: sql_insert_policy.cbl,
+      * sql_set_identity.cbl, sql_select_lastchanged.cbl,
+      * sql_insert_motor.cbl, sql_insert_endowment.cbl,
+      * sql_insert_house.cbl and cics_write.cbl. Where more than one
+      * of them reports, HC-ORDER-VIOLATION-STMT names the one that
+      * reported last and HC-ORDER-VIOLATION stays at 'Y'.
       *
       * SQLCODE of the shared SQLCA reports HC-INJECT-SUB-SQLCODE on
       * every call. The translated LGAPDB01 tests it with IF SQLCODE
@@ -106,11 +113,12 @@
       *
       * Rationale for the reported SQLCODE, for recording the
       * premiums as passed, for excluding the peril codes from the
-      * canonical schema, for the amount comparison tolerance and for
-      * the arity of twenty belongs to
+      * canonical schema, for the amount comparison tolerance, for the
+      * order guard and for the arity of twenty belongs to
       * modernization/docs/decision-log.md (planned deliverable; not
-      * present at this milestone), row: deterministic failure
-      * injection through shared harness state.
+      * present at this milestone), rows: deterministic failure
+      * injection through shared harness state; uniform stub-side
+      * capture-order guard.
       *
       * Harness topology: Figure 5 — Validation Harness Control Flow
       * in modernization/docs/architecture.md.
@@ -366,6 +374,8 @@
       * not captured before this block, which leaves CA-LASTCHANGED    *
       * unpopulated at [base/src/lgapdb01.cbl:525]. A non-zero         *
       * HC-POL-SEQ leaves both order items as the driver set them.     *
+      * The seven other stubs that carry a source-derived predecessor  *
+      * test theirs in this same shape.                                *
       *----------------------------------------------------------------*
        CHECK-CAPTURE-ORDER.
            IF HC-POL-SEQ = ZERO

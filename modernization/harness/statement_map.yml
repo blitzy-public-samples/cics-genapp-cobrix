@@ -585,18 +585,232 @@ dml:
         pic: 'X(255)'
         declared_in: 'base/src/lgcmarea.cpy:93'
 
-# Ordering constraints between dml entries, measured from the source. The
-# `witness` block of each entry names the hcapture.cpy ordinal items that carry
-# the observed order and the assertions evaluated over their values. In an
-# assertion, `left_item` and `right_item` name ordinal items, `right_literal`
-# carries a value, and `operator` is 'greater_than' or 'less_than'. An
-# assertion that does not hold reports the constraint as violated.
+# Ordering constraints measured from the source. Each entry names a dml id of
+# the block above, except that `successor: 'cics_write'` names the recording
+# stub of the KSDSPOLY write at base/src/lgapvs01.cbl:135-141, which is not an
+# EXEC SQL block of this map, and `predecessor: 'none'` names a constraint on
+# the first captured event rather than on a pair. The `witness` block of each
+# entry names the hcapture.cpy ordinal items that carry the observed order and
+# the assertions evaluated over their values. In an assertion, `left_item` and
+# `right_item` name ordinal items, `right_literal` carries a value, and
+# `operator` is 'greater_than', 'less_than' or 'equal_to'. An assertion that
+# does not hold reports the constraint as violated. One entry carries a set of
+# alternative predecessors: `predecessor_ordinal_items_any` names them and an
+# assertion whose `any_of` holds a list is satisfied when any member of that
+# list is satisfied.
+#
+# Every entry below is enforced at run time by the capturing stub named in its
+# `enforced_by` field, which reads its prerequisite ordinal after stamping its
+# own and reports a prerequisite still at zero in HC-ORDER-VIOLATION and
+# HC-ORDER-VIOLATION-STMT. modernization/harness/driver.cbl evaluates the same
+# order independently by walking the ordinals it reads out of the capture
+# state, so a constraint is observed twice by construction.
 execution_order:
+  - id: 'policy_first_captured'
+    predecessor: 'none'
+    successor: 'insert_policy'
+    reason_kind: 'control_flow'
+    enforced_by: 'modernization/harness/stubs/sql_insert_policy.cbl'
+    note: >-
+      PERFORM INSERT-POLICY at base/src/lgapdb01.cbl:219 is the first statement
+      the Db2 program reaches after the length and routing checks, and the
+      product routing at base/src/lgapdb01.cbl:223-241 and the link at
+      base/src/lgapdb01.cbl:243-246 both follow it, so the POLICY insert is the
+      first captured event of any case that reaches a captured statement at
+      all.
+    witness:
+      copybook: 'modernization/harness/copybooks/hcapture.cpy'
+      predecessor_ordinal_item: 'none'
+      successor_ordinal_item: 'HC-POL-SEQ'
+      assertions:
+        # Nothing was captured ahead of the POLICY insert, so its ordinal is
+        # the first value the shared sequence item issues.
+        - left_item: 'HC-POL-SEQ'
+          operator: 'equal_to'
+          right_literal: 1
+
+  - id: 'policy_before_identity'
+    predecessor: 'insert_policy'
+    successor: 'set_identity'
+    reason_kind: 'data_dependency'
+    host: 'DB2-POLICYNUM-INT'
+    enforced_by: 'modernization/harness/stubs/sql_set_identity.cbl'
+    note: >-
+      IDENTITY_VAL_LOCAL() at base/src/lgapdb01.cbl:307-311 returns the
+      identity the INSERT INTO POLICY block at base/src/lgapdb01.cbl:268-288
+      assigned, so the read has no value to recover until that insert has run.
+    witness:
+      copybook: 'modernization/harness/copybooks/hcapture.cpy'
+      predecessor_ordinal_item: 'HC-POL-SEQ'
+      successor_ordinal_item: 'HC-IDENT-SEQ'
+      assertions:
+        - left_item: 'HC-POL-SEQ'
+          operator: 'greater_than'
+          right_literal: 0
+        - left_item: 'HC-IDENT-SEQ'
+          operator: 'greater_than'
+          right_literal: 0
+        - left_item: 'HC-POL-SEQ'
+          operator: 'less_than'
+          right_item: 'HC-IDENT-SEQ'
+
+  - id: 'identity_before_lastchanged'
+    predecessor: 'set_identity'
+    successor: 'select_lastchanged'
+    reason_kind: 'data_dependency'
+    host: 'DB2-POLICYNUM-INT'
+    enforced_by: 'modernization/harness/stubs/sql_select_lastchanged.cbl'
+    note: >-
+      The SELECT LASTCHANGED read-back at base/src/lgapdb01.cbl:316-321 selects
+      the row whose POLICYNUMBER equals the host the identity read at
+      base/src/lgapdb01.cbl:307-311 set, so that read is its predicate source.
+    witness:
+      copybook: 'modernization/harness/copybooks/hcapture.cpy'
+      predecessor_ordinal_item: 'HC-IDENT-SEQ'
+      successor_ordinal_item: 'HC-LCHG-SEQ'
+      assertions:
+        - left_item: 'HC-IDENT-SEQ'
+          operator: 'greater_than'
+          right_literal: 0
+        - left_item: 'HC-LCHG-SEQ'
+          operator: 'greater_than'
+          right_literal: 0
+        - left_item: 'HC-IDENT-SEQ'
+          operator: 'less_than'
+          right_item: 'HC-LCHG-SEQ'
+
+  - id: 'policy_before_motor'
+    predecessor: 'insert_policy'
+    successor: 'insert_motor'
+    reason_kind: 'data_dependency'
+    host: 'DB2-POLICYNUM-INT'
+    enforced_by: 'modernization/harness/stubs/sql_insert_motor.cbl'
+    note: >-
+      The MOTOR insert at base/src/lgapdb01.cbl:440-470 carries the recovered
+      identity as its POLICYNUMBER, and the routing that reaches it at
+      base/src/lgapdb01.cbl:223-241 runs after PERFORM INSERT-POLICY at
+      base/src/lgapdb01.cbl:219.
+    witness:
+      copybook: 'modernization/harness/copybooks/hcapture.cpy'
+      predecessor_ordinal_item: 'HC-POL-SEQ'
+      successor_ordinal_item: 'HC-MOT-SEQ'
+      assertions:
+        - left_item: 'HC-POL-SEQ'
+          operator: 'greater_than'
+          right_literal: 0
+        - left_item: 'HC-MOT-SEQ'
+          operator: 'greater_than'
+          right_literal: 0
+        - left_item: 'HC-POL-SEQ'
+          operator: 'less_than'
+          right_item: 'HC-MOT-SEQ'
+
+  - id: 'policy_before_house'
+    predecessor: 'insert_policy'
+    successor: 'insert_house'
+    reason_kind: 'data_dependency'
+    host: 'DB2-POLICYNUM-INT'
+    enforced_by: 'modernization/harness/stubs/sql_insert_house.cbl'
+    note: >-
+      The HOUSE insert at base/src/lgapdb01.cbl:402-424 carries the recovered
+      identity as its POLICYNUMBER, and the routing that reaches it at
+      base/src/lgapdb01.cbl:223-241 runs after PERFORM INSERT-POLICY at
+      base/src/lgapdb01.cbl:219.
+    witness:
+      copybook: 'modernization/harness/copybooks/hcapture.cpy'
+      predecessor_ordinal_item: 'HC-POL-SEQ'
+      successor_ordinal_item: 'HC-HOU-SEQ'
+      assertions:
+        - left_item: 'HC-POL-SEQ'
+          operator: 'greater_than'
+          right_literal: 0
+        - left_item: 'HC-HOU-SEQ'
+          operator: 'greater_than'
+          right_literal: 0
+        - left_item: 'HC-POL-SEQ'
+          operator: 'less_than'
+          right_item: 'HC-HOU-SEQ'
+
+  - id: 'policy_before_endowment'
+    predecessor: 'insert_policy'
+    successor: 'insert_endowment_varchar'
+    reason_kind: 'data_dependency'
+    host: 'DB2-POLICYNUM-INT'
+    enforced_by: 'modernization/harness/stubs/sql_insert_endowment.cbl'
+    note: >-
+      Both ENDOWMENT inserts at base/src/lgapdb01.cbl:327-386 carry the
+      recovered identity as their POLICYNUMBER, and the routing that reaches
+      them at base/src/lgapdb01.cbl:223-241 runs after PERFORM INSERT-POLICY at
+      base/src/lgapdb01.cbl:219. This entry covers insert_endowment_novarchar
+      on the same terms: both ids resolve to the ENDOWMENT capture group, to
+      HC-END-SEQ and to the one recording stub.
+    witness:
+      copybook: 'modernization/harness/copybooks/hcapture.cpy'
+      predecessor_ordinal_item: 'HC-POL-SEQ'
+      successor_ordinal_item: 'HC-END-SEQ'
+      assertions:
+        - left_item: 'HC-POL-SEQ'
+          operator: 'greater_than'
+          right_literal: 0
+        - left_item: 'HC-END-SEQ'
+          operator: 'greater_than'
+          right_literal: 0
+        - left_item: 'HC-POL-SEQ'
+          operator: 'less_than'
+          right_item: 'HC-END-SEQ'
+
+  - id: 'policy_and_product_before_vsam_write'
+    predecessor: 'insert_policy'
+    successor: 'cics_write'
+    reason_kind: 'control_flow'
+    enforced_by: 'modernization/harness/stubs/cics_write.cbl'
+    note: >-
+      The link to LGAPVS01 at base/src/lgapdb01.cbl:243-246 is the only path
+      that reaches the KSDSPOLY write at base/src/lgapvs01.cbl:135-141, and it
+      follows both PERFORM INSERT-POLICY at base/src/lgapdb01.cbl:219 and the
+      product insert the routing at base/src/lgapdb01.cbl:223-241 selects, so a
+      captured write stands after a captured policy insert and after one
+      captured product insert.
+    witness:
+      copybook: 'modernization/harness/copybooks/hcapture.cpy'
+      predecessor_ordinal_item: 'HC-POL-SEQ'
+      predecessor_ordinal_items_any:
+        - 'HC-MOT-SEQ'
+        - 'HC-COM-SEQ'
+        - 'HC-END-SEQ'
+        - 'HC-HOU-SEQ'
+      successor_ordinal_item: 'HC-VSAM-SEQ'
+      assertions:
+        - left_item: 'HC-POL-SEQ'
+          operator: 'greater_than'
+          right_literal: 0
+        - left_item: 'HC-VSAM-SEQ'
+          operator: 'greater_than'
+          right_literal: 0
+        - left_item: 'HC-POL-SEQ'
+          operator: 'less_than'
+          right_item: 'HC-VSAM-SEQ'
+        # One product insert of the four routes was captured before the write.
+        - any_of:
+            - left_item: 'HC-MOT-SEQ'
+              operator: 'greater_than'
+              right_literal: 0
+            - left_item: 'HC-COM-SEQ'
+              operator: 'greater_than'
+              right_literal: 0
+            - left_item: 'HC-END-SEQ'
+              operator: 'greater_than'
+              right_literal: 0
+            - left_item: 'HC-HOU-SEQ'
+              operator: 'greater_than'
+              right_literal: 0
+
   - id: 'policy_before_commercial'
     predecessor: 'insert_policy'
     successor: 'insert_commercial'
     reason_kind: 'data_dependency'
     host: 'CA-LASTCHANGED'
+    enforced_by: 'modernization/harness/stubs/sql_insert_commercial.cbl'
     note: >-
       CA-LASTCHANGED is supplied to the COMMERCIAL column RequestDate at
       base/src/lgapdb01.cbl:525 and is populated only by the SELECT LASTCHANGED

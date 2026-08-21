@@ -40,7 +40,7 @@
     },
     "hcapture.cpy": {
       "path": "modernization/harness/copybooks/hcapture.cpy",
-      "sha256": "38a9f914fe0fbe1c7e3e3ff55754452ae6ad589c85e8f1a684e2b75484be3116"
+      "sha256": "85ab776bc918ebe6fe878a0bf6496b5434844bb741fcc1e07f6d53b18a9d06f9"
     },
     "hsqlca.cpy": {
       "path": "modernization/harness/copybooks/hsqlca.cpy",
@@ -81,7 +81,7 @@
     {
       "origin": "modernization/harness/copybooks/hcapture.cpy",
       "copy": "modernization/harness/build/src/hcapture.cpy",
-      "sha256": "38a9f914fe0fbe1c7e3e3ff55754452ae6ad589c85e8f1a684e2b75484be3116",
+      "sha256": "85ab776bc918ebe6fe878a0bf6496b5434844bb741fcc1e07f6d53b18a9d06f9",
       "kind": "harness copybook"
     }
   ],

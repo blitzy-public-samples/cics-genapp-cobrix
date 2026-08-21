@@ -12,17 +12,25 @@
 #                 script, takes the exclusive harness lock of the checkout
 #                 before any shared build path is created or read, checks the
 #                 Python interpreter, the COBOL compiler and every harness
-#                 input, creates the build directories and runs
+#                 input, pins the compiler environment the compile and the
+#                 execution stages run under, creates the build directories,
+#                 empties the evidence log the source guard appends its blocks
+#                 to so that log holds the gates of this run alone, and runs
 #                 modernization/validation/verify_readonly.sh before any
-#                 generated output is produced. The lock is held until the run
-#                 ends, so two invocations of this script on one checkout run
-#                 one after the other rather than over each other.
+#                 generated output is produced. Every gate of the run asks that
+#                 script for its reproducible block, so the published log holds
+#                 the same bytes after two runs of the same selection over one
+#                 unchanged tracked state, in any checkout. The lock is held
+#                 until the run ends, so two invocations of this script on one
+#                 checkout run one after the other rather than over each other.
 #   2 samples     Generates one 32,500-character COMMAREA record per selected
 #                 fixture and translates read-only copies of the three named
 #                 programs into the build tree.
-#   3 compile     Builds the twelve stubs and the three translated programs as
-#                 callable modules and the driver as an executable, then runs
-#                 the source guard again.
+#   3 compile     Records the compiler environment and the resolved dialect of
+#                 the run at the head of the compile log, builds the twelve
+#                 stubs and the three translated programs as callable modules
+#                 and the driver as an executable, then runs the source guard
+#                 again.
 #   4 probes      Runs the driver once per infrastructure probe of the probe
 #                 table below, each with one item of its environment, or one of
 #                 the three handles this script opens for it, made deliberately
@@ -32,11 +40,19 @@
 #                 this script opens and checks for it, asserts the row of the
 #                 case table against values this script reads out of the
 #                 generated sample record, and runs the source guard again.
-#   6 evidence    Collects the retained logs and the captures of the two
-#                 success cases with a SHA-256 manifest, runs the source guard
-#                 as the final gate, and only then clears and republishes the
-#                 eight names it owns in the validation artifacts directory and
-#                 prints the run summary.
+#   6 evidence    Runs the source guard as the final gate, then collects the
+#                 retained logs, the guard's own evidence log and the captures
+#                 of the success cases the run executed with a SHA-256
+#                 manifest, and only then clears and republishes, in the
+#                 validation artifacts directory, the names this run publishes -
+#                 the five stage files, and the driver log, the capture file and
+#                 the post-chain record of each success case it executed, so
+#                 eleven names for a run of the whole case table and eight for a
+#                 run of one success case - before printing the run summary. The
+#                 published evidence of a success case the run did not execute
+#                 is left as it stands. runtime-versions.txt stands in that
+#                 directory outside this replacement: it is the environment
+#                 record of the checkout and no run of this script writes it.
 #
 # Case table, one row per executable case. Each row names the fixture it runs
 # on, the COMMAREA length the driver calls with, the request id it overrides
@@ -64,7 +80,45 @@
 # The endowment route is not executed: no row of the table selects it and every
 # row asserts the endowment capture group absent. See
 # modernization/docs/decision-log.md (planned deliverable; not present at this
-# milestone), row: endowment route not executed.
+# milestone), row: endowment route not executed. The route is nonetheless
+# survivable under the compile options this script mandates: the
+# "-fbinary-truncate" of the mandated list keeps the length subtraction of
+# [base/src/lgapdb01.cbl:339-340] inside its PIC S9(4) COMP item, so the
+# reference-modified MOVE that follows it addresses 2,348 characters of a
+# 3,900-character item at the chain's own COMMAREA length rather than 32,348.
+# A direct call of the translated LGAPDB01 on request id 01AEND at
+# EIBCALEN=32500 returns '00' and writes the VSAM record under an "E" key.
+#
+# Two runtime properties of the chain the case table exercises but does not
+# assert by name, recorded here so a reader of the captures does not read either
+# one as a defect of the harness:
+#
+#   One diagnostic link from LGAPOL01, two from the programs below it.
+#   WRITE-ERROR-MESSAGE of LGAPOL01 links the diagnostic program once
+#   unconditionally and a second time only under "IF EIBCALEN > 0"
+#   [base/src/lgapol01.cbl:149-166], and the only PERFORM of that paragraph
+#   stands inside "IF EIBCALEN = ZERO" [base/src/lgapol01.cbl:96-102], so the
+#   second link is unreachable by construction and the zero-length case reports
+#   DIAG_LINK_COUNT=0001 carrying "NO COMMAREA RECEIVED" alone. The error paths
+#   of LGAPDB01 and LGAPVS01 reach the same shape of paragraph with a COMMAREA
+#   in hand [base/src/lgapdb01.cbl:575-592; base/src/lgapvs01.cbl:169-185] and
+#   report DIAG_LINK_COUNT=0002. Every row of the case table whose "diag" field
+#   says SOME is asserted at one link or more, so both counts pass that row.
+#
+#   WS-REQUIRED-CA-LEN accumulates across calls in one process.
+#   "WS-REQUIRED-CA-LEN PIC S9(4) VALUE +0" [base/src/lgapol01.cbl:60;
+#   base/src/lgapdb01.cbl:66] is never re-initialised, and each program adds to
+#   it before comparing it with EIBCALEN [base/src/lgapol01.cbl:109;
+#   base/src/lgapdb01.cbl:182-199], so a second call in the same process
+#   compares against twice the requirement: 28, 56, 84 in LGAPOL01 and 165,
+#   330, 495 for the motor route of LGAPDB01. A request that returns '00' at
+#   EIBCALEN=30 therefore returns '98' from the second call onward. This is the
+#   behaviour of the frozen source, it is latent under CICS, which gives each
+#   task fresh program working-storage, and it is inert here: each case of this
+#   script is one process making one chain call, and five calls in one process
+#   at EIBCALEN=32500 all return '00' because the accumulated requirement stays
+#   below the length. A host that calls these modules more than once per process
+#   has to CANCEL them between calls to reproduce the first result.
 #
 # Probe table, one row per infrastructure probe. Each row names the environment
 # item or the driver handle it makes wrong, the driver status this script
@@ -114,14 +168,15 @@
 #   COBC          COBOL compiler command. Default: cobc
 #   COBC_EXTRA_FLAGS
 #                 Compiler options added after the mandated
-#                 "-std=ibm -ffold-copy=LOWER -ext cpy", which every compile
-#                 passes whatever this variable holds. Only the options of the
-#                 allow-list below are accepted; an unknown option, an option
-#                 that would restate the source format, the copybook folding,
-#                 the copybook extension or an output selector, and an option
-#                 that leaves the compiler intermediates outside the build
-#                 directory ("-g" and "-save-temps" in either spelling), is a
-#                 preflight failure that names the option. Default: unset.
+#                 "-std=ibm -fbinary-truncate -ffold-copy=LOWER -ext cpy",
+#                 which every compile passes whatever this variable holds. Only
+#                 the options of the allow-list below are accepted; an unknown
+#                 option, an option that would restate the source format, the
+#                 numeric store of the dialect, the copybook folding, the
+#                 copybook extension or an output selector, and an option that
+#                 leaves the compiler intermediates outside the build directory
+#                 ("-g" and "-save-temps" in either spelling), is a preflight
+#                 failure that names the option. Default: unset.
 #   COBC_FLAGS    Read under the same allow-list as COBC_EXTRA_FLAGS, with the
 #                 mandated options accepted as no-ops. It cannot replace a
 #                 mandated option. Default: unset.
@@ -129,7 +184,13 @@
 #                 Identity seed of the first row of the case table, one to nine
 #                 digits above zero. Each later row receives the next value,
 #                 whichever rows are selected, so 01AMOT receives the seed and
-#                 01ACOM the value after it. Default: 1000001.
+#                 01ACOM the value after it. Every run reserves one identity for
+#                 each of the twelve rows of the table, a run of one case
+#                 included, so the seed is also required to leave room for
+#                 twelve consecutive values at or below 999999999: the highest
+#                 seed any invocation accepts is 999999988, and a higher one is
+#                 a preflight failure naming the value the table would reach.
+#                 Default: 1000001.
 #   HARNESS_LASTCHANGED
 #                 Timestamp seed of every selected case, exactly twenty-six
 #                 characters in YYYY-MM-DD-HH.MM.SS.NNNNNN form and free of
@@ -170,6 +231,28 @@
 #   HARNESS_EXPECT_POLICY_SQL, HARNESS_EXPECT_VSAM, HARNESS_EXPECT_VALUES,
 #   HARNESS_EXPECT_PRODUCT_VALUES, HARNESS_EXPECT_DIAG_LINKS
 #
+# Compiler environment items the preflight pins for the compile stage and the
+# execution stage alike. Each one is removed from the environment of the caller
+# first, and an ambient value that was removed is reported as a deviation
+# naming the value that was ignored, so no run compiles or executes under a
+# dialect, a run-time configuration or a set of C options this script did not
+# choose:
+#   COB_CONFIG_DIR      the configuration directory the compiler reports as its
+#                       own, read from "cobc --info" with no ambient value in
+#                       force. The dialect the mandated "-std=ibm" resolves
+#                       inside it - the files of the ibm.conf include chain
+#                       with the SHA-256 of each, and the value that chain
+#                       leaves for binary-size, binary-truncate,
+#                       binary-byteorder, hostsign and defaultbyte - is
+#                       recorded at the head of the compile log
+#   COB_RUNTIME_CONFIG  removed, so a module loads the run-time configuration of
+#                       that installation
+#   COB_CFLAGS          the C options that installation reports, with the
+#                       _FORTIFY_SOURCE definition its host toolchain states
+#                       twice reduced to the one that takes effect. A COBOL
+#                       diagnostic is unaffected: it is still written to the
+#                       compile log and still counted as a deviation
+#
 # Every generated file is written under modernization/harness/build. The one
 # exception is the evidence publication of stage 6, which writes into
 # modernization/validation/artifacts. Both roots are canonicalised and required
@@ -185,10 +268,21 @@
 #   1 the chain's return code differs from the expected code
 #   2 the abend state differs from the expected abend state
 #   3 a required capture is missing or inconsistent
-#   4 a file input-output operation failed
+#   4 a file input-output operation failed, the record on standard input held
+#     no line, or that line held other than 32,500 characters
 #   5 a required environment item was not provided or was rejected
 #   6 a captured value differs from the fixture-derived expected value
 #   7 the translated chain could not be called
+#
+# Capture grammar of the driver: one "NAME=VALUE" line per captured value, the
+# name and the value each written at its trimmed width. The keys of the run
+# itself stand first, CASE naming the label this script exported, FIXTURE the
+# record it redirected onto standard input, SAMPLE_RECORD_LENGTH the characters
+# the driver measured in that record and EIBCALEN_AT_CALL the length it called
+# the chain with. Every case asserts SAMPLE_RECORD_LENGTH against the 32,500
+# characters one generated record holds, so a case runs on a complete record or
+# fails, and the width every value of the capture file was decoded at is stated
+# in the file itself.
 #
 # Exit codes of this script:
 #   0 every stage passed
@@ -208,6 +302,9 @@
 #     pass at one of the four points this script runs it
 #   9 the exclusive harness lock of this checkout was still held by another run
 #     when the bounded wait ran out; nothing of this run was created
+# 143 a termination, interrupt or hangup signal reached this script: the command
+#     it was waiting on was ended with its whole process group and reaped,
+#     nothing was published, and the harness lock of the checkout was released
 # Any non-zero code stops the fail-fast modernization/Makefile that invokes
 # this script.
 #
@@ -239,6 +336,12 @@ readonly EXIT_EVIDENCE=7
 readonly EXIT_GUARD=8
 readonly EXIT_LOCK=9
 
+# Status a run ends with when a termination, interrupt or hangup signal reaches
+# it: 128 plus the number of SIGTERM, reported for all three so one status names
+# an interrupted run. The command the run was waiting on is ended first and
+# nothing is published.
+readonly EXIT_SIGNAL=143
+
 # --------------------------------------------------------------------------
 # Fixed harness values
 # --------------------------------------------------------------------------
@@ -247,6 +350,11 @@ readonly STAGE_COUNT=6
 
 # One generated COMMAREA record is 32,500 characters and one line feed.
 readonly RECORD_BYTES=32501
+
+# Characters of that record, the width the driver measures the record it read
+# at and reports in its SAMPLE_RECORD_LENGTH capture. The line feed of
+# RECORD_BYTES ends the line and is not part of the record.
+readonly RECORD_CHARACTERS=32500
 
 # The COMMAREA length the chain links with, and the length the driver calls
 # with unless the case row names a shorter one.
@@ -291,6 +399,14 @@ readonly HARNESS_LOCK_NAME="harness.lock"
 readonly HARNESS_LOCK_WAIT_DEFAULT=300
 readonly HARNESS_LOCK_WAIT_MAX=3600
 
+# Seconds an interrupted run leaves between the two signals it ends the command
+# it was waiting on with: SIGTERM reaches the whole process group of that
+# command, and SIGKILL reaches whatever still stands after this pause. The
+# command and the process recording its output are both reaped before the run
+# exits, so no child of this script outlives it and no descendant keeps the
+# harness lock of the checkout open.
+readonly TERMINATE_GRACE_SECONDS=0.1
+
 # Compiler release the dependency inventory pins, and the lowest release of
 # the same major series this script accepts.
 readonly COBC_VERSION_PINNED="3.1.2.0"
@@ -302,7 +418,22 @@ readonly PYTHON_SERIES="3.12"
 
 # Compiler options every module and the driver are compiled with, in this
 # order, whatever the environment names.
-readonly -a COBC_FLAGS_MANDATED=("-std=ibm" "-ffold-copy=LOWER" "-ext" "cpy")
+#
+# Under "-fbinary-truncate" a binary receiving item keeps only the digits its
+# PICTURE declares; the dialect configuration that "-std=ibm" resolves to
+# leaves that truncation off. Both behaviours are measurable on the endowment
+# route: the "SUBTRACT WS-REQUIRED-CA-LEN FROM EIBCALEN GIVING WS-VARY-LEN" of
+# [base/src/lgapdb01.cbl:339-340] leaves 32348 in its PIC S9(4) COMP item at
+# the chain's own COMMAREA length without the option and 2348 with it, and the
+# reference-modified MOVE that follows [base/src/lgapdb01.cbl:341-345]
+# addresses that many characters of a 3,900-character item. No value the case
+# table asserts changes under it: every count, length and amount of the two
+# success cases is a display numeric, a PIC S9(4) COMP-5 item, which it does
+# not truncate, or a value that already fits its picture.
+# See planned decision-log row: IBM binary truncation pinned for the harness
+# compile.
+readonly -a COBC_FLAGS_MANDATED=("-std=ibm" "-fbinary-truncate"
+  "-ffold-copy=LOWER" "-ext" "cpy")
 
 # Compiler options COBC_EXTRA_FLAGS and COBC_FLAGS may add. Each adds
 # diagnostics, run-time checking or optimisation, none of them restates a
@@ -329,6 +460,8 @@ readonly -a COBC_FLAGS_REFUSED=(
 # of them is refused rather than passed on.
 readonly -a COBC_FLAGS_CONFLICTING=(
   "-std|the COBOL dialect"
+  "-fbinary-truncate|the numeric store of the dialect"
+  "-fno-binary-truncate|the numeric store of the dialect"
   "-ffold-copy|the copybook name folding"
   "-ext|the copybook extension"
   "-free|the source format"
@@ -340,6 +473,52 @@ readonly -a COBC_FLAGS_CONFLICTING=(
   "-c|the output kind"
   "-b|the output kind"
 )
+
+# Compiler environment items this script pins before the first compile and
+# holds pinned through the execution stage, so neither the dialect a compile
+# resolves, the run-time configuration a module loads nor the C options the
+# compiler hands its own back end is read from the environment of the caller.
+# An item the caller exported is reported as a deviation naming the value that
+# was ignored, and the dialect the run resolved is recorded in the compile log.
+#   COB_CONFIG_DIR      pinned to the configuration directory the compiler
+#                       reports as its own, so the mandated "-std=ibm"
+#                       resolves the files of that installation
+#   COB_RUNTIME_CONFIG  removed, so a module loads the run-time configuration
+#                       of that installation
+#   COB_CFLAGS          pinned to the C options the compiler reports as its
+#                       own, with the duplicated _FORTIFY_SOURCE definition of
+#                       the host toolchain reduced to the one definition that
+#                       takes effect, so a clean compile reports no diagnostic
+#                       of the host C compiler and every COBOL diagnostic is
+#                       still reported and still counted
+# See planned decision-log row: compiler environment pinned for the harness
+# compile and execution.
+readonly -a COBC_PINNED_ENVIRONMENT=("COB_CONFIG_DIR" "COB_RUNTIME_CONFIG"
+  "COB_CFLAGS")
+
+# The C preprocessor definition the host toolchain states twice, once through
+# the options of the compiler and once through those of its distribution
+# packaging. Both definitions reach one command line, the later one takes
+# effect, and the host C compiler reports the redefinition once per compile.
+readonly COBC_CFLAGS_DUPLICATED_DEFINE="-D_FORTIFY_SOURCE="
+
+# The dialect file the mandated "-std=ibm" names inside the configuration
+# directory of the compiler, the deepest include chain read from it, and the
+# keys of that resolved chain the harness depends on:
+#   binary-size       the storage one PIC S9(4) COMP item of the shared
+#                     copybooks occupies
+#   binary-truncate   whether a binary receiving item keeps only the digits its
+#                     PICTURE declares; the mandated "-fbinary-truncate" pins
+#                     this on whatever the chain resolves
+#   binary-byteorder  the byte order of that storage, which every module of one
+#                     run shares
+#   hostsign          the sign representation of a signed display item
+#   defaultbyte       the byte an item without a VALUE clause starts at, which
+#                     the three EXTERNAL harness copybooks rely on
+readonly COBC_DIALECT_ENTRY="ibm.conf"
+readonly COBC_DIALECT_MAX_DEPTH=8
+readonly -a COBC_DIALECT_KEYS=("binary-size" "binary-truncate"
+  "binary-byteorder" "hostsign" "defaultbyte")
 
 # Identity and timestamp seeds. HARNESS_POLICY_NUMBER names the seed of the
 # first row of the case table; each later row receives the next value.
@@ -564,7 +743,12 @@ declare -rA CAPTURE_KEY_NAMES=(
 )
 
 # Capture keys every case is required to carry, whatever its row says.
-readonly -a CAPTURE_KEYS_BASE=("CASE" "FIXTURE" "EIBCALEN_AT_CALL" "CA_REQUEST_ID"
+# SAMPLE_RECORD_LENGTH carries the characters the driver measured in the record
+# it read; a case is asserted against RECORD_CHARACTERS, so a record the sample
+# step generated short, or one a broken stream truncated, fails the case instead
+# of running the chain on a record the reader padded with spaces.
+readonly -a CAPTURE_KEYS_BASE=("CASE" "FIXTURE" "SAMPLE_RECORD_LENGTH"
+  "EIBCALEN_AT_CALL" "CA_REQUEST_ID"
   "CA_RETURN_CODE" "CA_PAYMENT" "DRIVER_STATUS" "ABEND_PRESENT" "ABEND_CODE"
   "DIAG_LINK_COUNT" "SQL_POLICY_PRESENT" "SQL_IDENTITY_PRESENT"
   "SQL_LASTCHANGED_PRESENT" "SQL_MOTOR_PRESENT" "SQL_COMMERCIAL_PRESENT"
@@ -711,10 +895,23 @@ readonly SAMPLE_INPUT_DIR="modernization/extraction/sample_input"
 readonly SOURCE_DIR="base/src"
 
 # The read-only scope gate every stage boundary runs, and the evidence log it
-# appends its block to. The gate holds the approved SHA-256 baseline of the
-# five named source artifacts; this script runs it and reports its verdict.
+# appends its block to, which the preflight of a run empties before the first
+# gate. The gate holds the approved SHA-256 baseline of the five named source
+# artifacts; this script runs it and reports its verdict.
+#
+# The log stands with the other stage logs of the run, under the generated build
+# tree the ignore rules of modernization/.gitignore cover: a gate run therefore
+# changes no tracked file, and the working tree the gate itself inspects is one
+# it did not write into. This script creates it empty at the start of every run
+# and publishes it with the other evidence of that run, so the published copy
+# carries the four blocks of one run rather than the accumulated blocks of
+# every run of the checkout. Every gate asks the guard for its reproducible
+# block, so those four blocks hold the same bytes in any checkout.
+# See planned decision-log row: read-only gate log published with the evidence
+# set.
 readonly SOURCE_GUARD="modernization/validation/verify_readonly.sh"
-readonly SOURCE_GUARD_LOG="modernization/validation/artifacts/readonly-check.log"
+readonly SOURCE_GUARD_LOG_NAME="readonly-check.log"
+readonly SOURCE_GUARD_LOG="modernization/harness/build/logs/readonly-check.log"
 
 # Directories this script writes into, relative to the repository root. Every
 # path it creates resolves inside one of them.
@@ -729,16 +926,23 @@ readonly -a CHAIN_LINK_SITES=(
   "lgapdb01.cbl|LGAPVS01"
 )
 
-# Stage files this script publishes into the validation artifacts directory.
-# With the driver log and the capture file of each of the two success cases
-# they are the ten names a run can publish, and the ten names it clears before
-# republishing them: these four, and the driver log, the capture file and the
-# post-chain record of each of the two success cases. No other name in that
-# directory is touched:
-# readonly-check.log belongs to the source guard, which appends to it, and
-# runtime-versions.txt belongs to the environment record.
+# Stage files this script publishes into the validation artifacts directory,
+# all five collected from the stage logs of the run - the fifth being the
+# evidence log of the source guard, emptied once in the preflight of a run and
+# appended to by each gate of that run. Every run publishes these five; with
+# them it publishes the driver log, the capture file and the post-chain record
+# of each success case it executed, and those, exactly, are the names it clears
+# immediately before it republishes them: five fixed names and three more per
+# success case of the selection, which is eleven names for a run of the whole
+# case table and eight for a run of one success case. A run that selects no
+# success case publishes the five. No other name in that directory is touched:
+# the published evidence of a success case a run did not execute stays as it
+# stands, and runtime-versions.txt is the environment record of the checkout
+# which no run of this script writes, so the directory itself holds one name
+# more than a full run published.
 readonly -a PUBLISHED_STAGE_ARTIFACTS=("translate.log" "compile.log"
-  "translation-report.json" "source-baseline.sha256")
+  "translation-report.json" "source-baseline.sha256"
+  "$SOURCE_GUARD_LOG_NAME")
 
 # Name of the manifest of one run, written beside the stage logs. It carries
 # one "sha256sum" line per published file and is re-read after publication.
@@ -795,6 +999,24 @@ declare -a COBC_FLAG_LIST=()
 COBC_FLAGS_EFFECTIVE=""
 COBC_FLAGS_EXTRA_ACCEPTED=""
 
+# The compiler environment this run pinned: the "--info" output every pinned
+# value is read from, the configuration directory and the C options the run
+# pinned, and the ambient values the pin replaced, one
+# "<item>=<value>" entry per item the caller had exported.
+COBC_INFO_TEXT=""
+COBC_CONFIG_DIR_PINNED=""
+COBC_CFLAGS_PINNED=""
+declare -a COBC_AMBIENT_IGNORED=()
+
+# The dialect this run resolved out of the pinned configuration directory: one
+# "<file>|<kind>|<sha256>" entry per file of the include chain in the order the
+# compiler reads them, the resolved value of each key of COBC_DIALECT_KEYS, and
+# the file whose last assignment of that key produced it.
+declare -a COBC_DIALECT_FILES=()
+declare -A COBC_DIALECT_VALUE=()
+declare -A COBC_DIALECT_SOURCE=()
+declare -A COBC_DIALECT_SEEN=()
+
 # Resolved seeds.
 POLICY_NUMBER_BASE=""
 LASTCHANGED_SEED=""
@@ -806,6 +1028,16 @@ MODULE_PRELOAD=""
 # the "tee" that wrote its log.
 RUN_STATUS=0
 RUN_LOG_STATUS=0
+
+# The command run_and_tee is waiting on, while one runs: the process group it
+# and its own children stand in, the identifier of the "tee" recording its
+# output, and the name it was started under. All three are emptied as soon as
+# both processes have been reaped, so a signal that arrives between two commands
+# finds no group to end and no identifier that another process could have
+# reused.
+RUN_CHILD_PGID=""
+RUN_LOG_PID=""
+RUN_CHILD_NAME=""
 
 # The three descriptors the driver of one case or one probe runs with, held by
 # this script while that driver runs. open_driver_input opens the generated
@@ -919,7 +1151,10 @@ Cases, in execution order:
 The endowment route is not executed: no case selects it and every case asserts
 the endowment capture group absent. See modernization/docs/decision-log.md
 (planned deliverable; not present at this milestone), row: endowment route not
-executed.
+executed. It is still survivable under the mandated -fbinary-truncate, which
+keeps the length subtraction of that route inside its PIC S9(4) COMP item: a
+direct call of the translated LGAPDB01 on request id 01AEND at EIBCALEN=32500
+returns 00 and writes the VSAM record under an "E" key.
 
 Infrastructure probes, run after the compile stage of every run and reported on
 their own. Each hands the driver one wrong environment item, or one wrong
@@ -940,18 +1175,27 @@ Environment items honoured:
                          Default: modernization/.venv/bin/python
   COBC                   COBOL compiler command. Default: cobc
   COBC_EXTRA_FLAGS       Compiler options added after the mandated
-                         -std=ibm -ffold-copy=LOWER -ext cpy, which every
-                         compile passes whatever this variable holds. Accepted
-                         options: -debug -Wall -W -Wextra -ftrace -ftraceall
-                         -fstack-check -v --verbose -O -O2 -Os. Any other
-                         option is a preflight failure; -g and -save-temps,
-                         in either spelling, are refused by name because they
-                         leave the compiler intermediates in the working
-                         directory rather than under the build directory.
+                         -std=ibm -fbinary-truncate -ffold-copy=LOWER -ext cpy,
+                         which every compile passes whatever this variable
+                         holds. Accepted options: -debug -Wall -W -Wextra
+                         -ftrace -ftraceall -fstack-check -v --verbose -O -O2
+                         -Os. Any other option is a preflight failure; -g and
+                         -save-temps, in either spelling, are refused by name
+                         because they leave the compiler intermediates in the
+                         working directory rather than under the build
+                         directory, and -fno-binary-truncate is refused
+                         because it would unset the numeric store of the
+                         dialect this script pins.
   COBC_FLAGS             Read under the same allow-list, with a mandated
                          option accepted as a no-op. It cannot replace one.
   HARNESS_POLICY_NUMBER  Identity seed of the first case, one to nine digits
                          above zero; each later case receives the next value.
+                         Every run reserves one identity for each of the twelve
+                         cases of the table, a run of one case included, so the
+                         seed must also leave room for twelve consecutive values
+                         at or below 999999999: 999999988 is the highest seed
+                         any invocation accepts, and a higher one is a preflight
+                         failure naming the value the table would reach.
                          Default: 1000001
   HARNESS_LASTCHANGED    Timestamp seed of every selected case, exactly 26
                          characters in YYYY-MM-DD-HH.MM.SS.NNNNNN form.
@@ -976,11 +1220,36 @@ Environment items exported to the driver:
   HARNESS_EXPECT_VSAM, HARNESS_EXPECT_VALUES, HARNESS_EXPECT_PRODUCT_VALUES,
   HARNESS_EXPECT_DIAG_LINKS
 
+Compiler environment items the preflight pins, for the compile stage and the
+execution stage alike. An ambient value is removed before the compiler is asked
+what its own installation carries, and the removal is reported as a deviation
+naming the value that was ignored:
+  COB_CONFIG_DIR         the configuration directory cobc --info reports as its
+                         own. The dialect the mandated -std=ibm resolves inside
+                         it is recorded at the head of compile.log: the files
+                         of the ibm.conf include chain with the SHA-256 of
+                         each, and the resolved binary-size, binary-truncate,
+                         binary-byteorder, hostsign and defaultbyte
+  COB_RUNTIME_CONFIG     removed, so a module loads the run-time configuration
+                         of that installation
+  COB_CFLAGS             the C options that installation reports, with the
+                         _FORTIFY_SOURCE definition its host toolchain states
+                         twice reduced to the one that takes effect. A COBOL
+                         diagnostic is still written to compile.log and still
+                         counted as a deviation
+
 Each case and each probe runs the driver with three handles this script opens
 and checks on the descriptor: the generated record of its fixture on standard
 input, the post-chain record on descriptor 3 and the capture file on descriptor
 4. The driver names none of those files itself, and all three are closed as soon
 as it returns.
+
+The driver measures the record it reads and refuses any width other than the
+32,500 characters one generated record holds, reporting the width it found and
+ending with its file status 4 before the chain is called. The width it read is
+emitted as the SAMPLE_RECORD_LENGTH capture and every case asserts it, so a
+capture file states the width its case ran on and a short record fails the run
+rather than passing on the leading fields it still carries.
 
 Generated output:
   modernization/harness/build/harness.lock    lock this run holds, no content
@@ -990,18 +1259,44 @@ Generated output:
   modernization/harness/build/logs/           translate.log, compile.log,
                                               translation-report.json,
                                               source-baseline.sha256,
+                                              readonly-check.log,
                                               evidence-manifest.sha256
   modernization/harness/build/run/<case>/     commarea_post.dat, captures.txt,
                                               driver.log
   modernization/harness/build/run/<probe>/    driver.log of each probe
   modernization/harness/build/probe/          directories the probes need
   modernization/harness/build/evidence/       staged evidence of this run
-Published evidence, eight names replaced as one set only after every selected
-case, every probe and the final source guard passed:
-  modernization/validation/artifacts/         the logs, the report, the
-                                              baseline and the driver log and
-                                              capture file of each success
+Published evidence, replaced as one set only after every selected case, every
+probe and the final source guard passed. The set is the five stage files, and
+the driver log, the capture file and the post-chain record of each success case
+this run executed - eleven names for a run of the whole case table, eight for a
+run of one success case; each name is replaced in one step and re-read
+afterwards against the manifest. A run replaces the evidence of the cases it
+executed and leaves the published evidence of a success case it did not execute
+exactly as it stands, so a run of one case is not a run of the other:
+  modernization/validation/artifacts/         translate.log, compile.log,
+                                              translation-report.json,
+                                              source-baseline.sha256,
+                                              readonly-check.log, and the
+                                              driver log, capture file and
+                                              post-chain record of each success
                                               case that ran
+runtime-versions.txt stands in that directory outside this replacement: it is
+the environment record of the checkout and no run of this script writes it.
+
+The evidence log of the source guard,
+modernization/harness/build/logs/readonly-check.log, is emptied in the
+preflight of a run, once the harness lock is held and before the first gate,
+and then carries one block per gate of that run. It is emptied through its own
+name rather than removed, so it is never absent while a run is in progress; a
+run that ends before the preflight reaches it leaves it as it stands. Every
+gate is run with the guard's --reproducible option, which records fixed text in
+place of the time of the gate and of the root the block's paths are relative to,
+so two runs of one selection over one unchanged tracked state leave the same
+bytes in that log whatever directory the checkout was taken into. The gate
+verdicts, the baseline table and the three gates themselves are recorded in
+full. The log is collected after the final gate and published with the rest of
+the evidence set, so the published copy carries all four gates of the run.
 
 Exit codes:
   0 every stage passed
@@ -1016,6 +1311,17 @@ Exit codes:
   8 source guard failure
   9 the exclusive harness lock of this checkout was still held when the
     bounded wait ran out
+143 a termination, interrupt or hangup signal reached this run: the command it
+    was waiting on was ended with its whole process group and reaped, nothing
+    was published, and the harness lock of the checkout was released
+
+Characterisation notes, stated in full in the header of this script: LGAPOL01
+reports DIAG_LINK_COUNT=0001 where the programs below it report 0002, because
+the second diagnostic link of its error paragraph is unreachable by
+construction; and WS-REQUIRED-CA-LEN accumulates across calls in one process,
+so a host that calls these modules more than once per process has to CANCEL
+them between calls. Both are the behaviour of the frozen source and neither
+affects a run of this script, which gives each case its own process.
 
 Installs nothing, reaches no network and never prompts.
 USAGE_TEXT
@@ -1360,15 +1666,106 @@ file_size() {
   printf '%s' "${size//[[:space:]]/}"
 }
 
-# Appends one command line to the named log. Each compiler diagnostic in the
-# log then follows the command line of the module it belongs to.
+# Prints the supplied path with the repository root of this run removed, and
+# prints any other value unchanged. A logged command line therefore reads the
+# same from every checkout, and the paths it names resolve from the repository
+# root, which is the working directory of every stage of this script. A root
+# that is not resolved yet strips nothing, so no value can lose its leading
+# separator before the preflight has resolved the checkout.
+# See planned decision-log row: evidence paths recorded relative to the
+# repository root.
+repo_relative() {
+  local value="$1"
+
+  if [[ -n "$REPO_ROOT" && "$value" == "${REPO_ROOT}/"* ]]; then
+    printf '%s' "${value#"${REPO_ROOT}/"}"
+    return 0
+  fi
+  printf '%s' "$value"
+}
+
+# Appends one command line to the named log, with every argument that names a
+# path inside this checkout written relative to the repository root. Each
+# compiler diagnostic in the log then follows the command line of the module it
+# belongs to, and the recorded line is the command as it reads from any
+# checkout; the command itself runs on the absolute paths the caller assembled.
 log_command() {
   local log="$1"
   shift
+  local argument="" line=""
+  local -a logged=()
 
-  if ! printf '+ %s\n' "$(join_with " " "$@")" >>"$log"; then
+  for argument in "$@"; do
+    logged+=("$(repo_relative "$argument")")
+  done
+  line="$(join_with " " "${logged[@]}")"
+  if ! printf '+ %s\n' "$line" >>"$log"; then
     die "$EXIT_COMPILE" "unable to append to the log: ${log}"
   fi
+}
+
+# Appends one line to the named log, escaped to one printable control-free line
+# by the same rule every line this script prints follows. A value read from the
+# environment of the caller, from the report of the compiler or from a
+# configuration file therefore occupies exactly one line of the log and can
+# neither end that line early nor forge a further record.
+log_line() {
+  local log="$1" text="$2"
+
+  if ! printf '%s\n' "$(sanitize "$text")" >>"$log"; then
+    die "$EXIT_COMPILE" "unable to append to the log: ${log}"
+  fi
+}
+
+# Ends the run on a termination, interrupt or hangup signal. The command
+# run_and_tee is waiting on, and the children that command started of its own,
+# stand in one process group of their own, so the whole group is ended here:
+# SIGTERM first, then SIGKILL for whatever still stands after
+# TERMINATE_GRACE_SECONDS. That group and the "tee" recording its output are
+# both reaped before this returns. No sample, module, log or published name is
+# written after this point, so an interrupted run publishes nothing, and the
+# exclusive harness lock of the checkout is released by the exit that follows:
+# the descriptor this script holds it through closes with the process, and the
+# descriptor its children inherited closes with them. Ends the run with
+# EXIT_SIGNAL whichever of the three signals arrived.
+# The handler is removed before the group is ended, so a second signal reaching
+# this script while the group is being ended takes its default action.
+terminate_run() {
+  local signal="$1"
+  local pgid="$RUN_CHILD_PGID" log_pid="$RUN_LOG_PID" name="$RUN_CHILD_NAME"
+  local -a messages=()
+
+  trap - TERM INT HUP
+  RUN_CHILD_PGID=""
+  RUN_LOG_PID=""
+  RUN_CHILD_NAME=""
+
+  if [[ "$pgid" =~ ^[0-9]+$ ]] && ((pgid > 1)) && ((pgid != $$)); then
+    kill -TERM "-${pgid}" 2>/dev/null || true
+    sleep "$TERMINATE_GRACE_SECONDS" 2>/dev/null || true
+    kill -KILL "-${pgid}" 2>/dev/null || true
+    wait "$pgid" 2>/dev/null || true
+    messages+=("the command it was waiting on, ${name}, was ended with its process group ${pgid} and reaped")
+  else
+    messages+=("no external command was running")
+  fi
+  if [[ "$log_pid" =~ ^[0-9]+$ ]]; then
+    kill -TERM "$log_pid" 2>/dev/null || true
+    wait "$log_pid" 2>/dev/null || true
+    messages+=("the log of that command, written by process ${log_pid}, was ended with it and is left as it stands")
+  fi
+  messages+=("nothing of this run was published; the harness lock of this checkout is released")
+  die "$EXIT_SIGNAL" "run ended by SIG${signal}" "${messages[@]}"
+}
+
+# Installs the handler that ends a run reached by a termination, interrupt or
+# hangup signal. Runs as the first step of the run, so a signal that arrives
+# before the first stage is handled the same way as one that arrives while a
+# compile is in progress.
+install_signal_traps() {
+  trap 'terminate_run TERM' TERM
+  trap 'terminate_run INT' INT
+  trap 'terminate_run HUP' HUP
 }
 
 # Runs the supplied command with its output merged and appended to the log named
@@ -1383,27 +1780,62 @@ log_command() {
 # log in RUN_LOG_STATUS. A "tee" that could not write ends the run with the
 # status the first argument names, leaving the log of that command incomplete;
 # the caller reads RUN_STATUS to decide what a non-zero command status means.
+#
+# The command and the "tee" recording it each run as a background process of
+# their own, connected by a pipe, and this script waits on each of the two in
+# turn for its status. The command, and every child it starts of its own, stand
+# in one process group under job control. A termination, interrupt or hangup
+# signal that arrives while one of those waits is in progress ends that wait at
+# once, and terminate_run then ends that process group, ends the "tee" and reaps
+# both. The command reads the same standard input, holds no handle of this
+# script's own, inherits the same descriptors 3 and 4, and reports the same
+# status as it does in a foreground pipeline.
 run_and_tee() {
   local log_failure_status="$1" log="$2"
   shift 2
-  local -a statuses=()
+  local command_status=0 log_status=0 record_fd=""
 
   RUN_STATUS=0
   RUN_LOG_STATUS=0
+  RUN_CHILD_NAME="$1"
   set +e
-  if [[ -n "$RUN_INPUT_FD" ]]; then
-    "$@" <&"$RUN_INPUT_FD" {RUN_INPUT_FD}<&- 2>&1 | tee -a "$log"
-  else
-    "$@" </dev/null 2>&1 | tee -a "$log"
+  # The "tee" of this step is started first, reading the merged output of the
+  # command through a pipe this script holds the write end of on record_fd and
+  # writing it to the log and to the standard output of this script.
+  exec {record_fd}> >(tee -a "$log")
+  RUN_LOG_PID="$!"
+  if [[ ! "$record_fd" =~ ^[0-9]+$ ]] || [[ ! "$RUN_LOG_PID" =~ ^[0-9]+$ ]]; then
+    set -e
+    RUN_LOG_PID=""
+    RUN_CHILD_NAME=""
+    die "$log_failure_status" \
+      "the process that records this step could not be started for the log: ${log}" \
+      "grant write permission on that path, or free space on its file system, and run this script again"
   fi
-  # Both statuses are taken in one step: any command after the pipeline, an
-  # assignment included, replaces PIPESTATUS. The branch above ends at "fi",
-  # which runs no command of its own, so PIPESTATUS still describes the
-  # pipeline that ran.
-  statuses=("${PIPESTATUS[@]}")
+  # Job control gives the command, and every child it starts of its own, one
+  # process group whose identifier is the identifier of the command itself.
+  set -m
+  if [[ -n "$RUN_INPUT_FD" ]]; then
+    "$@" <&"$RUN_INPUT_FD" {RUN_INPUT_FD}<&- \
+      >&"$record_fd" 2>&1 {record_fd}>&- &
+  else
+    "$@" </dev/null >&"$record_fd" 2>&1 {record_fd}>&- &
+  fi
+  RUN_CHILD_PGID="$!"
+  set +m
+  # Closed here, so the "tee" reads the end of its input as soon as the command
+  # and its children have released the write end.
+  exec {record_fd}>&-
+  wait "$RUN_CHILD_PGID"
+  command_status=$?
+  wait "$RUN_LOG_PID"
+  log_status=$?
   set -e
-  RUN_STATUS="${statuses[0]:-0}"
-  RUN_LOG_STATUS="${statuses[1]:-0}"
+  RUN_CHILD_PGID=""
+  RUN_LOG_PID=""
+  RUN_CHILD_NAME=""
+  RUN_STATUS="$command_status"
+  RUN_LOG_STATUS="$log_status"
   if ((RUN_LOG_STATUS != 0)); then
     die "$log_failure_status" \
       "the log of this step could not be written: ${log}" \
@@ -1851,6 +2283,24 @@ publish_file() {
   fi
 }
 
+# Prints the SHA-256 of one file outside this checkout, such as a file of the
+# configuration directory of the compiler installation. The path rule above
+# governs the paths this script writes and the record it hands the driver; a
+# file read here is neither, so it is required to be a readable regular file and
+# is read once, never written.
+hash_external_file() {
+  local path="$1" status="$2"
+  local line=""
+
+  if [[ ! -f "$path" || ! -r "$path" ]]; then
+    die "$status" "not a readable regular file: ${path}"
+  fi
+  if ! line="$(sha256sum -- "$path")" || [[ -z "$line" ]]; then
+    die "$status" "unable to read the SHA-256 of: ${path}"
+  fi
+  printf '%s' "${line%% *}"
+}
+
 # Prints the SHA-256 of one file, read through its name after the path rule has
 # accepted it.
 hash_file() {
@@ -2026,6 +2476,244 @@ preflight_cobc() {
   fi
   emit_step "cobc ${COBC_VERSION} (${COBC})"
   emit_deviation "cobc pinned=${COBC_VERSION_PINNED} measured=${COBC_VERSION}"
+}
+
+# Prints the supplied value without its leading and trailing spaces and tabs.
+# Uses shell builtins only, so it reads a compiler report and a configuration
+# line without invoking a tool.
+trim_space() {
+  local value="$1"
+
+  while [[ "$value" == [[:space:]]* ]]; do
+    value="${value#?}"
+  done
+  while [[ "$value" == *[[:space:]] ]]; do
+    value="${value%?}"
+  done
+  printf '%s' "$value"
+}
+
+# Prints the value the compiler reports for one item of its own "--info"
+# output, and prints nothing when that output carries no such item. The report
+# names one item per line as "<item><spaces>: <value>", wraps a long value onto
+# indented continuation lines, and repeats an item the environment overrides on
+# its own "  env: <item> : <value>" line. The continuation lines of the item are
+# joined to its value with one space between them, and the "env:" line is not
+# read: this reports what the installation carries, whatever the caller
+# exported.
+cobc_info_value() {
+  local want="$1"
+  local line="" key="" value="" out="" inside=0
+
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    case "$line" in
+      "  env: "*)
+        inside=0
+        continue
+        ;;
+    esac
+    if [[ "$line" != [[:space:]]* && "$line" == *" : "* ]]; then
+      key="$(trim_space "${line%%:*}")"
+      value="$(trim_space "${line#*" : "}")"
+      if [[ "$key" == "$want" ]]; then
+        inside=1
+        out="$value"
+      else
+        inside=0
+      fi
+      continue
+    fi
+    if ((inside == 1)) && [[ "$line" == [[:space:]]* ]]; then
+      value="$(trim_space "$line")"
+      if [[ -n "$value" ]]; then
+        out+=" ${value}"
+      fi
+      continue
+    fi
+    inside=0
+  done <<<"$COBC_INFO_TEXT"
+
+  printf '%s' "$out"
+}
+
+# Reads one file of the dialect chain: records its SHA-256, follows every
+# configuration file it includes at the point the include stands, records every
+# word list it names, and keeps the value of each key of COBC_DIALECT_KEYS the
+# file assigns. A key assigned again later in the chain keeps the later value,
+# the order the compiler reads them in. A file already read is not read again,
+# and a chain deeper than COBC_DIALECT_MAX_DEPTH ends the run.
+read_dialect_file() {
+  local name="$1" depth="$2" kind="$3"
+  local path="${COBC_CONFIG_DIR_PINNED}/${name}"
+  local line="" trimmed="" key="" value="" digest=""
+
+  if ((depth > COBC_DIALECT_MAX_DEPTH)); then
+    die "$EXIT_PREFLIGHT" \
+      "the dialect chain of ${COBC_DIALECT_ENTRY} includes files more than ${COBC_DIALECT_MAX_DEPTH} levels deep at ${name}" \
+      "the configuration directory of this run is ${COBC_CONFIG_DIR_PINNED}"
+  fi
+  if [[ -n "${COBC_DIALECT_SEEN[$name]:-}" ]]; then
+    return 0
+  fi
+  if [[ "$name" == */* || "$name" == "." || "$name" == ".." ]]; then
+    die "$EXIT_PREFLIGHT" \
+      "the dialect chain of ${COBC_DIALECT_ENTRY} names ${name}, which is not a single file name" \
+      "the configuration directory of this run is ${COBC_CONFIG_DIR_PINNED}"
+  fi
+  if [[ ! -f "$path" || ! -r "$path" ]]; then
+    die "$EXIT_PREFLIGHT" \
+      "the dialect chain of ${COBC_DIALECT_ENTRY} names ${name}, which is not a readable file: ${path}" \
+      "install the configuration directory of the compiler this run uses, or set COBC to a compiler that carries it"
+  fi
+  COBC_DIALECT_SEEN["$name"]=1
+  digest="$(hash_external_file "$path" "$EXIT_PREFLIGHT")"
+  COBC_DIALECT_FILES+=("${name}|${kind}|${digest}")
+
+  if [[ "$kind" == "words" ]]; then
+    return 0
+  fi
+
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    trimmed="$(trim_space "$line")"
+    if [[ -z "$trimmed" || "$trimmed" == "#"* ]]; then
+      continue
+    fi
+    if [[ "$trimmed" =~ ^include[[:space:]]+\"([^\"]+)\" ]]; then
+      read_dialect_file "${BASH_REMATCH[1]}" "$((depth + 1))" "dialect"
+      continue
+    fi
+    if [[ "$trimmed" =~ ^include:[[:space:]]*\"([^\"]+)\" ]]; then
+      read_dialect_file "${BASH_REMATCH[1]}" "$((depth + 1))" "words"
+      continue
+    fi
+    if [[ ! "$trimmed" =~ ^([A-Za-z0-9][A-Za-z0-9_-]*):[[:space:]]*(.*)$ ]]; then
+      continue
+    fi
+    key="${BASH_REMATCH[1]}"
+    if [[ -z "${COBC_DIALECT_VALUE[$key]+set}" ]]; then
+      continue
+    fi
+    value="$(trim_space "${BASH_REMATCH[2]%%#*}")"
+    COBC_DIALECT_VALUE["$key"]="$value"
+    COBC_DIALECT_SOURCE["$key"]="$name"
+  done <"$path"
+}
+
+# Resolves the dialect the mandated "-std=ibm" of this run compiles under: the
+# files of its include chain with the SHA-256 of each, and the value the chain
+# leaves for every key the harness depends on. A key the chain never assigns is
+# reported as unresolved rather than assumed.
+resolve_compiler_dialect() {
+  local key="" entry=""
+
+  COBC_DIALECT_FILES=()
+  COBC_DIALECT_VALUE=()
+  COBC_DIALECT_SOURCE=()
+  COBC_DIALECT_SEEN=()
+  for key in "${COBC_DIALECT_KEYS[@]}"; do
+    COBC_DIALECT_VALUE["$key"]="unresolved"
+    COBC_DIALECT_SOURCE["$key"]="none"
+  done
+
+  read_dialect_file "$COBC_DIALECT_ENTRY" 1 "dialect"
+
+  emit_step \
+    "dialect chain of ${COBC_DIALECT_ENTRY}: ${#COBC_DIALECT_FILES[@]} files under ${COBC_CONFIG_DIR_PINNED}"
+  for key in "${COBC_DIALECT_KEYS[@]}"; do
+    entry+="${entry:+, }${key}=${COBC_DIALECT_VALUE[$key]}"
+  done
+  emit_step "dialect keys resolved: ${entry}"
+  emit_step \
+    "binary truncation in force: yes, pinned by the mandated -fbinary-truncate whatever binary-truncate the chain resolves"
+}
+
+# Pins the compiler environment of this run before anything is compiled, and
+# reports every ambient value it replaced. Each item of COBC_PINNED_ENVIRONMENT
+# the caller exported is reported as a deviation and removed first, so the
+# compiler then reports the values of its own installation rather than the ones
+# a caller placed in the environment; the configuration directory and the C
+# options of that installation are then exported for the rest of the run, the
+# run-time configuration is left unset, and the dialect the compile resolves is
+# read out of the pinned directory. The compile and the execution stages both
+# run under what this sets.
+pin_compiler_environment() {
+  local name="" ambient="" reported="" defines=0 fortify="" token=""
+  local -a tokens=() kept=()
+
+  COBC_AMBIENT_IGNORED=()
+  for name in "${COBC_PINNED_ENVIRONMENT[@]}"; do
+    if [[ ! -v "$name" ]]; then
+      continue
+    fi
+    ambient="${!name}"
+    COBC_AMBIENT_IGNORED+=("${name}=${ambient}")
+    unset -v "$name"
+    emit_deviation \
+      "ambient ${name}=${ambient} ignored; this run pins the compiler environment itself"
+  done
+
+  if ! COBC_INFO_TEXT="$("$COBC" --info 2>/dev/null)" ||
+    [[ -z "$COBC_INFO_TEXT" ]]; then
+    die "$EXIT_PREFLIGHT" \
+      "the COBOL compiler did not report its own configuration: ${COBC}" \
+      "check it with: ${COBC} --info"
+  fi
+
+  reported="$(cobc_info_value "COB_CONFIG_DIR")"
+  if [[ -z "$reported" ]]; then
+    die "$EXIT_PREFLIGHT" \
+      "the COBOL compiler reported no configuration directory: ${COBC}" \
+      "check it with: ${COBC} --info | grep COB_CONFIG_DIR"
+  fi
+  if [[ "$reported" != /* || ! -d "$reported" ]]; then
+    die "$EXIT_PREFLIGHT" \
+      "the COBOL compiler reports the configuration directory ${reported}, which is not an absolute path to a directory" \
+      "install the configuration directory of that compiler, or set COBC to a compiler that carries it"
+  fi
+  if [[ ! -f "${reported}/${COBC_DIALECT_ENTRY}" ]]; then
+    die "$EXIT_PREFLIGHT" \
+      "the configuration directory ${reported} carries no ${COBC_DIALECT_ENTRY}, the dialect file the mandated options name" \
+      "install the configuration directory of that compiler, or set COBC to a compiler that carries it"
+  fi
+  COBC_CONFIG_DIR_PINNED="$reported"
+  export COB_CONFIG_DIR="$COBC_CONFIG_DIR_PINNED"
+  emit_step "COB_CONFIG_DIR=${COB_CONFIG_DIR} (pinned to the compiler's own)"
+  emit_step \
+    "COB_RUNTIME_CONFIG left unset, so the run-time configuration of that installation is loaded"
+  resolve_compiler_dialect
+
+  # The C options of the compiler itself, with the duplicated definition
+  # reduced to the one that takes effect. A report that carries no C options
+  # leaves the variable unset, which is the compiler's own default, and says so.
+  reported="$(cobc_info_value "COB_CFLAGS")"
+  if [[ -z "$reported" ]]; then
+    COBC_CFLAGS_PINNED="unset"
+    emit_deviation \
+      "the compiler reported no C options; COB_CFLAGS stays unset and a host toolchain diagnostic may be reported per compile"
+    emit_step "COB_CFLAGS left unset (the compiler reported no C options)"
+    return 0
+  fi
+  IFS=$' \t\n' read -r -a tokens <<<"$reported"
+  for token in "${tokens[@]}"; do
+    if [[ "$token" == "${COBC_CFLAGS_DUPLICATED_DEFINE}"* ]]; then
+      defines=$((defines + 1))
+      fortify="$token"
+      continue
+    fi
+    kept+=("$token")
+  done
+  if ((defines > 1)); then
+    kept+=("$fortify")
+    COBC_CFLAGS_PINNED="$(join_with " " "${kept[@]}")"
+  else
+    COBC_CFLAGS_PINNED="$reported"
+  fi
+  export COB_CFLAGS="$COBC_CFLAGS_PINNED"
+  emit_step "COB_CFLAGS=${COB_CFLAGS}"
+  if ((defines > 1)); then
+    emit_step \
+      "C options pinned: ${defines} ${COBC_CFLAGS_DUPLICATED_DEFINE} definitions of the host toolchain reduced to the one that takes effect, ${fortify}"
+  fi
 }
 
 # Succeeds when the supplied option is one of the extra options the allow-list
@@ -2311,19 +2999,43 @@ prepare_directories() {
   emit_step "evidence directory ready at ${ARTIFACTS_DIR}"
 }
 
+# Empties the evidence log the source guard appends its blocks to, so the log
+# records the gates of this run and nothing that ran before it. The path rule
+# accepts the name first, and the log is emptied through that name rather than
+# removed and created again: it keeps the mode it carries, it is never absent
+# while a run is in progress, and it is created empty when it is absent. Runs
+# once per run, after the harness lock is held and before the first gate.
+reset_source_guard_log() {
+  local path="${REPO_ROOT}/${SOURCE_GUARD_LOG}"
+
+  assert_writable_path "$path" "$EXIT_PREFLIGHT"
+  if ! : >"$path"; then
+    die "$EXIT_PREFLIGHT" \
+      "unable to empty the evidence log of the source guard: ${path}" \
+      "grant write permission on that path, or free space on its file system, and run this script again"
+  fi
+  emit_step "source guard evidence log emptied: ${SOURCE_GUARD_LOG}"
+}
+
 # Runs the read-only scope gate of the bridge and ends the run when it does not
 # pass. The gate holds the approved SHA-256 baseline of the five named source
 # artifacts, checks that no pre-existing tracked file has been modified, and
-# appends its own block to the evidence log named here. It runs before any
-# generated output is produced and again at every stage boundary, so a source
-# that moves during a run is reported at the next boundary.
+# appends its own block to the evidence log named here, which the preflight of
+# this run emptied. It runs before any generated output is produced and again at
+# every stage boundary, so a source that moves during a run is reported at the
+# next boundary and the log holds one block per gate of this run. Each gate is
+# asked for the guard's reproducible block, which carries fixed text in place of
+# the time of the gate and of the root its paths are relative to, and every
+# other record in full, so the log this run leaves published holds the same bytes
+# as the log of the run before it whatever directory the checkout was taken
+# into.
 run_source_guard() {
   local stage="$1"
   local status=0
 
   set +e
   timeout "$GUARD_TIMEOUT_SECONDS" "$SOURCE_GUARD" \
-    --stage "$stage" --log "$SOURCE_GUARD_LOG" --quiet </dev/null
+    --stage "$stage" --log "$SOURCE_GUARD_LOG" --reproducible --quiet </dev/null
   status=$?
   set -e
   if ((status == 124)); then
@@ -2338,22 +3050,25 @@ run_source_guard() {
       "the read-only source guard failed at stage ${stage}, exit ${status}" \
       "its evidence log is ${REPO_ROOT}/${SOURCE_GUARD_LOG}" \
       "restore the five named files under ${SOURCE_DIR} and every pre-existing tracked file, then run this script again" \
-      "reproduce it with: ./${SOURCE_GUARD} --stage ${stage} --log ${SOURCE_GUARD_LOG}"
+      "reproduce it with: ./${SOURCE_GUARD} --stage ${stage} --log ${SOURCE_GUARD_LOG} --reproducible"
   fi
   GUARD_VERDICT="PASS"
   GUARD_PASSES=$((GUARD_PASSES + 1))
   emit_step "source guard ${stage}: PASS (${SOURCE_GUARD_LOG})"
 }
 
-# Runs every preflight check, reports the selected cases and closes the stage
-# with the source guard, so no generated output exists before the approved
-# source hashes have been confirmed.
+# Runs every preflight check, pins the compiler environment the compile and the
+# execution stages run under, reports the selected cases, empties the evidence
+# log of the source guard and closes the stage with the first gate of the run,
+# so no generated output exists before the approved source hashes have been
+# confirmed.
 stage_preflight() {
   emit_stage 1 "preflight"
   preflight_tools
   acquire_harness_lock
   preflight_python
   preflight_cobc
+  pin_compiler_environment
   preflight_cobc_flags
   preflight_inputs
   preflight_seeds
@@ -2361,6 +3076,10 @@ stage_preflight() {
   prepare_directories
   emit_step "cases selected: $(join_with ", " "${SELECTED_CASES[@]}")"
   emit_step "fixtures selected: $(join_with ", " "${SELECTED_FIXTURES[@]}")"
+  # The gate appends one block per run of it, so the log is emptied here, before
+  # the first of the four runs. The published copy then carries the four blocks
+  # of this run alone.
+  reset_source_guard_log
   run_source_guard "harness-preflight"
 }
 
@@ -2759,7 +3478,7 @@ compile_modules() {
       die "$EXIT_COMPILE" \
         "compilation of module ${program} failed from ${source}" \
         "the compiler output is retained in ${log}" \
-        "reproduce it with: ${COBC} -m ${COBC_FLAGS_EFFECTIVE} -I ${SRC_DIR} -o ${target} ${source}"
+        "reproduce it from the repository root with: ${COBC} -m ${COBC_FLAGS_EFFECTIVE} -I $(repo_relative "$SRC_DIR") -o $(repo_relative "$target") $(repo_relative "$source")"
     fi
     count=$((count + 1))
   done
@@ -2777,7 +3496,7 @@ compile_modules() {
       die "$EXIT_COMPILE" \
         "compilation of translated program ${program} failed from ${source}" \
         "the compiler output is retained in ${log}" \
-        "reproduce it with: ${COBC} -m ${COBC_FLAGS_EFFECTIVE} -I ${SRC_DIR} -o ${target} ${source}" \
+        "reproduce it from the repository root with: ${COBC} -m ${COBC_FLAGS_EFFECTIVE} -I $(repo_relative "$SRC_DIR") -o $(repo_relative "$target") $(repo_relative "$source")" \
         "a translated program that still fails after the documented rules are applied is reported, not patched by hand"
     fi
     count=$((count + 1))
@@ -2799,9 +3518,53 @@ compile_driver() {
     die "$EXIT_COMPILE" \
       "compilation of the driver failed from ${DRIVER_SOURCE}" \
       "the compiler output is retained in ${log}" \
-      "reproduce it with: ${COBC} -x ${COBC_FLAGS_EFFECTIVE} -I ${SRC_DIR} -o ${target} ${DRIVER_SOURCE}"
+      "reproduce it from the repository root with: ${COBC} -x ${COBC_FLAGS_EFFECTIVE} -I $(repo_relative "$SRC_DIR") -o $(repo_relative "$target") ${DRIVER_SOURCE}"
   fi
   emit_step "driver compiled: ${target}"
+}
+
+# Records the compiler environment and the dialect of this run at the head of
+# the compile log, above the command line of the first module: the options every
+# compile passes, the pinned configuration directory and C options, every
+# ambient value the pin replaced, the files of the dialect chain with the
+# SHA-256 of each, and the value the chain leaves for every key the harness
+# depends on. The block names the configuration directory of the compiler
+# installation and no path of this checkout, so the published log reads the same
+# from every checkout.
+write_dialect_record() {
+  local log="$1"
+  local entry="" key="" name="" kind="" digest="" ignored=""
+  local truncate_value=""
+
+  truncate_value="${COBC_DIALECT_VALUE[binary-truncate]:-unresolved}"
+  log_line "$log" "compiler: ${COBC_VERSION} (${COBC})"
+  log_line "$log" "compiler options: ${COBC_FLAGS_EFFECTIVE}"
+  log_line "$log" "COB_CONFIG_DIR: ${COBC_CONFIG_DIR_PINNED} (pinned)"
+  log_line "$log" "COB_RUNTIME_CONFIG: unset (pinned)"
+  log_line "$log" "COB_CFLAGS: ${COBC_CFLAGS_PINNED}"
+  if ((${#COBC_AMBIENT_IGNORED[@]} == 0)); then
+    log_line "$log" "ambient compiler environment ignored: none"
+  else
+    for ignored in "${COBC_AMBIENT_IGNORED[@]}"; do
+      log_line "$log" "ambient compiler environment ignored: ${ignored}"
+    done
+  fi
+  log_line "$log" "dialect chain of ${COBC_DIALECT_ENTRY} (file, kind, sha256):"
+  for entry in "${COBC_DIALECT_FILES[@]}"; do
+    name="${entry%%|*}"
+    kind="${entry#*|}"
+    digest="${kind#*|}"
+    kind="${kind%%|*}"
+    log_line "$log" "  ${name} ${kind} ${digest}"
+  done
+  log_line "$log" "dialect keys (key, resolved value, file that set it):"
+  for key in "${COBC_DIALECT_KEYS[@]}"; do
+    log_line "$log" \
+      "  ${key} ${COBC_DIALECT_VALUE[$key]} ${COBC_DIALECT_SOURCE[$key]}"
+  done
+  log_line "$log" \
+    "binary truncation in force: yes (-fbinary-truncate of the mandated options, over the chain value ${truncate_value})"
+  emit_step "compiler dialect recorded in ${log}"
 }
 
 # Reports how many compiler diagnostics the compile log carries. Warnings are
@@ -2858,6 +3621,7 @@ stage_compile() {
   emit_stage 3 "compile"
   create_private_file "$log" "$EXIT_COMPILE"
   emit_step "compile log: ${log}"
+  write_dialect_record "$log"
   clear_binaries
   compile_modules "$log"
   compile_driver "$log"
@@ -2876,7 +3640,7 @@ driver_status_text() {
     1) printf '%s' "the chain's return code differs from the expected code" ;;
     2) printf '%s' "the abend state differs from the expected abend state" ;;
     3) printf '%s' "a required capture is missing or inconsistent" ;;
-    4) printf '%s' "a file input-output operation failed" ;;
+    4) printf '%s' "a file input-output operation failed, or the record read held other than ${RECORD_CHARACTERS} characters" ;;
     5) printf '%s' "a required environment item was not provided or was rejected" ;;
     6) printf '%s' "a captured value differs from the fixture-derived expected value" ;;
     7) printf '%s' "the translated chain could not be called" ;;
@@ -3855,6 +4619,13 @@ assert_case_outcome() {
   # the record this script redirected onto it.
   assert_capture_text "$label" "$capt" "FIXTURE" "$CASE_FIXTURE"
 
+  # SAMPLE_RECORD_LENGTH is the width the driver measured in that record. The
+  # driver refuses any other width before it calls the chain, and this
+  # assertion states the width every later comparison of the case was decoded
+  # at, whatever COMMAREA length the row calls with.
+  assert_capture_number "$label" "$capt" "SAMPLE_RECORD_LENGTH" \
+    "$RECORD_CHARACTERS"
+
   assert_capture_number "$label" "$capt" "EIBCALEN_AT_CALL" "$CASE_CALEN"
   assert_capture_text "$label" "$capt" "CA_REQUEST_ID" "$CASE_REQUEST_ID"
   assert_capture_text "$label" "$capt" "DRIVER_STATUS" "PASS"
@@ -4447,15 +5218,19 @@ stage_execute() {
 # --------------------------------------------------------------------------
 # Stage 6: evidence and summary
 # --------------------------------------------------------------------------
-# Stage 6 collects the evidence of this run in the staging directory of the run,
-# writes the manifest of what it collected, runs the source guard as the final
-# gate, and only then clears the eight names this script owns in the validation
-# artifacts directory and publishes the staged files under those names. Nothing
-# is published before every selected case, every probe and that final gate have
-# passed, each published name is replaced in one step, and the published files
-# are re-read afterwards and compared with the manifest, so a run that fails at
-# any point leaves the evidence of the previous run exactly as it stands and a
-# run that succeeds leaves an evidence set that describes only itself.
+# Stage 6 runs the source guard as the final gate, collects the evidence of this
+# run in the staging directory of the run, writes the manifest of what it
+# collected, and only then clears the names this run publishes in the validation
+# artifacts directory - the five stage files, and the driver log, the capture
+# file and the post-chain record of each success case it executed - and
+# publishes the staged files under those names. Nothing is published before every
+# selected case, every probe and that final gate have passed, each published name
+# is replaced in one step, and the published files are re-read afterwards and
+# compared with the manifest. A run that fails at any point therefore leaves the
+# published evidence exactly as it stands, a run that succeeds replaces the
+# evidence of the cases it executed with evidence that describes only itself, and
+# the published evidence of a success case a run did not execute is left as it
+# stands.
 
 # Copies one file of this run into the staging directory under the name it is to
 # be published as, and records the pair for the publication step.
@@ -4477,9 +5252,13 @@ stage_artifact() {
 }
 
 # Collects the evidence of this run: the translation log, the compile log, the
-# translation report, the source baseline, and the driver log and capture file
-# of every success case that ran. The other cases keep their log and capture
-# file under the build tree, where the run directory of the case names them.
+# translation report, the source baseline, the evidence log of the source guard,
+# and the driver log, the capture file and the post-chain record of every success
+# case that ran. The guard log is collected after the final gate has appended its
+# block to it, so the copy published carries all four gate runs of this run. The
+# staged pairs are the names this run publishes, and the names it clears before
+# publishing them. The other cases keep their log, capture file and post-chain
+# record under the build tree, where the run directory of the case names them.
 collect_evidence() {
   local name="" label="" lower="" candidate=""
 
@@ -4521,46 +5300,29 @@ write_evidence_manifest() {
   emit_step "evidence manifest: ${manifest}"
 }
 
-# Prints the names a run of this script can publish, one per line: the four
-# stage files and the driver log, the capture file and the post-chain record of
-# each of the two success cases. No other name is publishable, so no other name
-# is cleared.
-publishable_names() {
-  local name="" label="" lower=""
-
-  for name in "${PUBLISHED_STAGE_ARTIFACTS[@]}"; do
-    printf '%s\n' "$name"
-  done
-  for label in "${SUCCESS_CASES[@]}"; do
-    lower="$(case_lower "$label")"
-    printf '%s\n' "driver_${lower}.log"
-    printf '%s\n' "captures_${lower}.txt"
-    printf '%s\n' "commarea_post_${lower}.dat"
-  done
-}
-
-# Removes the publishable names in the validation artifacts directory, so a name
-# this run does not produce cannot stand beside the evidence of this run. Only
-# those names are touched: readonly-check.log belongs to the source guard and
-# runtime-versions.txt to the environment record, and neither is publishable.
-# The clearing runs after the final source guard has passed, so a run that stops
-# earlier leaves the published evidence exactly as it stands.
+# Removes, in the validation artifacts directory, the names this run staged and
+# is about to publish, so no earlier content stands under a name of this run.
+# Only the staged names are touched: the published driver log, capture file and
+# post-chain record of a success case this run did not execute are left as they
+# stand, and runtime-versions.txt is the environment record of the checkout,
+# which no run stages. The clearing runs after the final source guard has
+# passed, so a run that stops earlier leaves the published evidence exactly as
+# it stands.
 clear_published_artifacts() {
-  local name="" removed=0
-  local -a owned=()
+  local entry="" name="" removed=0
 
-  mapfile -t owned < <(publishable_names)
-  if ((${#owned[@]} == 0)); then
-    die "$EXIT_EVIDENCE" "the publishable name list is empty"
+  if ((${#STAGED_ARTIFACTS[@]} == 0)); then
+    die "$EXIT_EVIDENCE" "the staged evidence list is empty"
   fi
 
-  for name in "${owned[@]}"; do
+  for entry in "${STAGED_ARTIFACTS[@]}"; do
+    name="${entry##*|}"
     if [[ -e "${ARTIFACTS_DIR}/${name}" || -L "${ARTIFACTS_DIR}/${name}" ]]; then
       remove_output_path "${ARTIFACTS_DIR}/${name}" "$EXIT_EVIDENCE"
       removed=$((removed + 1))
     fi
   done
-  emit_step "published names cleared: ${removed} of the ${#owned[@]} this script can publish"
+  emit_step "published names cleared: ${removed} of the ${#STAGED_ARTIFACTS[@]} this run publishes"
 }
 
 # Publishes the staged evidence under the names the manifest carries, replacing
@@ -4596,15 +5358,18 @@ publish_evidence() {
     "artifacts published: ${#SUMMARY_ARTIFACTS[@]} files in ${ARTIFACTS_DIR}, each matching ${manifest}"
 }
 
-# Collects and records the evidence of this run in the staging directory, runs
-# the source guard as the final gate of the run, and clears and publishes the
-# evidence only after that gate has passed. A guard failure therefore ends the
-# run with the published evidence of the previous run untouched.
+# Runs the source guard as the final gate of the run, then collects and records
+# the evidence of the run in the staging directory, and clears and publishes it.
+# The gate runs first so the evidence log it appends its fourth block to is
+# complete before that log is collected, and it still decides whether anything
+# is published at all: a gate that does not pass ends the run here, with nothing
+# collected, nothing cleared and the published evidence of the previous run
+# exactly as it stands.
 stage_evidence() {
   emit_stage 6 "evidence"
+  run_source_guard "harness-final"
   collect_evidence
   write_evidence_manifest
-  run_source_guard "harness-final"
   clear_published_artifacts
   publish_evidence
 }
@@ -4680,12 +5445,14 @@ release_inherited_driver_handles() {
   exec 3>&- 4>&-
 }
 
-# Runs the six stages in order and stops at the first failure. The source guard
-# closes stage 1, before any generated output exists, closes stages 3 and 5, and
-# runs again in stage 6 before anything is published, so the run reports the
-# state of the named sources at every boundary and publishes nothing when one of
-# them has moved.
+# Runs the six stages in order and stops at the first failure, with the handler
+# that ends an interrupted run installed before the first argument is read. The
+# source guard closes stage 1, before any generated output exists, closes stages
+# 3 and 5, and runs again in stage 6 before anything is published, so the run
+# reports the state of the named sources at every boundary and publishes nothing
+# when one of them has moved.
 main() {
+  install_signal_traps
   parse_args "$@"
   release_inherited_driver_handles
   resolve_paths

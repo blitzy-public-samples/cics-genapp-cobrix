@@ -47,26 +47,39 @@
       * becomes 'Y', HC-IDENT-COUNT counts the executions of the block,
       * HC-EVENT-SEQ is advanced and its new value is stamped into
       * HC-IDENT-SEQ, and HC-ORDER-LAST-STMT receives this statement's
-      * key set_identity. HC-ORDER-VIOLATION and
-      * HC-ORDER-VIOLATION-STMT are not written here. The
-      * execution_order block of
-      * modernization/harness/statement_map.yml declares one
-      * constraint, policy_before_commercial; set_identity is neither
-      * of its two members and has no prerequisite ordinal of its own.
+      * key set_identity.
+      *
+      * Order guard. The predecessor of this block is the INSERT INTO
+      * POLICY block at [base/src/lgapdb01.cbl:268-288]: both sit in
+      * paragraph INSERT-POLICY and the insert stands ahead of the SET
+      * at [base/src/lgapdb01.cbl:308-310], which is reached only once
+      * the insert reported SQLCODE zero at
+      * [base/src/lgapdb01.cbl:290-292]. HC-POL-SEQ carries that
+      * predecessor. This module reads it after stamping its own
+      * ordinal: a HC-POL-SEQ still at zero reports the predecessor
+      * unrun in HC-ORDER-VIOLATION and HC-ORDER-VIOLATION-STMT, and a
+      * non-zero HC-POL-SEQ leaves both items as
+      * modernization/harness/driver.cbl set them. The execution_order
+      * block of modernization/harness/statement_map.yml declares one
+      * constraint, policy_before_commercial, of which set_identity is
+      * not a member; the constraint tested here is the one the source
+      * paragraph states.
       *
       * SQLCODE of the shared SQLCA is set to zero on every call.
       *
       * No item of the caller's COMMAREA is addressed here. Of the
-      * shared capture state, only HC-SQL-SET-IDENTITY, HC-EVENT-SEQ
-      * and HC-ORDER-LAST-STMT are written. HC-SEED-POLICYNUM is read
-      * and left holding the identity that the product insert stubs and
-      * the KSDSPOLY key of the translated LGAPVS01 receive after this
-      * call.
+      * shared capture state, only HC-SQL-SET-IDENTITY, HC-EVENT-SEQ,
+      * HC-ORDER-LAST-STMT and the two order-guard items named above
+      * are written. HC-POL-SEQ and HC-SEED-POLICYNUM are read here and
+      * never written, and the seed is left holding the identity that
+      * the product insert stubs and the KSDSPOLY key of the translated
+      * LGAPVS01 receive after this call.
       *
-      * Rationale for the deterministic seeding of the identity and for
-      * the always-zero SQLCODE is to be recorded in
-      * modernization/docs/decision-log.md (planned deliverable; not
-      * present at this milestone).
+      * Rationale for the deterministic seeding of the identity, for
+      * the order guard and for the always-zero SQLCODE is to be
+      * recorded in modernization/docs/decision-log.md (planned
+      * deliverable; not present at this milestone), rows: uniform
+      * stub-side capture-order guard.
       *
       * Harness topology: Figure 5 — Validation Harness Control Flow
       * in modernization/docs/architecture.md.
@@ -106,11 +119,13 @@
       *
       *----------------------------------------------------------------*
       * Supplies the seeded identity, stamps the capture control       *
-      * items, reports an unseeded identity and reports success.       *
+      * items, tests the predecessor ordinal, reports an unseeded      *
+      * identity and reports success.                                  *
       *----------------------------------------------------------------*
        MAINLINE.
            PERFORM SUPPLY-SEEDED-IDENTITY
            PERFORM STAMP-CAPTURE-CONTROL
+           PERFORM CHECK-CAPTURE-ORDER
            PERFORM CHECK-SEEDED-IDENTITY
            MOVE ZERO TO SQLCODE
            GOBACK.
@@ -127,7 +142,8 @@
       *----------------------------------------------------------------*
       * Marks the block captured, counts the execution, stamps the     *
       * ordinal from the shared event sequence and names the           *
-      * statement. The order-guard items are not written here.         *
+      * statement. The order-guard items are written by                *
+      * CHECK-CAPTURE-ORDER below and not here.                        *
       *----------------------------------------------------------------*
        STAMP-CAPTURE-CONTROL.
            MOVE 'Y' TO HC-IDENT-PRESENT
@@ -135,6 +151,21 @@
            ADD 1 TO HC-EVENT-SEQ END-ADD
            MOVE HC-EVENT-SEQ TO HC-IDENT-SEQ
            MOVE 'set_identity' TO HC-ORDER-LAST-STMT.
+      *
+      *----------------------------------------------------------------*
+      * Tests the predecessor ordinal of this block, read after it     *
+      * stamped its own. HC-POL-SEQ at zero reports that the INSERT    *
+      * INTO POLICY block at [base/src/lgapdb01.cbl:268-288] was not   *
+      * captured ahead of the SET at [base/src/lgapdb01.cbl:308-310],  *
+      * which leaves no assigned identity for this block to return. A  *
+      * non-zero HC-POL-SEQ leaves both order items as the driver set  *
+      * them.                                                          *
+      *----------------------------------------------------------------*
+       CHECK-CAPTURE-ORDER.
+           IF HC-POL-SEQ = ZERO
+               MOVE 'Y' TO HC-ORDER-VIOLATION
+               MOVE 'set_identity' TO HC-ORDER-VIOLATION-STMT
+           END-IF.
       *
       *----------------------------------------------------------------*
       * Reports on the run log an identity of zero or below. The       *

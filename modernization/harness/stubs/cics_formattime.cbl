@@ -7,9 +7,10 @@
       *                                                                *
       ******************************************************************
       *
-      * Stands in for EXEC CICS FORMATTIME. Renders the fixed harness
-      * instant into the two character receivers its caller supplies and
-      * does nothing else.
+      * Stands in for EXEC CICS FORMATTIME. Renders the date the
+      * abstime it receives names, and the fixed harness time of day,
+      * into the two character receivers its caller supplies and does
+      * nothing else.
       *
       * Source construct : EXEC CICS FORMATTIME ABSTIME(ABS-TIME)
       *                    MMDDYYYY(DATE1) TIME(TIME1)
@@ -25,8 +26,10 @@
       *                    LGAPDB01, and CALL 'CICS-FORMATTIME' USING
       *                    WS-ABSTIME WS-DATE WS-TIME in the translated
       *                    LGAPVS01
-      * Target items     : HARNESS-MMDDYYYY, HARNESS-TIME, LK-ABSTIME,
-      *                    LK-MMDDYYYY, LK-TIME
+      * Target items     : HARNESS-FALLBACK-DATE, HARNESS-TIME,
+      *                    WS-ABSTIME-DIGITS, WS-ABS-YEAR,
+      *                    WS-ABS-MONTH, WS-ABS-DAY, WS-RENDERED-DATE,
+      *                    LK-ABSTIME, LK-MMDDYYYY, LK-TIME
       * Related locators : base/src/lgapol01.cbl:36-38 and
       *                    base/src/lgapdb01.cbl:36-38, the ABS-TIME
       *                    PIC S9(8) COMP, TIME1 PIC X(8) and DATE1
@@ -61,8 +64,9 @@
       * those four is the planned contract.
       *
       * modernization/harness/run_harness.sh compiles this file as a
-      * callable module with cobc -m -std=ibm -ffold-copy=LOWER -ext
-      * cpy -I build/src -o build/bin/CICS-FORMATTIME.so. The module
+      * callable module with cobc -m -std=ibm -fbinary-truncate
+      * -ffold-copy=LOWER -ext cpy -I build/src
+      * -o build/bin/CICS-FORMATTIME.so. The module
       * basename equals the PROGRAM-ID, which is the name the dynamic
       * CALL resolves.
       *
@@ -73,41 +77,73 @@
       * this module and never calls it.
       *
       * The three parameters are the whole interface. LK-ABSTIME is
-      * input and is neither read nor written here. LK-MMDDYYYY and
-      * LK-TIME are output and are filled on every call.
+      * input and is read on every call. LK-MMDDYYYY and LK-TIME are
+      * output and are filled on every call.
       *
-      * The instant reported is fixed: MMDDYYYY '08/19/2026' and TIME
-      * '12:00:00', filling all ten and all eight characters. No clock,
-      * calendar, environment variable or system service is read. No
-      * arithmetic is performed on the abstime and the real CICS abstime
-      * encoding is not reproduced. Every abstime value yields these
-      * same two strings, including the +0 that
+      * The date rendered into LK-MMDDYYYY is the date LK-ABSTIME
+      * names. modernization/harness/stubs/cics_asktime.cbl carries the
+      * harness abstime surrogate as the eight digits YYYYMMDD of the
+      * instant it reports, so this module moves the received value
+      * into an eight-digit item, reads its year, month and day halves
+      * and lays them out as MM/DD/YYYY. The harness abstime 20260819
+      * therefore renders '08/19/2026', and an abstime naming another
+      * date renders that date: the ASKTIME site of the calling
+      * paragraph decides what this module reports.
+      *
+      * A received value that cannot name a date is rendered as the
+      * documented fallback date '08/19/2026' instead, and the run log
+      * receives a report of the value and of the substitution, so the
+      * fallback is never silent. That covers the +0 that
       * base/src/lgapol01.cbl:36, base/src/lgapdb01.cbl:36 and
-      * base/src/lgapvs01.cbl:54 declare. Repeated runs of one sample
-      * return identical values.
+      * base/src/lgapvs01.cbl:54 declare, a negative value, a month
+      * outside 01 through 12 and a day outside 01 through 31. The
+      * range test is deliberately that wide: this module reports the
+      * date its caller's abstime names and judges no calendar beyond
+      * what the MM/DD/YYYY layout can hold.
       *
-      * modernization/harness/stubs/cics_asktime.cbl reports the same
-      * instant as the abstime digits 20260819, and
-      * modernization/harness/stubs/sql_insert_policy.cbl reports it as
-      * the LASTCHANGED timestamp 2026-08-19-12.00.00.000000.
+      * The time of day rendered into LK-TIME is fixed at '12:00:00'.
+      * The abstime surrogate carries a date and no time component, so
+      * no time of day can be derived from it, and the two stubs are
+      * seeded with the same instant independently: the surrogate
+      * 20260819 in modernization/harness/stubs/cics_asktime.cbl and
+      * the time of day here.
+      * modernization/harness/stubs/sql_insert_policy.cbl reports that
+      * same instant as the LASTCHANGED timestamp
+      * 2026-08-19-12.00.00.000000.
       *
-      * The receivers are filled to their full declared width. The MOVEs
+      * No clock, calendar, environment variable or system service is
+      * read, no arithmetic is performed on the abstime and the real
+      * CICS abstime encoding is not reproduced. Repeated runs of one
+      * sample return identical values.
+      *
+      * The receivers are filled to their full declared width, all ten
+      * and all eight characters. The MOVEs
       * at base/src/lgapol01.cbl:146-147,
       * base/src/lgapdb01.cbl:572-573 and
       * base/src/lgapvs01.cbl:163-164 shorten them into EM-DATE
       * PIC X(8) and EM-TIME PIC X(6); that shortening stays in the
-      * calling program.
+      * calling program, so a rendered date reaches the diagnostic as
+      * its first eight characters and a rendered time as its first
+      * six.
       *
       * The shared capture group copied below declares no time-service
       * item. This module records nothing in that group and leaves every
-      * field to its owner.
+      * field to its owner. It carries no prerequisite ordinal, and the
+      * absence is deliberate rather than an omission: the read-only
+      * source reaches the FORMATTIME sites from the zero-length
+      * COMMAREA check ahead of every other statement of its program as
+      * readily as from a failed insert or a failed write, so no
+      * capture has to precede one. HC-ORDER-VIOLATION and
+      * HC-ORDER-VIOLATION-STMT are neither read nor written here.
       *
       * Harness topology: Figure 5 — Validation Harness Control Flow
       * in modernization/docs/architecture.md.
       *
       * See modernization/docs/decision-log.md (planned deliverable; not
-      * present at this milestone): "deterministic harness time data"
-      * and "unexercised diagnostic paths".
+      * present at this milestone): "deterministic harness time data",
+      * "FORMATTIME rendered from the ASKTIME surrogate", "uniform
+      * stub-side capture-order guard" and "unexercised diagnostic
+      * paths".
       *
       ******************************************************************
        IDENTIFICATION DIVISION.
@@ -126,22 +162,64 @@
            COPY HCAPTURE.
       *
       *----------------------------------------------------------------*
-      * HARNESS-MMDDYYYY - fixed date rendered by this module.         *
+      * HARNESS-FALLBACK-DATE - date rendered for an abstime that      *
+      * cannot name one.                                               *
       *----------------------------------------------------------------*
       * The MMDDYYYY form of the harness instant 2026-08-19 12:00:00,
-      * ten characters wide. Shape follows the receiving items DATE1
+      * ten characters wide, which is also the form the harness abstime
+      * surrogate 20260819 renders through WS-DATE-OUT below. Shape
+      * follows the receiving items DATE1
       * [base/src/lgapol01.cbl:38], DATE1 [base/src/lgapdb01.cbl:38]
       * and WS-DATE [base/src/lgapvs01.cbl:56].
-       01  HARNESS-MMDDYYYY            PIC X(10) VALUE '08/19/2026'.
+       01  HARNESS-FALLBACK-DATE       PIC X(10) VALUE '08/19/2026'.
       *
       *----------------------------------------------------------------*
       * HARNESS-TIME - fixed time of day rendered by this module.      *
       *----------------------------------------------------------------*
-      * The TIME form of that same instant, eight characters wide.
+      * The TIME form of that same instant, eight characters wide. The
+      * abstime surrogate carries no time component, so this value is
+      * seeded here and derived from no parameter.
       * Shape follows the receiving items TIME1
       * [base/src/lgapol01.cbl:37], TIME1 [base/src/lgapdb01.cbl:37]
       * and WS-TIME [base/src/lgapvs01.cbl:55].
        01  HARNESS-TIME                PIC X(8)  VALUE '12:00:00'.
+      *
+      *----------------------------------------------------------------*
+      * WS-ABSTIME-DIGITS - the received abstime read as YYYYMMDD.     *
+      *----------------------------------------------------------------*
+      * Receives LK-ABSTIME on the path that renders it. The
+      * redefinition reads the same eight digits as the year, month and
+      * day they spell, and is addressed only after the value has been
+      * found positive. modernization/harness/stubs/cics_asktime.cbl
+      * declares the shape of the surrogate this item decomposes.
+       01  WS-ABSTIME-DIGITS           PIC 9(8).
+      *
+       01  WS-ABSTIME-PARTS REDEFINES WS-ABSTIME-DIGITS.
+           03 WS-ABS-YEAR              PIC 9(4).
+           03 WS-ABS-MONTH             PIC 9(2).
+           03 WS-ABS-DAY               PIC 9(2).
+      *
+      *----------------------------------------------------------------*
+      * WS-DATE-OUT - the MM/DD/YYYY layout this module renders.       *
+      *----------------------------------------------------------------*
+      * Ten characters in the order and with the separators the
+      * MMDDYYYY operand of the emulated command carries. The three
+      * numeric items receive the halves of WS-ABSTIME-PARTS above and
+      * the two separators are fixed.
+       01  WS-DATE-OUT.
+           03 WS-OUT-MONTH             PIC 9(2).
+           03 FILLER                   PIC X     VALUE '/'.
+           03 WS-OUT-DAY               PIC 9(2).
+           03 FILLER                   PIC X     VALUE '/'.
+           03 WS-OUT-YEAR              PIC 9(4).
+      *
+      *----------------------------------------------------------------*
+      * WS-RENDERED-DATE - the date handed to the caller.              *
+      *----------------------------------------------------------------*
+      * Holds WS-DATE-OUT on the rendered path and
+      * HARNESS-FALLBACK-DATE on the reported one. Same shape as the
+      * receiving parameter.
+       01  WS-RENDERED-DATE            PIC X(10).
       *
       ******************************************************************
       *    L I N K A G E     S E C T I O N
@@ -152,8 +230,9 @@
       * LK-ABSTIME - the ABSTIME operand of the calling site.          *
       *----------------------------------------------------------------*
       * First parameter, input. Holds the value the calling site took
-      * from modernization/harness/stubs/cics_asktime.cbl. It is not
-      * read and not written here. Shape follows ABS-TIME
+      * from modernization/harness/stubs/cics_asktime.cbl. It is read
+      * on every call, to render the date, and is never written here.
+      * Shape follows ABS-TIME
       * [base/src/lgapol01.cbl:36], ABS-TIME
       * [base/src/lgapdb01.cbl:36] and WS-ABSTIME
       * [base/src/lgapvs01.cbl:54].
@@ -163,7 +242,7 @@
       * LK-MMDDYYYY - the MMDDYYYY operand of the calling site.        *
       *----------------------------------------------------------------*
       * Second parameter, output. Receives all ten characters of
-      * HARNESS-MMDDYYYY on every call.
+      * WS-RENDERED-DATE on every call.
        01  LK-MMDDYYYY                 PIC X(10).
       *
       *----------------------------------------------------------------*
@@ -179,12 +258,57 @@
        PROCEDURE DIVISION USING LK-ABSTIME, LK-MMDDYYYY, LK-TIME.
       *
       *----------------------------------------------------------------*
-      * MAINLINE - renders the fixed instant and returns.              *
+      * MAINLINE - renders the date and the time and returns.          *
       *----------------------------------------------------------------*
       * Fills both receivers and returns control to the caller. The
       * calling program performs any shortening of its own.
        MAINLINE.
-           MOVE HARNESS-MMDDYYYY TO LK-MMDDYYYY
+           PERFORM RENDER-DATE-FROM-ABSTIME
+           MOVE WS-RENDERED-DATE TO LK-MMDDYYYY
            MOVE HARNESS-TIME     TO LK-TIME
            GOBACK.
+      *
+      *----------------------------------------------------------------*
+      * RENDER-DATE-FROM-ABSTIME - lays the received abstime out as    *
+      * MM/DD/YYYY, or reports it and renders the fallback date.       *
+      *----------------------------------------------------------------*
+      * The eight digits of a positive abstime are read as YYYYMMDD, a
+      * month of 01 through 12 and a day of 01 through 31 are laid out
+      * as MM/DD/YYYY, and every other value is reported and replaced.
+      * WS-ABSTIME-PARTS is addressed only inside the positive branch,
+      * so no negative value is read as digits.
+       RENDER-DATE-FROM-ABSTIME.
+           IF LK-ABSTIME IS GREATER THAN ZERO
+               MOVE LK-ABSTIME TO WS-ABSTIME-DIGITS
+               IF WS-ABS-MONTH IS NOT LESS THAN 1
+                   AND WS-ABS-MONTH IS NOT GREATER THAN 12
+                   AND WS-ABS-DAY IS NOT LESS THAN 1
+                   AND WS-ABS-DAY IS NOT GREATER THAN 31
+                   MOVE WS-ABS-MONTH TO WS-OUT-MONTH
+                   MOVE WS-ABS-DAY   TO WS-OUT-DAY
+                   MOVE WS-ABS-YEAR  TO WS-OUT-YEAR
+                   MOVE WS-DATE-OUT  TO WS-RENDERED-DATE
+               ELSE
+                   PERFORM REPORT-UNRENDERABLE-ABSTIME
+               END-IF
+           ELSE
+               PERFORM REPORT-UNRENDERABLE-ABSTIME
+           END-IF.
+      *
+      *----------------------------------------------------------------*
+      * REPORT-UNRENDERABLE-ABSTIME - names the value on the run log   *
+      * and renders the documented fallback date.                      *
+      *----------------------------------------------------------------*
+      * Reached for an abstime of zero or below and for one whose month
+      * or day falls outside the MM/DD/YYYY layout. The value received
+      * is left as the caller holds it and the fallback is named in the
+      * report, so a substituted date is visible in the log of the
+      * case rather than silent.
+       REPORT-UNRENDERABLE-ABSTIME.
+           MOVE HARNESS-FALLBACK-DATE TO WS-RENDERED-DATE
+           DISPLAY 'CICS-FORMATTIME: ABSTIME ' LK-ABSTIME
+                   ' NAMES NO DATE AS YYYYMMDD'
+                   ' - RENDERING THE FALLBACK '
+                   HARNESS-FALLBACK-DATE
+           END-DISPLAY.
       *----------------------------------------------------------------*

@@ -38,12 +38,22 @@
       * becomes 'Y', HC-POL-COUNT counts the executions of the block,
       * HC-EVENT-SEQ is advanced and its new value is stamped into
       * HC-POL-SEQ, and HC-ORDER-LAST-STMT receives this statement's
-      * key insert_policy. HC-ORDER-VIOLATION and
-      * HC-ORDER-VIOLATION-STMT are not written here. insert_policy is
-      * the predecessor of the one ordering constraint declared by the
-      * execution_order block of
-      * modernization/harness/statement_map.yml and has no
-      * prerequisite ordinal of its own.
+      * key insert_policy.
+      *
+      * Order guard. This block has no predecessor statement: the
+      * source performs INSERT-POLICY at [base/src/lgapdb01.cbl:219],
+      * ahead of the two read-backs of that same paragraph, of every
+      * product insert at [base/src/lgapdb01.cbl:223-241] and of the
+      * link at [base/src/lgapdb01.cbl:243-246], so this block is the
+      * first event a case captures. The ordinal stamped above is
+      * therefore 1 whenever nothing was captured ahead of it, and any
+      * higher value reports that something was: this module then
+      * moves 'Y' into HC-ORDER-VIOLATION and its own key into
+      * HC-ORDER-VIOLATION-STMT. An ordinal of 1 leaves both items as
+      * modernization/harness/driver.cbl set them. insert_policy is
+      * also the predecessor of policy_before_commercial, the one
+      * constraint the execution_order block of
+      * modernization/harness/statement_map.yml declares.
       *
       * SQLCODE of the shared SQLCA reports HC-INJECT-POL-SQLCODE on
       * every call. The translated LGAPDB01 evaluates it at
@@ -98,18 +108,20 @@
       *
       * No item of the caller's COMMAREA is addressed here, and no
       * capture item outside HC-SQL-POLICY, HC-EVENT-CONTROL,
-      * HC-SEED, HC-CHAIN-DB2-PRESENT, HC-CHAIN-DB2-CALEN and
-      * HC-ORDER-LAST-STMT is written. HC-INJECT-POL-SQLCODE is read
-      * here and never written, and so is EIBCALEN of
+      * HC-SEED, HC-CHAIN-DB2-PRESENT, HC-CHAIN-DB2-CALEN,
+      * HC-ORDER-LAST-STMT and the two order-guard items named above
+      * is written. HC-INJECT-POL-SQLCODE is read here and never
+      * written, and so is EIBCALEN of
       * modernization/harness/copybooks/dfheiblk.cpy.
       *
       * Rationale for the deterministic seeding of the identity and
-      * timestamp, for the reported SQLCODE, for the chain witness and
-      * for the arity of seven belongs to
+      * timestamp, for the reported SQLCODE, for the chain witness, for
+      * the order guard and for the arity of seven belongs to
       * modernization/docs/decision-log.md (planned deliverable; not
       * present at this milestone), rows: deterministic failure
       * injection through shared harness state; chain traversal
-      * witnessed through the emulated services.
+      * witnessed through the emulated services; uniform stub-side
+      * capture-order guard.
       *
       * Harness topology: Figure 5 — Validation Harness Control Flow
       * in modernization/docs/architecture.md.
@@ -269,13 +281,14 @@
                                 DB2-PAYMENT-INT.
       *
       *----------------------------------------------------------------*
-      * Records the block, stamps its capture control items, records   *
-      * the chain witness, resolves both seeds and reports the         *
-      * SQLCODE this run selected.                                     *
+      * Records the block, stamps its capture control items, tests     *
+      * its position in the capture order, records the chain witness,  *
+      * resolves both seeds and reports the SQLCODE this run selected. *
       *----------------------------------------------------------------*
        MAINLINE.
            PERFORM CAPTURE-POLICY-VALUES
            PERFORM STAMP-CAPTURE-CONTROL
+           PERFORM CHECK-CAPTURE-ORDER
            PERFORM RECORD-CHAIN-WITNESS
            PERFORM RESOLVE-SEED-POLICYNUM
            PERFORM RESOLVE-SEED-LASTCHANGED
@@ -297,7 +310,8 @@
       *----------------------------------------------------------------*
       * Marks the block captured, counts the execution, stamps the     *
       * ordinal from the shared event sequence and names the           *
-      * statement. The order-guard items are not written here.         *
+      * statement. The order-guard items are written by                *
+      * CHECK-CAPTURE-ORDER below and not here.                        *
       *----------------------------------------------------------------*
        STAMP-CAPTURE-CONTROL.
            MOVE 'Y' TO HC-POL-PRESENT
@@ -305,6 +319,21 @@
            ADD 1 TO HC-EVENT-SEQ END-ADD
            MOVE HC-EVENT-SEQ TO HC-POL-SEQ
            MOVE 'insert_policy' TO HC-ORDER-LAST-STMT.
+      *
+      *----------------------------------------------------------------*
+      * Tests the position this block holds in the capture order,      *
+      * read after it stamped its own ordinal. The source performs     *
+      * INSERT-POLICY first at [base/src/lgapdb01.cbl:219], so an      *
+      * ordinal of 1 is the whole of the constraint and any higher     *
+      * value reports an event captured ahead of the POLICY insert.    *
+      * An ordinal of 1 leaves both order items as the driver set      *
+      * them.                                                          *
+      *----------------------------------------------------------------*
+       CHECK-CAPTURE-ORDER.
+           IF HC-POL-SEQ NOT = 1
+               MOVE 'Y' TO HC-ORDER-VIOLATION
+               MOVE 'insert_policy' TO HC-ORDER-VIOLATION-STMT
+           END-IF.
       *
       *----------------------------------------------------------------*
       * Reports that the translated LGAPDB01 was entered and records   *

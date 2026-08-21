@@ -71,16 +71,36 @@
       * the one the translated LGAPDB01 links with LENGTH(32500) at
       * base/src/lgapdb01.cbl:243-246.
       *
+      * Order guard: this command has two predecessors, both in the
+      * program that links to it. The translated LGAPDB01 performs
+      * INSERT-POLICY at base/src/lgapdb01.cbl:219 and one product
+      * insert through the routing at base/src/lgapdb01.cbl:223-241
+      * before the link at base/src/lgapdb01.cbl:243-246, the only
+      * path that reaches this command. HC-POL-SEQ carries the first
+      * predecessor and HC-MOT-SEQ, HC-COM-SEQ, HC-END-SEQ and
+      * HC-HOU-SEQ carry the second, one of which the routing stamps.
+      * This module reads all five after stamping its own ordinal: a
+      * HC-POL-SEQ still at zero, or all four product ordinals still
+      * at zero, reports the missing predecessor in
+      * HC-ORDER-VIOLATION and HC-ORDER-VIOLATION-STMT. A captured
+      * policy insert and a captured product insert leave both items
+      * as modernization/harness/driver.cbl set them. The record and
+      * the response are recorded either way: the command was issued
+      * whatever the order.
+      *
       * Capture surface, all declared by
       * modernization/harness/copybooks/hcapture.cpy: HC-VSAM-RECORD
       * and its nested items, HC-VSAM-RIDFLD and its nested items,
       * HC-VSAM-FILE, HC-VSAM-RECORD-LEN, HC-VSAM-KEY-LEN,
       * HC-VSAM-RESP, HC-VSAM-PRESENT, HC-VSAM-COUNT, HC-VSAM-SEQ,
-      * HC-CHAIN-VSAM-PRESENT, HC-CHAIN-VSAM-CALEN, and the two shared
-      * items HC-EVENT-SEQ and HC-ORDER-LAST-STMT. HC-INJECT-VSAM-RESP
-      * and HC-INJECT-VSAM-RESP2 are read here and never written. No
-      * other item of that group is written: the SQL, seed, abend,
-      * diagnostic-link and order-violation items keep the values their
+      * HC-CHAIN-VSAM-PRESENT, HC-CHAIN-VSAM-CALEN, and the three
+      * shared items HC-EVENT-SEQ, HC-ORDER-LAST-STMT and, on the
+      * reported path of the order guard, HC-ORDER-VIOLATION with
+      * HC-ORDER-VIOLATION-STMT. HC-INJECT-VSAM-RESP,
+      * HC-INJECT-VSAM-RESP2 and the five ordinal items the order
+      * guard reads are read here and never written. No
+      * other item of that group is written: the SQL, seed, abend and
+      * diagnostic-link items keep the values their
       * own owners set. Of
       * modernization/harness/copybooks/dfheiblk.cpy, EIBCALEN is read
       * on every call and EIBRESP2 is written on the injected-failure
@@ -92,7 +112,8 @@
       * the record image; normal-response constant representation;
       * deterministic failure injection through shared harness state;
       * chain traversal witnessed through the emulated services;
-      * shared EXTERNAL harness state.
+      * shared EXTERNAL harness state; uniform stub-side capture-order
+      * guard.
       *
       * Harness topology: Figure 5 — Validation Harness Control Flow
       * in modernization/docs/architecture.md.
@@ -243,13 +264,27 @@
       *
       * Stamp the execution ordinal from the shared event sequence and
       * report this module as the statement captured most recently.
-      * This module has no declared prerequisite ordinal. It leaves
-      * HC-ORDER-VIOLATION and HC-ORDER-VIOLATION-STMT holding the
-      * values the driver set.
            ADD  1                   TO HC-EVENT-SEQ
            END-ADD
            MOVE HC-EVENT-SEQ        TO HC-VSAM-SEQ
-           MOVE WS-STMT-NAME        TO HC-ORDER-LAST-STMT.
+           MOVE WS-STMT-NAME        TO HC-ORDER-LAST-STMT
+      *
+      * Test the two prerequisites of this command, read after the
+      * ordinal above was stamped. Both are captured in the program
+      * that links here: it performs INSERT-POLICY at
+      * base/src/lgapdb01.cbl:219 and one product insert at
+      * base/src/lgapdb01.cbl:223-241 before the link at
+      * base/src/lgapdb01.cbl:243-246, the only path that reaches this
+      * command. A HC-POL-SEQ at zero, or four product ordinals all at
+      * zero, reports the missing predecessor under this module's own
+      * name. Both predecessors present leave HC-ORDER-VIOLATION and
+      * HC-ORDER-VIOLATION-STMT holding the values the driver set.
+           IF HC-POL-SEQ = ZERO
+              OR (HC-MOT-SEQ = ZERO AND HC-COM-SEQ = ZERO
+                  AND HC-END-SEQ = ZERO AND HC-HOU-SEQ = ZERO)
+               MOVE 'Y'             TO HC-ORDER-VIOLATION
+               MOVE WS-STMT-NAME    TO HC-ORDER-VIOLATION-STMT
+           END-IF.
       *
       *----------------------------------------------------------------*
        A-EXIT.

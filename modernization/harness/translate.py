@@ -20,8 +20,23 @@ Behaviour
   ``DFHCOMMAREA`` and length 32500; the KSDSPOLY write is held to
   ``KSDSPOLY``, length 64 and key length 21, and all six of its operands reach
   the capture module.
+* Reads only inside its own checkout: ``--source-dir``, ``--copybook-dir`` and
+  ``--statement-map`` each have exactly one accepted location, and a value
+  naming anything else, or a symbolic link standing at the statement map, is
+  refused before the file is opened.
+* Holds the census ``statement_map.yml`` declares for the program it describes
+  to the file name, program id and expected block counts of that source, and
+  then to the line total, EXEC CICS and EXEC SQL block counts and longest line
+  measured while translating it.
 * Writes only inside the build tree of its own checkout, through
-  descriptor-relative operations that follow no symbolic link.
+  descriptor-relative operations that follow no symbolic link.  The report of
+  an earlier run is invalidated before any generated source is touched: it is
+  unlinked, or emptied in place when a log directory that denies writing
+  refuses the unlink, so no run that fails afterwards leaves a report standing
+  for a build it did not produce.  A report that can be neither unlinked nor
+  emptied, including a directory, a link inside the tree and a file reachable
+  through a second name, stops the run with the generated tree of the earlier
+  run untouched.
 * Copies ``lgcmarea.cpy`` and ``lgpolicy.cpy`` byte-for-byte, and the four
   harness copybooks named by ``--copybook-dir``, into the generated source
   directory; a single ``-I <build-dir>/src`` then resolves every ``COPY``.
@@ -45,6 +60,7 @@ topology is Figure 5 — Validation Harness Control Flow in
 """
 
 import argparse
+import errno
 import hashlib
 import json
 import os
@@ -88,11 +104,15 @@ SOURCE_ALLOW_LIST = frozenset(PROGRAM_SOURCES + VERBATIM_SOURCE_COPYBOOKS)
 HARNESS_COPYBOOKS = ("dfheiblk.cpy", "dfhresp.cpy", "hsqlca.cpy", "hcapture.cpy")
 
 # The directories the five authorized sources and the four harness copybooks
-# are read from, relative to the repository root this module belongs to.  A
-# --source-dir or --copybook-dir naming anything else is refused before a file
-# is opened, so the read surface cannot be moved to another tree.
+# are read from, and the statement map that drives rules R2 and R13, all
+# relative to the repository root this module belongs to.  A --source-dir,
+# --copybook-dir or --statement-map naming anything else is refused before a
+# file is opened, so the read surface cannot be moved to another tree.
 EXPECTED_SOURCE_DIR = REPO_ROOT / "base" / "src"
 EXPECTED_COPYBOOK_DIR = REPO_ROOT / "modernization" / "harness" / "copybooks"
+EXPECTED_STATEMENT_MAP = (
+    REPO_ROOT / "modernization" / "harness" / "statement_map.yml"
+)
 
 # SHA-256 of each authorized source as this translator was written against it.
 # The bytes read are compared with these values before any generation, so the
@@ -142,8 +162,21 @@ NOFOLLOW_DIR_FLAGS = (
 NOFOLLOW_FILE_FLAGS = (
     os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0)
 )
+# An existing file is opened for emptying without O_CREAT, so the open reaches
+# nothing the stat before it did not see, and without O_TRUNC, so the file type
+# and link count are examined on the descriptor before anything is discarded.
+# O_NONBLOCK makes the open of anything that is not a regular file fail rather
+# than wait, and has no effect on a regular file.
+NOFOLLOW_EXISTING_FILE_FLAGS = (
+    os.O_WRONLY | os.O_NOFOLLOW | os.O_NONBLOCK | getattr(os, "O_CLOEXEC", 0)
+)
 BUILD_DIR_MODE = 0o755
 BUILD_FILE_MODE = 0o644
+
+# The errno values a directory that denies writing raises for an unlink of an
+# entry below it.  A removal refused with one of these is followed by emptying
+# the file in place; any other errno is reported as it stands.
+UNLINK_REFUSED_ERRNOS = frozenset({errno.EACCES, errno.EPERM})
 
 # --------------------------------------------------------------------------
 # Fixed-format geometry
@@ -171,9 +204,16 @@ SEQUENCE_AREA_CHARS = frozenset(
 # Expected census (AAP 0.6.1) and per-rule site counts (AAP 0.4.4)
 # --------------------------------------------------------------------------
 EXPECTED_SOURCE_CENSUS = {
-    "lgapol01.cbl": {"lines": 169, "exec_cics": 9, "exec_sql": 0},
-    "lgapdb01.cbl": {"lines": 595, "exec_cics": 20, "exec_sql": 11},
-    "lgapvs01.cbl": {"lines": 188, "exec_cics": 7, "exec_sql": 0},
+    "lgapol01.cbl": {
+        "program_id": "LGAPOL01", "lines": 169, "exec_cics": 9, "exec_sql": 0,
+    },
+    "lgapdb01.cbl": {
+        "program_id": "LGAPDB01", "lines": 595, "exec_cics": 20,
+        "exec_sql": 11,
+    },
+    "lgapvs01.cbl": {
+        "program_id": "LGAPVS01", "lines": 188, "exec_cics": 7, "exec_sql": 0,
+    },
 }
 EXPECTED_TOTAL_CICS_SITES = 36
 EXPECTED_TOTAL_SQL_BLOCKS = 11
@@ -238,6 +278,21 @@ EXPECTED_MAP_INCLUDE_COUNT = 3
 EXPECTED_MAP_DML_COUNT = 8
 EXPECTED_MAP_TOTAL_BLOCKS = 11
 EXPECTED_MAP_CALL_PROGRAM_COUNT = 7
+
+# The members of the map's source_program block.  Each one is compared with
+# the authorized source the block names: the path with the pinned source
+# directory and the allow-listed program names, the program id and the three
+# block figures with EXPECTED_SOURCE_CENSUS, and the line width with
+# MAX_LINE_LENGTH.  The three block figures and the line width are compared a
+# second time with the values measured while translating that source.
+DECLARED_SOURCE_PROGRAM_KEYS = (
+    "path",
+    "program_id",
+    "total_lines",
+    "exec_sql_blocks",
+    "exec_cics_blocks",
+    "max_line_length",
+)
 
 # --------------------------------------------------------------------------
 # Generated harness declarations (R4) and stub program names
@@ -361,11 +416,14 @@ class ProgramResult:
 
     ``chain_links`` holds one entry per chain LINK site the program carries,
     each recording the enforced program target, COMMAREA operand and length.
+    ``source_max_line_length`` is the length of the longest line read for the
+    program.
     """
 
     source_name: str
     source_line_count: int
     generated_lines: list
+    source_max_line_length: int = 0
     applications: list = field(default_factory=list)
     consumed_line_numbers: set = field(default_factory=set)
     rule_comment_lines: set = field(default_factory=set)
@@ -513,6 +571,32 @@ def require_expected_read_directory(supplied: Path, expected: Path,
             f"{expected}, the directory of the checkout holding "
             f"{Path(__file__).resolve()}"
         )
+
+
+def require_expected_read_file(supplied: Path, expected: Path,
+                               option: str) -> None:
+    """Require ``supplied`` to resolve to exactly ``expected``, and be no link.
+
+    ``option`` names the command-line option the value came from.  The
+    comparison is made on the resolved paths, so a relative value, a value
+    carrying ``..`` and a value reached through a symbolic link are all
+    reduced to the file they name before it is compared; a symbolic link
+    standing at either path is then refused instead of being read through.
+    """
+    resolved = supplied.resolve()
+    if resolved != expected.resolve():
+        raise TranslationError(
+            f"{option} names {resolved}; this translator reads only "
+            f"{expected}, the file of the checkout holding "
+            f"{Path(__file__).resolve()}"
+        )
+    for candidate in (supplied, expected):
+        if candidate.is_symlink():
+            raise TranslationError(
+                f"{option} names {candidate}, a symbolic link reaching "
+                f"{resolved}; this translator reads that path of its own "
+                f"checkout only as a regular file"
+            )
 
 
 def require_authorized_source_digest(name: str, data: bytes) -> None:
@@ -774,13 +858,21 @@ class BuildTree:
 
     # -- public write gate -------------------------------------------------
     def prepare(self) -> None:
-        """Create the build subdirectories and reset the generated source dir.
+        """Invalidate the earlier report, then reset the generated source dir.
 
-        ``src`` is removed and recreated through descriptor-relative
-        operations, so afterwards it holds only files written by the current
-        run.
+        The report named by ``REPORT_RELATIVE`` is invalidated first, before
+        anything under ``src`` is touched, so a failure of this reset - or of
+        any later stage - cannot leave a report of the run that came before it
+        alongside a generated tree that run did not produce.  A report that can
+        be neither unlinked nor emptied stops this method before its first
+        removal, leaving the generated tree exactly as the earlier run left it.
+
+        ``src`` is then removed and recreated, and the remaining build
+        subdirectories are created, through descriptor-relative operations, so
+        afterwards ``src`` holds only files written by the current run.
         """
         self._ensure_root()
+        self.invalidate_file(REPORT_RELATIVE)
         root_fd = self._open_root_fd()
         try:
             source_dir = self.root / "src"
@@ -862,6 +954,114 @@ class BuildTree:
                 f"cannot remove the directory {display}: {error}"
             ) from error
         return removed + 1
+
+    def invalidate_file(self, relative: str) -> None:
+        """Leave nothing at ``relative`` that can be read as this run's output.
+
+        The request must land inside the root, which a name reaching outside it
+        through a link does not, and every directory above the entry is opened
+        descriptor by descriptor without following a link.  A name standing for
+        nothing is already invalid and is left alone.  A regular file reachable
+        through this one name only is unlinked; when its directory denies
+        writing and refuses the unlink, the file is emptied in place through a
+        no-follow descriptor instead, which needs no permission on that
+        directory.  Anything this gate may not remove or empty - a directory, a
+        link inside the tree, an entry of another type, a file reachable
+        through a second name, and a file whose removal and emptying are both
+        refused - is left exactly as it stands and reported by raising
+        ``TranslationError`` naming the path and the reason.
+        """
+        self.path_for(relative)
+        parts = self._lexical_parts(relative)
+        target = self.root.joinpath(*parts)
+        dir_fd = self._open_directory_fd(parts[:-1], create=True)
+        try:
+            try:
+                info = os.stat(parts[-1], dir_fd=dir_fd, follow_symlinks=False)
+            except FileNotFoundError:
+                return
+            except OSError as error:
+                raise TranslationError(
+                    f"cannot inspect {target} before removing it: {error}"
+                ) from error
+            self._require_removable_or_emptiable(info, target)
+            try:
+                os.unlink(parts[-1], dir_fd=dir_fd)
+                return
+            except FileNotFoundError:
+                return
+            except OSError as error:
+                if error.errno not in UNLINK_REFUSED_ERRNOS:
+                    raise TranslationError(
+                        f"cannot remove {target}: {error}"
+                    ) from error
+                refusal = error
+            self._empty_through_descriptor(dir_fd, parts[-1], target, refusal)
+        finally:
+            os.close(dir_fd)
+
+    @staticmethod
+    def _require_removable_or_emptiable(info: os.stat_result, target: Path) -> None:
+        """Assert ``info`` describes an entry this gate may unlink or empty.
+
+        ``info`` is the result of a no-follow ``stat`` or of an ``fstat`` on a
+        no-follow descriptor.  A directory, a symbolic link and any other
+        non-regular entry are refused, and so is a regular file carrying more
+        than one hard link, whose content is reachable through a name this gate
+        does not own.
+        """
+        if stat.S_ISDIR(info.st_mode):
+            raise TranslationError(
+                f"refusing to invalidate {target}: it is a directory"
+            )
+        if stat.S_ISLNK(info.st_mode):
+            raise TranslationError(
+                f"refusing to invalidate {target}: it is a symbolic link"
+            )
+        if not stat.S_ISREG(info.st_mode):
+            raise TranslationError(
+                f"refusing to invalidate {target}: it is not a regular file"
+            )
+        if info.st_nlink > 1:
+            raise TranslationError(
+                f"refusing to invalidate {target}: it carries {info.st_nlink} "
+                f"hard links, and neither removing nor emptying this name would "
+                f"leave the content it shares unreadable"
+            )
+
+    def _empty_through_descriptor(
+        self, dir_fd: int, name: str, target: Path, refusal: OSError
+    ) -> None:
+        """Truncate ``name`` below ``dir_fd`` to nothing, following no link.
+
+        The open creates nothing, follows no symbolic link and truncates
+        nothing; the descriptor is then checked for still standing for a
+        regular file reachable through this one name, and only then is the file
+        emptied.  A name that has since gone is already invalid.  ``refusal``
+        is the error that stopped the unlink and is named alongside any failure
+        here, so a report that survives both is reported with both reasons.
+        """
+        try:
+            handle = os.open(name, NOFOLLOW_EXISTING_FILE_FLAGS, dir_fd=dir_fd)
+        except FileNotFoundError:
+            return
+        except OSError as error:
+            raise TranslationError(
+                f"cannot remove {target} ({refusal}) and cannot open it to "
+                f"empty it ({error}), so this run stops before it changes the "
+                f"generated sources the report describes"
+            ) from error
+        try:
+            self._require_removable_or_emptiable(os.fstat(handle), target)
+            os.ftruncate(handle, 0)
+        except OSError as error:
+            raise TranslationError(
+                f"cannot remove {target} ({refusal}) and cannot empty it "
+                f"({error}), so this run stops before it changes the generated "
+                f"sources the report describes"
+            ) from error
+        finally:
+            os.close(handle)
 
     def write_text(self, relative: str, text: str) -> Path:
         """Write ASCII text with LF endings; non-ASCII content is reported."""
@@ -1975,6 +2175,55 @@ def _validate_map_scalar_types(data: dict, label: str) -> None:
                         _require_text(host, f"{where}.using[{position}]")
 
 
+def _validate_declared_source_program(source_program: dict, label: str) -> str:
+    """Compare the declared ``source_program`` block with the source it names.
+
+    Returns the base name of the declared program.  The declared path must be
+    one of the allow-listed program sources inside the pinned source
+    directory, the declared program id must be the one that source carries,
+    the declared line total and EXEC CICS/EXEC SQL block counts must equal the
+    expected census of that source, and the declared line width must equal the
+    code-area limit every line of the generated copy is held to.  Each
+    mismatch names the member and both values.
+    """
+    _require_keys(source_program, DECLARED_SOURCE_PROGRAM_KEYS, label)
+    declared_path = _require_text(source_program["path"], f"{label}.path").strip()
+    name = Path(declared_path).name
+    if name not in PROGRAM_SOURCES:
+        raise TranslationError(
+            f"{label}.path names {name!r}, expected one of the authorized "
+            f"program sources {list(PROGRAM_SOURCES)}"
+        )
+    expected_path = (
+        EXPECTED_SOURCE_DIR.relative_to(REPO_ROOT) / name
+    ).as_posix()
+    if Path(declared_path).as_posix() != expected_path:
+        raise TranslationError(
+            f"{label}.path is {declared_path!r}, expected {expected_path!r}"
+        )
+    census = EXPECTED_SOURCE_CENSUS[name]
+    declared_id = _require_text(
+        source_program["program_id"], f"{label}.program_id"
+    ).strip().upper()
+    if declared_id != census["program_id"]:
+        raise TranslationError(
+            f"{label}.program_id is {declared_id!r}, expected "
+            f"{census['program_id']!r} for {name}"
+        )
+    for key, expected in (
+        ("total_lines", census["lines"]),
+        ("exec_cics_blocks", census["exec_cics"]),
+        ("exec_sql_blocks", census["exec_sql"]),
+        ("max_line_length", MAX_LINE_LENGTH),
+    ):
+        declared = _require_integer(source_program[key], f"{label}.{key}")
+        if declared != expected:
+            raise TranslationError(
+                f"{label}.{key} is {declared}, expected {expected} for {name}"
+            )
+    return name
+
+
 def load_statement_map(path: Path) -> dict:
     """Load and validate ``statement_map.yml`` before any generation happens.
 
@@ -1983,7 +2232,8 @@ def load_statement_map(path: Path) -> dict:
     and then type-checked member by member.  The ``checks`` block is compared
     with the expected census (3 includes, 8 dml entries, 11 blocks in total,
     one ``using_counts`` entry per stub and seven ``call_programs``) and every
-    entry is checked for internal consistency.
+    entry is checked for internal consistency.  The ``source_program`` block is
+    compared member by member with the authorized source it names.
     """
     if not path.is_file():
         raise TranslationError(f"statement map not found: {path}")
@@ -2067,6 +2317,10 @@ def load_statement_map(path: Path) -> dict:
             f"{sorted(using_counts)} do not match the keys derived from "
             f"checks.call_programs {sorted(expected_using_keys)}"
         )
+
+    declared_program = _validate_declared_source_program(
+        source_program, "source_program"
+    )
 
     seen_include_ids = set()
     for index, raw_include in enumerate(includes):
@@ -2227,6 +2481,7 @@ def load_statement_map(path: Path) -> dict:
     return {
         "path": path,
         "source_program": source_program,
+        "declared_program": declared_program,
         "includes": includes,
         "dml": dml,
         "checks": checks,
@@ -2464,6 +2719,7 @@ class ProgramTranslator:
             source_name=self.name,
             source_line_count=len(lines),
             generated_lines=[],
+            source_max_line_length=max((len(line) for line in lines), default=0),
         )
         index = 0
         while index < len(lines):
@@ -3521,6 +3777,38 @@ def verify_chain_link_contract(results: list) -> dict:
     }
 
 
+def verify_declared_source_census(statement_map: dict, results: list) -> None:
+    """Compare the map's declared census with the figures measured this run.
+
+    The program named by ``source_program.path`` must be one of the programs
+    just translated, and its declared line total, EXEC CICS block count, EXEC
+    SQL block count and longest line must equal the values measured from the
+    bytes read for that program.  Each mismatch names the member, the declared
+    value and the measured one.
+    """
+    declared = statement_map["source_program"]
+    name = statement_map["declared_program"]
+    measured = {result.source_name: result for result in results}
+    result = measured.get(name)
+    if result is None:
+        raise TranslationError(
+            f"source_program.path names {name!r}, which is not among the "
+            f"translated programs {sorted(measured)}"
+        )
+    for key, measured_value in (
+        ("total_lines", result.source_line_count),
+        ("exec_cics_blocks", result.exec_cics_sites),
+        ("exec_sql_blocks", result.exec_sql_blocks),
+        ("max_line_length", result.source_max_line_length),
+    ):
+        declared_value = _require_integer(declared[key], f"source_program.{key}")
+        if declared_value != measured_value:
+            raise TranslationError(
+                f"source_program.{key} is {declared_value}, measured "
+                f"{measured_value} in {name}"
+            )
+
+
 def verify_sources_unchanged(source_dir: Path, baseline: dict) -> None:
     """Re-read every authorized source and assert its digest is unchanged."""
     for name, digest in baseline.items():
@@ -3736,10 +4024,14 @@ def translate_all(
 ) -> dict:
     """Run the whole generation and verification sequence.
 
-    Ordering: validate the statement map, read and digest the authorized
-    sources and the harness copybooks, prepare the build tree, write the
-    baseline, place the verbatim copies, translate the three programs, verify
-    the generated tree, re-verify the sources, then write the report.
+    Ordering: contain the three read inputs, validate the statement map, read
+    and digest the authorized sources and the harness copybooks, prepare the
+    build tree - which invalidates any report of an earlier run before it
+    resets the generated sources, and stops the run without touching them when
+    that report cannot be invalidated - write the baseline, place the verbatim
+    copies, translate the three programs, verify the generated tree against the
+    rules and against the declared census, re-verify the sources, then write
+    the report.
     """
     if not source_dir.is_dir():
         raise TranslationError(f"source directory not found: {source_dir}")
@@ -3748,6 +4040,9 @@ def translate_all(
     require_expected_read_directory(source_dir, EXPECTED_SOURCE_DIR, "--source-dir")
     require_expected_read_directory(
         copybook_dir, EXPECTED_COPYBOOK_DIR, "--copybook-dir"
+    )
+    require_expected_read_file(
+        statement_map_path, EXPECTED_STATEMENT_MAP, "--statement-map"
     )
     if report_path is not None:
         expected_report = (CANONICAL_BUILD_ROOT / REPORT_RELATIVE).resolve()
@@ -3836,6 +4131,7 @@ def translate_all(
     resolved_copies = verify_copy_resolution(generated, build_tree)
     totals = verify_rule_totals(results)
     chain_link_contract = verify_chain_link_contract(results)
+    verify_declared_source_census(statement_map, results)
     verify_sources_unchanged(source_dir, baseline)
     git_check = verify_no_tracked_source_modification(source_dir)
 
@@ -3961,8 +4257,9 @@ def build_parser() -> argparse.ArgumentParser:
         default=DEFAULT_STATEMENT_MAP,
         metavar="FILE",
         help=(
-            "EXEC SQL block map driving rules R2 and R13 "
-            f"(default: {DEFAULT_STATEMENT_MAP})"
+            "EXEC SQL block map driving rules R2 and R13; it must resolve to "
+            f"{DEFAULT_STATEMENT_MAP} of this checkout and be a regular file "
+            f"rather than a symbolic link (default: {DEFAULT_STATEMENT_MAP})"
         ),
     )
     parser.add_argument(
