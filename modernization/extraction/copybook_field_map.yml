@@ -8,9 +8,12 @@
 #
 # HOW IT IS USED
 #   Loaded with a yaml.SafeLoader that rejects a repeated mapping key, a key it cannot compare,
-#   an alias and the merge key. modernization/extraction/build_sample_commarea.py is the only
-#   artifact that parses this file; it reads the record, layout, field, routing and sample
-#   contract sections, and modernization/harness/run_harness.sh passes it that path on every run.
+#   an alias and the merge key. modernization/extraction/build_sample_commarea.py reads the
+#   record, layout, field, routing and sample contract sections, and
+#   modernization/harness/run_harness.sh passes it that path on every run.
+#   modernization/extraction/extract_commarea.py reads the record, layout, field, routing,
+#   excluded, landing, comparison and product premium nullability sections, plus the
+#   source_system_key section, to decode one post-chain record into the landing record.
 #   The artifacts listed under `planned_consumers` will read their layout, typing and lineage
 #   facts from this file once they are processed; none of them is present in the tree yet. Byte
 #   layout is expressed only as `offset`, `length` and `pic` values.
@@ -2136,9 +2139,9 @@ counts:
 # present at this milestone.
 current_consumers:
   - modernization/extraction/build_sample_commarea.py
+  - modernization/extraction/extract_commarea.py
 
 planned_consumers:
-  - modernization/extraction/extract_commarea.py
   - modernization/extraction/extraction-spec.md
   - modernization/landing/landing-schema.json
   - modernization/landing/load_redshift.sql
