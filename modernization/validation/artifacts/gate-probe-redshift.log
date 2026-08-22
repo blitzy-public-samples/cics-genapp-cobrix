@@ -1,0 +1,2 @@
+land_to_s3: run mode 'redshift' from --run-mode, probing the real Redshift target
+land_to_s3: no Redshift host is set: set REDSHIFT_HOST in the environment. It is the same variable the redshift output of modernization/dbt/genapp_rqi/profiles.example.yml reads, so one setting serves the probe and the run it gates

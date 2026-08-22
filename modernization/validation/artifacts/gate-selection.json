@@ -1,0 +1,23 @@
+{
+  "extract_date": "2026-08-22",
+  "formal_aws_diff": "OPEN",
+  "probes": {
+    "redshift": {
+      "exit_status": 3,
+      "last_reported_line": "land_to_s3: no Redshift host is set: set REDSHIFT_HOST in the environment. It is the same variable the redshift output of modernization/dbt/genapp_rqi/profiles.example.yml reads, so one setting serves the probe and the run it gates",
+      "log": "validation/artifacts/gate-probe-redshift.log",
+      "passed": false
+    },
+    "s3": {
+      "exit_status": 3,
+      "last_reported_line": "land_to_s3: no credentials are resolved: set AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY in the environment, or configure a profile the session can read. An environment variable whose name merely begins with AWS is not a credential and is never read as one",
+      "log": "validation/artifacts/gate-probe-s3.log",
+      "passed": false
+    }
+  },
+  "provisioned": [],
+  "recorded_utc": "2026-08-22T14:46:39Z",
+  "selected_target": "local_substitute",
+  "source_system_key": "GENAPP_CLASS_EXEMPLAR",
+  "status_label": "validated against local substitute, not AWS"
+}

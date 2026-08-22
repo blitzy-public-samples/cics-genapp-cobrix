@@ -1,0 +1,2 @@
+land_to_s3: run mode 'redshift' from --run-mode, addressing AWS S3
+land_to_s3: no credentials are resolved: set AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY in the environment, or configure a profile the session can read. An environment variable whose name merely begins with AWS is not a credential and is never read as one
