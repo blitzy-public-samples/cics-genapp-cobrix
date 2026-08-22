@@ -1,7 +1,7 @@
 # run_harness.sh evidence manifest: one run, one published set
 # status label:        validated against local substitute, not AWS
-# run identifier:      20260822T152102Z-2488636
-# written (UTC):       2026-08-22T15:21:09Z
+# run identifier:      20260822T192111Z-2823302
+# written (UTC):       2026-08-22T19:21:18Z
 # case selection:      01AMOT, 01ACOM
 # success captures:    01AMOT, 01ACOM
 # policy number seed:  1000001
@@ -13,9 +13,9 @@
 # outside this set:    runtime-versions.txt, the environment record of the checkout
 287d25d2aaedae828f455e382ffc635dae7c9f9cd5da497e7391e1910c398ed3  translate.log
 3d1568c9445d49da113ce1d6baef5c63b26b30171b0b94e2caa07474eef0b4a8  compile.log
-a69a8ca30e5f5caac5e4a8182425ebc52a34d34d8f95538a0f58cebaa26e4f8a  translation-report.json
+1197912be4ee96ef7f064de5a90effdcbca04b76583b0b76142bd50c6cbe8bed  translation-report.json
 9ce3044c8058db34a25e698a04020a20be76a56099b02ae1b3d91d143b1e7a50  source-baseline.sha256
-2b42febe710168854351c701ad22b31c4dc900bfb893d23b33e29a5c14b04780  readonly-check.log
+10ec517249d93af56b1835ccc51d9700832e820b9986f4aa828a4be8b88a5c4e  readonly-check.log
 476594ebe3a57dd6e5702a558537bed636c9f9febad4c5e14cd09104b47d72c3  driver_01amot.log
 8d9f093875ed68943a47c67820605ebad68132a53aa197f5c4a3fa8ff248fcbf  captures_01amot.txt
 0beb0508ef2b207078136e728b7de7c5abe1dcb0748e5d28f4fd365b1da3700b  commarea_post_01amot.dat

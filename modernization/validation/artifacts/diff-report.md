@@ -12,7 +12,7 @@ Decision rationale: see modernization/docs/decision-log.md.
 
 | Item | Value |
 |---|---|
-| generated at (UTC) | 2026-08-22T15:21:24Z |
+| generated at (UTC) | 2026-08-22T19:21:34Z |
 | target | duckdb |
 | adapter | duckdb 1.5.5 |
 | python | 3.12.14 |

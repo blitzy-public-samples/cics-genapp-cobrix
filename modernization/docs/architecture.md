@@ -521,12 +521,12 @@ every authored file besides this document that carries the title.
 |---|---|---|
 | Figure 1 — BEFORE: GenApp Policy-Issue Chain, As-Is | `modernization/docs/project-guide.md`, `modernization/README.md` | CLOSED — both present and citing the exact title: `project-guide.md` 2, `README.md` 1. In-tree total: 2 authored files, 3 references |
 | Figure 2 — AFTER (BUILT): Canonical Warehouse Bridge | `modernization/docs/project-guide.md`, `modernization/README.md`, `modernization/landing/partition-layout.md`, `modernization/validation/validation-evidence.md` | CLOSED — all four present and citing the exact title: `project-guide.md` 2, `README.md` 1, `partition-layout.md` 1, `validation-evidence.md` 2. In-tree total: 11 authored files, 13 references |
-| Figure 3 — AFTER (PROPOSED, NOT BUILT): AWS-Native Multi-RQI Warehouse | `modernization/docs/project-guide.md`, `modernization/docs/decision-log.md` | CLOSED — both present and citing the exact title: `project-guide.md` 2, `decision-log.md` 3. In-tree total: 3 authored files, 6 references |
+| Figure 3 — AFTER (PROPOSED, NOT BUILT): AWS-Native Multi-RQI Warehouse | `modernization/docs/project-guide.md`, `modernization/docs/decision-log.md` | CLOSED — both present and citing the exact title: `project-guide.md` 2, `decision-log.md` 5. In-tree total: 3 authored files, 8 references |
 | Figure 4 — dbt Transformation DAG and Field Allocation | `modernization/extraction/extraction-spec.md`, `modernization/docs/field-level-lineage.md` | CLOSED — both present and citing the exact title: `extraction-spec.md` 1, `field-level-lineage.md` 1. In-tree total: 19 authored files, 20 references |
 | Figure 5 — Validation Harness Control Flow | `modernization/README.md`, `modernization/harness/translation-rules.md`, `modernization/validation/validation-evidence.md` | CLOSED — all three present and citing the exact title: `README.md` 1, `translation-rules.md` 3, `validation-evidence.md` 2. In-tree total: 32 authored files, 38 references, plus the tracked evidence artifact `modernization/validation/artifacts/diff-report.md` |
 
 Fifty-four authored files besides this document carry an exact figure title, in 67 file-to-figure pairs — eight files
-cite more than one figure, `modernization/README.md` citing all five — and those 67 pairs hold 80 references, six files
+cite more than one figure, `modernization/README.md` citing all five — and those 67 pairs hold 82 references, six files
 citing one figure more than once. Every one of those references is verifiable here. Six authored files carry no figure
 title at all:
 `modernization/.gitignore`, `modernization/requirements.txt`,
@@ -552,9 +552,9 @@ Per figure, the authored files besides this document that carry the exact title:
   `modernization/extraction/extract_commarea.py`, `modernization/landing/landing-schema.json`,
   `modernization/landing/land_to_s3.py`, `modernization/landing/load_local.py`,
   `modernization/landing/load_redshift.sql`, `modernization/dbt/genapp_rqi/profiles.example.yml`.
-- `Figure 3 — AFTER (PROPOSED, NOT BUILT): AWS-Native Multi-RQI Warehouse` — 3 files carrying 6 references:
+- `Figure 3 — AFTER (PROPOSED, NOT BUILT): AWS-Native Multi-RQI Warehouse` — 3 files carrying 8 references:
   `modernization/README.md`, `modernization/docs/project-guide.md` (two references),
-  `modernization/docs/decision-log.md` (three references).
+  `modernization/docs/decision-log.md` (five references).
 - `Figure 4 — dbt Transformation DAG and Field Allocation` — 19 files carrying 20 references:
   `modernization/README.md`, `modernization/extraction/extraction-spec.md`,
   `modernization/docs/field-level-lineage.md`, `modernization/docs/traceability-matrix.md`,

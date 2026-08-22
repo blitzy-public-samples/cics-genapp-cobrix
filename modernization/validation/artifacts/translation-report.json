@@ -33,19 +33,19 @@
   "harness_copybooks": {
     "dfheiblk.cpy": {
       "path": "modernization/harness/copybooks/dfheiblk.cpy",
-      "sha256": "e7f76b59eaa3b34ccb374147b17c478d0e2a69ad55fe6f1136a0fc00baeee617"
+      "sha256": "dd73bb12948fe032293a7cb7a4b54ddd2ea5da51dd96b37d08362723e9b8028b"
     },
     "dfhresp.cpy": {
       "path": "modernization/harness/copybooks/dfhresp.cpy",
-      "sha256": "decfaf5442e4cbb0b66d68fe3004bc4a0cd0a3455556823fdd33afb7a5fb7e78"
+      "sha256": "2122d747ca0f3952daa10278e0dbde740b9e5c1fa585840a8c31099d1f84235d"
     },
     "hcapture.cpy": {
       "path": "modernization/harness/copybooks/hcapture.cpy",
-      "sha256": "d67d85f449860c6aec20d37c8c2bcc528bf282a4251f91b1060ac1d825bd9c97"
+      "sha256": "6c35ee2362554c4e3fe1eb9295b046303c19b5d49bc058a5b8c5b1a22b55ca6a"
     },
     "hsqlca.cpy": {
       "path": "modernization/harness/copybooks/hsqlca.cpy",
-      "sha256": "64add9ab3d65d0df2ff79268a68669cf2a5835c7f35a2c2b604a4400e1524a6e"
+      "sha256": "a54a79a7dcf36c51b03010312a821c2c3c90e22953e6ea7aa8287e5d73d7a678"
     }
   },
   "verbatim_copies": [
@@ -64,25 +64,25 @@
     {
       "origin": "modernization/harness/copybooks/dfheiblk.cpy",
       "copy": "modernization/harness/build/src/dfheiblk.cpy",
-      "sha256": "e7f76b59eaa3b34ccb374147b17c478d0e2a69ad55fe6f1136a0fc00baeee617",
+      "sha256": "dd73bb12948fe032293a7cb7a4b54ddd2ea5da51dd96b37d08362723e9b8028b",
       "kind": "harness copybook"
     },
     {
       "origin": "modernization/harness/copybooks/dfhresp.cpy",
       "copy": "modernization/harness/build/src/dfhresp.cpy",
-      "sha256": "decfaf5442e4cbb0b66d68fe3004bc4a0cd0a3455556823fdd33afb7a5fb7e78",
+      "sha256": "2122d747ca0f3952daa10278e0dbde740b9e5c1fa585840a8c31099d1f84235d",
       "kind": "harness copybook"
     },
     {
       "origin": "modernization/harness/copybooks/hsqlca.cpy",
       "copy": "modernization/harness/build/src/hsqlca.cpy",
-      "sha256": "64add9ab3d65d0df2ff79268a68669cf2a5835c7f35a2c2b604a4400e1524a6e",
+      "sha256": "a54a79a7dcf36c51b03010312a821c2c3c90e22953e6ea7aa8287e5d73d7a678",
       "kind": "harness copybook"
     },
     {
       "origin": "modernization/harness/copybooks/hcapture.cpy",
       "copy": "modernization/harness/build/src/hcapture.cpy",
-      "sha256": "d67d85f449860c6aec20d37c8c2bcc528bf282a4251f91b1060ac1d825bd9c97",
+      "sha256": "6c35ee2362554c4e3fe1eb9295b046303c19b5d49bc058a5b8c5b1a22b55ca6a",
       "kind": "harness copybook"
     }
   ],
