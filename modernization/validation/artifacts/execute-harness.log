@@ -1,0 +1,740 @@
+run_harness.sh: == stage 1 of 6: preflight ==
+run_harness.sh:   harness lock held: /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4-w-004_8cb43d/modernization/harness/build/harness.lock (waited up to 300 seconds)
+run_harness.sh:   python 3.12.14 (/tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4-w-004_8cb43d/modernization/.venv/bin/python)
+run_harness.sh:   cobc 3.2.0 (cobc)
+run_harness.sh:   DEVIATION cobc pinned=3.1.2.0 measured=3.2.0
+run_harness.sh:   COB_CONFIG_DIR=/usr/share/gnucobol/config (pinned to the compiler's own)
+run_harness.sh:   COB_RUNTIME_CONFIG left unset, so the run-time configuration of that installation is loaded
+run_harness.sh:   dialect chain of ibm.conf: 4 files under /usr/share/gnucobol/config
+run_harness.sh:   dialect keys resolved: binary-size=2-4-8, binary-truncate=no, binary-byteorder=big-endian, hostsign=yes, defaultbyte=0
+run_harness.sh:   binary truncation in force: yes, pinned by the mandated -fbinary-truncate whatever binary-truncate the chain resolves
+run_harness.sh:   COB_CFLAGS=-std=c17 -finline-functions -pipe -Wdate-time -Wno-unused -fsigned-char -Wno-pointer-sign -D_FORTIFY_SOURCE=3
+run_harness.sh:   C options pinned: 2 -D_FORTIFY_SOURCE= definitions of the host toolchain reduced to the one that takes effect, -D_FORTIFY_SOURCE=3
+run_harness.sh:   cobc flags: -std=ibm -fbinary-truncate -ffold-copy=LOWER -ext cpy
+run_harness.sh:   inputs present: 24 files under modernization/ plus base/src/
+run_harness.sh:   seeds: first case policy 1000001, last case policy 1000012, lastchanged 2026-08-19-12.00.00.000000
+run_harness.sh:   directories ready under /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4-w-004_8cb43d/modernization/harness/build
+run_harness.sh:   staging directory of this run: /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4-w-004_8cb43d/modernization/harness/build/evidence/20260822T152102Z-2488636
+run_harness.sh:   evidence directory ready at /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4-w-004_8cb43d/modernization/validation/artifacts
+run_harness.sh:   cases selected: 01AMOT, 01ACOM
+run_harness.sh:   fixtures selected: 01amot, 01acom
+run_harness.sh:   source guard evidence log emptied: modernization/harness/build/logs/readonly-check.log
+run_harness.sh:   source guard harness-preflight: PASS (modernization/harness/build/logs/readonly-check.log)
+run_harness.sh: == stage 2 of 6: samples and translation ==
+built /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4-w-004_8cb43d/modernization/harness/build/samples/commarea_01amot.dat request_id=01AMOT overlay=motor_overlay characters=32500 bytes=32501
+run_harness.sh:   sample 01amot: /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4-w-004_8cb43d/modernization/harness/build/samples/commarea_01amot.dat (32501 bytes)
+built /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4-w-004_8cb43d/modernization/harness/build/samples/commarea_01acom.dat request_id=01ACOM overlay=commercial_overlay characters=32500 bytes=32501
+run_harness.sh:   sample 01acom: /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4-w-004_8cb43d/modernization/harness/build/samples/commarea_01acom.dat (32501 bytes)
+status_label: validated against local substitute, not AWS
+translate.py: generated 3 program(s) into modernization/harness/build/src
+  lgapol01.cbl: 169 source line(s) -> 162 generated line(s); 9 EXEC CICS site(s), 0 EXEC SQL block(s), 143 line(s) copied unchanged
+  lgapdb01.cbl: 595 source line(s) -> 514 generated line(s); 20 EXEC CICS site(s), 11 EXEC SQL block(s), 391 line(s) copied unchanged
+  lgapvs01.cbl: 188 source line(s) -> 183 generated line(s); 7 EXEC CICS site(s), 0 EXEC SQL block(s), 160 line(s) copied unchanged
+  rules applied: R1=1, R2=3, R3=3, R4=3, R5=2, R6=9, R7=12, R8=6, R9=1, R10=3, R11=3, R12=1, R13=8
+  chain link lgapdb01.cbl:243-246 -> LGAPVS01 via LGAPVS01 declared at lgapdb01.cbl:119; COMMAREA DFHCOMMAREA, LENGTH 32500
+  chain link lgapol01.cbl:121-124 -> LGAPDB01 via LGAPDB01 declared at lgapol01.cbl:51; COMMAREA DFHCOMMAREA, LENGTH 32500
+  verbatim copies: 6; response-condition item: DFHRESP-NORMAL
+  baseline: modernization/harness/build/logs/source-baseline.sha256
+  report:   modernization/harness/build/logs/translation-report.json
+run_harness.sh:   translation log: /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4-w-004_8cb43d/modernization/harness/build/logs/translate.log
+run_harness.sh:   generated sources present: 9 files in /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4-w-004_8cb43d/modernization/harness/build/src
+run_harness.sh:   source baseline: /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4-w-004_8cb43d/modernization/harness/build/logs/source-baseline.sha256
+base/src/lgapdb01.cbl: OK
+base/src/lgapol01.cbl: OK
+base/src/lgapvs01.cbl: OK
+base/src/lgcmarea.cpy: OK
+base/src/lgpolicy.cpy: OK
+run_harness.sh:   chain link contract: 2 sites, DFHCOMMAREA, length 32500
+run_harness.sh: == stage 3 of 6: compile ==
+run_harness.sh:   compile log: /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4-w-004_8cb43d/modernization/harness/build/logs/compile.log
+run_harness.sh:   compiler dialect recorded in /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4-w-004_8cb43d/modernization/harness/build/logs/compile.log
+run_harness.sh:   modules compiled: 15 into /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4-w-004_8cb43d/modernization/harness/build/bin
+run_harness.sh:   driver compiled: /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4-w-004_8cb43d/modernization/harness/build/bin/driver
+run_harness.sh:   modules present: 15; driver present
+run_harness.sh:   compiler diagnostics: 0 warning lines, 0 note lines in /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4-w-004_8cb43d/modernization/harness/build/logs/compile.log
+run_harness.sh:   source guard harness-compile: PASS (modernization/harness/build/logs/readonly-check.log)
+run_harness.sh: == stage 4 of 6: infrastructure probes ==
+run_harness.sh:   COB_LIBRARY_PATH=/tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4-w-004_8cb43d/modernization/harness/build/bin
+run_harness.sh:   COB_LS_FIXED=1
+run_harness.sh:   probe PRB7: COB_LIBRARY_PATH, module directory of the run holds no module, expects status 7
+DRIVER: case PRB7 fixture 01amot request id 01AMOT
+DRIVER: SAMPLEFILE read from standard input
+DRIVER: POSTFILE   written into descriptor 3, opened as /dev/fd/3
+DRIVER: CAPTFILE   written into descriptor 4, opened as /dev/fd/4
+DRIVER: module LGAPOL01 could not be called; set COB_LIBRARY_PATH to the directory holding the compiled harness modules
+DRIVER: post-chain COMMAREA characters 1-100
+01AMOT55000000100100000000002026-08-192027-08-18                          0000000042BRMOT001  000500
+DRIVER: CA-M-PREMIUM 000450
+CASE=PRB7
+FIXTURE=01amot
+SAMPLE_RECORD_LENGTH=32500
+EIBCALEN_AT_CALL=32500
+CASE_REQUEST_ID_EFFECTIVE=01AMOT
+INJECT_POLICY_SQLCODE=0
+INJECT_SUBTYPE_SQLCODE=0
+INJECT_VSAM_RESP=0
+INJECT_VSAM_RESP2=0
+EXPECT_RETURN_CODE=00
+FIXTURE_RETURN_CODE=55
+EXPECT_ABEND=NONE
+EXPECT_PRODUCT=MOTOR
+EXPECT_POLICY_SQL=Y
+EXPECT_VSAM=Y
+EXPECT_VALUES=Y
+EXPECT_PRODUCT_VALUES=Y
+EXPECT_DIAG_LINKS=NONE
+EXPECT_IDENTITY_READBACKS=Y
+EXPECT_POLICY_TYPE=M
+EXPECT_POLICY_NUMBER=1000001
+EXPECT_LASTCHANGED=2026-08-19-12.00.00.000000
+EXPECT_SQLCODE=0
+EXPECT_VSAM_RESP=0
+LINK_DB2_PRESENT=N
+LINK_DB2_CALEN=0
+LINK_VSAM_PRESENT=N
+LINK_VSAM_CALEN=0
+CA_REQUEST_ID=01AMOT
+CA_RETURN_CODE=55
+CA_CUSTOMER_NUM=0000001001
+CA_POLICY_NUM=0000000000
+CA_ISSUE_DATE=2026-08-19
+CA_EXPIRY_DATE=2027-08-18
+CA_LASTCHANGED=
+CA_BROKERID=0000000042
+CA_BROKERSREF=BRMOT001
+CA_PAYMENT=000500
+CA_M_PREMIUM=000450
+SQL_POLICY_PRESENT=N
+SQL_POLICY_COUNT=0000
+SQL_POLICY_SEQ=0000
+SQL_POLICY_CUSTOMERNUM=0
+SQL_POLICY_ISSUEDATE=
+SQL_POLICY_EXPIRYDATE=
+SQL_POLICY_POLICYTYPE=
+SQL_POLICY_BROKERID=0
+SQL_POLICY_BROKERSREF=
+SQL_POLICY_PAYMENT=0
+SQL_POLICY_ASSIGNED_NUMBER=0
+SQL_POLICY_ASSIGNED_LASTCHANGED=
+SQL_MOTOR_PRESENT=N
+SQL_MOTOR_COUNT=0000
+SQL_MOTOR_SEQ=0000
+SQL_MOTOR_POLICYNUM=0
+SQL_MOTOR_MAKE=
+SQL_MOTOR_MODEL=
+SQL_MOTOR_VALUE=0
+SQL_MOTOR_REGNUMBER=
+SQL_MOTOR_COLOUR=
+SQL_MOTOR_CC=0
+SQL_MOTOR_MANUFACTURED=
+SQL_MOTOR_PREMIUM=0
+SQL_MOTOR_ACCIDENTS=0
+SQL_COMMERCIAL_PRESENT=N
+SQL_COMMERCIAL_COUNT=0000
+SQL_COMMERCIAL_SEQ=0000
+SQL_COMMERCIAL_POLICYNUM=0
+SQL_COMMERCIAL_REQUESTDATE=
+SQL_COMMERCIAL_STARTDATE=
+SQL_COMMERCIAL_RENEWALDATE=
+SQL_COMMERCIAL_ADDRESS=
+SQL_COMMERCIAL_ZIPCODE=
+SQL_COMMERCIAL_LATITUDEN=
+SQL_COMMERCIAL_LONGITUDEW=
+SQL_COMMERCIAL_CUSTOMER=
+SQL_COMMERCIAL_PROPERTYTYPE=
+SQL_COMMERCIAL_FIREPERIL=0
+SQL_COMMERCIAL_FIREPREMIUM=0
+SQL_COMMERCIAL_CRIMEPERIL=0
+SQL_COMMERCIAL_CRIMEPREMIUM=0
+SQL_COMMERCIAL_FLOODPERIL=0
+SQL_COMMERCIAL_FLOODPREMIUM=0
+SQL_COMMERCIAL_WEATHERPERIL=0
+SQL_COMMERCIAL_WEATHERPREMIUM=0
+SQL_COMMERCIAL_STATUS=0
+SQL_COMMERCIAL_REJECTIONREASON=
+SQL_ENDOWMENT_PRESENT=N
+SQL_ENDOWMENT_COUNT=0000
+SQL_ENDOWMENT_SEQ=0000
+SQL_ENDOWMENT_POLICYNUM=0
+SQL_ENDOWMENT_WITHPROFITS=
+SQL_ENDOWMENT_EQUITIES=
+SQL_ENDOWMENT_MANAGEDFUND=
+SQL_ENDOWMENT_FUNDNAME=
+SQL_ENDOWMENT_TERM=0
+SQL_ENDOWMENT_SUMASSURED=0
+SQL_ENDOWMENT_LIFEASSURED=
+SQL_ENDOWMENT_PADDINGLEN=0
+SQL_HOUSE_PRESENT=N
+SQL_HOUSE_COUNT=0000
+SQL_HOUSE_SEQ=0000
+SQL_HOUSE_POLICYNUM=0
+SQL_HOUSE_PROPERTYTYPE=
+SQL_HOUSE_BEDROOMS=0
+SQL_HOUSE_VALUE=0
+SQL_HOUSE_HOUSENAME=
+SQL_HOUSE_HOUSENUMBER=
+SQL_HOUSE_POSTCODE=
+SQL_IDENTITY_CALLS=0000
+SQL_LASTCHANGED_CALLS=0000
+SQL_IDENTITY_PRESENT=N
+SQL_IDENTITY_SEQ=0000
+SQL_LASTCHANGED_PRESENT=N
+SQL_LASTCHANGED_SEQ=0000
+SQL_LASTCHANGED_POLICYNUM=0
+SQLCODE_LAST=0
+EVENT_SEQ_TOTAL=0000
+EVENT_SEQ_EXPECTED=0005
+ORDER_VIOLATION=N
+ORDER_VIOLATION_STMT=
+ORDER_LAST_STMT=
+VSAM_PRESENT=N
+VSAM_COUNT=0000
+VSAM_SEQ=0000
+VSAM_FILE=
+VSAM_LENGTH=0000
+VSAM_KEYLENGTH=0000
+VSAM_KEY=
+VSAM_REQUEST_ID=
+VSAM_CUSTOMER_NUM=
+VSAM_POLICY_NUM=
+VSAM_RESP=0
+VSAM_RECORD=
+VSAM_RECORD_HEX=20202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020
+VSAM_PAYLOAD=
+VSAM_PAYLOAD_HEX=20202020202020202020202020202020202020202020202020202020202020202020202020202020202020
+VSAM_RID_KEY=
+VSAM_RID_KEY_HEX=202020202020202020202020202020202020202020
+VSAM_RID_REQUEST_ID=
+VSAM_RID_CUSTOMER_NUM=
+VSAM_RID_POLICY_NUM=
+VSAM_KEY_EXPECTED=M00000010010001000001
+VSAM_PAYLOAD_EXPECTED=FORD           FIESTA         012500AB12CDE
+VSAM_PAYLOAD_DERIVED=Y
+VSAM_RECORD_EXPECTED_HEX=4D3030303030303130303130303031303030303031464F5244202020202020202020202046494553544120202020202020202030313235303041423132434445
+ABEND_PRESENT=N
+ABEND_CODE=
+DIAG_LINK_COUNT=0000
+ABEND_COUNT=0000
+ABEND_SEQ=0000
+DRIVER: check failed CHAIN-MODULE-CALLED
+DRIVER: check failed RETURN-CODE-AS-EXPECTED
+DRIVER:   field CA-RETURN-CODE expected [00] captured [55]
+DRIVER: check failed insert_policy-CAPTURE
+DRIVER:   statement insert_policy expected present Y count 0001 and an ordinal above zero
+DRIVER:   captured present N count 0000 ordinal 0000
+DRIVER: check failed set_identity-CAPTURE
+DRIVER:   statement set_identity expected present Y count 0001 and an ordinal above zero
+DRIVER:   captured present N count 0000 ordinal 0000
+DRIVER: check failed select_lastchanged-CAPTURE
+DRIVER:   statement select_lastchanged expected present Y count 0001 and an ordinal above zero
+DRIVER:   captured present N count 0000 ordinal 0000
+DRIVER: check failed insert_motor-CAPTURE
+DRIVER:   statement insert_motor expected present Y count 0001 and an ordinal above zero
+DRIVER:   captured present N count 0000 ordinal 0000
+DRIVER: check failed cics_write-CAPTURE
+DRIVER:   statement cics_write expected present Y count 0001 and an ordinal above zero
+DRIVER:   captured present N count 0000 ordinal 0000
+DRIVER: check failed EVENT-COUNT-AS-EXPECTED
+DRIVER:   field EVENT_SEQ_TOTAL expected 0005 captured 0000
+DRIVER: check failed CAPTURE-ORDER-AS-EXECUTED
+DRIVER:   statement insert_policy ordinal 0000 does not follow ordinal 0000
+DRIVER: check failed CAPTURE-ORDER-AS-EXECUTED
+DRIVER:   statement set_identity ordinal 0000 does not follow ordinal 0000
+DRIVER: check failed CAPTURE-ORDER-AS-EXECUTED
+DRIVER:   statement select_lastchanged ordinal 0000 does not follow ordinal 0000
+DRIVER: check failed CAPTURE-ORDER-AS-EXECUTED
+DRIVER:   statement insert_motor ordinal 0000 does not follow ordinal 0000
+DRIVER: check failed CAPTURE-ORDER-AS-EXECUTED
+DRIVER:   statement cics_write ordinal 0000 does not follow ordinal 0000
+DRIVER: check failed LGAPDB01-LINK-WITNESS
+DRIVER:   program LGAPDB01 was not entered
+DRIVER: check failed LGAPVS01-LINK-WITNESS
+DRIVER:   program LGAPVS01 was not entered
+DRIVER: 15 named check(s) failed
+AMOUNT_PAYMENT_EXPECTED=500
+AMOUNT_PAYMENT_CAPTURED=0
+AMOUNT_MOTOR_PREMIUM_EXPECTED=450
+AMOUNT_MOTOR_PREMIUM_CAPTURED=0
+AMOUNT_CHECKS=00
+AMOUNT_MAX_DELTA=0
+CHECKS_FAILED=15
+CAPTURE_CHECKS_FAILED=13
+VALUE_CHECKS_FAILED=00
+DRIVER_EXIT_STATUS=07
+DRIVER_STATUS=FAIL
+DRIVER: exit status 07
+run_harness.sh:   probe PRB7: driver status 7, the translated chain could not be called
+run_harness.sh:   probe PRB7: capture records no chain effect, driver verdict FAIL at status 7
+run_harness.sh:   probe PRB7: post-chain record matches the record read, ab9dce069745633d1d6aece8316becec210562bf89f34d4ac1a701e3a6a4574e
+run_harness.sh:   probe PRB5A: HARNESS_CASE, case is not provided, expects status 5
+DRIVER: HARNESS_CASE is not set; set it to a value holding only [ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-]
+DRIVER: exit status 05
+run_harness.sh:   probe PRB5A: driver status 5, a required environment item was not provided or was rejected
+run_harness.sh:   probe PRB5B: HARNESS_CASE, case names a path above the run directory, expects status 5
+DRIVER: HARNESS_CASE holds a character outside [ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-] at position 1
+DRIVER:   value [../ESC]
+DRIVER: exit status 05
+run_harness.sh:   probe PRB5B: driver status 5, a required environment item was not provided or was rejected
+run_harness.sh:   probe PRB5C: HARNESS_FIXTURE, fixture is empty, expects status 5
+DRIVER: HARNESS_FIXTURE is not set; set it to a value holding only [abcdefghijklmnopqrstuvwxyz0123456789]
+DRIVER: exit status 05
+run_harness.sh:   probe PRB5C: driver status 5, a required environment item was not provided or was rejected
+run_harness.sh:   probe PRB4: capture descriptor, capture descriptor of the driver is not open, expects status 4
+DRIVER: case PRB4 fixture 01amot request id 01AMOT
+DRIVER: SAMPLEFILE read from standard input
+DRIVER: POSTFILE   written into descriptor 3, opened as /dev/fd/3
+DRIVER: CAPTFILE   written into descriptor 4, opened as /dev/fd/4
+DRIVER: open output failed on CAPTFILE, descriptor 4 through /dev/fd/4, file status 30
+DRIVER:   descriptor 4 carries the capture lines; open it on the file those lines are written into, as in 4>captures.txt
+DRIVER: exit status 04
+run_harness.sh:   probe PRB4: driver status 4, a file input-output operation failed, or the record read held other than 32500 characters
+run_harness.sh:   probes executed: 5; assertions passed: 44
+run_harness.sh: == stage 5 of 6: execute ==
+run_harness.sh:   COB_LIBRARY_PATH=/tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4-w-004_8cb43d/modernization/harness/build/bin
+run_harness.sh:   COB_LS_FIXED=1
+run_harness.sh:   case 01AMOT: fixture 01amot, request id 01AMOT, commarea length 32500, policy seed 1000001
+run_harness.sh:   case 01AMOT: injections policy 0, subtype 0, vsam resp 0/0
+run_harness.sh:   case 01AMOT: expects return 00, abend NONE, product MOTOR, policy sql Y, vsam Y, diag NONE
+DRIVER: case 01AMOT fixture 01amot request id 01AMOT
+DRIVER: SAMPLEFILE read from standard input
+DRIVER: POSTFILE   written into descriptor 3, opened as /dev/fd/3
+DRIVER: CAPTFILE   written into descriptor 4, opened as /dev/fd/4
+DRIVER: post-chain COMMAREA characters 1-100
+01AMOT00000000100100010000012026-08-192027-08-182026-08-19-12.00.00.0000000000000042BRMOT001  000500
+DRIVER: CA-M-PREMIUM 000450
+CASE=01AMOT
+FIXTURE=01amot
+SAMPLE_RECORD_LENGTH=32500
+EIBCALEN_AT_CALL=32500
+CASE_REQUEST_ID_EFFECTIVE=01AMOT
+INJECT_POLICY_SQLCODE=0
+INJECT_SUBTYPE_SQLCODE=0
+INJECT_VSAM_RESP=0
+INJECT_VSAM_RESP2=0
+EXPECT_RETURN_CODE=00
+FIXTURE_RETURN_CODE=55
+EXPECT_ABEND=NONE
+EXPECT_PRODUCT=MOTOR
+EXPECT_POLICY_SQL=Y
+EXPECT_VSAM=Y
+EXPECT_VALUES=Y
+EXPECT_PRODUCT_VALUES=Y
+EXPECT_DIAG_LINKS=NONE
+EXPECT_IDENTITY_READBACKS=Y
+EXPECT_POLICY_TYPE=M
+EXPECT_POLICY_NUMBER=1000001
+EXPECT_LASTCHANGED=2026-08-19-12.00.00.000000
+EXPECT_SQLCODE=0
+EXPECT_VSAM_RESP=0
+LINK_DB2_PRESENT=Y
+LINK_DB2_CALEN=32500
+LINK_VSAM_PRESENT=Y
+LINK_VSAM_CALEN=32500
+CA_REQUEST_ID=01AMOT
+CA_RETURN_CODE=00
+CA_CUSTOMER_NUM=0000001001
+CA_POLICY_NUM=0001000001
+CA_ISSUE_DATE=2026-08-19
+CA_EXPIRY_DATE=2027-08-18
+CA_LASTCHANGED=2026-08-19-12.00.00.000000
+CA_BROKERID=0000000042
+CA_BROKERSREF=BRMOT001
+CA_PAYMENT=000500
+CA_M_PREMIUM=000450
+SQL_POLICY_PRESENT=Y
+SQL_POLICY_COUNT=0001
+SQL_POLICY_SEQ=0001
+SQL_POLICY_CUSTOMERNUM=1001
+SQL_POLICY_ISSUEDATE=2026-08-19
+SQL_POLICY_EXPIRYDATE=2027-08-18
+SQL_POLICY_POLICYTYPE=M
+SQL_POLICY_BROKERID=42
+SQL_POLICY_BROKERSREF=BRMOT001
+SQL_POLICY_PAYMENT=500
+SQL_POLICY_ASSIGNED_NUMBER=1000001
+SQL_POLICY_ASSIGNED_LASTCHANGED=2026-08-19-12.00.00.000000
+SQL_MOTOR_PRESENT=Y
+SQL_MOTOR_COUNT=0001
+SQL_MOTOR_SEQ=0004
+SQL_MOTOR_POLICYNUM=1000001
+SQL_MOTOR_MAKE=FORD
+SQL_MOTOR_MODEL=FIESTA
+SQL_MOTOR_VALUE=12500
+SQL_MOTOR_REGNUMBER=AB12CDE
+SQL_MOTOR_COLOUR=BLUE
+SQL_MOTOR_CC=1400
+SQL_MOTOR_MANUFACTURED=2019-03-15
+SQL_MOTOR_PREMIUM=450
+SQL_MOTOR_ACCIDENTS=1
+SQL_COMMERCIAL_PRESENT=N
+SQL_COMMERCIAL_COUNT=0000
+SQL_COMMERCIAL_SEQ=0000
+SQL_COMMERCIAL_POLICYNUM=0
+SQL_COMMERCIAL_REQUESTDATE=
+SQL_COMMERCIAL_STARTDATE=
+SQL_COMMERCIAL_RENEWALDATE=
+SQL_COMMERCIAL_ADDRESS=
+SQL_COMMERCIAL_ZIPCODE=
+SQL_COMMERCIAL_LATITUDEN=
+SQL_COMMERCIAL_LONGITUDEW=
+SQL_COMMERCIAL_CUSTOMER=
+SQL_COMMERCIAL_PROPERTYTYPE=
+SQL_COMMERCIAL_FIREPERIL=0
+SQL_COMMERCIAL_FIREPREMIUM=0
+SQL_COMMERCIAL_CRIMEPERIL=0
+SQL_COMMERCIAL_CRIMEPREMIUM=0
+SQL_COMMERCIAL_FLOODPERIL=0
+SQL_COMMERCIAL_FLOODPREMIUM=0
+SQL_COMMERCIAL_WEATHERPERIL=0
+SQL_COMMERCIAL_WEATHERPREMIUM=0
+SQL_COMMERCIAL_STATUS=0
+SQL_COMMERCIAL_REJECTIONREASON=
+SQL_ENDOWMENT_PRESENT=N
+SQL_ENDOWMENT_COUNT=0000
+SQL_ENDOWMENT_SEQ=0000
+SQL_ENDOWMENT_POLICYNUM=0
+SQL_ENDOWMENT_WITHPROFITS=
+SQL_ENDOWMENT_EQUITIES=
+SQL_ENDOWMENT_MANAGEDFUND=
+SQL_ENDOWMENT_FUNDNAME=
+SQL_ENDOWMENT_TERM=0
+SQL_ENDOWMENT_SUMASSURED=0
+SQL_ENDOWMENT_LIFEASSURED=
+SQL_ENDOWMENT_PADDINGLEN=0
+SQL_HOUSE_PRESENT=N
+SQL_HOUSE_COUNT=0000
+SQL_HOUSE_SEQ=0000
+SQL_HOUSE_POLICYNUM=0
+SQL_HOUSE_PROPERTYTYPE=
+SQL_HOUSE_BEDROOMS=0
+SQL_HOUSE_VALUE=0
+SQL_HOUSE_HOUSENAME=
+SQL_HOUSE_HOUSENUMBER=
+SQL_HOUSE_POSTCODE=
+SQL_IDENTITY_CALLS=0001
+SQL_LASTCHANGED_CALLS=0001
+SQL_IDENTITY_PRESENT=Y
+SQL_IDENTITY_SEQ=0002
+SQL_LASTCHANGED_PRESENT=Y
+SQL_LASTCHANGED_SEQ=0003
+SQL_LASTCHANGED_POLICYNUM=1000001
+SQLCODE_LAST=0
+EVENT_SEQ_TOTAL=0005
+EVENT_SEQ_EXPECTED=0005
+ORDER_VIOLATION=N
+ORDER_VIOLATION_STMT=
+ORDER_LAST_STMT=cics_write
+VSAM_PRESENT=Y
+VSAM_COUNT=0001
+VSAM_SEQ=0005
+VSAM_FILE=KSDSPOLY
+VSAM_LENGTH=0064
+VSAM_KEYLENGTH=0021
+VSAM_KEY=M00000010010001000001
+VSAM_REQUEST_ID=M
+VSAM_CUSTOMER_NUM=0000001001
+VSAM_POLICY_NUM=0001000001
+VSAM_RESP=0
+VSAM_RECORD=M00000010010001000001FORD           FIESTA         012500AB12CDE
+VSAM_RECORD_HEX=4D3030303030303130303130303031303030303031464F5244202020202020202020202046494553544120202020202020202030313235303041423132434445
+VSAM_PAYLOAD=FORD           FIESTA         012500AB12CDE
+VSAM_PAYLOAD_HEX=464F5244202020202020202020202046494553544120202020202020202030313235303041423132434445
+VSAM_RID_KEY=M00000010010001000001
+VSAM_RID_KEY_HEX=4D3030303030303130303130303031303030303031
+VSAM_RID_REQUEST_ID=M
+VSAM_RID_CUSTOMER_NUM=0000001001
+VSAM_RID_POLICY_NUM=0001000001
+VSAM_KEY_EXPECTED=M00000010010001000001
+VSAM_PAYLOAD_EXPECTED=FORD           FIESTA         012500AB12CDE
+VSAM_PAYLOAD_DERIVED=Y
+VSAM_RECORD_EXPECTED_HEX=4D3030303030303130303130303031303030303031464F5244202020202020202020202046494553544120202020202020202030313235303041423132434445
+ABEND_PRESENT=N
+ABEND_CODE=
+DIAG_LINK_COUNT=0000
+ABEND_COUNT=0000
+ABEND_SEQ=0000
+AMOUNT_PAYMENT_EXPECTED=500
+AMOUNT_PAYMENT_CAPTURED=500
+AMOUNT_MOTOR_PREMIUM_EXPECTED=450
+AMOUNT_MOTOR_PREMIUM_CAPTURED=450
+AMOUNT_CHECKS=02
+AMOUNT_MAX_DELTA=0
+CHECKS_FAILED=00
+CAPTURE_CHECKS_FAILED=00
+VALUE_CHECKS_FAILED=00
+DRIVER_EXIT_STATUS=00
+DRIVER_STATUS=PASS
+DRIVER: exit status 00
+run_harness.sh:   case 01AMOT: capture keys present: 90
+run_harness.sh:   case 01AMOT: post-chain record 32501 bytes, 93 assertions passed
+run_harness.sh:   case 01ACOM: fixture 01acom, request id 01ACOM, commarea length 32500, policy seed 1000002
+run_harness.sh:   case 01ACOM: injections policy 0, subtype 0, vsam resp 0/0
+run_harness.sh:   case 01ACOM: expects return 00, abend NONE, product COMMERCIAL, policy sql Y, vsam Y, diag NONE
+DRIVER: case 01ACOM fixture 01acom request id 01ACOM
+DRIVER: SAMPLEFILE read from standard input
+DRIVER: POSTFILE   written into descriptor 3, opened as /dev/fd/3
+DRIVER: CAPTFILE   written into descriptor 4, opened as /dev/fd/4
+DRIVER: post-chain COMMAREA characters 1-100
+01ACOM00000000200200010000022026-08-192027-08-182026-08-19-12.00.00.0000000000000084BRCOM001  001750
+DRIVER: CA-B-FirePremium 00013500
+DRIVER: CA-B-CrimePremium 00003400
+DRIVER: CA-B-FloodPremium 00007800
+DRIVER: CA-B-WeatherPremium 00002600
+CASE=01ACOM
+FIXTURE=01acom
+SAMPLE_RECORD_LENGTH=32500
+EIBCALEN_AT_CALL=32500
+CASE_REQUEST_ID_EFFECTIVE=01ACOM
+INJECT_POLICY_SQLCODE=0
+INJECT_SUBTYPE_SQLCODE=0
+INJECT_VSAM_RESP=0
+INJECT_VSAM_RESP2=0
+EXPECT_RETURN_CODE=00
+FIXTURE_RETURN_CODE=55
+EXPECT_ABEND=NONE
+EXPECT_PRODUCT=COMMERCIAL
+EXPECT_POLICY_SQL=Y
+EXPECT_VSAM=Y
+EXPECT_VALUES=Y
+EXPECT_PRODUCT_VALUES=Y
+EXPECT_DIAG_LINKS=NONE
+EXPECT_IDENTITY_READBACKS=Y
+EXPECT_POLICY_TYPE=C
+EXPECT_POLICY_NUMBER=1000002
+EXPECT_LASTCHANGED=2026-08-19-12.00.00.000000
+EXPECT_SQLCODE=0
+EXPECT_VSAM_RESP=0
+LINK_DB2_PRESENT=Y
+LINK_DB2_CALEN=32500
+LINK_VSAM_PRESENT=Y
+LINK_VSAM_CALEN=32500
+CA_REQUEST_ID=01ACOM
+CA_RETURN_CODE=00
+CA_CUSTOMER_NUM=0000002002
+CA_POLICY_NUM=0001000002
+CA_ISSUE_DATE=2026-08-19
+CA_EXPIRY_DATE=2027-08-18
+CA_LASTCHANGED=2026-08-19-12.00.00.000000
+CA_BROKERID=0000000084
+CA_BROKERSREF=BRCOM001
+CA_PAYMENT=001750
+CA_B_FIREPREMIUM=00013500
+CA_B_CRIMEPREMIUM=00003400
+CA_B_FLOODPREMIUM=00007800
+CA_B_WEATHERPREMIUM=00002600
+SQL_POLICY_PRESENT=Y
+SQL_POLICY_COUNT=0001
+SQL_POLICY_SEQ=0001
+SQL_POLICY_CUSTOMERNUM=2002
+SQL_POLICY_ISSUEDATE=2026-08-19
+SQL_POLICY_EXPIRYDATE=2027-08-18
+SQL_POLICY_POLICYTYPE=C
+SQL_POLICY_BROKERID=84
+SQL_POLICY_BROKERSREF=BRCOM001
+SQL_POLICY_PAYMENT=1750
+SQL_POLICY_ASSIGNED_NUMBER=1000002
+SQL_POLICY_ASSIGNED_LASTCHANGED=2026-08-19-12.00.00.000000
+SQL_MOTOR_PRESENT=N
+SQL_MOTOR_COUNT=0000
+SQL_MOTOR_SEQ=0000
+SQL_MOTOR_POLICYNUM=0
+SQL_MOTOR_MAKE=
+SQL_MOTOR_MODEL=
+SQL_MOTOR_VALUE=0
+SQL_MOTOR_REGNUMBER=
+SQL_MOTOR_COLOUR=
+SQL_MOTOR_CC=0
+SQL_MOTOR_MANUFACTURED=
+SQL_MOTOR_PREMIUM=0
+SQL_MOTOR_ACCIDENTS=0
+SQL_COMMERCIAL_PRESENT=Y
+SQL_COMMERCIAL_COUNT=0001
+SQL_COMMERCIAL_SEQ=0004
+SQL_COMMERCIAL_POLICYNUM=1000002
+SQL_COMMERCIAL_REQUESTDATE=2026-08-19-12.00.00.000000
+SQL_COMMERCIAL_STARTDATE=2026-08-19
+SQL_COMMERCIAL_RENEWALDATE=2027-08-18
+SQL_COMMERCIAL_ADDRESS=1 EXAMPLE INDUSTRIAL ESTATE, EXAMPLE TOWN
+SQL_COMMERCIAL_ZIPCODE=EX1 2AB
+SQL_COMMERCIAL_LATITUDEN=51.4779
+SQL_COMMERCIAL_LONGITUDEW=-0.0015
+SQL_COMMERCIAL_CUSTOMER=EXAMPLE MANUFACTURING LTD
+SQL_COMMERCIAL_PROPERTYTYPE=WAREHOUSE
+SQL_COMMERCIAL_FIREPERIL=11
+SQL_COMMERCIAL_FIREPREMIUM=13500
+SQL_COMMERCIAL_CRIMEPERIL=22
+SQL_COMMERCIAL_CRIMEPREMIUM=3400
+SQL_COMMERCIAL_FLOODPERIL=33
+SQL_COMMERCIAL_FLOODPREMIUM=7800
+SQL_COMMERCIAL_WEATHERPERIL=44
+SQL_COMMERCIAL_WEATHERPREMIUM=2600
+SQL_COMMERCIAL_STATUS=0
+SQL_COMMERCIAL_REJECTIONREASON=
+SQL_ENDOWMENT_PRESENT=N
+SQL_ENDOWMENT_COUNT=0000
+SQL_ENDOWMENT_SEQ=0000
+SQL_ENDOWMENT_POLICYNUM=0
+SQL_ENDOWMENT_WITHPROFITS=
+SQL_ENDOWMENT_EQUITIES=
+SQL_ENDOWMENT_MANAGEDFUND=
+SQL_ENDOWMENT_FUNDNAME=
+SQL_ENDOWMENT_TERM=0
+SQL_ENDOWMENT_SUMASSURED=0
+SQL_ENDOWMENT_LIFEASSURED=
+SQL_ENDOWMENT_PADDINGLEN=0
+SQL_HOUSE_PRESENT=N
+SQL_HOUSE_COUNT=0000
+SQL_HOUSE_SEQ=0000
+SQL_HOUSE_POLICYNUM=0
+SQL_HOUSE_PROPERTYTYPE=
+SQL_HOUSE_BEDROOMS=0
+SQL_HOUSE_VALUE=0
+SQL_HOUSE_HOUSENAME=
+SQL_HOUSE_HOUSENUMBER=
+SQL_HOUSE_POSTCODE=
+SQL_IDENTITY_CALLS=0001
+SQL_LASTCHANGED_CALLS=0001
+SQL_IDENTITY_PRESENT=Y
+SQL_IDENTITY_SEQ=0002
+SQL_LASTCHANGED_PRESENT=Y
+SQL_LASTCHANGED_SEQ=0003
+SQL_LASTCHANGED_POLICYNUM=1000002
+SQLCODE_LAST=0
+EVENT_SEQ_TOTAL=0005
+EVENT_SEQ_EXPECTED=0005
+ORDER_VIOLATION=N
+ORDER_VIOLATION_STMT=
+ORDER_LAST_STMT=cics_write
+VSAM_PRESENT=Y
+VSAM_COUNT=0001
+VSAM_SEQ=0005
+VSAM_FILE=KSDSPOLY
+VSAM_LENGTH=0064
+VSAM_KEYLENGTH=0021
+VSAM_KEY=C00000020020001000002
+VSAM_REQUEST_ID=C
+VSAM_CUSTOMER_NUM=0000002002
+VSAM_POLICY_NUM=0001000002
+VSAM_RESP=0
+VSAM_RECORD=C00000020020001000002EX1 2AB 0000EXAMPLE MANUFACTURING LTD
+VSAM_RECORD_HEX=4330303030303032303032303030313030303030324558312032414220303030304558414D504C45204D414E55464143545552494E47204C5444202020202020
+VSAM_PAYLOAD=EX1 2AB 0000EXAMPLE MANUFACTURING LTD
+VSAM_PAYLOAD_HEX=4558312032414220303030304558414D504C45204D414E55464143545552494E47204C5444202020202020
+VSAM_RID_KEY=C00000020020001000002
+VSAM_RID_KEY_HEX=433030303030303230303230303031303030303032
+VSAM_RID_REQUEST_ID=C
+VSAM_RID_CUSTOMER_NUM=0000002002
+VSAM_RID_POLICY_NUM=0001000002
+VSAM_KEY_EXPECTED=C00000020020001000002
+VSAM_PAYLOAD_EXPECTED=EX1 2AB 0000EXAMPLE MANUFACTURING LTD
+VSAM_PAYLOAD_DERIVED=Y
+VSAM_RECORD_EXPECTED_HEX=4330303030303032303032303030313030303030324558312032414220303030304558414D504C45204D414E55464143545552494E47204C5444202020202020
+ABEND_PRESENT=N
+ABEND_CODE=
+DIAG_LINK_COUNT=0000
+ABEND_COUNT=0000
+ABEND_SEQ=0000
+AMOUNT_PAYMENT_EXPECTED=1750
+AMOUNT_PAYMENT_CAPTURED=1750
+AMOUNT_FIRE_PREMIUM_EXPECTED=13500
+AMOUNT_FIRE_PREMIUM_CAPTURED=13500
+AMOUNT_CRIME_PREMIUM_EXPECTED=3400
+AMOUNT_CRIME_PREMIUM_CAPTURED=3400
+AMOUNT_FLOOD_PREMIUM_EXPECTED=7800
+AMOUNT_FLOOD_PREMIUM_CAPTURED=7800
+AMOUNT_WEATHER_PREMIUM_EXPECTED=2600
+AMOUNT_WEATHER_PREMIUM_CAPTURED=2600
+AMOUNT_CHECKS=05
+AMOUNT_MAX_DELTA=0
+CHECKS_FAILED=00
+CAPTURE_CHECKS_FAILED=00
+VALUE_CHECKS_FAILED=00
+DRIVER_EXIT_STATUS=00
+DRIVER_STATUS=PASS
+DRIVER: exit status 00
+run_harness.sh:   case 01ACOM: capture keys present: 103
+run_harness.sh:   case 01ACOM: post-chain record 32501 bytes, 106 assertions passed
+run_harness.sh:   cases executed: 2; assertions passed: 243
+run_harness.sh:   source guard harness-execute: PASS (modernization/harness/build/logs/readonly-check.log)
+run_harness.sh: == stage 6 of 6: evidence ==
+run_harness.sh:   source guard harness-final: PASS (modernization/harness/build/logs/readonly-check.log)
+run_harness.sh:   evidence staged: 11 files in /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4-w-004_8cb43d/modernization/harness/build/evidence/20260822T152102Z-2488636
+run_harness.sh:   evidence manifest: /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4-w-004_8cb43d/modernization/harness/build/logs/evidence-manifest.sha256
+run_harness.sh:   publication check: 8 staged names and the manifest replaced the 12 of a full-table run in /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4-w-004_8cb43d/modernization/harness/build/evidence/20260822T152102Z-2488636/publication-check/published, the 3 names of 01ACOM were removed, runtime-versions.txt stood unchanged, and the read-back rejected a planted artifact: /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4-w-004_8cb43d/modernization/harness/build/evidence/20260822T152102Z-2488636/publication-check/published/driver_01acom.log stands beside the set, and the manifest does not name it
+run_harness.sh:   published names cleared: 12; files placed: 12
+run_harness.sh:   DEVIATION /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4-w-004_8cb43d/modernization/validation/artifacts/compile-modules.log stands beside the published set and no run of this script writes it
+run_harness.sh:   DEVIATION /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4-w-004_8cb43d/modernization/validation/artifacts/diff-report.json stands beside the published set and no run of this script writes it
+run_harness.sh:   DEVIATION /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4-w-004_8cb43d/modernization/validation/artifacts/diff-report.md stands beside the published set and no run of this script writes it
+run_harness.sh:   DEVIATION /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4-w-004_8cb43d/modernization/validation/artifacts/execute-harness.log stands beside the published set and no run of this script writes it
+run_harness.sh:   DEVIATION /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4-w-004_8cb43d/modernization/validation/artifacts/gate-probe-redshift.log stands beside the published set and no run of this script writes it
+run_harness.sh:   DEVIATION /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4-w-004_8cb43d/modernization/validation/artifacts/gate-probe-s3.log stands beside the published set and no run of this script writes it
+run_harness.sh:   DEVIATION /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4-w-004_8cb43d/modernization/validation/artifacts/gate-selection.json stands beside the published set and no run of this script writes it
+run_harness.sh:   DEVIATION /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4-w-004_8cb43d/modernization/validation/artifacts/verify-env.txt stands beside the published set and no run of this script writes it
+run_harness.sh:   artifacts published: 12 files in /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4-w-004_8cb43d/modernization/validation/artifacts, each named by /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4-w-004_8cb43d/modernization/validation/artifacts/evidence-manifest.sha256
+
+run_harness.sh: == run summary ==
+  result:            PASS
+  completed (UTC):   2026-08-22T15:21:10Z
+  run identifier:    20260822T152102Z-2488636
+  harness script:    /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4-w-004_8cb43d/modernization/harness/run_harness.sh
+  repository root:   /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4-w-004_8cb43d
+  harness lock:      /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4-w-004_8cb43d/modernization/harness/build/harness.lock held on descriptor 11, waited up to 300 seconds
+  cobc:              3.2.0 (pinned 3.1.2.0, DEVIATION) at cobc
+  cobc flags:        -std=ibm -fbinary-truncate -ffold-copy=LOWER -ext cpy
+  cobc extra flags:  none
+  python:            3.12.14 at /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4-w-004_8cb43d/modernization/.venv/bin/python
+  source guard:      PASS at 4 of 4 points, log modernization/harness/build/logs/readonly-check.log
+  case selection:    success-only
+  cases:             01AMOT, 01ACOM
+  fixtures:          01amot, 01acom
+  timestamp seed:    2026-08-19-12.00.00.000000
+  assertions passed: 243
+  probes:            5 of 5 asserted their driver status and side effect
+  probe PRB7: COB_LIBRARY_PATH, module directory of the run holds no module, driver status 7 asserted
+    driver log:        /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4-w-004_8cb43d/modernization/harness/build/run/prb7/driver.log
+  probe PRB5A: HARNESS_CASE, case is not provided, driver status 5 asserted
+    driver log:        /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4-w-004_8cb43d/modernization/harness/build/run/prb5a/driver.log
+  probe PRB5B: HARNESS_CASE, case names a path above the run directory, driver status 5 asserted
+    driver log:        /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4-w-004_8cb43d/modernization/harness/build/run/prb5b/driver.log
+  probe PRB5C: HARNESS_FIXTURE, fixture is empty, driver status 5 asserted
+    driver log:        /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4-w-004_8cb43d/modernization/harness/build/run/prb5c/driver.log
+  probe PRB4: capture descriptor, capture descriptor of the driver is not open, driver status 4 asserted
+    driver log:        /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4-w-004_8cb43d/modernization/harness/build/run/prb4/driver.log
+  case 01AMOT: return code 00, driver status 0, policy number 1000001, assertions 93
+    post-chain record: /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4-w-004_8cb43d/modernization/harness/build/run/01amot/commarea_post.dat
+    captures:          /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4-w-004_8cb43d/modernization/harness/build/run/01amot/captures.txt
+    driver log:        /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4-w-004_8cb43d/modernization/harness/build/run/01amot/driver.log
+  case 01ACOM: return code 00, driver status 0, policy number 1000002, assertions 106
+    post-chain record: /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4-w-004_8cb43d/modernization/harness/build/run/01acom/commarea_post.dat
+    captures:          /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4-w-004_8cb43d/modernization/harness/build/run/01acom/captures.txt
+    driver log:        /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4-w-004_8cb43d/modernization/harness/build/run/01acom/driver.log
+  deviations reported: 9
+    cobc pinned=3.1.2.0 measured=3.2.0
+    /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4-w-004_8cb43d/modernization/validation/artifacts/compile-modules.log stands beside the published set and no run of this script writes it
+    /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4-w-004_8cb43d/modernization/validation/artifacts/diff-report.json stands beside the published set and no run of this script writes it
+    /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4-w-004_8cb43d/modernization/validation/artifacts/diff-report.md stands beside the published set and no run of this script writes it
+    /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4-w-004_8cb43d/modernization/validation/artifacts/execute-harness.log stands beside the published set and no run of this script writes it
+    /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4-w-004_8cb43d/modernization/validation/artifacts/gate-probe-redshift.log stands beside the published set and no run of this script writes it
+    /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4-w-004_8cb43d/modernization/validation/artifacts/gate-probe-s3.log stands beside the published set and no run of this script writes it
+    /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4-w-004_8cb43d/modernization/validation/artifacts/gate-selection.json stands beside the published set and no run of this script writes it
+    /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4-w-004_8cb43d/modernization/validation/artifacts/verify-env.txt stands beside the published set and no run of this script writes it
+  build outputs:
+    generated sources: /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4-w-004_8cb43d/modernization/harness/build/src
+    modules and driver: /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4-w-004_8cb43d/modernization/harness/build/bin
+    generated samples:  /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4-w-004_8cb43d/modernization/harness/build/samples
+    stage logs:         /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4-w-004_8cb43d/modernization/harness/build/logs
+    staged evidence:    /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4-w-004_8cb43d/modernization/harness/build/evidence/20260822T152102Z-2488636
+    evidence manifest:  /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4-w-004_8cb43d/modernization/harness/build/logs/evidence-manifest.sha256
+  published evidence:
+    /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4-w-004_8cb43d/modernization/validation/artifacts/translate.log
+    /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4-w-004_8cb43d/modernization/validation/artifacts/compile.log
+    /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4-w-004_8cb43d/modernization/validation/artifacts/translation-report.json
+    /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4-w-004_8cb43d/modernization/validation/artifacts/source-baseline.sha256
+    /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4-w-004_8cb43d/modernization/validation/artifacts/readonly-check.log
+    /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4-w-004_8cb43d/modernization/validation/artifacts/driver_01amot.log
+    /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4-w-004_8cb43d/modernization/validation/artifacts/captures_01amot.txt
+    /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4-w-004_8cb43d/modernization/validation/artifacts/commarea_post_01amot.dat
+    /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4-w-004_8cb43d/modernization/validation/artifacts/driver_01acom.log
+    /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4-w-004_8cb43d/modernization/validation/artifacts/captures_01acom.txt
+    /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4-w-004_8cb43d/modernization/validation/artifacts/commarea_post_01acom.dat
+    /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4-w-004_8cb43d/modernization/validation/artifacts/evidence-manifest.sha256

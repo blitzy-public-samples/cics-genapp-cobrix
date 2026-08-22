@@ -12,7 +12,7 @@ Decision rationale: see modernization/docs/decision-log.md.
 
 | Item | Value |
 |---|---|
-| generated at (UTC) | 2026-08-22T13:57:28Z |
+| generated at (UTC) | 2026-08-22T15:21:24Z |
 | target | duckdb |
 | adapter | duckdb 1.5.5 |
 | python | 3.12.14 |
@@ -24,7 +24,7 @@ Decision rationale: see modernization/docs/decision-log.md.
 | harness run directory | modernization/harness/build/run |
 | capture snapshots | modernization/validation/expected |
 | cases requested | 01AMOT, 01ACOM |
-| gate artifact | no gate artifact stands in modernization/validation/artifacts |
+| gate artifact | modernization/validation/artifacts/gate-probe-redshift.log |
 | disposition | validated against local substitute, not AWS |
 
 ## Verdict

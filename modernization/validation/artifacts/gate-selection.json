@@ -4,19 +4,19 @@
   "probes": {
     "redshift": {
       "exit_status": 3,
-      "last_reported_line": "land_to_s3: no Redshift host is set: set REDSHIFT_HOST in the environment. It is the same variable the redshift output of modernization/dbt/genapp_rqi/profiles.example.yml reads, so one setting serves the probe and the run it gates",
+      "last_reported_line": "land_to_s3: an endpoint is set from the S3_ENDPOINT_URL environment variable, which serves the local substitute, and --probe-redshift addresses Amazon Redshift: unset that setting to probe the real target, and probe the local substitute with --probe instead. The endpoint value is not echoed",
       "log": "validation/artifacts/gate-probe-redshift.log",
       "passed": false
     },
     "s3": {
       "exit_status": 3,
-      "last_reported_line": "land_to_s3: no credentials are resolved: set AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY in the environment, or configure a profile the session can read. An environment variable whose name merely begins with AWS is not a credential and is never read as one",
+      "last_reported_line": "land_to_s3: run mode 'redshift' from --run-mode addresses AWS S3, but an endpoint is set from the S3_ENDPOINT_URL environment variable; unset it to address AWS S3, or select run mode 'local_substitute' to address the local substitute. The endpoint value is not echoed",
       "log": "validation/artifacts/gate-probe-s3.log",
       "passed": false
     }
   },
   "provisioned": [],
-  "recorded_utc": "2026-08-22T14:46:39Z",
+  "recorded_utc": "2026-08-22T15:20:59Z",
   "selected_target": "local_substitute",
   "source_system_key": "GENAPP_CLASS_EXEMPLAR",
   "status_label": "validated against local substitute, not AWS"

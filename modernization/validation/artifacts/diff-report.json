@@ -2344,10 +2344,11 @@
   "field_map": "modernization/extraction/copybook_field_map.yml",
   "figure_reference": "Figure 5 \u2014 Validation Harness Control Flow in modernization/docs/architecture.md",
   "gate_artifact": {
-    "name": null,
-    "note": "no gate artifact stands in modernization/validation/artifacts"
+    "name": "modernization/validation/artifacts/gate-probe-redshift.log",
+    "note": "read opportunistically; the target recorded below is the one used",
+    "target_named": "redshift"
   },
-  "generated_at": "2026-08-22T13:57:28Z",
+  "generated_at": "2026-08-22T15:21:24Z",
   "python_version": "3.12.14",
   "requested_cases": [
     "01AMOT",
