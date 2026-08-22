@@ -69,24 +69,49 @@
       * HC-ORDER-LAST-STMT receives this statement's key
       * insert_endowment.
       *
-      * Order guard. The predecessor of both blocks is the INSERT INTO
-      * POLICY block at [base/src/lgapdb01.cbl:268-288]: the source
-      * performs INSERT-POLICY at [base/src/lgapdb01.cbl:219] ahead of
-      * the product routing that reaches INSERT-ENDOW at
-      * [base/src/lgapdb01.cbl:225-226], and the identity that
-      * paragraph recovers is slot 1 here. HC-POL-SEQ carries that
-      * predecessor. This module reads it after stamping its own
-      * ordinal: a HC-POL-SEQ still at zero reports the predecessor
-      * unrun in HC-ORDER-VIOLATION and HC-ORDER-VIOLATION-STMT, and a
-      * non-zero HC-POL-SEQ leaves both items as
+      * Order guard. The immediate predecessor of both blocks is the
+      * SELECT LASTCHANGED read-back at
+      * [base/src/lgapdb01.cbl:316-321], the last EXEC SQL block of
+      * paragraph INSERT-POLICY, performed at
+      * [base/src/lgapdb01.cbl:219] ahead of the product routing that
+      * reaches INSERT-ENDOW at [base/src/lgapdb01.cbl:225-226].
+      * HC-LCHG-SEQ carries that predecessor, and a non-zero
+      * HC-LCHG-SEQ also stands for the identity recovery at
+      * [base/src/lgapdb01.cbl:307-311], which supplies slot 1 here, and
+      * for the POLICY insert at [base/src/lgapdb01.cbl:268-288] ahead
+      * of both. This module reads it after stamping its own ordinal: a
+      * HC-LCHG-SEQ still at zero reports the predecessor unrun in
+      * HC-ORDER-VIOLATION and HC-ORDER-VIOLATION-STMT, and a non-zero
+      * HC-LCHG-SEQ leaves both items as
       * modernization/harness/driver.cbl set them. Both blocks are
       * tested alike: the guard reads the same ordinal whichever arm
-      * of [base/src/lgapdb01.cbl:342] called this module. The
-      * execution_order block of
-      * modernization/harness/statement_map.yml declares one
-      * constraint, policy_before_commercial, and neither endowment
-      * block is a member of it; the constraint tested here is the one
-      * the source routing states.
+      * of [base/src/lgapdb01.cbl:342] called this module. This is the
+      * constraint the execution_order entry
+      * lastchanged_before_endowment of
+      * modernization/harness/statement_map.yml declares for both
+      * endowment ids, which modernization/harness/translate.py
+      * reconciles with this guard on every run.
+      *
+      * The execution_order block of
+      * modernization/harness/statement_map.yml declares eight ordering
+      * constraints, and each names in its enforced_by field the one
+      * stub that tests it at run time. This module is the enforced_by
+      * module of lastchanged_before_endowment, the constraint the guard
+      * above tests: predecessor select_lastchanged, successor
+      * insert_endowment_varchar, reason_kind control_flow, witness
+      * ordinals HC-LCHG-SEQ and HC-END-SEQ.
+      *
+      * The ordinal stamped here is read by one further constraint that
+      * this module does not enforce,
+      * policy_and_product_before_vsam_write: HC-END-SEQ is one of the
+      * four alternative product predecessors its
+      * predecessor_ordinal_items_any names, beside HC-MOT-SEQ,
+      * HC-COM-SEQ and HC-HOU-SEQ, its predecessor_ordinal_item is
+      * HC-POL-SEQ, its successor is the KSDSPOLY write at
+      * [base/src/lgapvs01.cbl:135-141], and
+      * modernization/harness/stubs/cics_write.cbl is its enforced_by
+      * module. The other six constraints name neither
+      * insert_endowment_varchar nor HC-END-SEQ.
       *
       * SQLCODE of the shared SQLCA reports HC-INJECT-SUB-SQLCODE on
       * every call. The translated LGAPDB01 tests it at
@@ -106,15 +131,14 @@
       * No item of the caller's COMMAREA is addressed here. Of the
       * shared capture state, only HC-SQL-ENDOWMENT, HC-EVENT-SEQ,
       * HC-ORDER-LAST-STMT and the two order-guard items named above
-      * are written, and HC-INJECT-SUB-SQLCODE and HC-POL-SEQ are
+      * are written, and HC-INJECT-SUB-SQLCODE and HC-LCHG-SEQ are
       * read and never written. That state carries no VALUE clause and
       * is never initialised here.
       *
       * Rationale for the single-superset signature standing for both
       * source blocks, for the reported SQLCODE, for the order guard
       * and for the length-keyed padding rule belongs to
-      * modernization/docs/decision-log.md (planned deliverable; not
-      * present at this milestone), rows: deterministic failure
+      * modernization/docs/decision-log.md, rows: deterministic failure
       * injection through shared harness state; uniform stub-side
       * capture-order guard.
       *
@@ -314,15 +338,16 @@
       *
       *----------------------------------------------------------------*
       * Tests the predecessor ordinal of both blocks, read after this  *
-      * call stamped its own. HC-POL-SEQ at zero reports that the      *
-      * INSERT INTO POLICY block at [base/src/lgapdb01.cbl:268-288]    *
-      * was not captured ahead of this insert, which leaves slot 1     *
-      * short of the identity [base/src/lgapdb01.cbl:308-311]          *
-      * recovers. A non-zero HC-POL-SEQ leaves both order items as     *
-      * the driver set them.                                           *
+      * call stamped its own. HC-LCHG-SEQ at zero reports that the     *
+      * SELECT LASTCHANGED read-back at                                *
+      * [base/src/lgapdb01.cbl:316-321], the last EXEC SQL block of    *
+      * paragraph INSERT-POLICY, was not captured ahead of this        *
+      * insert, which also leaves slot 1 short of the identity         *
+      * [base/src/lgapdb01.cbl:308-311] recovers. A non-zero           *
+      * HC-LCHG-SEQ leaves both order items as the driver set them.    *
       *----------------------------------------------------------------*
        CHECK-CAPTURE-ORDER.
-           IF HC-POL-SEQ = ZERO
+           IF HC-LCHG-SEQ = ZERO
                MOVE 'Y' TO HC-ORDER-VIOLATION
                MOVE 'insert_endowment' TO HC-ORDER-VIOLATION-STMT
            END-IF.

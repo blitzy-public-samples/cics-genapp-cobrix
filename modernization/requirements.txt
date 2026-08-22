@@ -1,8 +1,51 @@
 # Exact direct dependency pins for the GenApp canonical-warehouse bridge.
-# Scope: direct dependencies only; transitive versions are resolved by pip.
+# Scope: direct dependencies only; transitive versions are resolved by pip, subject to
+# the transitive security exception recorded below.
 # Install into modernization/.venv (Python 3.12) and invoke tools through .venv/bin/... .
-# See also (planned deliverables; not present at this milestone):
-# modernization/docs/decision-log.md, modernization/docs/traceability-matrix.md
+# Consumers authored under modernization/: the extraction tools, the landing
+# writer and local loader, the harness translator, and the dbt project.
+# Planned deliverables not present at this milestone that also draw on these
+# pins or record them: modernization/validation/diff_harness_vs_warehouse.py
+# (duckdb, redshift-connector), modernization/docs/decision-log.md and
+# modernization/docs/traceability-matrix.md.
+# See also: modernization/docs/decision-log.md,
+# modernization/docs/traceability-matrix.md
+#
+# Transitive security exception - sqlparse. In force while the pins below stand.
+# Affected transitive package and resolved version: sqlparse 0.5.5. The advisories raised
+# against that version are fixed in sqlparse 0.6.0, which the pins below exclude.
+# Forcing constraints, as declared in the installed distribution metadata under
+# modernization/.venv/lib/python3.12/site-packages:
+#   dbt_core-1.12.2.dist-info/METADATA:49      Requires-Dist: sqlparse<0.6.0,>=0.5.5
+#   dbt_redshift-1.11.0.dist-info/METADATA:31  Requires-Dist: sqlparse<0.6.0,>=0.5.0
+# Both ceilings exclude 0.6.0, so no resolution of the pins below can take the fixed
+# version. dbt-duckdb 1.11.0 declares no sqlparse requirement.
+# Restriction while this exception stands: this dependency set is not approved for
+# production use. Concretely, no file of this repository imports sqlparse; its only
+# consumers are the dbt CLI compiler and option handling (dbt/compilation.py,
+# dbt/cli/option_types.py) and the Redshift connection layer
+# (dbt/adapters/redshift/connections.py), and the SQL those hand it is the authored model
+# and test set of modernization/dbt/genapp_rqi, never third-party or user-supplied SQL.
+# Run the dbt CLI of this environment over that authored set only, and serve no
+# production workload from this environment.
+# Lifting condition: pin dbt-core and dbt-redshift to releases whose declared constraint
+# admits sqlparse 0.6.0, let pip resolve sqlparse to the fixed version, and delete this
+# block. Measured on the configured index: dbt-core 1.12.3 declares
+# sqlparse<0.7.0,>=0.5.5 and is inside the require-dbt-version range
+# [">=1.12.0", "<1.13.0"] of modernization/dbt/genapp_rqi/dbt_project.yml, and
+# dbt-redshift 1.11.1 declares sqlparse<0.7.0,>=0.5.0. Both pins have to move together,
+# because either ceiling alone still excludes 0.6.0. A move of an exact pin below is
+# recorded in modernization/docs/decision-log.md.
+# Resource limits while this exception stands: the advisories are denial-of-service
+# conditions reached while parsing SQL, so the dbt CLI of this environment is run as a
+# bounded batch invocation over the fixed authored model and test set and never as a
+# server, an RPC target or any process that accepts SQL from a caller. No dbt server or
+# RPC mode is started, one run parses that fixed set once, and a run that exhausts stack
+# or time fails only itself: no other workload shares the process.
+# Time bound: this exception expires at the earliest of the next dependency refresh, the
+# first real-target Amazon Redshift run, and 90 days after the last change to this file.
+# Carrying it past that point requires a new decision-log row rather than silence, and it
+# is re-evaluated rather than renewed by default.
 #
 # dbt model execution and contracts
 dbt-core==1.12.2

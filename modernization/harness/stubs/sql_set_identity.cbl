@@ -59,11 +59,29 @@
       * ordinal: a HC-POL-SEQ still at zero reports the predecessor
       * unrun in HC-ORDER-VIOLATION and HC-ORDER-VIOLATION-STMT, and a
       * non-zero HC-POL-SEQ leaves both items as
-      * modernization/harness/driver.cbl set them. The execution_order
-      * block of modernization/harness/statement_map.yml declares one
-      * constraint, policy_before_commercial, of which set_identity is
-      * not a member; the constraint tested here is the one the source
-      * paragraph states.
+      * modernization/harness/driver.cbl set them. This is the
+      * constraint the execution_order entry policy_before_identity of
+      * modernization/harness/statement_map.yml declares, which
+      * modernization/harness/translate.py reconciles with this guard
+      * on every run.
+      *
+      * The execution_order block of
+      * modernization/harness/statement_map.yml declares eight ordering
+      * constraints, and each names in its enforced_by field the one
+      * stub that tests it at run time. This module is the enforced_by
+      * module of policy_before_identity, the constraint the guard above
+      * tests: predecessor insert_policy, successor set_identity,
+      * reason_kind data_dependency on DB2-POLICYNUM-INT, witness
+      * ordinals HC-POL-SEQ and HC-IDENT-SEQ.
+      *
+      * set_identity is named by one further constraint that this module
+      * does not enforce, identity_before_lastchanged: set_identity is
+      * its predecessor, select_lastchanged its successor, reason_kind
+      * data_dependency on DB2-POLICYNUM-INT, and
+      * modernization/harness/stubs/sql_select_lastchanged.cbl its
+      * enforced_by module, which reads the HC-IDENT-SEQ stamped here.
+      * The other six constraints name neither set_identity nor
+      * HC-IDENT-SEQ.
       *
       * SQLCODE of the shared SQLCA is set to zero on every call.
       *
@@ -76,10 +94,9 @@
       * LGAPVS01 receive after this call.
       *
       * Rationale for the deterministic seeding of the identity, for
-      * the order guard and for the always-zero SQLCODE is to be
-      * recorded in modernization/docs/decision-log.md (planned
-      * deliverable; not present at this milestone), rows: uniform
-      * stub-side capture-order guard.
+      * the order guard and for the always-zero SQLCODE belongs to
+      * modernization/docs/decision-log.md, row: uniform stub-side
+      * capture-order guard.
       *
       * Harness topology: Figure 5 — Validation Harness Control Flow
       * in modernization/docs/architecture.md.

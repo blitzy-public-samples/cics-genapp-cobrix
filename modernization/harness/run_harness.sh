@@ -42,16 +42,22 @@
 #                 generated sample record, and runs the source guard again.
 #   6 evidence    Runs the source guard as the final gate, then collects the
 #                 retained logs, the guard's own evidence log and the captures
-#                 of the success cases the run executed with a SHA-256
-#                 manifest, and only then clears and republishes, in the
-#                 validation artifacts directory, the names this run publishes -
-#                 the five stage files, and the driver log, the capture file and
-#                 the post-chain record of each success case it executed, so
-#                 eleven names for a run of the whole case table and eight for a
-#                 run of one success case - before printing the run summary. The
-#                 published evidence of a success case the run did not execute
-#                 is left as it stands. runtime-versions.txt stands in that
-#                 directory outside this replacement: it is the environment
+#                 of the success cases the run executed, and writes the manifest
+#                 of that set: the provenance of the run, and one SHA-256 line
+#                 per collected file. It then runs the replacement over a
+#                 directory of its own under the build tree, and replaces the
+#                 published set in the validation artifacts directory - every
+#                 name this script owns there is removed, the collected files
+#                 are placed under the names the manifest carries and the
+#                 manifest is placed last - before reading that set back against
+#                 the manifest and printing the run summary. The published set
+#                 is the five stage files, the manifest, and the driver log, the
+#                 capture file and the post-chain record of each success case
+#                 the run executed: twelve names for a run that executed both
+#                 success cases, nine for one and six for none. The names of a
+#                 success case the run did not execute are removed, so the set
+#                 describes this run alone. runtime-versions.txt stands in that
+#                 directory outside the replacement: it is the environment
 #                 record of the checkout and no run of this script writes it.
 #
 # Case table, one row per executable case. Each row names the fixture it runs
@@ -83,20 +89,16 @@
 # Every executed case asserts both the seed it read and that the seed is outside
 # that domain.
 # The endowment route is not executed: no row of the table selects it and every
-# row asserts the endowment capture group absent. See
+# row asserts the endowment capture group absent. Under the mandated
+# "-fbinary-truncate" the length subtraction of
+# [base/src/lgapdb01.cbl:339-340] stays inside its PIC S9(4) COMP item, and a
+# direct call of the translated LGAPDB01 on request id 01AEND at
+# EIBCALEN=32500 returns '00' and writes the VSAM record under an "E" key. See
 # modernization/docs/decision-log.md (planned deliverable; not present at this
-# milestone), row: endowment route not executed. The route is nonetheless
-# survivable under the compile options this script mandates: the
-# "-fbinary-truncate" of the mandated list keeps the length subtraction of
-# [base/src/lgapdb01.cbl:339-340] inside its PIC S9(4) COMP item, so the
-# reference-modified MOVE that follows it addresses 2,348 characters of a
-# 3,900-character item at the chain's own COMMAREA length rather than 32,348.
-# A direct call of the translated LGAPDB01 on request id 01AEND at
-# EIBCALEN=32500 returns '00' and writes the VSAM record under an "E" key.
+# milestone), row: endowment route not executed.
 #
 # Two runtime properties of the chain the case table exercises but does not
-# assert by name, recorded here so a reader of the captures does not read either
-# one as a defect of the harness:
+# assert by name:
 #
 #   One diagnostic link from LGAPOL01, two from the programs below it.
 #   WRITE-ERROR-MESSAGE of LGAPOL01 links the diagnostic program once
@@ -118,12 +120,11 @@
 #   compares against twice the requirement: 28, 56, 84 in LGAPOL01 and 165,
 #   330, 495 for the motor route of LGAPDB01. A request that returns '00' at
 #   EIBCALEN=30 therefore returns '98' from the second call onward. This is the
-#   behaviour of the frozen source, it is latent under CICS, which gives each
-#   task fresh program working-storage, and it is inert here: each case of this
-#   script is one process making one chain call, and five calls in one process
-#   at EIBCALEN=32500 all return '00' because the accumulated requirement stays
-#   below the length. A host that calls these modules more than once per process
-#   has to CANCEL them between calls to reproduce the first result.
+#   behaviour of the frozen source. Each case of this script is one process
+#   making one chain call, and five calls in one process at EIBCALEN=32500 all
+#   return '00' because the accumulated requirement stays below the length. A
+#   host that calls these modules more than once per process has to CANCEL them
+#   between calls to reproduce the first result.
 #
 # Probe table, one row per infrastructure probe. Each row names the environment
 # item or the driver handle it makes wrong, the driver status this script
@@ -302,14 +303,20 @@
 #   6 execution failure: a non-zero driver status, a probe of the probe table
 #     that did not report the status or the side effect it asserts, or a failed
 #     assertion of this script
-#   7 evidence publication failure
+#   7 evidence publication failure: a missing file to retain, a publication
+#     check that did not leave the set its manifest describes, or a published
+#     set that does not match the manifest published with it
 #   8 source guard failure: modernization/validation/verify_readonly.sh did not
 #     pass at one of the four points this script runs it
 #   9 the exclusive harness lock of this checkout was still held by another run
 #     when the bounded wait ran out; nothing of this run was created
-# 143 a termination, interrupt or hangup signal reached this script: the command
-#     it was waiting on was ended with its whole process group and reaped,
-#     nothing was published, and the harness lock of the checkout was released
+# 143 a termination, interrupt or hangup signal reached this script: a command
+#     it was still waiting on was ended with its whole process group and
+#     reaped, and the harness lock of the checkout was released. The status
+#     reports what the run had published: nothing when the signal arrived
+#     before the replacement of the published set, the complete set when it
+#     arrived inside that replacement - which is deferred to the end of it -
+#     and otherwise how far each of the two loops of that replacement came
 # Any non-zero code stops the fail-fast modernization/Makefile that invokes
 # this script.
 #
@@ -318,9 +325,8 @@
 # run_harness.sh" runs it without one.
 #
 # Harness topology: Figure 5 — Validation Harness Control Flow in
-# modernization/docs/architecture.md. Decisions taken about the harness belong
-# to modernization/docs/decision-log.md (planned deliverable; not present at
-# this milestone).
+# modernization/docs/architecture.md. Decisions taken about the harness are
+# recorded in modernization/docs/decision-log.md.
 
 set -euo pipefail
 IFS=$'\n\t'
@@ -343,8 +349,9 @@ readonly EXIT_LOCK=9
 
 # Status a run ends with when a termination, interrupt or hangup signal reaches
 # it: 128 plus the number of SIGTERM, reported for all three so one status names
-# an interrupted run. The command the run was waiting on is ended first and
-# nothing is published.
+# an interrupted run. The command the run was waiting on is ended first, and the
+# diagnostic names what the replacement of the published evidence set had
+# reached when the signal arrived.
 readonly EXIT_SIGNAL=143
 
 # --------------------------------------------------------------------------
@@ -426,15 +433,15 @@ readonly PYTHON_SERIES="3.12"
 #
 # Under "-fbinary-truncate" a binary receiving item keeps only the digits its
 # PICTURE declares; the dialect configuration that "-std=ibm" resolves to
-# leaves that truncation off. Both behaviours are measurable on the endowment
-# route: the "SUBTRACT WS-REQUIRED-CA-LEN FROM EIBCALEN GIVING WS-VARY-LEN" of
+# leaves that truncation off. Measured on the endowment route: the
+# "SUBTRACT WS-REQUIRED-CA-LEN FROM EIBCALEN GIVING WS-VARY-LEN" of
 # [base/src/lgapdb01.cbl:339-340] leaves 32348 in its PIC S9(4) COMP item at
 # the chain's own COMMAREA length without the option and 2348 with it, and the
 # reference-modified MOVE that follows [base/src/lgapdb01.cbl:341-345]
 # addresses that many characters of a 3,900-character item. No value the case
-# table asserts changes under it: every count, length and amount of the two
-# success cases is a display numeric, a PIC S9(4) COMP-5 item, which it does
-# not truncate, or a value that already fits its picture.
+# table asserts changes under the option: every count, length and amount of the
+# two success cases is a display numeric, a PIC S9(4) COMP-5 item, or a value
+# that already fits its picture.
 # See planned decision-log row: IBM binary truncation pinned for the harness
 # compile.
 readonly -a COBC_FLAGS_MANDATED=("-std=ibm" "-fbinary-truncate"
@@ -442,9 +449,8 @@ readonly -a COBC_FLAGS_MANDATED=("-std=ibm" "-fbinary-truncate"
 
 # Compiler options COBC_EXTRA_FLAGS and COBC_FLAGS may add. Each adds
 # diagnostics, run-time checking or optimisation, none of them restates a
-# mandated option, and none of them writes a file: measured with GnuCOBOL
-# 3.2.0, a compile carrying any one of them leaves only the module named by
-# "-o".
+# mandated option, and none of them writes a file: a compile carrying any one
+# of them leaves only the module named by "-o".
 readonly -a COBC_FLAGS_ALLOWED_EXTRA=("-debug" "-Wall" "-W" "-Wextra"
   "-ftrace" "-ftraceall" "-fstack-check" "-v" "--verbose"
   "-O" "-O2" "-Os")
@@ -480,22 +486,22 @@ readonly -a COBC_FLAGS_CONFLICTING=(
 )
 
 # Compiler environment items this script pins before the first compile and
-# holds pinned through the execution stage, so neither the dialect a compile
-# resolves, the run-time configuration a module loads nor the C options the
-# compiler hands its own back end is read from the environment of the caller.
-# An item the caller exported is reported as a deviation naming the value that
-# was ignored, and the dialect the run resolved is recorded in the compile log.
+# holds pinned through the execution stage. The dialect a compile resolves, the
+# run-time configuration a module loads and the C options the compiler hands
+# its own back end come from these pinned values and not from the environment
+# of the caller. An item the caller exported is reported as a deviation naming
+# the value that was ignored, and the dialect the run resolved is recorded in
+# the compile log.
 #   COB_CONFIG_DIR      pinned to the configuration directory the compiler
-#                       reports as its own, so the mandated "-std=ibm"
-#                       resolves the files of that installation
-#   COB_RUNTIME_CONFIG  removed, so a module loads the run-time configuration
-#                       of that installation
+#                       reports as its own, the directory the mandated
+#                       "-std=ibm" resolves its files in
+#   COB_RUNTIME_CONFIG  removed; a module loads the run-time configuration of
+#                       that installation
 #   COB_CFLAGS          pinned to the C options the compiler reports as its
 #                       own, with the duplicated _FORTIFY_SOURCE definition of
 #                       the host toolchain reduced to the one definition that
-#                       takes effect, so a clean compile reports no diagnostic
-#                       of the host C compiler and every COBOL diagnostic is
-#                       still reported and still counted
+#                       takes effect. Every COBOL diagnostic is still reported
+#                       and still counted
 # See planned decision-log row: compiler environment pinned for the harness
 # compile and execution.
 readonly -a COBC_PINNED_ENVIRONMENT=("COB_CONFIG_DIR" "COB_RUNTIME_CONFIG"
@@ -919,9 +925,8 @@ readonly SOURCE_DIR="base/src"
 # artifacts; this script runs it and reports its verdict.
 #
 # The log stands with the other stage logs of the run, under the generated build
-# tree the ignore rules of modernization/.gitignore cover: a gate run therefore
-# changes no tracked file, and the working tree the gate itself inspects is one
-# it did not write into. This script creates it empty at the start of every run
+# tree the ignore rules of modernization/.gitignore cover, so a gate run writes
+# no tracked file. This script creates it empty at the start of every run
 # and publishes it with the other evidence of that run, so the published copy
 # carries the four blocks of one run rather than the accumulated blocks of
 # every run of the checkout. Every gate asks the guard for its reproducible
@@ -948,24 +953,36 @@ readonly -a CHAIN_LINK_SITES=(
 # Stage files this script publishes into the validation artifacts directory,
 # all five collected from the stage logs of the run - the fifth being the
 # evidence log of the source guard, emptied once in the preflight of a run and
-# appended to by each gate of that run. Every run publishes these five; with
-# them it publishes the driver log, the capture file and the post-chain record
-# of each success case it executed, and those, exactly, are the names it clears
-# immediately before it republishes them: five fixed names and three more per
-# success case of the selection, which is eleven names for a run of the whole
-# case table and eight for a run of one success case. A run that selects no
-# success case publishes the five. No other name in that directory is touched:
-# the published evidence of a success case a run did not execute stays as it
-# stands, and runtime-versions.txt is the environment record of the checkout
-# which no run of this script writes, so the directory itself holds one name
-# more than a full run published.
+# appended to by each gate of that run. Every run publishes these five, and with
+# them the manifest of the run and the driver log, the capture file and the
+# post-chain record of each success case it executed.
 readonly -a PUBLISHED_STAGE_ARTIFACTS=("translate.log" "compile.log"
   "translation-report.json" "source-baseline.sha256"
   "$SOURCE_GUARD_LOG_NAME")
 
-# Name of the manifest of one run, written beside the stage logs. It carries
-# one "sha256sum" line per published file and is re-read after publication.
+# Name of the manifest of one run, written beside the stage logs and published
+# with the set it describes. It carries the provenance of the run as comment
+# lines and one "sha256sum" line per other file of the set, and it is read back
+# from the published directory after the set has been placed there.
 readonly EVIDENCE_MANIFEST_NAME="evidence-manifest.sha256"
+
+# Names this script owns in the validation artifacts directory: the five stage
+# files above, the manifest, and three names per success case of the case table.
+# A run publishes the subset its selection produced - six names for a run that
+# executed no success case, nine for one and twelve for both - and removes every
+# other owned name, so the published set is the set of one run and carries no
+# artifact of a case that run did not execute. evidence_owned_names prints them.
+#
+# Name in that directory this script never writes: the environment record of the
+# checkout. It stands outside the published set and outside the replacement, and
+# the manifest of every set records it as standing outside. Any further name
+# found beside a published set is reported in the run summary.
+readonly RUNTIME_VERSIONS_NAME="runtime-versions.txt"
+
+# Directory of the run's staging tree the publication check works in. It holds
+# the simulated published directory and the staged set that replaces its
+# content, both created and filled by that check alone.
+readonly PUBLICATION_CHECK_NAME="publication-check"
 
 # External tools every run invokes, beyond the compiler and the interpreter.
 # "git" is invoked by the translator and by the source guard, "stat" reads the
@@ -1005,6 +1022,12 @@ RUN_ID=""
 # Cases selected by the command line, and the fixtures they need.
 declare -a SELECTED_CASES=()
 declare -a SELECTED_FIXTURES=()
+
+# The selection the command line asked for, as one word: "all", "both",
+# "success-only" or the label of the single case. Recorded in the manifest of
+# the run and in the run summary, so the published evidence states which
+# invocation produced it.
+CASE_SELECTION=""
 
 # Measured tool versions, filled in by the preflight.
 COBC_VERSION=""
@@ -1049,13 +1072,19 @@ RUN_STATUS=0
 RUN_LOG_STATUS=0
 
 # The command run_and_tee is waiting on, while one runs: the process group it
-# and its own children stand in, the identifier of the "tee" recording its
-# output, and the name it was started under. All three are emptied as soon as
-# both processes have been reaped, so a signal that arrives between two commands
-# finds no group to end and no identifier that another process could have
-# reused.
+# and its own children stand in, the start time /proc reports for the leader of
+# that group, the identifier of the "tee" recording its output, the start time
+# /proc reports for that process, and the name the command was started under.
+# Each identifier is set at the spawn of the process it names and the start time
+# of that process next to it, and the pair is emptied as the process is reaped,
+# the identifier first. terminate_run reads both halves and signals nothing whose
+# /proc entry does not still report this shell as its parent, and that recorded
+# start time when one is recorded, so an identifier this run has already reaped,
+# and that another process could have received since, is never signalled.
 RUN_CHILD_PGID=""
+RUN_CHILD_START=""
 RUN_LOG_PID=""
+RUN_LOG_START=""
 RUN_CHILD_NAME=""
 
 # The three descriptors the driver of one case or one probe runs with, held by
@@ -1089,6 +1118,40 @@ declare -a SUMMARY_CASE_LINES=()
 declare -a SUMMARY_PROBE_LINES=()
 declare -a SUMMARY_ARTIFACTS=()
 declare -a STAGED_ARTIFACTS=()
+
+# Evidence publication state: the names removed and the files placed by the most
+# recent publication, the SHA-256 published_digest read last, the first
+# difference verify_published_set found, and the names it found beside a
+# published set that this script does not publish.
+EVIDENCE_CLEARED=0
+EVIDENCE_PLACED=0
+EVIDENCE_DIGEST=""
+EVIDENCE_DIFFERENCE=""
+declare -a EVIDENCE_FOREIGN=()
+# How far the replacement of the published evidence set has come, read by the
+# diagnostic of an interrupted run:
+#   none        no published name has been touched by this run
+#   clearing    the published names this script owns are being cleared
+#   publishing  the clearing has passed every owned name and the staged files
+#               are being published under their names, so this state with a
+#               zero published count is a set that holds nothing at all
+#   published   every name of the set carries the file this run staged for it,
+#               read back against the manifest standing beside it
+# with the number of names this run publishes, the number of owned published
+# names the clearing has passed, and the number of names published so far. The
+# counts are the two loops' own progress, so a diagnostic printed between them
+# names the state on disk. The publication check works in a directory of its
+# own and leaves these four values as it found them.
+PUBLICATION_STATE="none"
+PUBLICATION_NAMES_TOTAL=0
+PUBLICATION_NAMES_CLEARED=0
+PUBLICATION_NAMES_PUBLISHED=0
+
+# The first termination, interrupt or hangup signal deferred while that
+# replacement was in progress, empty when none was deferred, and the lines
+# publication_state_report leaves for the diagnostic of an interrupted run.
+DEFERRED_SIGNAL=""
+declare -a PUBLICATION_MESSAGES=()
 
 # Value read by the most recent capture_value call, and the capture key that
 # carried it. Set instead of a subshell so a value holding a control byte is
@@ -1168,8 +1231,7 @@ Cases, in execution order:
   01AHOU-ROUTE   house fixture, routes to the house insert, returns 00
   01AHOU-LGSQ    house fixture, house insert reports -803, abends LGSQ
 The endowment route is not executed: no case selects it and every case asserts
-the endowment capture group absent. See modernization/docs/decision-log.md
-(planned deliverable; not present at this milestone), row: endowment route not
+the endowment capture group absent. See modernization/docs/decision-log.md, row: endowment route not
 executed. It is still survivable under the mandated -fbinary-truncate, which
 keeps the length subtraction of that route inside its PIC S9(4) COMP item: a
 direct call of the translated LGAPDB01 on request id 01AEND at EIBCALEN=32500
@@ -1199,12 +1261,9 @@ Environment items honoured:
                          holds. Accepted options: -debug -Wall -W -Wextra
                          -ftrace -ftraceall -fstack-check -v --verbose -O -O2
                          -Os. Any other option is a preflight failure; -g and
-                         -save-temps, in either spelling, are refused by name
-                         because they leave the compiler intermediates in the
-                         working directory rather than under the build
-                         directory, and -fno-binary-truncate is refused
-                         because it would unset the numeric store of the
-                         dialect this script pins.
+                         -save-temps, in either spelling, are refused by name,
+                         and -fno-binary-truncate is refused. Each refusal
+                         names the option and the action that clears it.
   COBC_FLAGS             Read under the same allow-list, with a mandated
                          option accepted as a no-op. It cannot replace one.
   HARNESS_POLICY_NUMBER  Identity seed of the first case, one to nine digits
@@ -1284,24 +1343,46 @@ Generated output:
                                               driver.log
   modernization/harness/build/run/<probe>/    driver.log of each probe
   modernization/harness/build/probe/          directories the probes need
-  modernization/harness/build/evidence/       staged evidence of this run
+  modernization/harness/build/evidence/       staged evidence of this run and
+                                              the publication check it runs
 Published evidence, replaced as one set only after every selected case, every
-probe and the final source guard passed. The set is the five stage files, and
-the driver log, the capture file and the post-chain record of each success case
-this run executed - eleven names for a run of the whole case table, eight for a
-run of one success case; each name is replaced in one step and re-read
-afterwards against the manifest. A run replaces the evidence of the cases it
-executed and leaves the published evidence of a success case it did not execute
-exactly as it stands, so a run of one case is not a run of the other:
+probe and the final source guard passed. The set is the five stage files, the
+manifest of the run, and the driver log, the capture file and the post-chain
+record of each success case this run executed - twelve names for a run that
+executed both success cases, nine for one and six for none. Every other name
+this script owns there is removed, the manifest is removed first and placed
+last, each name is replaced in one step, and the set is then read back against
+the manifest published with it: a published set therefore carries the evidence
+of one run, states in its manifest which run that is, and holds no artifact of a
+success case that run did not execute:
   modernization/validation/artifacts/         translate.log, compile.log,
                                               translation-report.json,
                                               source-baseline.sha256,
-                                              readonly-check.log, and the
+                                              readonly-check.log,
+                                              evidence-manifest.sha256, and the
                                               driver log, capture file and
                                               post-chain record of each success
                                               case that ran
+The manifest names the run identifier, the moment it was written, the selection
+the run was invoked with and the cases it executed on "#" comment lines, then
+carries one sha256 line per published file, so "sha256sum -c
+evidence-manifest.sha256" in that directory checks the published set.
 runtime-versions.txt stands in that directory outside this replacement: it is
 the environment record of the checkout and no run of this script writes it.
+
+The manifest carries the run identifier, the time it was written, the case
+selection, the success cases whose captures the set covers, the identity and
+timestamp seeds, the measured cobc and python versions, the source-guard
+verdict, the number of files in the set and the name standing outside it, all as
+comment lines, then one "sha256sum" line per other file of the set. The comment
+lines carry a leading "#", so "sha256sum --check evidence-manifest.sha256" run
+in that directory checks the set as the manifest stands. Before it publishes,
+every run repeats the replacement over a directory of its own under
+modernization/harness/build/evidence/, holding the twelve names of a full-table
+run and the environment record, with a set covering one success case: that check
+requires the names of the other success case to be gone, requires the
+environment record to be untouched, and requires the read-back to reject a set
+carrying a planted artifact of the case the simulated run did not execute.
 
 The evidence log of the source guard,
 modernization/harness/build/logs/readonly-check.log, is emptied in the
@@ -1313,7 +1394,7 @@ gate is run with the guard's --reproducible option, which records fixed text in
 place of the time of the gate and of the root the block's paths are relative to,
 so two runs of one selection over one unchanged tracked state leave the same
 bytes in that log whatever directory the checkout was taken into. The gate
-verdicts, the baseline table and the three gates themselves are recorded in
+verdicts, the baseline table and the four gates themselves are recorded in
 full. The log is collected after the final gate and published with the rest of
 the evidence set, so the published copy carries all four gates of the run.
 
@@ -1326,13 +1407,18 @@ Exit codes:
   5 compilation failure or a missing module or driver
   6 execution failure, a probe that did not report its status or side effect,
     or a failed assertion
-  7 evidence publication failure
+  7 evidence publication failure: a missing file to retain, a publication check
+    that did not leave the set its manifest describes, or a published set that
+    does not match the manifest published with it
   8 source guard failure
   9 the exclusive harness lock of this checkout was still held when the
     bounded wait ran out
-143 a termination, interrupt or hangup signal reached this run: the command it
-    was waiting on was ended with its whole process group and reaped, nothing
-    was published, and the harness lock of the checkout was released
+143 a termination, interrupt or hangup signal reached this run: a command it was
+    still waiting on was ended with its whole process group and reaped, and the
+    harness lock of the checkout was released. The status reports what the run
+    had published: nothing, the complete set when the signal arrived inside the
+    replacement of it, which is deferred to the end of that replacement, or how
+    far each of its two loops came
 
 Characterisation notes, stated in full in the header of this script: LGAPOL01
 reports DIAG_LINK_COUNT=0001 where the programs below it report 0002, because
@@ -1507,9 +1593,11 @@ case_row() {
   return 1
 }
 
-# Fills SELECTED_CASES from the command line. Accepts one selection: a case
-# label of the table, "all" for every row, "both" or --success-only for the two
-# success cases, or --case with a label. Any other value is a usage error.
+# Fills SELECTED_CASES from the command line, and CASE_SELECTION with the one
+# word that names the selection for the manifest and the summary. Accepts one
+# selection: a case label of the table, "all" for every row, "both" or
+# --success-only for the two success cases, or --case with a label. Any other
+# value is a usage error.
 parse_args() {
   local requested="all" upper=""
 
@@ -1542,6 +1630,7 @@ parse_args() {
       exit "$EXIT_OK"
       ;;
     --success-only)
+      CASE_SELECTION="success-only"
       SELECTED_CASES=("${SUCCESS_CASES[@]}")
       return 0
       ;;
@@ -1550,9 +1639,11 @@ parse_args() {
   upper="${requested^^}"
   case "$upper" in
     ALL)
+      CASE_SELECTION="all"
       SELECTED_CASES=("${ALL_CASES[@]}")
       ;;
     BOTH)
+      CASE_SELECTION="both"
       SELECTED_CASES=("${SUCCESS_CASES[@]}")
       ;;
     *)
@@ -1560,6 +1651,7 @@ parse_args() {
         die_usage \
           "unrecognised argument: ${requested}; accepted values are all, both, --success-only or one of: $(join_with ", " "${ALL_CASES[@]}")"
       fi
+      CASE_SELECTION="$upper"
       SELECTED_CASES=("$upper")
       ;;
   esac
@@ -1686,13 +1778,12 @@ file_size() {
 }
 
 # Prints the supplied path with the repository root of this run removed, and
-# prints any other value unchanged. A logged command line therefore reads the
-# same from every checkout, and the paths it names resolve from the repository
-# root, which is the working directory of every stage of this script. A root
+# prints any other value unchanged; the paths it prints resolve from the
+# repository root, the working directory of every stage of this script. A root
 # that is not resolved yet strips nothing, so no value can lose its leading
 # separator before the preflight has resolved the checkout.
-# See planned decision-log row: evidence paths recorded relative to the
-# repository root.
+# See modernization/docs/decision-log.md, row: evidence paths recorded relative
+# to the repository root.
 repo_relative() {
   local value="$1"
 
@@ -1736,55 +1827,253 @@ log_line() {
   fi
 }
 
+# Prints the parent identifier, the process group and the start time /proc
+# reports for the supplied identifier, as "<ppid>|<pgid>|<start>", and fails
+# when that identifier names no process or the status line cannot be read. The
+# line is read with shell builtins alone. The name of the process, the one field
+# that may itself carry a space or a bracket, is dropped with its brackets
+# first, so every field after it is positional: the fields that remain are
+# state, parent identifier, process group, session and onward, and the start
+# time is the twentieth of them.
+read_process_identity() {
+  local pid="$1" line="" rest=""
+  local -a fields=()
+
+  if [[ ! "$pid" =~ ^[0-9]+$ ]]; then
+    return 1
+  fi
+  if ! IFS= read -r line 2>/dev/null <"/proc/${pid}/stat" || [[ -z "$line" ]]; then
+    return 1
+  fi
+  rest="${line##*')'}"
+  if [[ "$rest" == "$line" ]]; then
+    return 1
+  fi
+  IFS=' ' read -r -a fields <<<"$rest"
+  if ((${#fields[@]} < 20)); then
+    return 1
+  fi
+  printf '%s|%s|%s' "${fields[1]}" "${fields[2]}" "${fields[19]}"
+}
+
+# Prints the start time /proc reports for a process this script has just
+# started, and fails when that identifier names no process or names one this
+# shell did not start. Called immediately after the spawn, while the process is
+# still unreaped and its identifier can therefore not have been given to another
+# process, so the identifier and the start time recorded together here identify
+# that one process for the rest of the step.
+own_child_start_time() {
+  local pid="$1"
+  local identity="" ppid="" start=""
+
+  if ! identity="$(read_process_identity "$pid")"; then
+    return 1
+  fi
+  IFS='|' read -r ppid _ start <<<"$identity"
+  if [[ "$ppid" != "$$" || ! "$start" =~ ^[0-9]+$ ]]; then
+    return 1
+  fi
+  printf '%s' "$start"
+}
+
+# Succeeds when the supplied identifier still names a process this script
+# started and has not reaped: /proc reports this shell as its parent and reports
+# the start time recorded at the spawn. A third argument of "Y" also requires
+# that process to lead its own process group, which is what a group signal is
+# sent to. An identifier this run has reaped fails the test - its /proc entry is
+# gone, or it names a process another parent started at another time - so
+# nothing is signalled on the strength of a recorded identifier alone. An
+# identifier this run has signalled but not yet reaped still passes: the process
+# it names is held by this script until it is waited for, and its identifier
+# cannot be reused before then.
+#
+# An empty start time is the state between the spawn of a process and the record
+# of its start time, and run_and_tee empties the identifier before the start
+# time when a process is reaped, so an identifier carrying no start time is one
+# of a process this run has spawned and not waited for. The parent /proc reports,
+# with the group leadership when it is required, decides that state; an
+# identifier carrying a start time is decided on the start time as well.
+process_is_own_child() {
+  local pid="$1" start="$2" require_group_leader="$3"
+  local identity="" ppid="" pgid="" observed=""
+
+  if [[ ! "$pid" =~ ^[0-9]+$ ]] || ((pid <= 1)) || ((pid == $$)); then
+    return 1
+  fi
+  if [[ -n "$start" && ! "$start" =~ ^[0-9]+$ ]]; then
+    return 1
+  fi
+  if ! identity="$(read_process_identity "$pid")"; then
+    return 1
+  fi
+  IFS='|' read -r ppid pgid observed <<<"$identity"
+  if [[ "$ppid" != "$$" ]]; then
+    return 1
+  fi
+  if [[ -n "$start" && "$observed" != "$start" ]]; then
+    return 1
+  fi
+  if [[ "$require_group_leader" == "Y" && "$pgid" != "$pid" ]]; then
+    return 1
+  fi
+  return 0
+}
+
+# Leaves in PUBLICATION_MESSAGES, one line per message, what the replacement of
+# the published evidence set had reached when an interrupted run ended. State
+# "none" is a run that ended before stage 6 touched a published name: its own
+# evidence stands in the staging directory and every published name is the one
+# the run before it left. State "published" is a run that ended after every name
+# of the set had been replaced and re-read. Any state between the two - and any
+# other value - is reported as a set that holds names of this run beside names
+# of the run before it, with how far each of the two loops came, and with the
+# command that replaces the whole set.
+publication_state_report() {
+  PUBLICATION_MESSAGES=()
+
+  if [[ "$PUBLICATION_STATE" == "none" ]]; then
+    PUBLICATION_MESSAGES+=(
+      "nothing of this run was published; the harness lock of this checkout is released"
+    )
+    return 0
+  fi
+  if [[ "$PUBLICATION_STATE" == "published" ]]; then
+    PUBLICATION_MESSAGES+=(
+      "the complete evidence set of this run was published, ${PUBLICATION_NAMES_PUBLISHED} of ${PUBLICATION_NAMES_TOTAL} names in ${ARTIFACTS_DIR}"
+      "the harness lock of this checkout is released"
+    )
+    return 0
+  fi
+  PUBLICATION_MESSAGES+=(
+    "the published evidence set may be incomplete: of the ${PUBLICATION_NAMES_TOTAL} names this run publishes, ${PUBLICATION_NAMES_PUBLISHED} were published, and the clearing that runs first passed ${PUBLICATION_NAMES_CLEARED} published names of an earlier run, so ${ARTIFACTS_DIR} holds names of this run beside names of the run before it"
+    "run this script again on the same cases to replace the whole set; the evidence this run staged stands in ${STAGING_DIR}"
+    "the harness lock of this checkout is released"
+  )
+}
+
 # Ends the run on a termination, interrupt or hangup signal. The command
 # run_and_tee is waiting on, and the children that command started of its own,
-# stand in one process group of their own, so the whole group is ended here:
-# SIGTERM first, then SIGKILL for whatever still stands after
-# TERMINATE_GRACE_SECONDS. That group and the "tee" recording its output are
-# both reaped before this returns. No sample, module, log or published name is
-# written after this point, so an interrupted run publishes nothing, and the
-# exclusive harness lock of the checkout is released by the exit that follows:
-# the descriptor this script holds it through closes with the process, and the
-# descriptor its children inherited closes with them. Ends the run with
-# EXIT_SIGNAL whichever of the three signals arrived.
+# stand in one process group of their own. When the leader of that group is
+# still a process this run started and has not reaped, the whole group is ended
+# here: SIGTERM first, then SIGKILL for whatever still stands after
+# TERMINATE_GRACE_SECONDS, with the identity checked again before that second
+# signal. The group and the "tee" recording its output are both reaped before
+# this returns. An identifier whose process this run has already reaped is
+# reported as ended and is not signalled, so no signal of this handler can reach
+# a process that received such an identifier afterwards. No sample, module, log
+# or published name is written after this point, so an interrupted run publishes
+# nothing, and the exclusive harness lock of the checkout is released by the exit
+# that follows: the descriptor this script holds it through closes with the
+# process, and the descriptor its children inherited closes with them. Ends the
+# run with EXIT_SIGNAL whichever of the three signals arrived.
 # The handler is removed before the group is ended, so a second signal reaching
 # this script while the group is being ended takes its default action.
 terminate_run() {
   local signal="$1"
-  local pgid="$RUN_CHILD_PGID" log_pid="$RUN_LOG_PID" name="$RUN_CHILD_NAME"
+  local pgid="$RUN_CHILD_PGID" child_start="$RUN_CHILD_START"
+  local log_pid="$RUN_LOG_PID" log_start="$RUN_LOG_START"
+  local name="$RUN_CHILD_NAME"
   local -a messages=()
 
   trap - TERM INT HUP
   RUN_CHILD_PGID=""
+  RUN_CHILD_START=""
   RUN_LOG_PID=""
+  RUN_LOG_START=""
   RUN_CHILD_NAME=""
 
-  if [[ "$pgid" =~ ^[0-9]+$ ]] && ((pgid > 1)) && ((pgid != $$)); then
+  if [[ -z "$pgid" ]]; then
+    messages+=("no external command was running")
+  elif process_is_own_child "$pgid" "$child_start" "Y"; then
     kill -TERM "-${pgid}" 2>/dev/null || true
     sleep "$TERMINATE_GRACE_SECONDS" 2>/dev/null || true
-    kill -KILL "-${pgid}" 2>/dev/null || true
+    if process_is_own_child "$pgid" "$child_start" "Y"; then
+      kill -KILL "-${pgid}" 2>/dev/null || true
+    fi
     wait "$pgid" 2>/dev/null || true
     messages+=("the command it was waiting on, ${name}, was ended with its process group ${pgid} and reaped")
   else
-    messages+=("no external command was running")
+    messages+=("the command it was waiting on, ${name}, had already ended; process group ${pgid} was not signalled")
   fi
-  if [[ "$log_pid" =~ ^[0-9]+$ ]]; then
-    kill -TERM "$log_pid" 2>/dev/null || true
-    wait "$log_pid" 2>/dev/null || true
-    messages+=("the log of that command, written by process ${log_pid}, was ended with it and is left as it stands")
+  if [[ -n "$log_pid" ]]; then
+    if process_is_own_child "$log_pid" "$log_start" "N"; then
+      kill -TERM "$log_pid" 2>/dev/null || true
+      wait "$log_pid" 2>/dev/null || true
+      messages+=("the log of that command, written by process ${log_pid}, was ended with it and is left as it stands")
+    else
+      messages+=("the process that wrote the log of that command, ${log_pid}, had already ended; it was not signalled")
+    fi
   fi
-  messages+=("nothing of this run was published; the harness lock of this checkout is released")
+  publication_state_report
+  messages+=("${PUBLICATION_MESSAGES[@]}")
   die "$EXIT_SIGNAL" "run ended by SIG${signal}" "${messages[@]}"
 }
 
 # Installs the handler that ends a run reached by a termination, interrupt or
 # hangup signal. Runs as the first step of the run, so a signal that arrives
 # before the first stage is handled the same way as one that arrives while a
-# compile is in progress.
+# compile is in progress, and runs again as soon as the replacement of the
+# published evidence set is over, which defer_signal_traps holds those three
+# signals for.
 install_signal_traps() {
   trap 'terminate_run TERM' TERM
   trap 'terminate_run INT' INT
   trap 'terminate_run HUP' HUP
+}
+
+# Records the first termination, interrupt or hangup signal that reaches this
+# script while the published evidence set is being replaced.
+# Bash runs a trap between two commands, so a signal that arrives inside the
+# "rm", the "cat" or the "mv" of that replacement is handled once that command
+# has returned, and the loop that command belongs to then continues to its end:
+# the set is replaced in full and resume_deferred_signal ends the run
+# afterwards. Returns 0: a handler that returns non-zero ends a run under
+# "set -e" at the command the signal interrupted, and a handler that fails
+# inside a pipeline ends it under "set -o pipefail". The first signal is the one
+# recorded and the one reported; a second one of the three is held the same way
+# and adds nothing.
+# See planned decision-log row: the three signals deferred for the replacement
+# of the published evidence set.
+defer_signal() {
+  local signal="$1"
+
+  if [[ -z "$DEFERRED_SIGNAL" ]]; then
+    DEFERRED_SIGNAL="$signal"
+  fi
+  return 0
+}
+
+# Installs the handler that defers the three signals in place of the one that
+# ends the run on them. Held for the replacement of the published evidence set
+# alone - clearing the names of this run, publishing the staged files under them
+# and re-reading every published file against the manifest - so an interrupted
+# run leaves that set complete rather than half replaced. The deferral covers
+# the signals delivered to this script. A signal delivered to the whole process
+# group also reaches the command the step running at the time started: a step
+# that reads the status of an "rm", a "cat" or a "mv" then reports the name it
+# could not write and ends the run with the evidence status, and a step that
+# reads a digest through a command substitution ends the run with the status of
+# the signal. Both leave the set replaced as far as that step came.
+defer_signal_traps() {
+  trap 'defer_signal TERM' TERM
+  trap 'defer_signal INT' INT
+  trap 'defer_signal HUP' HUP
+}
+
+# Ends the run through terminate_run when a signal was deferred while the
+# published evidence set was being replaced, and returns 0 when none was. Runs
+# once the terminating handlers are installed again, so a signal that arrives
+# between the end of that replacement and their reinstallation is deferred and
+# reported here rather than lost. The run ends with EXIT_SIGNAL, and the
+# published evidence set terminate_run reports is the complete set of this run.
+resume_deferred_signal() {
+  local signal="$DEFERRED_SIGNAL"
+
+  if [[ -z "$signal" ]]; then
+    return 0
+  fi
+  DEFERRED_SIGNAL=""
+  terminate_run "$signal"
 }
 
 # Runs the supplied command with its output merged and appended to the log named
@@ -1809,10 +2098,19 @@ install_signal_traps() {
 # both. The command reads the same standard input, holds no handle of this
 # script's own, inherits the same descriptors 3 and 4, and reports the same
 # status as it does in a foreground pipeline.
+#
+# Each of the two is recorded for the handler as its identifier and the start
+# time /proc reports for it, the identifier at the spawn and the start time
+# next, and each pair is emptied as that process is reaped, the identifier again
+# first. An identifier the handler finds carrying no start time is therefore an
+# identifier of a process spawned and not yet waited for, the state in which the
+# parent /proc reports identifies it on its own. An identifier whose identity
+# this script cannot read is a host without a readable /proc: the process is
+# ended here and the step fails.
 run_and_tee() {
   local log_failure_status="$1" log="$2"
   shift 2
-  local command_status=0 log_status=0 record_fd=""
+  local command_status=0 log_status=0 record_fd="" spawned="" start=""
 
   RUN_STATUS=0
   RUN_LOG_STATUS=0
@@ -1831,6 +2129,19 @@ run_and_tee() {
       "the process that records this step could not be started for the log: ${log}" \
       "grant write permission on that path, or free space on its file system, and run this script again"
   fi
+  if ! start="$(own_child_start_time "$RUN_LOG_PID")"; then
+    spawned="$RUN_LOG_PID"
+    kill -TERM "$spawned" 2>/dev/null || true
+    wait "$spawned" 2>/dev/null || true
+    RUN_LOG_PID=""
+    exec {record_fd}>&-
+    set -e
+    RUN_CHILD_NAME=""
+    die "$log_failure_status" \
+      "the identity of the process that records this step, ${spawned}, could not be read from /proc" \
+      "run this script on a host that mounts /proc for the user it runs as"
+  fi
+  RUN_LOG_START="$start"
   # Job control gives the command, and every child it starts of its own, one
   # process group whose identifier is the identifier of the command itself.
   set -m
@@ -1842,16 +2153,35 @@ run_and_tee() {
   fi
   RUN_CHILD_PGID="$!"
   set +m
+  if ! start="$(own_child_start_time "$RUN_CHILD_PGID")"; then
+    spawned="$RUN_CHILD_PGID"
+    kill -TERM "-${spawned}" 2>/dev/null || true
+    wait "$spawned" 2>/dev/null || true
+    RUN_CHILD_PGID=""
+    exec {record_fd}>&-
+    kill -TERM "$RUN_LOG_PID" 2>/dev/null || true
+    wait "$RUN_LOG_PID" 2>/dev/null || true
+    RUN_LOG_PID=""
+    RUN_LOG_START=""
+    set -e
+    RUN_CHILD_NAME=""
+    die "$log_failure_status" \
+      "the identity of the command of this step, ${spawned}, could not be read from /proc" \
+      "run this script on a host that mounts /proc for the user it runs as"
+  fi
+  RUN_CHILD_START="$start"
   # Closed here, so the "tee" reads the end of its input as soon as the command
   # and its children have released the write end.
   exec {record_fd}>&-
   wait "$RUN_CHILD_PGID"
   command_status=$?
+  RUN_CHILD_PGID=""
+  RUN_CHILD_START=""
   wait "$RUN_LOG_PID"
   log_status=$?
-  set -e
-  RUN_CHILD_PGID=""
   RUN_LOG_PID=""
+  RUN_LOG_START=""
+  set -e
   RUN_CHILD_NAME=""
   RUN_STATUS="$command_status"
   RUN_LOG_STATUS="$log_status"
@@ -1902,13 +2232,10 @@ version_at_least() {
 # component on the way to it is a symbolic link, and the entry itself is either
 # absent or a regular file carrying exactly one hard link. A path that breaks
 # the rule is refused before anything is created, truncated, compiled into,
-# appended to or copied, so a link planted at an output name can neither
-# redirect a write nor carry a file this run does not own into the evidence. The
-# same rule governs the record handed to the driver on its standard input, which
-# is refused before the driver is started.
-# Decisions taken about this rule belong to
-# modernization/docs/decision-log.md (planned deliverable; not present at this
-# milestone).
+# appended to or copied. The same rule governs the record handed to the driver
+# on its standard input, which is refused before the driver is started.
+# Decisions taken about this rule are recorded in
+# modernization/docs/decision-log.md.
 
 # Prints the name of the file type a path holds, without following a symbolic
 # link, in the vocabulary the diagnostics of this script use.
@@ -2930,15 +3257,23 @@ preflight_inputs() {
 # Resolves and checks the two deterministic seeds. A supplied identity seed
 # holds one to nine digits above zero and leaves room for the value every later
 # row of the case table receives; a supplied timestamp seed holds exactly
-# twenty-six characters in the form the chain reads back, with every date and
-# time component inside the range its COBOL consumers accept.
+# twenty-six characters in the form the chain reads back, and names a real
+# Gregorian date and time.
+#
+# One rule governs the timestamp seed in the three places that read it: this
+# preflight, modernization/harness/driver.cbl and
+# modernization/harness/stubs/sql_insert_policy.cbl. The three accept the same
+# values - the six separators in their fixed positions, digits everywhere else,
+# a year of 0001 through 9999, a month of 01 through 12, a day inside the
+# length of that month under the Gregorian leap rule, an hour of 00 through 23
+# and a minute and a second of 00 through 59 - so a seed that reaches a case is
+# the seed its captures report and its assertions compare. The driver and the
+# stub replace a value they refuse with ${LASTCHANGED_DEFAULT}; this preflight
+# refuses it before any case runs.
 #
 # Reads one two-digit component of a timestamp at its fixed offset and ends the
 # run unless it lies between low and high. The digits and the separators of the
-# value have already been matched by the caller. driver.cbl and
-# stubs/sql_insert_policy.cbl refuse a component outside these ranges and fall
-# back to their own default, so a value accepted here is the value the captures
-# of the run report.
+# value have already been matched by the caller.
 assert_timestamp_component() {
   local value="$1" name="$2" offset="$3" low="$4" high="$5"
   local component=""
@@ -2949,6 +3284,65 @@ assert_timestamp_component() {
       "HARNESS_LASTCHANGED holds ${value}, whose ${name} is ${component}; $(printf '%02d' "$low") to ${high} is accepted" \
       "the driver and the policy stub refuse that ${name} and use ${LASTCHANGED_DEFAULT} instead" \
       "unset HARNESS_LASTCHANGED to use ${LASTCHANGED_DEFAULT}, or set the ${name} inside that range"
+  fi
+}
+
+# Reads the four-digit year of a timestamp and ends the run when it is 0000,
+# the one four-digit value no calendar carries.
+assert_timestamp_year() {
+  local value="$1"
+  local year=""
+
+  year="${value:0:4}"
+  if ((10#$year < 1)); then
+    die "$EXIT_PREFLIGHT" \
+      "HARNESS_LASTCHANGED holds ${value}, whose year is ${year}; 0001 to 9999 is accepted" \
+      "the driver and the policy stub refuse that year and use ${LASTCHANGED_DEFAULT} instead" \
+      "unset HARNESS_LASTCHANGED to use ${LASTCHANGED_DEFAULT}, or set the year inside that range"
+  fi
+}
+
+# Prints the number of days the named month of the named year holds. February
+# is taken from the Gregorian leap rule: a year divisible by four is a leap
+# year unless it is divisible by 100 without being divisible by 400. Both
+# arguments are decimal integers.
+month_length() {
+  local year="$1" month="$2"
+
+  case "$month" in
+    1 | 3 | 5 | 7 | 8 | 10 | 12) printf '31' ;;
+    4 | 6 | 9 | 11) printf '30' ;;
+    2)
+      if ((year % 4 == 0 && (year % 100 != 0 || year % 400 == 0))); then
+        printf '29'
+      else
+        printf '28'
+      fi
+      ;;
+    *) return 1 ;;
+  esac
+}
+
+# Reads the day of a timestamp and ends the run unless the month and the year
+# it stands in hold that many days. The year and the month have already been
+# checked by the caller, so the length is always resolved.
+assert_timestamp_day() {
+  local value="$1"
+  local year="" month="" day="" length=""
+
+  year="${value:0:4}"
+  month="${value:5:2}"
+  day="${value:8:2}"
+  if ! length="$(month_length "$((10#$year))" "$((10#$month))")"; then
+    die "$EXIT_PREFLIGHT" \
+      "HARNESS_LASTCHANGED holds ${value}, whose month ${month} names no calendar month" \
+      "unset HARNESS_LASTCHANGED to use ${LASTCHANGED_DEFAULT}, or set a month of 01 through 12"
+  fi
+  if ((10#$day < 1 || 10#$day > length)); then
+    die "$EXIT_PREFLIGHT" \
+      "HARNESS_LASTCHANGED holds ${value}, whose day is ${day}; month ${month} of year ${year} holds ${length} days" \
+      "the driver and the policy stub refuse that day and use ${LASTCHANGED_DEFAULT} instead" \
+      "unset HARNESS_LASTCHANGED to use ${LASTCHANGED_DEFAULT}, or set a day of 01 through ${length}"
   fi
 }
 
@@ -2985,11 +3379,12 @@ preflight_seeds() {
       "HARNESS_LASTCHANGED holds ${supplied}; the form YYYY-MM-DD-HH.MM.SS.NNNNNN is required" \
       "unset it to use ${LASTCHANGED_DEFAULT}, or set it to a value of that form"
   fi
+  assert_timestamp_year "$supplied"
   assert_timestamp_component "$supplied" "month" 5 1 12
-  assert_timestamp_component "$supplied" "day" 8 1 31
   assert_timestamp_component "$supplied" "hour" 11 0 23
   assert_timestamp_component "$supplied" "minute" 14 0 59
   assert_timestamp_component "$supplied" "second" 17 0 59
+  assert_timestamp_day "$supplied"
   LASTCHANGED_SEED="$supplied"
 
   emit_step "seeds: first case policy ${POLICY_NUMBER_BASE}, last case policy $((POLICY_NUMBER_BASE + ${#HARNESS_CASES[@]} - 1)), lastchanged ${LASTCHANGED_SEED}"
@@ -3020,10 +3415,10 @@ prepare_directories() {
 
 # Empties the evidence log the source guard appends its blocks to, so the log
 # records the gates of this run and nothing that ran before it. The path rule
-# accepts the name first, and the log is emptied through that name rather than
-# removed and created again: it keeps the mode it carries, it is never absent
-# while a run is in progress, and it is created empty when it is absent. Runs
-# once per run, after the harness lock is held and before the first gate.
+# accepts the name first, and the log is emptied through that name: it keeps the
+# mode it carries, it is never absent while a run is in progress, and it is
+# created empty when it is absent. Runs once per run, after the harness lock is
+# held and before the first gate.
 reset_source_guard_log() {
   local path="${REPO_ROOT}/${SOURCE_GUARD_LOG}"
 
@@ -3038,16 +3433,18 @@ reset_source_guard_log() {
 
 # Runs the read-only scope gate of the bridge and ends the run when it does not
 # pass. The gate holds the approved SHA-256 baseline of the five named source
-# artifacts, checks that no pre-existing tracked file has been modified, and
-# appends its own block to the evidence log named here, which the preflight of
-# this run emptied. It runs before any generated output is produced and again at
-# every stage boundary, so a source that moves during a run is reported at the
-# next boundary and the log holds one block per gate of this run. Each gate is
-# asked for the guard's reproducible block, which carries fixed text in place of
-# the time of the gate and of the root its paths are relative to, and every
-# other record in full, so the log this run leaves published holds the same bytes
-# as the log of the run before it whatever directory the checkout was taken
-# into.
+# artifacts, checks that no tracked file outside its exempt inventory of the
+# generated evidence set has been modified, and appends its own block to the
+# evidence log named here, which the preflight of this run emptied. It runs
+# before any generated output is produced and again at every stage boundary, so
+# a source that moves during a run is reported at the next boundary and the log
+# holds one block per gate of this run. Each gate is asked for the guard's
+# reproducible block, which carries fixed text in place of the time of the gate
+# and of the root its paths are relative to, and every other record in full, so
+# two runs over one tracked state record the same bytes whatever directory the
+# checkout was taken into; the paths a block names are the tracked state the run
+# read, and which of the exempt evidence paths differ from HEAD is part of that
+# state.
 run_source_guard() {
   local stage="$1"
   local status=0
@@ -3068,7 +3465,7 @@ run_source_guard() {
     die "$EXIT_GUARD" \
       "the read-only source guard failed at stage ${stage}, exit ${status}" \
       "its evidence log is ${REPO_ROOT}/${SOURCE_GUARD_LOG}" \
-      "restore the five named files under ${SOURCE_DIR} and every pre-existing tracked file, then run this script again" \
+      "restore the five named files under ${SOURCE_DIR} and every tracked file the guard's exempt inventory does not name, then run this script again" \
       "reproduce it with: ./${SOURCE_GUARD} --stage ${stage} --log ${SOURCE_GUARD_LOG} --reproducible"
   fi
   GUARD_VERDICT="PASS"
@@ -3480,24 +3877,35 @@ clear_binaries() {
 # mandated options first, the output name is refused before the compiler runs
 # when it is not a name this script owns, and compiler output, warnings
 # included, is appended to the compile log and retained.
+#
+# The include directory, the output name and the source are handed to the
+# compiler relative to the repository root, which is the working directory of
+# every stage of this script, so a diagnostic the compiler writes about one of
+# them names the same path from any checkout. The output name is still checked as
+# the absolute path it resolves to before the compiler runs, and the command line
+# recorded in the log is the command line that ran.
 compile_modules() {
   local log="$1"
   local entry="" source="" program="" target="" count=0
+  local include_relative="" source_relative="" target_relative=""
 
+  include_relative="$(repo_relative "$SRC_DIR")"
   for entry in "${STUB_MODULES[@]}"; do
     source="${entry%%|*}"
     program="${entry##*|}"
     target="${BIN_DIR}/${program}.so"
     assert_writable_path "$target" "$EXIT_COMPILE"
+    source_relative="$(repo_relative "$source")"
+    target_relative="$(repo_relative "$target")"
     log_command "$log" "$COBC" -m "${COBC_FLAG_LIST[@]}" \
-      -I "$SRC_DIR" -o "$target" "$source"
+      -I "$include_relative" -o "$target_relative" "$source_relative"
     run_and_tee "$EXIT_COMPILE" "$log" "$COBC" -m "${COBC_FLAG_LIST[@]}" \
-      -I "$SRC_DIR" -o "$target" "$source"
+      -I "$include_relative" -o "$target_relative" "$source_relative"
     if ((RUN_STATUS != 0)); then
       die "$EXIT_COMPILE" \
-        "compilation of module ${program} failed from ${source}" \
+        "compilation of module ${program} failed from ${source_relative}" \
         "the compiler output is retained in ${log}" \
-        "reproduce it from the repository root with: ${COBC} -m ${COBC_FLAGS_EFFECTIVE} -I $(repo_relative "$SRC_DIR") -o $(repo_relative "$target") $(repo_relative "$source")"
+        "reproduce it from the repository root with: ${COBC} -m ${COBC_FLAGS_EFFECTIVE} -I ${include_relative} -o ${target_relative} ${source_relative}"
     fi
     count=$((count + 1))
   done
@@ -3507,15 +3915,17 @@ compile_modules() {
     program="${entry##*|}"
     target="${BIN_DIR}/${program}.so"
     assert_writable_path "$target" "$EXIT_COMPILE"
+    source_relative="$(repo_relative "$source")"
+    target_relative="$(repo_relative "$target")"
     log_command "$log" "$COBC" -m "${COBC_FLAG_LIST[@]}" \
-      -I "$SRC_DIR" -o "$target" "$source"
+      -I "$include_relative" -o "$target_relative" "$source_relative"
     run_and_tee "$EXIT_COMPILE" "$log" "$COBC" -m "${COBC_FLAG_LIST[@]}" \
-      -I "$SRC_DIR" -o "$target" "$source"
+      -I "$include_relative" -o "$target_relative" "$source_relative"
     if ((RUN_STATUS != 0)); then
       die "$EXIT_COMPILE" \
-        "compilation of translated program ${program} failed from ${source}" \
+        "compilation of translated program ${program} failed from ${source_relative}" \
         "the compiler output is retained in ${log}" \
-        "reproduce it from the repository root with: ${COBC} -m ${COBC_FLAGS_EFFECTIVE} -I $(repo_relative "$SRC_DIR") -o $(repo_relative "$target") $(repo_relative "$source")" \
+        "reproduce it from the repository root with: ${COBC} -m ${COBC_FLAGS_EFFECTIVE} -I ${include_relative} -o ${target_relative} ${source_relative}" \
         "a translated program that still fails after the documented rules are applied is reported, not patched by hand"
     fi
     count=$((count + 1))
@@ -3523,21 +3933,26 @@ compile_modules() {
   emit_step "modules compiled: ${count} into ${BIN_DIR}"
 }
 
-# Compiles the driver as an executable.
+# Compiles the driver as an executable, on the same repository-relative include
+# directory, output name and source as every module compile of the stage.
 compile_driver() {
   local log="$1"
   local target="${BIN_DIR}/driver"
+  local include_relative="" source_relative="" target_relative=""
 
   assert_writable_path "$target" "$EXIT_COMPILE"
+  include_relative="$(repo_relative "$SRC_DIR")"
+  source_relative="$(repo_relative "$DRIVER_SOURCE")"
+  target_relative="$(repo_relative "$target")"
   log_command "$log" "$COBC" -x "${COBC_FLAG_LIST[@]}" \
-    -I "$SRC_DIR" -o "$target" "$DRIVER_SOURCE"
+    -I "$include_relative" -o "$target_relative" "$source_relative"
   run_and_tee "$EXIT_COMPILE" "$log" "$COBC" -x "${COBC_FLAG_LIST[@]}" \
-    -I "$SRC_DIR" -o "$target" "$DRIVER_SOURCE"
+    -I "$include_relative" -o "$target_relative" "$source_relative"
   if ((RUN_STATUS != 0)); then
     die "$EXIT_COMPILE" \
-      "compilation of the driver failed from ${DRIVER_SOURCE}" \
+      "compilation of the driver failed from ${source_relative}" \
       "the compiler output is retained in ${log}" \
-      "reproduce it from the repository root with: ${COBC} -x ${COBC_FLAGS_EFFECTIVE} -I $(repo_relative "$SRC_DIR") -o $(repo_relative "$target") ${DRIVER_SOURCE}"
+      "reproduce it from the repository root with: ${COBC} -x ${COBC_FLAGS_EFFECTIVE} -I ${include_relative} -o ${target_relative} ${source_relative}"
   fi
   emit_step "driver compiled: ${target}"
 }
@@ -5272,17 +5687,19 @@ stage_execute() {
 # --------------------------------------------------------------------------
 # Stage 6 runs the source guard as the final gate, collects the evidence of this
 # run in the staging directory of the run, writes the manifest of what it
-# collected, and only then clears the names this run publishes in the validation
-# artifacts directory - the five stage files, and the driver log, the capture
-# file and the post-chain record of each success case it executed - and
-# publishes the staged files under those names. Nothing is published before every
-# selected case, every probe and that final gate have passed, each published name
-# is replaced in one step, and the published files are re-read afterwards and
-# compared with the manifest. A run that fails at any point therefore leaves the
-# published evidence exactly as it stands, a run that succeeds replaces the
-# evidence of the cases it executed with evidence that describes only itself, and
-# the published evidence of a success case a run did not execute is left as it
-# stands.
+# collected, repeats the replacement over a directory of its own under the build
+# tree, and only then replaces the published set in the validation artifacts
+# directory: every name this script owns there is removed, the manifest first,
+# the staged files are placed under the names the manifest carries, and the
+# manifest is placed last. The set published is the five stage files, the
+# manifest, and the driver log, the capture file and the post-chain record of
+# each success case this run executed; the names of a success case it did not
+# execute are removed with the rest. The set is then read back and required to
+# match the manifest published with it, name for name and digest for digest.
+# Nothing is published before every selected case, every probe and that final
+# gate have passed, so a run that fails at any point leaves the published
+# evidence exactly as it stands, and a run that succeeds leaves a set that
+# describes itself alone.
 
 # Copies one file of this run into the staging directory under the name it is to
 # be published as, and records the pair for the publication step.
@@ -5308,9 +5725,11 @@ stage_artifact() {
 # and the driver log, the capture file and the post-chain record of every success
 # case that ran. The guard log is collected after the final gate has appended its
 # block to it, so the copy published carries all four gate runs of this run. The
-# staged pairs are the names this run publishes, and the names it clears before
-# publishing them. The other cases keep their log, capture file and post-chain
-# record under the build tree, where the run directory of the case names them.
+# staged pairs are the files of the published set, beside the manifest that
+# describes them; every other name this script owns in the published directory is
+# removed rather than published. The cases that are not success cases keep their
+# log, capture file and post-chain record under the build tree, where the run
+# directory of the case names them.
 collect_evidence() {
   local name="" label="" lower="" candidate=""
 
@@ -5333,15 +5752,125 @@ collect_evidence() {
   emit_step "evidence staged: ${#STAGED_ARTIFACTS[@]} files in ${STAGING_DIR}"
 }
 
-# Writes the manifest of this run beside the stage logs: one "sha256sum" line
-# per staged file, named as it is published. The manifest is read back after
-# publication and every published file is compared with it.
+# Prints every name this script publishes into, or removes from, the validation
+# artifacts directory: the five stage files, the manifest, and the driver log,
+# the capture file and the post-chain record of each success case of the case
+# table. One name per line. A run publishes the subset its selection produced
+# and removes the rest, so the published set holds no artifact of a success case
+# that run did not execute.
+evidence_owned_names() {
+  local name="" label="" lower=""
+
+  for name in "${PUBLISHED_STAGE_ARTIFACTS[@]}"; do
+    printf '%s\n' "$name"
+  done
+  printf '%s\n' "$EVIDENCE_MANIFEST_NAME"
+  for label in "${SUCCESS_CASES[@]}"; do
+    lower="$(case_lower "$label")"
+    printf '%s\n%s\n%s\n' "driver_${lower}.log" "captures_${lower}.txt" \
+      "commarea_post_${lower}.dat"
+  done
+}
+
+# Prints the success cases of this run's selection, comma separated, and prints
+# nothing when the selection carries none. Those are the cases whose driver log,
+# capture file and post-chain record the published set covers.
+evidence_success_selection() {
+  local label="" candidate=""
+  local -a executed=()
+
+  for label in "${SUCCESS_CASES[@]}"; do
+    for candidate in "${SELECTED_CASES[@]}"; do
+      if [[ "$candidate" == "$label" ]]; then
+        executed+=("$label")
+      fi
+    done
+  done
+  if ((${#executed[@]} == 0)); then
+    return 0
+  fi
+  join_with ", " "${executed[@]}"
+}
+
+# Prints the name of every entry standing in the supplied directory, one per
+# line, hidden entries included. The globbing options it needs are set inside a
+# subshell, so they do not outlive the call, and no external tool is invoked.
+directory_entry_names() {
+  local dir="$1"
+
+  (
+    shopt -s nullglob dotglob
+    local path=""
+    for path in "$dir"/*; do
+      printf '%s\n' "${path##*/}"
+    done
+  )
+}
+
+# Reads the SHA-256 of one published file into EVIDENCE_DIGEST and reports a
+# failure instead of ending the run: an absent name, a symbolic link, an entry
+# that is not a regular file and an unreadable file each leave EVIDENCE_DIGEST
+# empty and return 1. Used by the check that reads a published set back, which
+# reports its verdict to its caller rather than ending the run itself.
+published_digest() {
+  local path="$1"
+  local line=""
+
+  EVIDENCE_DIGEST=""
+  if [[ -L "$path" || ! -f "$path" ]]; then
+    return 1
+  fi
+  if ! line="$(sha256sum -- "$path" 2>/dev/null)" || [[ -z "$line" ]]; then
+    return 1
+  fi
+  EVIDENCE_DIGEST="${line%% *}"
+  return 0
+}
+
+# Writes one evidence manifest: the provenance of this run as comment lines,
+# then one "sha256sum" line per staged file under the name it is published as.
+# The provenance names the run, the time the manifest was written, the case
+# selection it describes, the success cases whose captures the set covers, the
+# two seeds of the run, the measured tool versions, the source-guard verdict, the
+# number of files in the set and the name that stands outside it. Every comment
+# line carries a leading "#", which "sha256sum --check" skips, so the manifest
+# checks the set as it stands. The manifest is published with the set and read
+# back from the published directory afterwards.
+#   1 path of the manifest
+#   2 case selection this set describes
+#   3 success cases the set covers, or "none"
+#   4.. staged pairs "<staged path>|<published name>"
 write_evidence_manifest() {
-  local manifest="${LOGS_DIR}/${EVIDENCE_MANIFEST_NAME}"
-  local entry="" staged="" name="" digest=""
+  local manifest="$1" selection="$2" covered="$3"
+  shift 3
+  local entry="" staged="" name="" digest="" stamp="" header=""
+
+  if (($# == 0)); then
+    die "$EXIT_EVIDENCE" "the evidence manifest ${manifest} would carry no file"
+  fi
+  if ! stamp="$(date -u '+%Y-%m-%dT%H:%M:%SZ')" || [[ -z "$stamp" ]]; then
+    die "$EXIT_EVIDENCE" \
+      "unable to read the current time for the evidence manifest: ${manifest}"
+  fi
+
+  header="# ${PROGRAM} evidence manifest: one run, one published set"$'\n'
+  header+="# run identifier:      $(sanitize "$RUN_ID")"$'\n'
+  header+="# written (UTC):       $(sanitize "$stamp")"$'\n'
+  header+="# case selection:      $(sanitize "$selection")"$'\n'
+  header+="# success captures:    $(sanitize "$covered")"$'\n'
+  header+="# policy number seed:  $(sanitize "$POLICY_NUMBER_BASE")"$'\n'
+  header+="# timestamp seed:      $(sanitize "$LASTCHANGED_SEED")"$'\n'
+  header+="# cobc:                $(sanitize "$COBC_VERSION") (pinned ${COBC_VERSION_PINNED}, $(sanitize "$COBC_VERSION_VERDICT"))"$'\n'
+  header+="# python:              $(sanitize "$PYTHON_VERSION")"$'\n'
+  header+="# source guard:        $(sanitize "$GUARD_VERDICT") at ${GUARD_PASSES} of 4 points"$'\n'
+  header+="# files in this set:   $(($# + 1)), this manifest included"$'\n'
+  header+="# outside this set:    ${RUNTIME_VERSIONS_NAME}, the environment record of the checkout"$'\n'
 
   create_private_file "$manifest" "$EXIT_EVIDENCE"
-  for entry in "${STAGED_ARTIFACTS[@]}"; do
+  if ! printf '%s' "$header" >"$manifest"; then
+    die "$EXIT_EVIDENCE" "unable to write the evidence manifest: ${manifest}"
+  fi
+  for entry in "$@"; do
     staged="${entry%%|*}"
     name="${entry##*|}"
     digest="$(hash_file "$staged" "$EXIT_EVIDENCE")"
@@ -5349,88 +5878,388 @@ write_evidence_manifest() {
       die "$EXIT_EVIDENCE" "unable to append to the evidence manifest: ${manifest}"
     fi
   done
-  emit_step "evidence manifest: ${manifest}"
 }
 
-# Removes, in the validation artifacts directory, the names this run staged and
-# is about to publish, so no earlier content stands under a name of this run.
-# Only the staged names are touched: the published driver log, capture file and
-# post-chain record of a success case this run did not execute are left as they
-# stand, and runtime-versions.txt is the environment record of the checkout,
-# which no run stages. The clearing runs after the final source guard has
-# passed, so a run that stops earlier leaves the published evidence exactly as
-# it stands.
-clear_published_artifacts() {
-  local entry="" name="" removed=0
+# Replaces the complete published set in the supplied directory. The manifest
+# name is removed first, then every other name this script owns there, then the
+# staged files are placed under the names the manifest carries and the manifest
+# is placed last. A directory holding the manifest therefore holds the whole set
+# that manifest describes, and a publication that stops part way leaves no
+# manifest beside a partial set. publish_file replaces each name in one step. The
+# leftover of an interrupted publication carries the name publish_file writes
+# through and is removed with the set it belongs to. What was removed and what
+# was placed is left in EVIDENCE_CLEARED and EVIDENCE_PLACED.
+#   1 directory the set is published into
+#   2 manifest of the set, already written
+#   3.. staged pairs "<staged path>|<published name>"
+publish_evidence_set() {
+  local target_dir="$1" manifest="$2"
+  shift 2
+  local entry="" staged="" name="" path="" tracking="N"
+  local -A set_names=()
+  local -a owned=() present=()
 
-  if ((${#STAGED_ARTIFACTS[@]} == 0)); then
+  if (($# == 0)); then
     die "$EXIT_EVIDENCE" "the staged evidence list is empty"
   fi
+  EVIDENCE_CLEARED=0
+  EVIDENCE_PLACED=0
+  if [[ "$target_dir" == "$ARTIFACTS_DIR" ]]; then
+    tracking="Y"
+    PUBLICATION_NAMES_TOTAL=$(($# + 1))
+    PUBLICATION_NAMES_CLEARED=0
+    PUBLICATION_NAMES_PUBLISHED=0
+    PUBLICATION_STATE="clearing"
+  fi
+  for entry in "$@"; do
+    set_names["${entry##*|}"]=1
+  done
 
-  for entry in "${STAGED_ARTIFACTS[@]}"; do
-    name="${entry##*|}"
-    if [[ -e "${ARTIFACTS_DIR}/${name}" || -L "${ARTIFACTS_DIR}/${name}" ]]; then
-      remove_output_path "${ARTIFACTS_DIR}/${name}" "$EXIT_EVIDENCE"
-      removed=$((removed + 1))
+  mapfile -t present < <(directory_entry_names "$target_dir")
+  for name in "${present[@]}"; do
+    case "$name" in
+      .publish-*)
+        remove_output_path "${target_dir}/${name}" "$EXIT_EVIDENCE"
+        EVIDENCE_CLEARED=$((EVIDENCE_CLEARED + 1))
+        ;;
+    esac
+  done
+
+  path="${target_dir}/${EVIDENCE_MANIFEST_NAME}"
+  if [[ -e "$path" || -L "$path" ]]; then
+    remove_output_path "$path" "$EXIT_EVIDENCE"
+    EVIDENCE_CLEARED=$((EVIDENCE_CLEARED + 1))
+  fi
+  if [[ "$tracking" == "Y" ]]; then
+    PUBLICATION_NAMES_CLEARED=$((PUBLICATION_NAMES_CLEARED + 1))
+  fi
+  mapfile -t owned < <(evidence_owned_names)
+  for name in "${owned[@]}"; do
+    if [[ -z "$name" || "$name" == "$EVIDENCE_MANIFEST_NAME" ]]; then
+      continue
+    fi
+    path="${target_dir}/${name}"
+    if [[ -e "$path" || -L "$path" ]]; then
+      remove_output_path "$path" "$EXIT_EVIDENCE"
+      EVIDENCE_CLEARED=$((EVIDENCE_CLEARED + 1))
+    fi
+    if [[ "$tracking" == "Y" ]]; then
+      PUBLICATION_NAMES_CLEARED=$((PUBLICATION_NAMES_CLEARED + 1))
     fi
   done
-  emit_step "published names cleared: ${removed} of the ${#STAGED_ARTIFACTS[@]} this run publishes"
+  if [[ "$tracking" == "Y" ]]; then
+    PUBLICATION_STATE="publishing"
+  fi
+
+  for entry in "$@"; do
+    staged="${entry%%|*}"
+    name="${entry##*|}"
+    publish_file "$staged" "${target_dir}/${name}" "$EXIT_EVIDENCE"
+    EVIDENCE_PLACED=$((EVIDENCE_PLACED + 1))
+    if [[ "$tracking" == "Y" ]]; then
+      PUBLICATION_NAMES_PUBLISHED=$((PUBLICATION_NAMES_PUBLISHED + 1))
+    fi
+  done
+  publish_file "$manifest" "${target_dir}/${EVIDENCE_MANIFEST_NAME}" \
+    "$EXIT_EVIDENCE"
+  EVIDENCE_PLACED=$((EVIDENCE_PLACED + 1))
+  if [[ "$tracking" == "Y" ]]; then
+    PUBLICATION_NAMES_PUBLISHED=$((PUBLICATION_NAMES_PUBLISHED + 1))
+  fi
 }
 
-# Publishes the staged evidence under the names the manifest carries, replacing
-# each name in one step, and then re-reads every published file and compares it
-# with the manifest.
+# Reads one published set back and reports whether the directory holds exactly
+# the set its manifest describes: the manifest is the one whose SHA-256 was
+# supplied, it carries one digest line per staged name and no other, every
+# published file matches its digest line, and no name this script owns stands
+# there outside the manifest - so an artifact of a success case the run did not
+# execute is a difference rather than part of the set. Names this script never
+# writes, other than the environment record, are collected in EVIDENCE_FOREIGN
+# for the caller to report. The verdict is returned rather than acted on: 0 when
+# the set holds, 1 with the first difference in EVIDENCE_DIFFERENCE, so a caller
+# can require either outcome.
+#   1 directory the set was published into
+#   2 SHA-256 of the manifest that describes the set
+#   3.. staged pairs "<staged path>|<published name>"
+verify_published_set() {
+  local target_dir="$1" expected_manifest="$2"
+  shift 2
+  local expected_count=$#
+  local manifest="${target_dir}/${EVIDENCE_MANIFEST_NAME}"
+  local entry="" line="" name="" digest="" count=0
+  local -A set_names=() stated=()
+  local -a lines=() owned=() present=()
+
+  EVIDENCE_DIFFERENCE=""
+  EVIDENCE_FOREIGN=()
+  for entry in "$@"; do
+    set_names["${entry##*|}"]=1
+  done
+
+  if ! published_digest "$manifest"; then
+    EVIDENCE_DIFFERENCE="the manifest of the set is $(path_kind "$manifest"): ${manifest}"
+    return 1
+  fi
+  if [[ "$EVIDENCE_DIGEST" != "$expected_manifest" ]]; then
+    EVIDENCE_DIFFERENCE="the manifest ${manifest} is not the one written for this set"
+    return 1
+  fi
+
+  mapfile -t lines <"$manifest"
+  for line in "${lines[@]}"; do
+    case "$line" in
+      '#'* | '')
+        continue
+        ;;
+    esac
+    if ((${#line} < 67)) || [[ "${line:64:2}" != "  " ]] ||
+      [[ ! "${line:0:64}" =~ ^[0-9a-f]{64}$ ]]; then
+      EVIDENCE_DIFFERENCE="the manifest ${manifest} carries a line that is no digest line: ${line}"
+      return 1
+    fi
+    digest="${line:0:64}"
+    name="${line:66}"
+    if [[ -z "${set_names[$name]+set}" ]]; then
+      EVIDENCE_DIFFERENCE="the manifest names ${name}, which this set does not carry"
+      return 1
+    fi
+    if [[ -n "${stated[$name]+set}" ]]; then
+      EVIDENCE_DIFFERENCE="the manifest names ${name} more than once"
+      return 1
+    fi
+    stated["$name"]="$digest"
+    count=$((count + 1))
+  done
+  if ((count != expected_count)); then
+    EVIDENCE_DIFFERENCE="the manifest carries ${count} digest lines where ${expected_count} are required"
+    return 1
+  fi
+
+  for name in "${!stated[@]}"; do
+    if ! published_digest "${target_dir}/${name}"; then
+      EVIDENCE_DIFFERENCE="the published file is $(path_kind "${target_dir}/${name}"): ${target_dir}/${name}"
+      return 1
+    fi
+    if [[ "$EVIDENCE_DIGEST" != "${stated[$name]}" ]]; then
+      EVIDENCE_DIFFERENCE="the published ${target_dir}/${name} does not match its manifest entry"
+      return 1
+    fi
+  done
+
+  mapfile -t owned < <(evidence_owned_names)
+  for name in "${owned[@]}"; do
+    if [[ -z "$name" || "$name" == "$EVIDENCE_MANIFEST_NAME" ||
+      -n "${set_names[$name]+set}" ]]; then
+      continue
+    fi
+    if [[ -e "${target_dir}/${name}" || -L "${target_dir}/${name}" ]]; then
+      EVIDENCE_DIFFERENCE="${target_dir}/${name} stands beside the set, and the manifest does not name it"
+      return 1
+    fi
+  done
+
+  mapfile -t present < <(directory_entry_names "$target_dir")
+  for name in "${present[@]}"; do
+    if [[ -z "$name" || "$name" == "$EVIDENCE_MANIFEST_NAME" ||
+      "$name" == "$RUNTIME_VERSIONS_NAME" || -n "${set_names[$name]+set}" ]]; then
+      continue
+    fi
+    EVIDENCE_FOREIGN+=("$name")
+  done
+  return 0
+}
+
+# Creates one file of the publication check at the supplied path, holding the
+# supplied line. The check compares content it wrote itself, so no file of the
+# run is read or replaced by it.
+write_check_file() {
+  local path="$1" line="$2"
+
+  create_private_file "$path" "$EXIT_EVIDENCE"
+  if ! printf '%s\n' "$line" >"$path"; then
+    die "$EXIT_EVIDENCE" "unable to write the publication check file: ${path}"
+  fi
+}
+
+# Runs the publication contract of this script over a directory of its own under
+# the staging tree of the run, so every run - whatever its command line selected
+# - performs the replacement a run of one success case performs over the set of a
+# full-table run. The simulated directory is filled with every name a full-table
+# run publishes and with the environment record no run writes; a set covering the
+# five stage files and the first success case alone is then published into it.
+# The published set is required to match its manifest, the three names of the
+# second success case are required to be gone, and the environment record is
+# required to stand unchanged. A stale artifact of that second case is then
+# planted and the read-back is required to reject the set, so a publication that
+# left the evidence of an unexecuted success case standing fails this step
+# instead of reaching the published directory.
+check_publication_replacement() {
+  local root="${STAGING_DIR}/${PUBLICATION_CHECK_NAME}"
+  local published="${root}/published" staged="${root}/staged"
+  local covered_case="" absent_case="" lower="" name="" manifest="" digest=""
+  local record="" rejected=""
+  local -a owned=() present=() pairs=() gone=()
+
+  if ((${#SUCCESS_CASES[@]} < 2)); then
+    die "$EXIT_EVIDENCE" \
+      "the publication check requires two success cases; the case table names ${#SUCCESS_CASES[@]}"
+  fi
+  covered_case="${SUCCESS_CASES[0]}"
+  absent_case="${SUCCESS_CASES[1]}"
+
+  ensure_directory "$published" "$EXIT_EVIDENCE"
+  ensure_directory "$staged" "$EXIT_EVIDENCE"
+  mapfile -t present < <(directory_entry_names "$published")
+  for name in "${present[@]}"; do
+    if [[ -n "$name" ]]; then
+      remove_output_path "${published}/${name}" "$EXIT_EVIDENCE"
+    fi
+  done
+
+  mapfile -t owned < <(evidence_owned_names)
+  for name in "${owned[@]}"; do
+    if [[ -n "$name" ]]; then
+      write_check_file "${published}/${name}" \
+        "publication check: ${name} of an earlier run"
+    fi
+  done
+  write_check_file "${published}/${RUNTIME_VERSIONS_NAME}" \
+    "publication check: environment record of the checkout"
+  record="$(hash_file "${published}/${RUNTIME_VERSIONS_NAME}" "$EXIT_EVIDENCE")"
+
+  for name in "${PUBLISHED_STAGE_ARTIFACTS[@]}"; do
+    write_check_file "${staged}/${name}" \
+      "publication check: ${name} of run ${RUN_ID}"
+    pairs+=("${staged}/${name}|${name}")
+  done
+  lower="$(case_lower "$covered_case")"
+  for name in "driver_${lower}.log" "captures_${lower}.txt" \
+    "commarea_post_${lower}.dat"; do
+    write_check_file "${staged}/${name}" \
+      "publication check: ${name} of run ${RUN_ID}"
+    pairs+=("${staged}/${name}|${name}")
+  done
+  lower="$(case_lower "$absent_case")"
+  gone=("driver_${lower}.log" "captures_${lower}.txt"
+    "commarea_post_${lower}.dat")
+
+  manifest="${staged}/${EVIDENCE_MANIFEST_NAME}"
+  write_evidence_manifest "$manifest" \
+    "publication check of a set covering ${covered_case}" "$covered_case" "${pairs[@]}"
+  digest="$(hash_file "$manifest" "$EXIT_EVIDENCE")"
+  publish_evidence_set "$published" "$manifest" "${pairs[@]}"
+
+  if ! verify_published_set "$published" "$digest" "${pairs[@]}"; then
+    die "$EXIT_EVIDENCE" \
+      "the publication check did not leave the set its manifest describes" \
+      "$EVIDENCE_DIFFERENCE" \
+      "the directory it works in is ${published}"
+  fi
+  for name in "${gone[@]}"; do
+    if [[ -e "${published}/${name}" || -L "${published}/${name}" ]]; then
+      die "$EXIT_EVIDENCE" \
+        "the publication check left ${name}, the evidence of ${absent_case}, which the set does not cover" \
+        "the directory it works in is ${published}" \
+        "a published set carries the evidence of the cases of its own run alone"
+    fi
+  done
+  if [[ "$(hash_file "${published}/${RUNTIME_VERSIONS_NAME}" "$EXIT_EVIDENCE")" != "$record" ]]; then
+    die "$EXIT_EVIDENCE" \
+      "the publication check replaced ${RUNTIME_VERSIONS_NAME}, which stands outside every set" \
+      "the directory it works in is ${published}"
+  fi
+
+  write_check_file "${published}/${gone[0]}" \
+    "publication check: ${gone[0]} of an earlier run"
+  if verify_published_set "$published" "$digest" "${pairs[@]}"; then
+    die "$EXIT_EVIDENCE" \
+      "the read-back accepted a set carrying ${gone[0]}, the evidence of ${absent_case}" \
+      "the directory it works in is ${published}" \
+      "a set carrying a name its manifest does not describe is not the set of one run"
+  fi
+  rejected="$EVIDENCE_DIFFERENCE"
+  remove_output_path "${published}/${gone[0]}" "$EXIT_EVIDENCE"
+  if ! verify_published_set "$published" "$digest" "${pairs[@]}"; then
+    die "$EXIT_EVIDENCE" \
+      "the publication check could not read the set back after the planted ${gone[0]} was removed" \
+      "$EVIDENCE_DIFFERENCE" \
+      "the directory it works in is ${published}"
+  fi
+
+  emit_step \
+    "publication check: ${#pairs[@]} staged names and the manifest replaced the ${#owned[@]} of a full-table run in ${published}, the ${#gone[@]} names of ${absent_case} were removed, ${RUNTIME_VERSIONS_NAME} stood unchanged, and the read-back rejected a planted artifact: ${rejected}"
+}
+
+# Replaces the published set in the validation artifacts directory with the set
+# this run staged and its manifest, then reads that set back against the
+# manifest standing in it. A name this script owns there that this run did not
+# publish is removed by the replacement, so nothing of an earlier run survives
+# beside the set; a name this script never writes, other than the environment
+# record of the checkout, is reported as a deviation naming it.
 publish_evidence() {
   local manifest="${LOGS_DIR}/${EVIDENCE_MANIFEST_NAME}"
-  local entry="" staged="" name="" target="" staged_digest="" published_digest=""
+  local published="${ARTIFACTS_DIR}/${EVIDENCE_MANIFEST_NAME}"
+  local digest="" entry="" name=""
+
+  digest="$(hash_file "$manifest" "$EXIT_EVIDENCE")"
+  publish_evidence_set "$ARTIFACTS_DIR" "$manifest" "${STAGED_ARTIFACTS[@]}"
+  emit_step \
+    "published names cleared: ${EVIDENCE_CLEARED}; files placed: ${EVIDENCE_PLACED}"
+  if ! verify_published_set "$ARTIFACTS_DIR" "$digest" "${STAGED_ARTIFACTS[@]}"; then
+    die "$EXIT_EVIDENCE" \
+      "the published evidence in ${ARTIFACTS_DIR} is not the set this run produced" \
+      "$EVIDENCE_DIFFERENCE" \
+      "the manifest of this run is ${manifest}" \
+      "publish the evidence again from ${STAGING_DIR}"
+  fi
+
+  PUBLICATION_STATE="published"
 
   SUMMARY_ARTIFACTS=()
   for entry in "${STAGED_ARTIFACTS[@]}"; do
-    staged="${entry%%|*}"
     name="${entry##*|}"
-    target="${ARTIFACTS_DIR}/${name}"
-    publish_file "$staged" "$target" "$EXIT_EVIDENCE"
-    SUMMARY_ARTIFACTS+=("$target")
+    SUMMARY_ARTIFACTS+=("${ARTIFACTS_DIR}/${name}")
   done
-
-  for entry in "${STAGED_ARTIFACTS[@]}"; do
-    staged="${entry%%|*}"
-    name="${entry##*|}"
-    target="${ARTIFACTS_DIR}/${name}"
-    staged_digest="$(hash_file "$staged" "$EXIT_EVIDENCE")"
-    published_digest="$(hash_file "$target" "$EXIT_EVIDENCE")"
-    if [[ "$staged_digest" != "$published_digest" ]]; then
-      die "$EXIT_EVIDENCE" \
-        "the published ${target} does not match the manifest entry for ${name}" \
-        "the manifest is ${manifest}" \
-        "publish the evidence again from ${STAGING_DIR}"
-    fi
+  SUMMARY_ARTIFACTS+=("$published")
+  for name in "${EVIDENCE_FOREIGN[@]}"; do
+    emit_deviation \
+      "${ARTIFACTS_DIR}/${name} stands beside the published set and no run of this script writes it"
   done
   emit_step \
-    "artifacts published: ${#SUMMARY_ARTIFACTS[@]} files in ${ARTIFACTS_DIR}, each matching ${manifest}"
+    "artifacts published: ${#SUMMARY_ARTIFACTS[@]} files in ${ARTIFACTS_DIR}, each named by ${published}"
 }
 
-# Runs the source guard as the final gate of the run, then collects and records
-# the evidence of the run in the staging directory, and clears and publishes it.
-# The gate runs first so the evidence log it appends its fourth block to is
-# complete before that log is collected, and it still decides whether anything
-# is published at all: a gate that does not pass ends the run here, with nothing
-# collected, nothing cleared and the published evidence of the previous run
-# exactly as it stands.
+# Runs the source guard as the final gate of the run, then collects the evidence
+# of the run in the staging directory, writes the manifest that describes it,
+# runs the publication check, and replaces the published set. The gate runs first
+# so the evidence log it appends its fourth block to is complete before that log
+# is collected, and it still decides whether anything is published at all: a gate
+# that does not pass ends the run here, with nothing collected, nothing removed
+# and the published evidence of the previous run exactly as it stands.
 stage_evidence() {
+  local manifest="${LOGS_DIR}/${EVIDENCE_MANIFEST_NAME}"
+  local selection="" covered=""
+
   emit_stage 6 "evidence"
   run_source_guard "harness-final"
   collect_evidence
-  write_evidence_manifest
-  clear_published_artifacts
+  selection="$(join_with ", " "${SELECTED_CASES[@]}")"
+  covered="$(evidence_success_selection)"
+  write_evidence_manifest "$manifest" "$selection" "${covered:-none}" \
+    "${STAGED_ARTIFACTS[@]}"
+  emit_step "evidence manifest: ${manifest}"
+  check_publication_replacement
+  defer_signal_traps
   publish_evidence
+  install_signal_traps
+  resume_deferred_signal
 }
 
 # Prints the tool versions of the run, the compiler options every compile
 # passed, the source-guard verdict, the probes with the driver status each
-# asserted, the selected cases with the code each returned and the assertions
-# each passed, every deviation the run reported, and the absolute path of every
-# file the run produced.
+# asserted, the selection the run was invoked with, the selected cases with the
+# code each returned and the assertions each passed, every deviation the run
+# reported, and the absolute path of every file the run produced.
 print_summary() {
   local line="" stamp="" cobc_note="" extra_note="none"
 
@@ -5453,6 +6282,7 @@ print_summary() {
   emit_summary "  cobc extra flags:  ${extra_note}"
   emit_summary "  python:            ${PYTHON_VERSION} at ${PY}"
   emit_summary "  source guard:      ${GUARD_VERDICT} at ${GUARD_PASSES} of 4 points, log ${SOURCE_GUARD_LOG}"
+  emit_summary "  case selection:    ${CASE_SELECTION}"
   emit_summary "  cases:             $(join_with ", " "${SELECTED_CASES[@]}")"
   emit_summary "  fixtures:          $(join_with ", " "${SELECTED_FIXTURES[@]}")"
   emit_summary "  timestamp seed:    ${LASTCHANGED_SEED}"

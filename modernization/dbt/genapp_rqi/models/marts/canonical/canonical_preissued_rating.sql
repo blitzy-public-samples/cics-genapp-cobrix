@@ -21,8 +21,13 @@
 -- Output. The 9 columns of canonical.preissued_rating, under the names, in the order and
 -- with the types recorded in the targets: canonical.preissued_rating block of
 -- modernization/extraction/copybook_field_map.yml, the naming authority for this contract.
--- Eight are source-derived and source_system_key is warehouse-assigned. The types are the
--- types the intermediate model applies:
+-- Eight are source-derived and source_system_key is warehouse-assigned. The six amount
+-- columns and policy_number carry the types the intermediate model applies; the two
+-- character columns carry the width the select list below casts to. Each type below is the
+-- data_type the contract of models/marts/canonical/_canonical__models.yml enforces. The two
+-- text widths are the logical widths of that contract: Amazon Redshift stores them as
+-- declared and DuckDB reports both columns as varchar, enforcing no length. The six amount
+-- types are stored as declared on either adapter:
 --   source_system_key       VARCHAR(64)    not null
 --   policy_number           BIGINT         not null
 --   policy_type             CHAR(1)        not null
@@ -32,25 +37,45 @@
 --   crime_premium_amount    DECIMAL(10,2)  nullable
 --   flood_premium_amount    DECIMAL(10,2)  nullable
 --   weather_premium_amount  DECIMAL(10,2)  nullable
--- Each amount precision is the digit count of its COBOL declaration plus two, at scale 2.
 -- The six amount columns are the whole premium and payment surface of the warehouse and
 -- appear on no other relation. source_system_key, policy_number and policy_type are the
 -- three columns this relation shares with canonical.issued_policy.
 --
--- What this model does. It names the 9 columns explicitly, keeps the rows whose return_code
--- is 00, and materializes them as a table. Every value passes through unchanged.
+-- What this model does. It names the 9 columns explicitly, casts source_system_key and
+-- policy_type to the character widths the enforced contract in _canonical__models.yml
+-- declares for them, varchar(64) and char(1), keeps the rows whose return_code is 00, and
+-- materializes them as a table. A cast to a character width changes no character of a
+-- value: modernization/landing/landing-schema.json accepts at most 64 characters for the
+-- source-system key and exactly one of E, H, M and C for the policy type, so both values
+-- are already within the width cast here. Every other value passes through unchanged.
 --
--- What this model does not do. It applies no type conversion: every cast, trim and null
--- guard of the bridge is applied by models/intermediate/int_policy_issue_decoded.sql and
--- none is repeated here. It applies no arithmetic to any amount and derives no value. The
+-- Where the declared width is observable. Amazon Redshift carries the declared width and
+-- character_maximum_length reports it; DuckDB collapses varchar(n) and char(n) to VARCHAR,
+-- reports no character_maximum_length and enforces no width, so the widths of the two
+-- columns are asserted from the value side by
+-- modernization/dbt/genapp_rqi/tests/assert_preissued_rating_unique_key.sql, which also
+-- compares both values with their upstream values and asserts the physical column set of
+-- this relation, including the precision and the scale of the six amount columns, against
+-- the contract.
+--
+-- What this model does not do. It converts no value from text and changes no numeric,
+-- date or timestamp type: every cast from text, every trim and every null guard of the
+-- bridge is applied by models/intermediate/int_policy_issue_decoded.sql and none is
+-- repeated here, and the six amount columns and policy_number arrive carrying their
+-- contract type. It applies no arithmetic to any amount and derives no value. The
 -- three named programs base/src/lgapol01.cbl, base/src/lgapdb01.cbl and
 -- base/src/lgapvs01.cbl carry no COMPUTE, MULTIPLY, DIVIDE or COMP-3 statement, each amount
 -- reaches its Db2 host variable through a plain MOVE, and the named source carries no
 -- premium formula, rating factor or derived factor. No amount is rounded, rescaled, summed
 -- or defaulted to zero, and no implied decimal is applied. The comparison tolerance
 -- recorded under comparison.amount_tolerance_abs in
--- modernization/extraction/copybook_field_map.yml is applied by
--- modernization/validation/diff_harness_vs_warehouse.py and by no expression in this file.
+-- modernization/extraction/copybook_field_map.yml is applied by no expression in this
+-- file: modernization/dbt/genapp_rqi/tests/assert_product_premium_nullability.sql applies
+-- it to the comparison of each amount of this relation with the value
+-- ref('int_policy_issue_decoded') carries for the same key, alongside its assertions of the
+-- presence pattern, the non-negative domain and the source-domain magnitude of each amount,
+-- and modernization/validation/diff_harness_vs_warehouse.py will apply it to the harness
+-- capture; that tool is a planned deliverable and is not present at this milestone.
 -- It re-derives no product null pattern: the pattern arrives from the intermediate model
 -- and is carried through. It adds no column: no return_code column, no premium formula,
 -- rating factor, derived factor, commission, provenance, audit, surrogate key, hash or load
@@ -80,7 +105,7 @@
 -- This file is applied unchanged on Amazon Redshift and DuckDB.
 -- The column contract and the column-level lineage of this relation are held by
 -- models/marts/canonical/_canonical__models.yml.
--- Diagram reference: Figure 4, dbt Transformation DAG and Field Allocation,
+-- Diagram reference: Figure 4 — dbt Transformation DAG and Field Allocation
 -- in modernization/docs/architecture.md.
 -- Rationale for every choice in this file: modernization/docs/decision-log.md
 
@@ -90,7 +115,9 @@ with decoded as (
 
     -- The 9 columns of this relation read from the intermediate model in contract order,
     -- followed by return_code, which the where clause at the foot of this file reads and
-    -- the select list below does not carry. Every value arrives typed.
+    -- the select list below does not carry. policy_number and the six amounts arrive
+    -- carrying their contract type; source_system_key and policy_type arrive as text for
+    -- the select list below to cast to their contract width.
     select
         source_system_key,
         policy_number,
@@ -115,7 +142,7 @@ select
     -- First element of the natural key (source_system_key, policy_number), whose uniqueness
     -- tests/assert_preissued_rating_unique_key.sql asserts. A row of a future source system
     -- carries its own value in this column and needs no change to this relation.
-    source_system_key,
+    cast(source_system_key as varchar(64)) as source_system_key,
 
     -- 2. Policy number recovered after the policy insert. CA-POLICY-NUM PIC 9(10),
     -- base/src/lgcmarea.cpy:35. The policy insert supplies the literal DEFAULT for
@@ -134,7 +161,7 @@ select
     -- the trimmed CA-REQUEST-ID before landing and the intermediate model checked it against
     -- that routing. CHAR(1), not null. The same discriminator canonical.issued_policy
     -- carries, and the value that decides which product premium columns below hold a value.
-    policy_type,
+    cast(policy_type as char(1)) as policy_type,
 
     -- 4. Policy payment amount. CA-PAYMENT PIC 9(6), base/src/lgcmarea.cpy:43; Db2-side
     -- DB2-PAYMENT PIC 9(6), base/src/lgpolicy.cpy:51. MOVE CA-PAYMENT TO DB2-PAYMENT-INT at
@@ -203,6 +230,12 @@ from decoded
 -- below is a string comparison and reads the leading zero. The six observed values are 00
 -- success, 70 policy insert returned SQLCODE -530, 80 VSAM write response was not normal,
 -- 90 SQL failure, 98 COMMAREA shorter than the required length and 99 unsupported request
--- id; 00 is the only one that reaches this relation. The column itself belongs to
--- canonical.issued_policy, and the raw, staging and intermediate layers carry it unfiltered.
+-- id; 00 is the only one that reaches this relation. The comparison is applied as a second
+-- guard over the landing contract: modernization/extraction/extract_commarea.py lands a
+-- record only for a returned CA-RETURN-CODE of 00 and refuses every other code of the
+-- domain, and models/staging/genapp_class_exemplar/_genapp__models.yml accepts that one
+-- value, so every row reaching this model already carries 00. The column itself belongs to
+-- canonical.issued_policy and no column of this relation carries it, and
+-- modernization/dbt/genapp_rqi/tests/assert_preissued_rating_unique_key.sql returns any row
+-- of this relation whose upstream record carries no successful outcome.
 where return_code = '00'

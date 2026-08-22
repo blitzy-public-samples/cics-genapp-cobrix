@@ -7,21 +7,41 @@
 # nothing imports it.
 # Callable binding: source('genapp', 'genapp_policy_issue') resolves to
 # raw.genapp_policy_issue.
-# Milestone status: dbt_project.yml, macros/generate_schema_name.sql, profiles.example.yml
-# and this file are the only members of the dbt project present. The staging model and its
-# property file, the intermediate and mart models with their property files and the
-# singular tests under tests/ are planned deliverables, not present at this milestone.
+# Consumers: stg_genapp__policy_issue.sql beside this file holds the only source() call of
+# the project, and every model downstream of it reaches this relation through ref() alone.
+# Milestone status: every member of the dbt project is present — dbt_project.yml,
+# profiles.example.yml, macros/generate_schema_name.sql, this file, the staging model
+# stg_genapp__policy_issue.sql with _genapp__models.yml beside it, the intermediate model
+# int_policy_issue_decoded.sql with _int__models.yml beside it, the two mart models
+# canonical_issued_policy.sql and canonical_preissued_rating.sql with
+# _canonical__models.yml beside them, and the three singular tests under tests/. No run
+# against Amazon Redshift and no run against DuckDB is claimed here; per-target run status
+# will be recorded in modernization/validation/validation-evidence.md (planned deliverable;
+# not present at this milestone).
 # The 17 columns declared below carry the column names, column order and VARCHAR widths of
 # modernization/warehouse/ddl/02_raw_genapp_policy_issue.sql, which are the 17 landing keys
 # of modernization/landing/landing-schema.json ordered by the landing.field_order block of
 # modernization/extraction/copybook_field_map.yml, the naming authority for this contract.
-# Every column is VARCHAR and accepts null. Typing is applied by the dbt models.
+# Every column is VARCHAR and accepts null. Typing is applied by the dbt models:
+# models/intermediate/int_policy_issue_decoded.sql applies every cast of the bridge and the
+# two enforced contracts of models/marts/canonical/_canonical__models.yml declare the
+# resulting canonical types.
+# dbt supports no enforced contract on a source, so the 17 columns below are documentation
+# and generic-test attachment points; the physical column set of raw.genapp_policy_issue is
+# created by modernization/warehouse/ddl/02_raw_genapp_policy_issue.sql. A column this file
+# names and the relation does not carry fails the staging model, which selects all 17 by
+# name. The exact output column set of each dbt model is carried by the enforced model
+# contracts of _genapp__models.yml beside this file and of
+# models/intermediate/_int__models.yml.
+# Landed rows are successful executions only: modernization/extraction/extract_commarea.py
+# refuses a record whose returned CA-RETURN-CODE is not 00, so return_code holds 00 in every
+# landed row and the six observed codes of the chain are documented on that column as source
+# facts rather than as a warehouse domain.
 # No adapter-specific value is declared; this file is applied unchanged on Amazon Redshift
 # and DuckDB.
 # Diagram reference: Figure 4 — dbt Transformation DAG and Field Allocation
 # in modernization/docs/architecture.md.
-# Rationale for every choice in this file:
-# modernization/docs/decision-log.md (planned deliverable; not present at this milestone)
+# Rationale for every choice in this file: modernization/docs/decision-log.md
 
 version: 2
 
@@ -41,19 +61,25 @@ sources:
         description: >-
           One landed GenApp Policy-Issue record per row: the warehouse-assigned
           source_system_key and the 16 runtime business values one execution of the
-          LGAPOL01, LGAPDB01 and LGAPVS01 chain produces. All 17 columns are VARCHAR and
+          LGAPOL01, LGAPDB01 and LGAPVS01 chain produces. Landing admits exactly one record
+          per successful execution of that chain, so every row of this relation carries
+          return_code 00 together with the policy number and the last-changed timestamp the
+          chain assigned. All 17 columns are VARCHAR and
           accept null; every landed value reaches the relation as a JSON string or null and
           no value arrives as a JSON number or boolean. A landed null reaches its column as
           SQL NULL. The natural key both loaders guard on is
           (source_system_key, policy_number): each loader removes any row already carrying
           the key it is about to write and then inserts, so a repeated run leaves one row
           and a row carrying any other key survives. The motor sample row and the commercial
-          sample row coexist in this relation. The four peril declarations
-          CA-B-FirePeril, CA-B-CrimePeril, CA-B-FloodPeril and CA-B-WeatherPeril, each
-          PIC 9(4) at base/src/lgcmarea.cpy:84, :86, :88 and :90, are code items and not
-          amount items, and no column of this relation carries one; the amount items are the
-          adjacent PIC 9(8) premium declarations at base/src/lgcmarea.cpy:85, :87, :89
-          and :91.
+          sample row coexist in this relation. Landed contract: only a successful record
+          reaches this relation. modernization/extraction/extract_commarea.py rejects every
+          returned CA-RETURN-CODE other than 00, so every row carries return code 00 and
+          every column documented below as never null holds a value. The four peril
+          declarations CA-B-FirePeril, CA-B-CrimePeril, CA-B-FloodPeril and
+          CA-B-WeatherPeril, each PIC 9(4) at base/src/lgcmarea.cpy:84, :86, :88 and :90,
+          are code items and not amount items, and no column of this relation carries one;
+          the amount items are the adjacent PIC 9(8) premium declarations at
+          base/src/lgcmarea.cpy:85, :87, :89 and :91.
         columns:
           - name: source_system_key
             description: >-
@@ -78,8 +104,9 @@ sources:
               so the value exists only in the returned COMMAREA. The Db2-side counterpart
               DB2-POLICYNUMBER PIC 9(10), base/src/lgpolicy.cpy:44, is declaration-only and
               carries no runtime value. Landed as an unsigned digit string with leading
-              zeros stripped. VARCHAR(10); never null in a landed record. Second element of
-              the natural key the loaders guard on.
+              zeros stripped. VARCHAR(10); never null in a landed record, which the landed
+              contract admits only for a successful record. Second element of the natural key
+              the loaders guard on.
             data_tests:
               - not_null
 
@@ -94,7 +121,8 @@ sources:
               insert at base/src/lgapdb01.cbl:283.
               modernization/extraction/extract_commarea.py derives the letter from the
               trimmed CA-REQUEST-ID through that same routing before landing and derives no
-              other value from it. VARCHAR(1); never null in a landed record.
+              other value from it. VARCHAR(1); never null in a landed record, which the
+              landed contract admits only for a successful record.
             data_tests:
               - not_null
               - accepted_values:
@@ -116,11 +144,16 @@ sources:
               Request identifier the chain routes on. CA-REQUEST-ID PIC X(6),
               base/src/lgcmarea.cpy:10, evaluated at base/src/lgapdb01.cbl:184. Landed with
               surrounding spaces trimmed. The accepted values are the four request ids the
-              routing EVALUATE at base/src/lgapdb01.cbl:184-207 recognises; any other id
-              sets return code 99 at base/src/lgapdb01.cbl:204 and
-              modernization/extraction/extract_commarea.py refuses to land the record. The
-              authored sample definitions under modernization/extraction/sample_input/ cover
-              01AMOT and 01ACOM. VARCHAR(6); never null in a landed record.
+              routing EVALUATE at base/src/lgapdb01.cbl:184-207 recognises, one branch each:
+              01AEND at base/src/lgapdb01.cbl:188 yields policy type E, 01AHOU at :192
+              yields H, 01AMOT at :196 yields M and 01ACOM at :200 yields C. Any other id
+              reaches the WHEN OTHER branch at base/src/lgapdb01.cbl:202-205, which sets
+              return code 99 and returns without assigning a policy type, and
+              modernization/extraction/extract_commarea.py refuses to land such a record.
+              The authored sample definitions under
+              modernization/extraction/sample_input/ cover 01AMOT and 01ACOM. VARCHAR(6);
+              never null in a landed record, which the landed contract admits only for a
+              successful record.
             data_tests:
               - not_null
               - accepted_values:
@@ -135,17 +168,24 @@ sources:
               rather than as a number and its leading zero is preserved:
               base/src/lgapol01.cbl:105 and :114; base/src/lgapdb01.cbl:172, :204, :211,
               :239, :293, :296, :301, :390, :428, :474 and :548; and
-              base/src/lgapvs01.cbl:144. The observed values are 00 success, 70 policy
-              insert returned SQLCODE -530, 80 VSAM write response was not normal, 90 SQL
-              failure, 98 COMMAREA shorter than the required length, and 99 unsupported
-              request id. The value is retained through the raw and staging layers for
-              evidence and failure analysis, and the filter to 00 is applied in the marts.
-              VARCHAR(2); never null in a landed record.
+              base/src/lgapvs01.cbl:144. The six values the chain assigns are 00 success, 70
+              policy insert returned SQLCODE -530, 80 VSAM write response was not normal, 90
+              SQL failure, 98 COMMAREA shorter than the required length, and 99 unsupported
+              request id; the harness captures under modernization/validation/artifacts/ hold
+              the returned code of each executed sample. Only a successful execution is
+              landed: modernization/extraction/extract_commarea.py refuses a record whose
+              returned code is not 00 and modernization/landing/landing-schema.json admits 00
+              alone, so this column holds 00 in every landed row, the accepted_values test
+              below pins it to that one code, and the other five values reach no layer of the
+              warehouse. The column is retained
+              through the raw, staging and intermediate layers because
+              canonical.issued_policy carries it, and the filter to 00 is applied in the
+              marts. VARCHAR(2); never null in a landed record.
             data_tests:
               - not_null
               - accepted_values:
                   arguments:
-                    values: ["00", "70", "80", "90", "98", "99"]
+                    values: ["00"]
 
           - name: issue_date
             description: >-
@@ -176,7 +216,8 @@ sources:
               modernization/extraction/extract_commarea.py normalises the returned
               26-character timestamp to ISO-8601 with a T separator and microsecond
               precision, written YYYY-MM-DDTHH:MM:SS.ffffff in 26 characters. VARCHAR(26);
-              never null in a landed record.
+              never null in a landed record, which the landed contract admits only for a
+              successful record.
             data_tests:
               - not_null
 

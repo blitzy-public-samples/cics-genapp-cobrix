@@ -7,15 +7,31 @@
 #
 # Model names. Each entry below is keyed on the model name, which is the stem of the model
 # file beside this one. issued_policy and preissued_rating are relation aliases each model
-# sets in its own config block and are not model names; the planned_dbt_model keys of the
+# sets in its own config block and are not model names; the dbt_model keys of the
 # targets block of modernization/extraction/copybook_field_map.yml record the same pairing.
 #
-# Enforced contracts. Both models declare contract enforced, so dbt compares the name, the
-# data_type and the position of every column below against the columns its model emits and
-# fails the build on any difference. These two contracts are the only declaration of the
-# canonical column set in the project: modernization/warehouse/ddl/01_schemas.sql creates
-# the raw and canonical namespaces and no relation within them, and
-# modernization/warehouse/ddl/02_raw_genapp_policy_issue.sql creates the raw relation only.
+# Enforced contracts. Both models declare contract enforced. dbt matches the columns below
+# to the columns its model emits by column name, compares the column count and the
+# data_type, and fails the build on a renamed column, an added column, a dropped column or
+# a changed type. It does not compare the order of the columns block against the order of
+# the model's select list. The physical column order of each relation is the order of the
+# columns block below: dbt builds the column list of the create-table statement from that
+# block and re-selects the model in that order.
+#
+# Adapter reach of a declared width. dbt reads both sides of the type comparison through the
+# active adapter. Amazon Redshift carries varchar(n) and char(n), reports the width as
+# character_maximum_length and enforces it. DuckDB collapses varchar(n) and char(n) to
+# VARCHAR, reports no character_maximum_length and enforces no width, so on that adapter the
+# contract compares the type family and not the width. The physical column set, the column
+# order, the reported type, the reported width, the numeric precision and scale and the
+# nullability of both relations, and the width of every text value, are asserted against
+# these declarations by modernization/dbt/genapp_rqi/tests/assert_issued_policy_unique_key.sql
+# and modernization/dbt/genapp_rqi/tests/assert_preissued_rating_unique_key.sql.
+#
+# These two contracts are the only declaration of the canonical column set in the project:
+# modernization/warehouse/ddl/01_schemas.sql creates the raw and canonical namespaces and no
+# relation within them, and modernization/warehouse/ddl/02_raw_genapp_policy_issue.sql
+# creates the raw relation only.
 #
 # Column inventory. 11 columns for canonical.issued_policy and 9 for
 # canonical.preissued_rating, 20 column instances in total, under the names and in the order
@@ -30,25 +46,50 @@
 # locator: it is warehouse-assigned on the user's requirement, and it is the sole declared
 # exception to complete COBOL lineage in this design. Two source constructs contribute no
 # column: DB2-POLICYNUMBER PIC 9(10), base/src/lgpolicy.cpy:44, is declaration-only, and no
-# column derives from base/src/lgapvs01.cbl.
+# column derives from base/src/lgapvs01.cbl. Each meta.logical_entry value below is the
+# logical_entry identifier of modernization/extraction/copybook_field_map.yml spelled
+# verbatim, and the target column name is carried by the column's own name key, so the six
+# amount columns read payment, motor_premium, fire_premium, crime_premium, flood_premium
+# and weather_premium. meta.runtime_status reuses that map's vocabulary in the same way. A
+# reverse lookup from a column of either relation to its field-map entry is therefore an
+# exact match on those identifiers, as it is in
+# models/staging/genapp_class_exemplar/_genapp__models.yml and
+# models/intermediate/_int__models.yml.
 #
-# Types. Each data_type below is the type models/intermediate/int_policy_issue_decoded.sql
-# applies; the two models of this subtree apply no further conversion. The five text columns
-# declare varchar without a length parameter and carry their logical width as a fact in
-# their description.
+# Types. Each data_type below is the type of the canonical contract recorded in the targets
+# block of modernization/extraction/copybook_field_map.yml, with the width the contract fixes:
+# varchar(64) source_system_key, char(1) policy_type, varchar(6) request_id, char(2)
+# return_code and varchar(10) brokers_reference, beside the bigint, date, timestamp,
+# decimal(8,2) and decimal(10,2) columns. Each model's select list casts those five text
+# columns to the same spelling declared here and applies no other conversion; the bigint,
+# date, timestamp and decimal values arrive from
+# models/intermediate/int_policy_issue_decoded.sql already typed, and a changed type there
+# fails these contracts. dbt reads these declarations twice on every build of a contracted
+# model: the adapter's create-table statement builds the relation's columns from them, and
+# get_assert_columns_equivalent compares them with the columns the select list produces. On
+# Amazon Redshift the declared width is the physical width of the column; DuckDB accepts each
+# spelling and holds it as VARCHAR.
 #
 # Nullability. Declared as a not_null column constraint on the columns that are never null:
 # seven of the eleven columns of canonical.issued_policy and three of the nine columns of
-# canonical.preissued_rating. No key constraint is declared here; uniqueness of the natural
-# key (source_system_key, policy_number) is asserted by the singular tests of
+# canonical.preissued_rating. Each constraint reaches the physical relation as a not-null
+# column on both adapters, and information_schema.columns reports is_nullable NO for it. No
+# key constraint is declared here; uniqueness of the natural key
+# (source_system_key, policy_number) is asserted by the singular tests of
 # modernization/dbt/genapp_rqi/tests/.
 #
 # Materialization. The table materialization and the canonical schema come from the
 # models/marts/canonical key of dbt_project.yml, which macros/generate_schema_name.sql
 # returns verbatim; neither they nor either relation alias is restated here.
 #
-# Data tests. Every test below is a dbt built-in test. This project declares no packages.yml
-# and no dbt package.
+# Data tests. Every test below is a dbt built-in test: not_null, accepted_values and
+# relationships. This project declares no packages.yml and no dbt package. The three
+# singular tests under modernization/dbt/genapp_rqi/tests/ carry the assertions no built-in
+# test expresses: key uniqueness on the pair (source_system_key, policy_number), row-for-row
+# parity with ref('int_policy_issue_decoded') in both directions, the presence of one row
+# per expected request id, parity of the key set between the two relations, the relation
+# inventory of the canonical schema, the physical column shape of both relations, the
+# product premium null pattern, and the value, sign and magnitude of the six amounts.
 #
 # Applied unchanged on Amazon Redshift and DuckDB.
 # Diagram reference: Figure 4 — dbt Transformation DAG and Field Allocation
@@ -61,10 +102,11 @@ models:
 
   - name: canonical_issued_policy
 
-    # Enforced contract. dbt compares the name, the data_type and the position of every
-    # column below against the columns canonical_issued_policy.sql emits, and fails the
-    # build on a renamed column, an added column, a dropped column, a changed type or a
-    # changed position.
+    # Enforced contract. dbt matches the columns below to the columns
+    # canonical_issued_policy.sql emits by column name, and fails the build on a renamed
+    # column, an added column, a dropped column or a changed type. Column order is not
+    # compared: the physical order of the relation is the order of the columns block below,
+    # and tests/assert_issued_policy_unique_key.sql asserts that order against the contract.
     config:
       contract:
         enforced: true
@@ -79,22 +121,26 @@ models:
       uniqueness of; policy_number alone is not the key, and both sample rows of the
       exemplar carry the same source_system_key. The model reads
       ref('int_policy_issue_decoded') and admits the rows whose return_code is 00, the
-      successful outcome of the LGAPOL01, LGAPDB01 and LGAPVS01 policy-issue chain; a row
-      carrying 70, 80, 90, 98 or 99 reaches the model and is not materialized, and the raw,
-      staging and intermediate layers retain every code unfiltered. The 11 columns below are
-      the whole relation: 10 derive from a source item and source_system_key is
-      warehouse-assigned. The relation carries no amount. payment_amount,
-      motor_premium_amount, fire_premium_amount, crime_premium_amount, flood_premium_amount
-      and weather_premium_amount are columns of canonical.preissued_rating alone. It carries
-      no rating formula, rating factor, derived factor or commission column, and no
-      provenance, audit, surrogate key, hash or load timestamp column.
+      successful outcome of the LGAPOL01, LGAPDB01 and LGAPVS01 policy-issue chain. That
+      filter is a second guard over the landing contract:
+      modernization/extraction/extract_commarea.py lands a record only for a returned
+      CA-RETURN-CODE of 00 and refuses every other code of the domain, so every row reaching
+      the model already carries 00, and a row carrying 70, 80, 90, 98 or 99 would not be
+      materialized. The 11 columns below are the whole relation: 10 derive from a source
+      item and source_system_key is warehouse-assigned. The relation carries no amount.
+      payment_amount, motor_premium_amount, fire_premium_amount, crime_premium_amount,
+      flood_premium_amount and weather_premium_amount are columns of
+      canonical.preissued_rating alone. It carries no rating formula, rating factor, derived
+      factor or commission column, and no provenance, audit, surrogate key, hash or load
+      timestamp column.
 
     # The 11 columns of canonical.issued_policy, in the order of the select list of
-    # canonical_issued_policy.sql.
+    # canonical_issued_policy.sql. This order is the physical order of the relation and is
+    # asserted against it by tests/assert_issued_policy_unique_key.sql.
     columns:
 
       - name: source_system_key
-        data_type: varchar
+        data_type: varchar(64)
         constraints:
           - type: not_null
         description: >-
@@ -103,10 +149,14 @@ models:
           exception to complete COBOL lineage in this design, and its evidence is the user
           requirement rather than a source locator. The value
           modernization/extraction/extract_commarea.py writes for this exemplar is
-          GENAPP_CLASS_EXEMPLAR. The same value is the leading element of the S3 key prefix
-          and the first element of the natural key (source_system_key, policy_number). A row
-          from a future source system carries its own value in this column and slots into
-          this relation without structural change. Logical width VARCHAR(64). Never null.
+          GENAPP_CLASS_EXEMPLAR, and modernization/landing/landing-schema.json accepts 1
+          to 64 characters of ASCII letters, digits, underscore, dot and hyphen. The same
+          value is the leading element of the S3 key prefix and the first element of the
+          natural key (source_system_key, policy_number). A row from a future source system
+          carries its own value in this column and slots into this relation without
+          structural change. VARCHAR(64), never null: the model casts the arriving text to
+          that width, and the width of the value is asserted by the singular test of this
+          relation.
         config:
           meta:
             logical_entry: source_system_key
@@ -133,7 +183,11 @@ models:
           carries no runtime value and no column. BIGINT, never null. Second element of the
           natural key, whose uniqueness
           modernization/dbt/genapp_rqi/tests/assert_issued_policy_unique_key.sql asserts as
-          the pair and not on this column alone.
+          the pair and not on this column alone. Every value of this column is also carried
+          by canonical.preissued_rating for the same policy; the relationships test below
+          asserts that direction and
+          modernization/dbt/genapp_rqi/tests/assert_preissued_rating_unique_key.sql asserts
+          the parity of the whole key set in both directions.
         config:
           meta:
             logical_entry: policy_number
@@ -144,9 +198,13 @@ models:
             db2_locator: base/src/lgpolicy.cpy:44
         data_tests:
           - not_null
+          - relationships:
+              arguments:
+                to: ref('canonical_preissued_rating')
+                field: policy_number
 
       - name: policy_type
-        data_type: varchar
+        data_type: char(1)
         constraints:
           - type: not_null
         description: >-
@@ -161,7 +219,9 @@ models:
           landing, and ref('int_policy_issue_decoded') verifies the landed letter against
           request_id through those same four branches. Those four branches are the whole
           routing, so the observed domain is exactly E, H, M and C. The same discriminator
-          canonical.preissued_rating carries. Logical width CHAR(1). Never null.
+          canonical.preissued_rating carries. CHAR(1), never null: the model casts the
+          arriving text to that width, and a value of any other length is returned by
+          tests/assert_issued_policy_unique_key.sql.
         config:
           meta:
             logical_entry: policy_type
@@ -200,7 +260,7 @@ models:
           - not_null
 
       - name: request_id
-        data_type: varchar
+        data_type: varchar(6)
         constraints:
           - type: not_null
         description: >-
@@ -210,8 +270,13 @@ models:
           branch at base/src/lgapdb01.cbl:202-205 sets return code 99 and returns, so an
           unrecognised id reaches no row of this relation. The two authored sample
           definitions under modernization/extraction/sample_input/ carry 01AMOT, which
-          resolves policy type M, and 01ACOM, which resolves policy type C. Logical width
-          VARCHAR(6). Never null.
+          resolves policy type M, and 01ACOM, which resolves policy type C. Those two ids
+          are the default of the expected_request_ids variable
+          tests/assert_issued_policy_unique_key.sql and
+          tests/assert_product_premium_nullability.sql read, and each of them is carried by
+          exactly one row of this relation. VARCHAR(6), never null: the model casts the
+          arriving text to that width, and the width of the value is asserted by the
+          singular test of this relation.
         config:
           meta:
             logical_entry: request_id
@@ -227,7 +292,7 @@ models:
                 values: ["01AEND", "01AHOU", "01AMOT", "01ACOM"]
 
       - name: return_code
-        data_type: varchar
+        data_type: char(2)
         constraints:
           - type: not_null
         description: >-
@@ -240,9 +305,12 @@ models:
           the chain makes, so the observed domain of the chain is exactly six values: 00
           success, 70 policy insert returned SQLCODE -530, 80 VSAM write response was not
           normal, 90 SQL failure, 98 COMMAREA shorter than the required length and 99
-          unsupported request id. This relation admits only 00, so 00 is the only value any
-          row of this column carries; the raw, staging and intermediate layers carry all six
-          unfiltered. Logical width CHAR(2). Never null.
+          unsupported request id. modernization/extraction/extract_commarea.py lands a record
+          only for 00 and refuses every other code, and the model filters on 00 as a second
+          guard, so 00 is the only value any row of this column carries. CHAR(2), never null:
+          the model casts the arriving text to that width, and a value of any other length is
+          returned by tests/assert_issued_policy_unique_key.sql, which also returns any row
+          of this relation whose upstream record carries no successful chain outcome.
         config:
           meta:
             logical_entry: return_code
@@ -335,14 +403,15 @@ models:
             db2_locator: base/src/lgpolicy.cpy:49
 
       - name: brokers_reference
-        data_type: varchar
+        data_type: varchar(10)
         description: >-
           Broker's reference supplied in the request. CA-BROKERSREF PIC X(10),
           base/src/lgcmarea.cpy:42; Db2-side counterpart DB2-BROKERSREF PIC X(10),
           base/src/lgpolicy.cpy:50; passed to the policy insert as a character host variable
           at base/src/lgapdb01.cbl:286. Carried as text trimmed of the fixed-width padding
-          of the COMMAREA window by ref('int_policy_issue_decoded'). Logical width
-          VARCHAR(10), nullable.
+          of the COMMAREA window by ref('int_policy_issue_decoded'). VARCHAR(10), nullable:
+          the model casts the arriving text to that width, and the width of a value that is
+          not null is asserted by the singular test of this relation.
         config:
           meta:
             logical_entry: brokers_reference
@@ -354,7 +423,9 @@ models:
 
   - name: canonical_preissued_rating
 
-    # Enforced contract, as for the model above.
+    # Enforced contract, as for the model above: matched by column name, order not
+    # compared, and the physical order asserted by
+    # tests/assert_preissued_rating_unique_key.sql.
     config:
       contract:
         enforced: true
@@ -394,13 +465,14 @@ models:
       modernization/dbt/genapp_rqi/tests/assert_product_premium_nullability.sql.
 
     # The 9 columns of canonical.preissued_rating, in the order of the select list of
-    # canonical_preissued_rating.sql. Each amount precision is the digit count of its COBOL
-    # declaration plus two, at scale 2; all six declarations are unsigned DISPLAY numerics
-    # carrying neither V nor S, so no implied decimal and no sign is declared.
+    # canonical_preissued_rating.sql. This order is the physical order of the relation and is
+    # asserted against it by tests/assert_preissued_rating_unique_key.sql. All six amount
+    # declarations are unsigned DISPLAY numerics carrying neither V nor S. Two declare
+    # decimal(8,2) and four declare decimal(10,2).
     columns:
 
       - name: source_system_key
-        data_type: varchar
+        data_type: varchar(64)
         constraints:
           - type: not_null
         description: >-
@@ -409,10 +481,14 @@ models:
           exception to complete COBOL lineage in this design, and its evidence is the user
           requirement rather than a source locator. The value
           modernization/extraction/extract_commarea.py writes for this exemplar is
-          GENAPP_CLASS_EXEMPLAR. The same value is the leading element of the S3 key prefix
-          and the first element of the natural key (source_system_key, policy_number). A row
-          from a future source system carries its own value in this column and slots into
-          this relation without structural change. Logical width VARCHAR(64). Never null.
+          GENAPP_CLASS_EXEMPLAR, and modernization/landing/landing-schema.json accepts 1
+          to 64 characters of ASCII letters, digits, underscore, dot and hyphen. The same
+          value is the leading element of the S3 key prefix and the first element of the
+          natural key (source_system_key, policy_number). A row from a future source system
+          carries its own value in this column and slots into this relation without
+          structural change. VARCHAR(64), never null: the model casts the arriving text to
+          that width, and the width of the value is asserted by the singular test of this
+          relation.
         config:
           meta:
             logical_entry: source_system_key
@@ -441,7 +517,10 @@ models:
           inserts receive as :DB2-POLICYNUM-INT. BIGINT, never null. Second element of the
           natural key, whose uniqueness
           modernization/dbt/genapp_rqi/tests/assert_preissued_rating_unique_key.sql asserts
-          as the pair and not on this column alone.
+          as the pair and not on this column alone. Every value of this column is also
+          carried by canonical.issued_policy for the same policy; the relationships test
+          below asserts that direction and that same singular test asserts the parity of the
+          whole key set in both directions.
         config:
           meta:
             logical_entry: policy_number
@@ -452,9 +531,13 @@ models:
             db2_locator: base/src/lgpolicy.cpy:44
         data_tests:
           - not_null
+          - relationships:
+              arguments:
+                to: ref('canonical_issued_policy')
+                field: policy_number
 
       - name: policy_type
-        data_type: varchar
+        data_type: char(1)
         constraints:
           - type: not_null
         description: >-
@@ -470,8 +553,9 @@ models:
           landing, and ref('int_policy_issue_decoded') verifies the landed letter against
           request_id through those same four branches. Those four branches are the whole
           routing, so the observed domain is exactly E, H, M and C. This value decides which
-          of the five product premium columns below carry a value. Logical width CHAR(1).
-          Never null.
+          of the five product premium columns below carry a value. CHAR(1), never null: the
+          model casts the arriving text to that width, and a value of any other length is
+          returned by tests/assert_preissued_rating_unique_key.sql.
         config:
           meta:
             logical_entry: policy_type
@@ -494,13 +578,20 @@ models:
           DB2-PAYMENT-INT at base/src/lgapdb01.cbl:265 loads DB2-PAYMENT-INT PIC S9(9) COMP,
           base/src/lgapdb01.cbl:92, and base/src/lgapdb01.cbl:287 passes it to the policy
           insert. An unsigned DISPLAY numeric declaring 6 digits with no implied decimal and
-          no sign, so DECIMAL(8,2). Nullable. Declared in the product-independent group
+          no sign. DECIMAL(8,2). Nullable. Declared in the product-independent group
           CA-POLICY-COMMON at base/src/lgcmarea.cpy:37-43 rather than in a product overlay,
           so it carries a value for every policy type and is not subject to the overlay
-          exclusion the product premiums below are subject to.
+          exclusion the product premiums below are subject to. A value of zero is a present
+          value and not an absent one. Asserted by
+          tests/assert_product_premium_nullability.sql: the value equals the value
+          ref('int_policy_issue_decoded') carries for the same key within the absolute delta
+          0.01 that modernization/extraction/copybook_field_map.yml records under
+          comparison.amount_tolerance_abs, it is present exactly where that upstream value
+          is present, it is not negative, and it does not exceed 999999, the largest value
+          the PIC 9(6) declaration holds.
         config:
           meta:
-            logical_entry: payment_amount
+            logical_entry: payment
             runtime_status: active
             commarea_item: CA-PAYMENT
             commarea_locator: base/src/lgcmarea.cpy:43
@@ -512,16 +603,23 @@ models:
         description: >-
           Motor premium amount. CA-M-PREMIUM PIC 9(6), base/src/lgcmarea.cpy:73; Db2-side
           counterpart DB2-M-PREMIUM PIC 9(6), base/src/lgpolicy.cpy:80. MOVE CA-M-PREMIUM TO
-          DB2-M-PREMIUM-INT at base/src/lgapdb01.cbl:445 loads DB2-M-PREMIUM-int
-          PIC S9(9) COMP, base/src/lgapdb01.cbl:100, and base/src/lgapdb01.cbl:469 passes it
-          to the motor insert. An unsigned DISPLAY numeric declaring 6 digits with no
-          implied decimal and no sign, so DECIMAL(8,2). Nullable. Declared in the CA-MOTOR
-          overlay at base/src/lgcmarea.cpy:65, one of the mutually exclusive REDEFINES of
+          DB2-M-PREMIUM-INT at base/src/lgapdb01.cbl:445 loads DB2-M-PREMIUM-int PIC S9(9)
+          COMP, base/src/lgapdb01.cbl:100, and base/src/lgapdb01.cbl:469 passes it to the
+          motor insert. An unsigned DISPLAY numeric declaring 6 digits with no implied
+          decimal and no sign. DECIMAL(8,2). Nullable. Declared in the CA-MOTOR overlay
+          at base/src/lgcmarea.cpy:65, one of the mutually exclusive REDEFINES of
           CA-POLICY-SPECIFIC PIC X(32400) at base/src/lgcmarea.cpy:44, so it carries a value
-          for policy type M and is null for every other policy type, never zero.
+          for policy type M and is null for every other policy type, never zero. A value of
+          zero is a present value and not an absent one. Asserted by
+          tests/assert_product_premium_nullability.sql: the value equals the value
+          ref('int_policy_issue_decoded') carries for the same key within the absolute delta
+          0.01 that modernization/extraction/copybook_field_map.yml records under
+          comparison.amount_tolerance_abs, it is present exactly where that upstream value
+          is present, it is not negative, and it does not exceed 999999, the largest value
+          the PIC 9(6) declaration holds.
         config:
           meta:
-            logical_entry: motor_premium_amount
+            logical_entry: motor_premium
             runtime_status: active
             commarea_item: CA-M-PREMIUM
             commarea_locator: base/src/lgcmarea.cpy:73
@@ -531,21 +629,27 @@ models:
       - name: fire_premium_amount
         data_type: decimal(10,2)
         description: >-
-          Commercial fire premium amount. CA-B-FirePremium PIC 9(8),
-          base/src/lgcmarea.cpy:85; Db2-side counterpart DB2-B-FirePremium PIC 9(8),
-          base/src/lgpolicy.cpy:91. MOVE CA-B-FirePremium To DB2-B-FirePremium-Int at
-          base/src/lgapdb01.cbl:489 loads DB2-B-FirePremium-Int PIC S9(9) COMP,
-          base/src/lgapdb01.cbl:103, and the commercial insert receives it. An unsigned
-          DISPLAY numeric declaring 8 digits with no implied decimal and no sign, so
+          Commercial fire premium amount. CA-B-FirePremium PIC 9(8), base/src/lgcmarea.cpy:85;
+          Db2-side counterpart DB2-B-FirePremium PIC 9(8), base/src/lgpolicy.cpy:91. MOVE
+          CA-B-FirePremium To DB2-B-FirePremium-Int at base/src/lgapdb01.cbl:489 loads
+          DB2-B-FirePremium-Int PIC S9(9) COMP, base/src/lgapdb01.cbl:103, and the commercial
+          insert receives it. An unsigned DISPLAY numeric with no implied decimal and no sign.
           DECIMAL(10,2). Nullable. Declared in the CA-COMMERCIAL overlay at
           base/src/lgcmarea.cpy:77, one of the mutually exclusive REDEFINES of
           CA-POLICY-SPECIFIC PIC X(32400) at base/src/lgcmarea.cpy:44, so it carries a value
           for policy type C and is null for every other policy type, never zero. The
           adjacent declaration CA-B-FirePeril PIC 9(4), base/src/lgcmarea.cpy:84, is a peril
-          code rather than an amount and carries no column.
+          code rather than an amount and carries no column. A value of zero is a present
+          value and not an absent one. Asserted by
+          tests/assert_product_premium_nullability.sql: the value equals the value
+          ref('int_policy_issue_decoded') carries for the same key within the absolute delta
+          0.01 that modernization/extraction/copybook_field_map.yml records under
+          comparison.amount_tolerance_abs, it is present exactly where that upstream value
+          is present, it is not negative, and it does not exceed 99999999, the largest value
+          the PIC 9(8) declaration holds.
         config:
           meta:
-            logical_entry: fire_premium_amount
+            logical_entry: fire_premium
             runtime_status: active
             commarea_item: CA-B-FirePremium
             commarea_locator: base/src/lgcmarea.cpy:85
@@ -555,21 +659,27 @@ models:
       - name: crime_premium_amount
         data_type: decimal(10,2)
         description: >-
-          Commercial crime premium amount. CA-B-CrimePremium PIC 9(8),
-          base/src/lgcmarea.cpy:87; Db2-side counterpart DB2-B-CrimePremium PIC 9(8),
-          base/src/lgpolicy.cpy:93. MOVE CA-B-CrimePremium To DB2-B-CrimePremium-Int at
-          base/src/lgapdb01.cbl:491 loads DB2-B-CrimePremium-Int PIC S9(9) COMP,
-          base/src/lgapdb01.cbl:105, and the commercial insert receives it. An unsigned
-          DISPLAY numeric declaring 8 digits with no implied decimal and no sign, so
+          Commercial crime premium amount. CA-B-CrimePremium PIC 9(8), base/src/lgcmarea.cpy:87;
+          Db2-side counterpart DB2-B-CrimePremium PIC 9(8), base/src/lgpolicy.cpy:93. MOVE
+          CA-B-CrimePremium To DB2-B-CrimePremium-Int at base/src/lgapdb01.cbl:491 loads
+          DB2-B-CrimePremium-Int PIC S9(9) COMP, base/src/lgapdb01.cbl:105, and the commercial
+          insert receives it. An unsigned DISPLAY numeric with no implied decimal and no sign.
           DECIMAL(10,2). Nullable. Declared in the CA-COMMERCIAL overlay at
           base/src/lgcmarea.cpy:77, one of the mutually exclusive REDEFINES of
           CA-POLICY-SPECIFIC PIC X(32400) at base/src/lgcmarea.cpy:44, so it carries a value
           for policy type C and is null for every other policy type, never zero. The
           adjacent declaration CA-B-CrimePeril PIC 9(4), base/src/lgcmarea.cpy:86, is a
-          peril code rather than an amount and carries no column.
+          peril code rather than an amount and carries no column. A value of zero is a
+          present value and not an absent one. Asserted by
+          tests/assert_product_premium_nullability.sql: the value equals the value
+          ref('int_policy_issue_decoded') carries for the same key within the absolute delta
+          0.01 that modernization/extraction/copybook_field_map.yml records under
+          comparison.amount_tolerance_abs, it is present exactly where that upstream value
+          is present, it is not negative, and it does not exceed 99999999, the largest value
+          the PIC 9(8) declaration holds.
         config:
           meta:
-            logical_entry: crime_premium_amount
+            logical_entry: crime_premium
             runtime_status: active
             commarea_item: CA-B-CrimePremium
             commarea_locator: base/src/lgcmarea.cpy:87
@@ -579,21 +689,27 @@ models:
       - name: flood_premium_amount
         data_type: decimal(10,2)
         description: >-
-          Commercial flood premium amount. CA-B-FloodPremium PIC 9(8),
-          base/src/lgcmarea.cpy:89; Db2-side counterpart DB2-B-FloodPremium PIC 9(8),
-          base/src/lgpolicy.cpy:95. MOVE CA-B-FloodPremium To DB2-B-FloodPremium-Int at
-          base/src/lgapdb01.cbl:493 loads DB2-B-FloodPremium-Int PIC S9(9) COMP,
-          base/src/lgapdb01.cbl:107, and the commercial insert receives it. An unsigned
-          DISPLAY numeric declaring 8 digits with no implied decimal and no sign, so
+          Commercial flood premium amount. CA-B-FloodPremium PIC 9(8), base/src/lgcmarea.cpy:89;
+          Db2-side counterpart DB2-B-FloodPremium PIC 9(8), base/src/lgpolicy.cpy:95. MOVE
+          CA-B-FloodPremium To DB2-B-FloodPremium-Int at base/src/lgapdb01.cbl:493 loads
+          DB2-B-FloodPremium-Int PIC S9(9) COMP, base/src/lgapdb01.cbl:107, and the commercial
+          insert receives it. An unsigned DISPLAY numeric with no implied decimal and no sign.
           DECIMAL(10,2). Nullable. Declared in the CA-COMMERCIAL overlay at
           base/src/lgcmarea.cpy:77, one of the mutually exclusive REDEFINES of
           CA-POLICY-SPECIFIC PIC X(32400) at base/src/lgcmarea.cpy:44, so it carries a value
           for policy type C and is null for every other policy type, never zero. The
           adjacent declaration CA-B-FloodPeril PIC 9(4), base/src/lgcmarea.cpy:88, is a
-          peril code rather than an amount and carries no column.
+          peril code rather than an amount and carries no column. A value of zero is a
+          present value and not an absent one. Asserted by
+          tests/assert_product_premium_nullability.sql: the value equals the value
+          ref('int_policy_issue_decoded') carries for the same key within the absolute delta
+          0.01 that modernization/extraction/copybook_field_map.yml records under
+          comparison.amount_tolerance_abs, it is present exactly where that upstream value
+          is present, it is not negative, and it does not exceed 99999999, the largest value
+          the PIC 9(8) declaration holds.
         config:
           meta:
-            logical_entry: flood_premium_amount
+            logical_entry: flood_premium
             runtime_status: active
             commarea_item: CA-B-FloodPremium
             commarea_locator: base/src/lgcmarea.cpy:89
@@ -608,16 +724,23 @@ models:
           base/src/lgpolicy.cpy:97. MOVE CA-B-WeatherPremium To DB2-B-WeatherPremium-Int at
           base/src/lgapdb01.cbl:495 loads DB2-B-WeatherPremium-Int PIC S9(9) COMP,
           base/src/lgapdb01.cbl:109, and the commercial insert receives it. An unsigned
-          DISPLAY numeric declaring 8 digits with no implied decimal and no sign, so
+          DISPLAY numeric declaring 8 digits with no implied decimal and no sign.
           DECIMAL(10,2). Nullable. Declared in the CA-COMMERCIAL overlay at
           base/src/lgcmarea.cpy:77, one of the mutually exclusive REDEFINES of
           CA-POLICY-SPECIFIC PIC X(32400) at base/src/lgcmarea.cpy:44, so it carries a value
           for policy type C and is null for every other policy type, never zero. The
           adjacent declaration CA-B-WeatherPeril PIC 9(4), base/src/lgcmarea.cpy:90, is a
-          peril code rather than an amount and carries no column.
+          peril code rather than an amount and carries no column. A value of zero is a
+          present value and not an absent one. Asserted by
+          tests/assert_product_premium_nullability.sql: the value equals the value
+          ref('int_policy_issue_decoded') carries for the same key within the absolute delta
+          0.01 that modernization/extraction/copybook_field_map.yml records under
+          comparison.amount_tolerance_abs, it is present exactly where that upstream value
+          is present, it is not negative, and it does not exceed 99999999, the largest value
+          the PIC 9(8) declaration holds.
         config:
           meta:
-            logical_entry: weather_premium_amount
+            logical_entry: weather_premium
             runtime_status: active
             commarea_item: CA-B-WeatherPremium
             commarea_locator: base/src/lgcmarea.cpy:91

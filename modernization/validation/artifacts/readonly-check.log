@@ -20,11 +20,26 @@ gate A result: PASS (5 of 5 baseline entries matched)
 gate B base working tree clean:
   git status --porcelain -- base/ produced no output
 gate B result: PASS
-gate C no pre-existing tracked modification:
-  paths under modernization/ are outside gate C's scope and are not recorded
-  git diff --name-only HEAD, tracked paths outside modernization/:
-    (no tracked modification outside modernization/)
-  tracked paths outside modernization/: 0
+gate C no tracked modification outside the generated evidence set:
+  exempt generated evidence paths, matched by exact path (12):
+    modernization/validation/artifacts/translate.log
+    modernization/validation/artifacts/compile.log
+    modernization/validation/artifacts/translation-report.json
+    modernization/validation/artifacts/source-baseline.sha256
+    modernization/validation/artifacts/readonly-check.log
+    modernization/validation/artifacts/evidence-manifest.sha256
+    modernization/validation/artifacts/driver_01amot.log
+    modernization/validation/artifacts/captures_01amot.txt
+    modernization/validation/artifacts/commarea_post_01amot.dat
+    modernization/validation/artifacts/driver_01acom.log
+    modernization/validation/artifacts/captures_01acom.txt
+    modernization/validation/artifacts/commarea_post_01acom.dat
+  git diff --name-only HEAD, exempt paths modified:
+    (no exempt generated evidence path modified)
+  git diff --name-only HEAD, tracked modifications:
+    (no tracked modification)
+  exempt generated evidence paths modified: 0
+  tracked modifications: 0
 gate C result: PASS
 verdict: PASS
 exit_code: 0
@@ -52,11 +67,26 @@ gate A result: PASS (5 of 5 baseline entries matched)
 gate B base working tree clean:
   git status --porcelain -- base/ produced no output
 gate B result: PASS
-gate C no pre-existing tracked modification:
-  paths under modernization/ are outside gate C's scope and are not recorded
-  git diff --name-only HEAD, tracked paths outside modernization/:
-    (no tracked modification outside modernization/)
-  tracked paths outside modernization/: 0
+gate C no tracked modification outside the generated evidence set:
+  exempt generated evidence paths, matched by exact path (12):
+    modernization/validation/artifacts/translate.log
+    modernization/validation/artifacts/compile.log
+    modernization/validation/artifacts/translation-report.json
+    modernization/validation/artifacts/source-baseline.sha256
+    modernization/validation/artifacts/readonly-check.log
+    modernization/validation/artifacts/evidence-manifest.sha256
+    modernization/validation/artifacts/driver_01amot.log
+    modernization/validation/artifacts/captures_01amot.txt
+    modernization/validation/artifacts/commarea_post_01amot.dat
+    modernization/validation/artifacts/driver_01acom.log
+    modernization/validation/artifacts/captures_01acom.txt
+    modernization/validation/artifacts/commarea_post_01acom.dat
+  git diff --name-only HEAD, exempt paths modified:
+    (no exempt generated evidence path modified)
+  git diff --name-only HEAD, tracked modifications:
+    (no tracked modification)
+  exempt generated evidence paths modified: 0
+  tracked modifications: 0
 gate C result: PASS
 verdict: PASS
 exit_code: 0
@@ -84,11 +114,26 @@ gate A result: PASS (5 of 5 baseline entries matched)
 gate B base working tree clean:
   git status --porcelain -- base/ produced no output
 gate B result: PASS
-gate C no pre-existing tracked modification:
-  paths under modernization/ are outside gate C's scope and are not recorded
-  git diff --name-only HEAD, tracked paths outside modernization/:
-    (no tracked modification outside modernization/)
-  tracked paths outside modernization/: 0
+gate C no tracked modification outside the generated evidence set:
+  exempt generated evidence paths, matched by exact path (12):
+    modernization/validation/artifacts/translate.log
+    modernization/validation/artifacts/compile.log
+    modernization/validation/artifacts/translation-report.json
+    modernization/validation/artifacts/source-baseline.sha256
+    modernization/validation/artifacts/readonly-check.log
+    modernization/validation/artifacts/evidence-manifest.sha256
+    modernization/validation/artifacts/driver_01amot.log
+    modernization/validation/artifacts/captures_01amot.txt
+    modernization/validation/artifacts/commarea_post_01amot.dat
+    modernization/validation/artifacts/driver_01acom.log
+    modernization/validation/artifacts/captures_01acom.txt
+    modernization/validation/artifacts/commarea_post_01acom.dat
+  git diff --name-only HEAD, exempt paths modified:
+    (no exempt generated evidence path modified)
+  git diff --name-only HEAD, tracked modifications:
+    (no tracked modification)
+  exempt generated evidence paths modified: 0
+  tracked modifications: 0
 gate C result: PASS
 verdict: PASS
 exit_code: 0
@@ -116,11 +161,26 @@ gate A result: PASS (5 of 5 baseline entries matched)
 gate B base working tree clean:
   git status --porcelain -- base/ produced no output
 gate B result: PASS
-gate C no pre-existing tracked modification:
-  paths under modernization/ are outside gate C's scope and are not recorded
-  git diff --name-only HEAD, tracked paths outside modernization/:
-    (no tracked modification outside modernization/)
-  tracked paths outside modernization/: 0
+gate C no tracked modification outside the generated evidence set:
+  exempt generated evidence paths, matched by exact path (12):
+    modernization/validation/artifacts/translate.log
+    modernization/validation/artifacts/compile.log
+    modernization/validation/artifacts/translation-report.json
+    modernization/validation/artifacts/source-baseline.sha256
+    modernization/validation/artifacts/readonly-check.log
+    modernization/validation/artifacts/evidence-manifest.sha256
+    modernization/validation/artifacts/driver_01amot.log
+    modernization/validation/artifacts/captures_01amot.txt
+    modernization/validation/artifacts/commarea_post_01amot.dat
+    modernization/validation/artifacts/driver_01acom.log
+    modernization/validation/artifacts/captures_01acom.txt
+    modernization/validation/artifacts/commarea_post_01acom.dat
+  git diff --name-only HEAD, exempt paths modified:
+    (no exempt generated evidence path modified)
+  git diff --name-only HEAD, tracked modifications:
+    (no tracked modification)
+  exempt generated evidence paths modified: 0
+  tracked modifications: 0
 gate C result: PASS
 verdict: PASS
 exit_code: 0

@@ -14,9 +14,12 @@
 #   modernization/extraction/extract_commarea.py reads the record, layout, field, routing,
 #   excluded, landing, comparison and product premium nullability sections, plus the
 #   source_system_key section, to decode one post-chain record into the landing record.
-#   The artifacts listed under `planned_consumers` will read their layout, typing and lineage
-#   facts from this file once they are processed; none of them is present in the tree yet. Byte
-#   layout is expressed only as `offset`, `length` and `pic` values.
+#   The two tools listed under `current_consumers` read this file at run time. The artifacts
+#   listed under `derived_artifacts` stand in the tree and carry the layout, typing and lineage
+#   facts of this file in their authored text; each was authored from it and none of them reads
+#   it. The artifacts under `planned_consumers` will carry the same facts once they are
+#   processed; none of them is present at this milestone. Byte layout is expressed only as
+#   `offset`, `length` and `pic` values.
 #
 # EVIDENCE BOUNDARY
 #   Every locator in this file resolves to one of the five authorised source artifacts:
@@ -27,13 +30,12 @@
 #
 # CONTENT BOUNDARY
 #   This file states what each field is and how it is treated. Decision rationale belongs to
-#   modernization/docs/decision-log.md (planned deliverable; not present at this milestone) and
-#   is deliberately absent here. Every `rationale` value below is a pointer to that planned
-#   document, never rationale itself.
+#   modernization/docs/decision-log.md and is deliberately absent here. Every `rationale`
+#   value below is a pointer to that document, never rationale itself.
 
 map_version: 1
 rationale: >-
-  see modernization/docs/decision-log.md (planned deliverable; not present at this milestone)
+  see modernization/docs/decision-log.md
 
 # The interface record shared by every program in the named chain.
 record:
@@ -107,7 +109,7 @@ formula_evidence:
     - base/src/lgapdb01.cbl:493
     - base/src/lgapdb01.cbl:495
   rationale: >-
-    see modernization/docs/decision-log.md (planned deliverable; not present at this milestone)
+    see modernization/docs/decision-log.md
 
 # Physical byte layout of the groups this work exercises. Groups appear in ascending `order`.
 # `kind` is either alphanumeric or numeric_display. `chain_required_numeric` marks items that
@@ -1346,7 +1348,7 @@ source_system_key:
   evidence:
     - user requirement (no COBOL item supplies it)
   rationale: >-
-    see modernization/docs/decision-log.md (planned deliverable; not present at this milestone)
+    see modernization/docs/decision-log.md
 
 # Request-id routing observed in the first EVALUATE. Each branch assigns the policy-type letter
 # and adds the product length constant to the required-length accumulator.
@@ -1561,7 +1563,7 @@ derived_samples:
       VSAM write recorded under `executed_by` on every run, including a compile that checks the
       numeric class of a display item.
     rationale: >-
-      see modernization/docs/decision-log.md (planned deliverable; not present at this milestone),
+      see modernization/docs/decision-log.md,
       row: house fixture derived from the motor record
 
 samples_not_generated:
@@ -1571,7 +1573,7 @@ samples_not_generated:
     runner, and no harness case executes the endowment route. The endowment routing branch remains
     documented under request_routing.
   rationale: >-
-    see modernization/docs/decision-log.md (planned deliverable; not present at this milestone)
+    see modernization/docs/decision-log.md
 
 # Return codes observed in the named chain, keyed as two-character strings. `initialised_by` and
 # `set_by` name the programs of the chain, and every `initialised_at`, `checked_at`, `set_at`,
@@ -1793,13 +1795,14 @@ excluded:
     program_intermediate: null
 
 excluded_rationale: >-
-  see modernization/docs/decision-log.md (planned deliverable; not present at this milestone)
+  see modernization/docs/decision-log.md
 
 # Length constants used by the chain's COMMAREA length validation, with the measured overlay
-# lengths taken from the copybook declarations. In `handling`, sample generation is present at
-# this milestone; the extraction-side numeric check belongs to
-# modernization/extraction/extract_commarea.py (planned deliverable; not present at this
-# milestone).
+# lengths taken from the copybook declarations. The two halves of `handling` are carried by
+# different artifacts, both of which stand in the tree at this milestone:
+# modernization/extraction/build_sample_commarea.py emits the full-length record, and
+# modernization/extraction/extract_commarea.py applies the numeric check to the applicable amount
+# windows before landing.
 length_constants:
   declared:
     WS-CA-HEADER-LEN:
@@ -1839,11 +1842,17 @@ length_constants:
     samples always emit the full 32500-byte record; extraction validates that applicable amount
     bytes are numeric before landing
   rationale: >-
-    see modernization/docs/decision-log.md (planned deliverable; not present at this milestone)
+    see modernization/docs/decision-log.md
 
-# Target contract for the landed object and the raw relation loaded from it. No landing artifact
-# and no raw-relation DDL is present at this milestone, so this section states the contract the
-# planned artifacts will satisfy rather than a contract already in force.
+# Contract for the landed object and the raw relation loaded from it. The artifacts that carry it
+# all stand in the tree at this milestone: modernization/landing/landing-schema.json for the
+# record shape, modernization/landing/land_to_s3.py for the object and its key prefix,
+# modernization/warehouse/ddl/02_raw_genapp_policy_issue.sql for the raw relation, and
+# modernization/landing/load_redshift.sql and modernization/landing/load_local.py for the load
+# into it, so this section states a contract in force rather than one awaiting its artifacts.
+# `field_order` is the column order every one of them uses. This section records no
+# execution against any target. modernization/landing/partition-layout.md, which will document
+# the prefix in prose, is a planned deliverable and is not present at this milestone.
 landing:
   entity: policy_issue
   raw_relation: raw.genapp_policy_issue
@@ -1851,7 +1860,7 @@ landing:
   value_encoding: json_string_or_null
   record_format: one JSON object per object file, serialized as a single line terminated by LF
   additional_keys_permitted: false
-  planned_json_schema: modernization/landing/landing-schema.json
+  json_schema: modernization/landing/landing-schema.json
   s3_prefix_template: >-
     landing/source_system_key=<source_system_key>/entity=policy_issue/extract_date=YYYY-MM-DD/part-0000.json
   partitioning_scope: S3 key prefix only
@@ -1875,8 +1884,12 @@ landing:
     - weather_premium_amount
 
 # Which amount fields carry a value for each policy type. Inapplicable product premiums are null.
-# `planned_enforcement` names the dbt test that will assert this pattern; that test is a planned
-# deliverable and is not present at this milestone, so nothing enforces the pattern yet.
+# `enforcement` names the dbt singular test that asserts this pattern on
+# canonical.preissued_rating, and that test stands in the tree at this milestone.
+# modernization/extraction/extract_commarea.py applies the pattern to the landed record, the
+# models of modernization/dbt/genapp_rqi/models/ carry it through, and
+# modernization/extraction/build_sample_commarea.py reads that member and checks it against the
+# test its own self-test carries.
 product_premium_nullability:
   always_populated:
     - payment_amount
@@ -1968,25 +1981,32 @@ product_premium_nullability:
         - crime_premium_amount
         - flood_premium_amount
         - weather_premium_amount
-  planned_enforcement: modernization/dbt/genapp_rqi/tests/assert_product_premium_nullability.sql
+  enforcement: modernization/dbt/genapp_rqi/tests/assert_product_premium_nullability.sql
 
-# The two canonical relations. `source` names the logical field entry that supplies each column.
-# This is the target contract: the models named under `planned_dbt_model` and the uniqueness
-# tests named under `planned_unique_key_test` are planned deliverables, none of them is present
-# at this milestone, and neither canonical relation has been built yet.
+# The two canonical relations, and the only two relations of the canonical schema.
+# `source` names the logical field entry that supplies each column, spelled as the
+# `logical_entry` key of the `fields` list above and of the `source_system_key` section, so a
+# lookup in either direction is an exact match on that identifier. `dbt_model` names
+# the dbt model that materializes each relation and `unique_key_test` the singular test
+# that asserts uniqueness of its natural key; both stand in the tree at this milestone under
+# modernization/dbt/genapp_rqi/, and the enforced column contract of both relations is held by
+# modernization/dbt/genapp_rqi/models/marts/canonical/_canonical__models.yml, which declares the
+# same names, order and types recorded below. No build result of either relation is recorded in
+# the repository: modernization/validation/validation-evidence.md, the consolidated execution
+# record, is a planned deliverable and is not present at this milestone.
 targets:
 
   canonical.issued_policy:
     schema: canonical
     alias: issued_policy
-    planned_dbt_model: canonical_issued_policy
+    dbt_model: canonical_issued_policy
     materialization: table
     grain: one row per successful issued policy and source system
     filter: return_code = '00'
     unique_key:
       - source_system_key
       - policy_number
-    planned_unique_key_test: >-
+    unique_key_test: >-
       modernization/dbt/genapp_rqi/tests/assert_issued_policy_unique_key.sql
     column_count: 11
     source_derived_column_count: 10
@@ -2040,14 +2060,14 @@ targets:
   canonical.preissued_rating:
     schema: canonical
     alias: preissued_rating
-    planned_dbt_model: canonical_preissued_rating
+    dbt_model: canonical_preissued_rating
     materialization: table
     grain: one row per successful issued policy and source system
     filter: return_code = '00'
     unique_key:
       - source_system_key
       - policy_number
-    planned_unique_key_test: >-
+    unique_key_test: >-
       modernization/dbt/genapp_rqi/tests/assert_preissued_rating_unique_key.sql
     column_count: 9
     source_derived_column_count: 8
@@ -2093,8 +2113,12 @@ targets:
 canonical_relation_count: 2
 
 # Pass and fail contract to apply when harness captures are compared with the canonical rows.
-# The comparison tool named under `planned_implementation` is a planned deliverable and is not
-# present at this milestone, so no comparison has been run against this contract yet.
+# Both inputs of the comparison are represented at this milestone: the harness captures under
+# modernization/validation/artifacts/ and the two canonical models under
+# modernization/dbt/genapp_rqi/models/marts/canonical/. `planned_implementation` names the tool
+# that applies it; that tool is a planned deliverable and is not present at this milestone, so no
+# comparison has been run against this contract yet, and the run status of any comparison is
+# recorded in modernization/validation/validation-evidence.md and not here.
 comparison:
   planned_implementation: modernization/validation/diff_harness_vs_warehouse.py
   amount_tolerance_abs: 0.01
@@ -2113,7 +2137,7 @@ comparison:
     - canonical.issued_policy
     - canonical.preissued_rating
   rationale: >-
-    see modernization/docs/decision-log.md (planned deliverable; not present at this milestone)
+    see modernization/docs/decision-log.md
 
 # Counts asserted by this map. Each value is countable from the sections above.
 counts:
@@ -2133,16 +2157,17 @@ counts:
   landing_fields: 17
   canonical_relations: 2
 
-# Consumers of this map. `current_consumers` names what reads it at this milestone.
-# `planned_consumers` names the artifacts that will read their layout, typing and lineage facts
-# from it once they are processed; every path listed there is a planned deliverable and is not
-# present at this milestone.
+# Consumers of this map. `current_consumers` names the tools that read this file at run time.
+# `derived_artifacts` names the artifacts that stand in the tree at this milestone and whose
+# layout, typing and lineage facts come from it; each was authored from this map and none of them
+# reads it at run time. `planned_consumers` names the artifacts that will carry the same facts
+# once they are processed; every path listed there is a planned deliverable and is not present at
+# this milestone.
 current_consumers:
   - modernization/extraction/build_sample_commarea.py
   - modernization/extraction/extract_commarea.py
 
-planned_consumers:
-  - modernization/extraction/extraction-spec.md
+derived_artifacts:
   - modernization/landing/landing-schema.json
   - modernization/landing/load_redshift.sql
   - modernization/warehouse/ddl/02_raw_genapp_policy_issue.sql
@@ -2150,6 +2175,9 @@ planned_consumers:
   - modernization/dbt/genapp_rqi/models/staging/genapp_class_exemplar/_genapp__models.yml
   - modernization/dbt/genapp_rqi/models/intermediate/_int__models.yml
   - modernization/dbt/genapp_rqi/models/marts/canonical/_canonical__models.yml
+
+planned_consumers:
+  - modernization/extraction/extraction-spec.md
   - modernization/docs/field-level-lineage.md
   - modernization/docs/traceability-matrix.md
   - modernization/validation/diff_harness_vs_warehouse.py
@@ -2235,8 +2263,8 @@ sample_definition_contract:
   # the item, or records a seed of the wrong length, a non-digit seed for a numeric
   # window or a seed inside the declared domain.
   #
-  # Rationale: modernization/docs/decision-log.md (planned deliverable; not present at
-  # this milestone), row: chain-populated windows seeded outside the produced domain.
+  # Rationale: modernization/docs/decision-log.md, row: chain-populated windows seeded
+  # outside the produced domain.
   chain_populated_items:
     - item: CA-RETURN-CODE
       kind: numeric_display

@@ -1,14 +1,20 @@
 # Architecture — GenApp Policy-Issue Canonical Warehouse Bridge
 
-> **Status — evidence date 2026-08-20.** Figure 1 is the as-is chain, Figures 2, 4 and 5 are the after state of this work
+> **Status — evidence date 2026-08-22.** Figure 1 is the as-is chain, Figures 2, 4 and 5 are the after state of this work
 > — delivered in part, as their markers show — and Figure 3 is a proposal. The GnuCOBOL harness these figures name is
 > delivered and has run: `translate.py`, the twelve stubs, the four shared copybooks, `driver.cbl` and `run_harness.sh`
 > are present in the tree, the three translated programs and the twelve stubs compile as `cobc -m` modules and the driver
 > as a `cobc -x` executable, and both samples traversed `LGAPOL01`, `LGAPDB01` and `LGAPVS01` with `CA-RETURN-CODE` `00`,
 > no abend, the policy and the product SQL capture present, and a 64-byte VSAM record written under a 21-byte key. The
-> artifacts downstream of the captures — the extractor, the landing writers, the raw relation, the dbt model files, the
-> diff tool and the evidence document — are not yet present in the tree, so this document claims no extract, land,
-> transform or comparison result anywhere; the state line under each figure records what is present and what has run. The
+> artifacts downstream of the captures are now present in the tree as well: `copybook_field_map.yml`,
+> `extract_commarea.py`, `landing-schema.json`, `land_to_s3.py`, `load_redshift.sql`, `load_local.py`, the two
+> `warehouse/ddl/` scripts and the whole `dbt/genapp_rqi/` project — its manifest, profile template, schema-name macro,
+> source declaration, staging model, intermediate model, two canonical mart models, four property files and three
+> singular tests. Two artifacts these figures name are still absent: the field-by-field diff tool
+> `modernization/validation/diff_harness_vs_warehouse.py` and the evidence document
+> `modernization/validation/validation-evidence.md`. This document claims no extract, land, transform or comparison
+> **result**: the retained evidence set covers the harness stages only, and the consolidated record of every other result
+> is the absent evidence document. The state line under each figure records what is present and what has run. The
 > harness result, and any later result the local path produces, carries the label
 > **validated against local substitute, not AWS**; the formal AWS diff requirement is OPEN and this has not yet happened.
 > Nothing in this document may be read as closing that requirement, and no figure here depicts a provisioned AWS
@@ -16,30 +22,38 @@
 >
 > **Delivery state — the marker pair separates delivered components from contracted ones.** Figures 2, 4 and 5 carry a
 > per-component marker in their node text: `DELIVERED` marks a component whose artifact exists in the repository at this
-> point, and `PENDING` marks a component this architecture contracts and whose artifact does not exist yet. A `PENDING`
-> component is promoted to `DELIVERED` only once its artifact and its evidence exist. The harness components are
-> `DELIVERED`; the extraction, landing, raw-load, dbt and comparison components are `PENDING`, and no record has been
-> landed or transformed and no comparison has been run. Figure 1 is the unchanged as-is chain and Figure 3 is PROPOSED,
-> NOT BUILT; neither carries the per-component marker pair in its node text.
+> point, and `PENDING` marks a component this architecture contracts and whose artifact does not exist yet. A marker
+> states whether a component's artifact exists, never that the component has produced a result: a component is promoted
+> to `DELIVERED` on the existence of its artifact alone, and for a persisted relation or object that artifact is the one
+> that creates it — the landing writer, the raw-relation DDL or the dbt mart with its enforced contract — never records
+> held in it. What has run is stated by the state line under each figure. The harness, extraction, landing, raw-load and
+> dbt components are `DELIVERED`; the comparison gate and the evidence document are `PENDING`. Figure 1 is the unchanged
+> as-is chain and Figure 3 is PROPOSED, NOT BUILT; neither carries the per-component marker pair in its node text.
 >
-> **Delivery position — HARNESS DELIVERED AND EXECUTED; EXTRACTION ONWARD NOT YET DEMONSTRATED.** Translation,
-> compilation, execution and capture are demonstrated for the motor (`01AMOT`, policy number 1000001) and commercial
-> (`01ACOM`, policy number 1000002) samples, and the read-only source check returned PASS. The same run also drives the
+> **Delivery position — HARNESS DELIVERED AND EXECUTED; EXTRACTION THROUGH dbt DELIVERED, THEIR RESULTS NOT RECORDED
+> HERE; COMPARISON NEITHER DELIVERED NOR RUN.** Translation, compilation, execution and capture are demonstrated for the
+> motor (`01AMOT`, policy number 1000001) and commercial (`01ACOM`, policy number 1000002) samples, and the read-only
+> source check returned PASS. The same run also drives the
 > observed return-code contract — `00`, `70`, `80`, `90`, `98`, `99` and the `LGCA` and `LGSQ` abends — across twelve
 > chain cases and five infrastructure probes, and runs the read-only source guard at four points of the run. The
 > retained run evidence is in `modernization/validation/artifacts/`: `translate.log`, `compile.log`,
 > `translation-report.json`, `source-baseline.sha256`, `driver_01amot.log`, `driver_01acom.log`,
 > `captures_01amot.txt`, `captures_01acom.txt`, `commarea_post_01amot.dat`, `commarea_post_01acom.dat`,
-> `readonly-check.log` and `runtime-versions.txt`. Extraction, landing, raw load, `dbt run`/`dbt test` and the
-> field-by-field diff are NOT YET DEMONSTRATED: their artifacts do not exist and none of them has been run. The
-> consolidated record of every result, `modernization/validation/validation-evidence.md`, is itself a planned
-> deliverable and is not present at this milestone; until it exists the retained artifacts above are the harness
-> evidence, and every result claimed anywhere carries the local-substitute label.
+> `readonly-check.log`, `evidence-manifest.sha256` and `runtime-versions.txt`. The manifest names the run that
+> published the set, the case selection that run used and one SHA-256 line per published file, so
+> `sha256sum -c evidence-manifest.sha256` in that directory checks the published set against the run that wrote it;
+> `runtime-versions.txt` is the environment record of the checkout and is published by no run. Extraction, landing,
+> raw load and `dbt run`/`dbt test` are delivered as authored artifacts, and this document records no run result for any
+> of them: the retained evidence set above holds none, and the consolidated record of every result,
+> `modernization/validation/validation-evidence.md`, is itself a planned
+> deliverable and is not present at this milestone. The field-by-field diff is neither delivered nor run: its tool does
+> not exist. Until the evidence document exists the retained artifacts above are the only recorded evidence of this work,
+> and every result claimed anywhere carries the local-substitute label.
 
 This document is the single home of the five named figures listed below; the other documents under `modernization/` are
 required to cite them by name instead of reproducing them. This document states what the architecture **is** and what its
 status is; every "why" belongs in
-`modernization/docs/decision-log.md` (planned deliverable; not present at this milestone), the planned single source of
+`modernization/docs/decision-log.md`, the planned single source of
 truth for rationale.
 
 ## Figure index
@@ -47,10 +61,10 @@ truth for rationale.
 | # | Figure name | Architectural state |
 |---|---|---|
 | 1 | [Figure 1 — BEFORE: GenApp Policy-Issue Chain, As-Is](#figure-1) | Before — the as-is chain, unchanged by this work |
-| 2 | [Figure 2 — AFTER (BUILT): Canonical Warehouse Bridge](#figure-2) | After — the built bridge; its harness artifacts are delivered and have executed both samples, its extraction, landing, dbt and diff artifacts are not present at this milestone; each component marked `DELIVERED` or `PENDING` in the figure; harness run status per the retained logs in `modernization/validation/artifacts/`, downstream run status per `modernization/validation/validation-evidence.md` once that document exists |
+| 2 | [Figure 2 — AFTER (BUILT): Canonical Warehouse Bridge](#figure-2) | After — the built bridge; its source, harness, extraction, landing, raw-relation and dbt artifacts are all present at this milestone and the harness has executed both samples, while the field-by-field diff artifact is not present; each component marked `DELIVERED` or `PENDING` in the figure; harness run status per the retained logs in `modernization/validation/artifacts/`, every other run status per `modernization/validation/validation-evidence.md` once that document exists |
 | 3 | [Figure 3 — AFTER (PROPOSED, NOT BUILT): AWS-Native Multi-RQI Warehouse](#figure-3) | Proposed — **not built**; the only figure containing unbuilt services and future domains; carries no `DELIVERED`/`PENDING` marker |
-| 4 | [Figure 4 — dbt Transformation DAG and Field Allocation](#figure-4) | After — target state; model dependencies and column allocation; model files not yet present at this milestone; each node marked `DELIVERED` or `PENDING` in the figure; `dbt run`/`dbt test` status per `modernization/validation/validation-evidence.md` once that document exists |
-| 5 | [Figure 5 — Validation Harness Control Flow](#figure-5) | After — the order of the compile, execute, transform and compare gates; the baseline, sample, translate, compile, execute and capture steps are delivered and have run, the extract, land, raw-load, dbt and compare steps are not present at this milestone; each step marked `DELIVERED` or `PENDING` in the figure; executed gate outcomes per the retained logs in `modernization/validation/artifacts/`, remaining gate outcomes per `modernization/validation/validation-evidence.md` once that document exists |
+| 4 | [Figure 4 — dbt Transformation DAG and Field Allocation](#figure-4) | After — the delivered model graph and column allocation; the raw relation, both dbt models and both canonical mart models are present at this milestone, together with their enforced column contracts and the three singular tests; each node marked `DELIVERED` or `PENDING` in the figure; `dbt run`/`dbt test` status per `modernization/validation/validation-evidence.md` once that document exists |
+| 5 | [Figure 5 — Validation Harness Control Flow](#figure-5) | After — the order of the compile, execute, transform and compare gates; the baseline, sample, translate, compile, execute and capture steps are delivered and have run, the extract, land, raw-load and dbt steps are delivered and this document records no result for them, and the comparison gate and the evidence document are not present at this milestone; each step marked `DELIVERED` or `PENDING` in the figure; executed gate outcomes per the retained logs in `modernization/validation/artifacts/`, remaining gate outcomes per `modernization/validation/validation-evidence.md` once that document exists |
 
 ---
 
@@ -112,8 +126,9 @@ Interface facts carried by the figure, each confirmed against the read-only sour
   `Commarea(DFHCOMMAREA)` [base/src/lgapol01.cbl:121-124; base/src/lgapdb01.cbl:243-246], and the values `LGAPDB01`
   places in `CA-POLICY-NUM` and `CA-LASTCHANGED` are read from the record after the chain returns
   [base/src/lgapdb01.cbl:307-321]. The figure asserts that interface contract and nothing further. Where a linked program
-  runs, and whether storage is shared or copied, is not established by the authorized sources: they contain no program
-  definition and no routing information.
+  runs, and whether storage is shared or copied, is not established by the authorized sources: they name the linked
+  programs and carry the request routing of the chain [base/src/lgapdb01.cbl:184-207], but they contain no CICS resource
+  definition and no region-placement or transaction-routing metadata.
 - Both links carry `LENGTH(32500)`: `LGAPOL01` links `LGAPDB01` [base/src/lgapol01.cbl:121-124] and `LGAPDB01` links
   `LGAPVS01` [base/src/lgapdb01.cbl:243-246].
 - The policy header validated before routing is 28 bytes, declared identically in both programs
@@ -132,17 +147,20 @@ Interface facts carried by the figure, each confirmed against the read-only sour
 
 ## Figure 2 — AFTER (BUILT): Canonical Warehouse Bridge
 
-**State at this milestone:** the harness stage is delivered and has run; no stage after it is delivered or has run. Of
-the artifacts this figure names, the five read-only sources, `copybook_field_map.yml`, `translate.py` and `driver.cbl`
-are present, and the SQL and VSAM captures exist for both samples in
+**State at this milestone:** every artifact this figure names is present except the field-by-field diff tool, and the
+harness stage is the only stage whose results are recorded. The five read-only sources, `copybook_field_map.yml`,
+`translate.py` and `driver.cbl` are present, and the SQL and VSAM captures exist for both samples in
 `modernization/validation/artifacts/captures_01amot.txt` and
 `captures_01acom.txt`. The translated copies the translator emits are generated on each run into the git-ignored
-`modernization/harness/build/` tree and are not committed artifacts. The extractor, the landing writer, the raw relation,
-the dbt model files and the diff tool are not present, and no extract, land, transform or comparison result exists.
+`modernization/harness/build/` tree and are not committed artifacts. The extractor `extract_commarea.py`, the landing
+writer `land_to_s3.py` with its `landing-schema.json` contract, the two raw loaders `load_redshift.sql` and
+`load_local.py`, the raw relation defined by `warehouse/ddl/02_raw_genapp_policy_issue.sql` and both dbt models with the
+two canonical mart models are present as authored artifacts. `modernization/validation/diff_harness_vs_warehouse.py` is
+not present, so no comparison result exists, and this document records no extract, land or transform result: that record
+belongs to the absent `modernization/validation/validation-evidence.md`.
 
 The shape of the additive bridge: the chain of Figure 1 — BEFORE: GenApp Policy-Issue Chain, As-Is acts as the oracle,
-and its result is projected into two canonical relations once the stages after the captures exist. Each component carries
-its delivery-state marker.
+and its result is projected into two canonical relations. Each component carries its delivery-state marker.
 
 ```mermaid
 flowchart LR
@@ -158,16 +176,16 @@ flowchart LR
 
     subgraph LANDING["Extraction and landing"]
         M["copybook_field_map.yml<br/>DELIVERED"]
-        E["extract_commarea.py<br/>PENDING"]
-        S3[("S3 landing<br/>source_system_key prefix<br/>PENDING")]
-        RAW[("raw.genapp_policy_issue<br/>PENDING")]
+        E["extract_commarea.py<br/>DELIVERED"]
+        S3[("S3 landing<br/>source_system_key prefix<br/>DELIVERED")]
+        RAW[("raw.genapp_policy_issue<br/>DELIVERED")]
     end
 
     subgraph DBT["Unchanged dbt model files"]
-        STG["stg_genapp__policy_issue<br/>PENDING"]
-        INT["int_policy_issue_decoded<br/>PENDING"]
-        IP[("canonical.issued_policy<br/>11 columns<br/>PENDING")]
-        PR[("canonical.preissued_rating<br/>9 columns<br/>PENDING")]
+        STG["stg_genapp__policy_issue<br/>DELIVERED"]
+        INT["int_policy_issue_decoded<br/>DELIVERED"]
+        IP[("canonical.issued_policy<br/>11 columns<br/>DELIVERED")]
+        PR[("canonical.preissued_rating<br/>9 columns<br/>DELIVERED")]
     end
 
     DIFF{"field-by-field diff<br/>PENDING"}
@@ -201,17 +219,20 @@ object storage; the diamond is the comparison gate; solid arrows are artifact or
 the edge carries; the labelled grouping boxes are stages of the bridge, not runtime components. **No edge writes to the
 read-only sources** — every arrow leaving the source subgraph is a read, and the five named artifacts stay
 byte-identical. `DELIVERED` marks a component whose artifact exists in the repository at this point, here the five named
-source files, `copybook_field_map.yml`, the translator, the driver and the SQL and VSAM captures; `PENDING` marks a
-component this figure contracts and whose artifact does not exist yet, here the extractor, the landed object, the raw
-relation, both dbt models, both canonical relations and the diff. **The two markers separate what exists at this point
-from what does not, and a component is promoted to `DELIVERED` only once its artifact and its evidence exist.** The
-harness stage carries results at this milestone and every stage after the captures carries none; the harness results
+source files, `copybook_field_map.yml`, the translator, the driver, the SQL and VSAM captures, the extractor, the landing
+writer that produces the landed object, the DDL that defines the raw relation, both dbt models and both canonical mart
+models with their enforced contracts; `PENDING` marks a
+component this figure contracts and whose artifact does not exist yet, here the field-by-field diff alone. **The two
+markers separate what exists at this point from what does not; a marker states whether a component's artifact exists,
+never that the component has produced a result, and for the four cylinders that artifact is the writer, the DDL or the
+mart model that creates the store rather than records held in it.** The
+harness stage carries results at this milestone and no result of any later stage is recorded here; the harness results
 carry the label validated against local substitute, not AWS and cannot close the formal AWS diff requirement.
 The canonical layer holds exactly two relations, `canonical.issued_policy` with 11 columns and
 `canonical.preissued_rating` with 9 columns; there is no third canonical relation. The figure specifies one set of dbt model files for the local
 and the real target — the same models unmodified on both. Rationale for the translate-on-copy harness, the
 target-specific raw loaders and the single warehouse-assigned column belongs to
-`modernization/docs/decision-log.md` (planned deliverable; not present at this milestone).
+`modernization/docs/decision-log.md`.
 
 The `driver.cbl` to `extract_commarea.py` edge is labelled "post-chain COMMAREA": two extracted values do not exist
 until the chain has run. `CA-POLICY-NUM` is filled from `IDENTITY_VAL_LOCAL()` and `CA-LASTCHANGED` is read back from the
@@ -223,12 +244,15 @@ inserted row, both inside `INSERT-POLICY` [base/src/lgapdb01.cbl:308-321].
 
 ## Figure 3 — AFTER (PROPOSED, NOT BUILT): AWS-Native Multi-RQI Warehouse
 
-**State at this milestone:** proposed only. Nothing in this figure — service, edge, domain or orchestration choice — is
-provisioned, delivered, in use or resolved.
+**State at this milestone:** the platform is proposed only. No AWS service, hosting arrangement, edge, future domain or
+orchestration option in this figure is provisioned, in use or resolved. Two nodes carry a `THIS WORK` prefix and are the
+exception the reader must not misread: the issued/policy and preissued/rating domains name the two canonical relations
+this work defines, whose dbt mart models are present in the tree at this milestone. What is unbuilt about them is the
+hosting this figure proposes, not their definition.
 
-A proposed platform shape for onboarding further source systems. **No AWS service and no edge in this figure is
-provisioned, delivered or in use.** Every service, future domain and unresolved decision in this document appears here and
-nowhere else. Two axes are marked separately in the node labels: whether this work defines a canonical relation, and
+A proposed platform shape for onboarding further source systems. **No AWS service, no hosting arrangement and no edge in
+this figure is provisioned or in use.** Every service, future domain and unresolved decision in this document appears here
+and nowhere else. Two axes are marked separately in the node labels: whether this work defines a canonical relation, and
 whether the platform that would host it is provisioned.
 
 ```mermaid
@@ -277,16 +301,18 @@ flowchart TD
 edges are the proposed platform path for the two relations this work defines — no edge in this figure carries data and
 none is in use; dotted edges are future or unresolved; the labelled grouping boxes are named boundaries, not runtime
 components; the diamond is the required open orchestration decision, which remains **unresolved** — Glue jobs, Step
-Functions and Airflow are listed as candidates with no option selected and no leaning implied. **This entire figure is
-PROPOSED, NOT BUILT.** The AWS Glue catalog is not provisioned, the Loss domain is future-only and does not exist, and no
+Functions and Airflow are listed as candidates with no option selected and no leaning implied. **Every AWS service,
+hosting arrangement and edge in this figure is PROPOSED, NOT BUILT.** The AWS Glue catalog is not provisioned, the Loss
+domain is future-only and does not exist, and no
 derived rating-factor column is created by this work. The two domains marked `THIS WORK` are the relations defined by
-Figure 2 — AFTER (BUILT): Canonical Warehouse Bridge, where both carry the `PENDING` marker; this figure adds only a
-proposed place to host them, hosting either of them on this proposed platform is itself PROPOSED, NOT BUILT, and nothing
-here has been provisioned or run. This figure carries no `DELIVERED`/`PENDING` marker of its own. Bucket, account and
+Figure 2 — AFTER (BUILT): Canonical Warehouse Bridge, where both carry the `DELIVERED` marker because their dbt mart
+models are present in the tree; what this figure adds for them is a proposed place to host them, hosting either of them
+on this proposed platform is itself PROPOSED, NOT BUILT, and no service, edge or hosting arrangement here has been
+provisioned or run. This figure carries no `DELIVERED`/`PENDING` marker of its own. Bucket, account and
 connection values are never written into this document — the S3 node states that the bucket name is supplied at run time
 and shows the placeholder `<bucket>` and nothing more. Rationale for leaving orchestration open and for excluding future
 domains and factors from the build belongs to
-`modernization/docs/decision-log.md` (planned deliverable; not present at this milestone).
+`modernization/docs/decision-log.md`.
 
 ---
 
@@ -294,20 +320,24 @@ domains and factors from the build belongs to
 
 ## Figure 4 — dbt Transformation DAG and Field Allocation
 
-**State at this milestone:** target design. The files this figure names — the source declaration,
-`stg_genapp__policy_issue`, `int_policy_issue_decoded` and the two mart models — are not yet present in the tree, so no
-dbt run and no populated relation is claimed.
+**State at this milestone:** every file this figure names is present in the tree — the source declaration
+`_genapp__sources.yml`, the DDL that defines `raw.genapp_policy_issue`, `stg_genapp__policy_issue.sql`,
+`int_policy_issue_decoded.sql` and the two mart models `canonical_issued_policy.sql` and
+`canonical_preissued_rating.sql`, each with its property file, together with the enforced column contracts those
+property files declare and the three singular tests under `modernization/dbt/genapp_rqi/tests/`. No dbt run and no
+populated relation is claimed here: that
+record belongs to `modernization/validation/validation-evidence.md`, a planned deliverable not present at this milestone.
 
 The dbt model dependencies inside the bridge, and which source group supplies which canonical relation. Each node carries
 its delivery-state marker.
 
 ```mermaid
 flowchart TD
-    RAW[("raw.genapp_policy_issue<br/>landed strings<br/>PENDING")]
-    STG["stg_genapp__policy_issue<br/>rename and trim<br/>PENDING"]
-    INT["int_policy_issue_decoded<br/>typed 1:1 record<br/>PENDING"]
-    IP[("canonical.issued_policy<br/>10 source-derived values + key<br/>PENDING")]
-    PR[("canonical.preissued_rating<br/>6 amounts + identifiers<br/>PENDING")]
+    RAW[("raw.genapp_policy_issue<br/>landed strings<br/>DELIVERED")]
+    STG["stg_genapp__policy_issue<br/>rename and trim<br/>DELIVERED"]
+    INT["int_policy_issue_decoded<br/>typed 1:1 record<br/>DELIVERED"]
+    IP[("canonical.issued_policy<br/>10 source-derived values + key<br/>DELIVERED")]
+    PR[("canonical.preissued_rating<br/>6 amounts + identifiers<br/>DELIVERED")]
     POLICY["Policy declarations and routing<br/>DELIVERED"]
     AMOUNTS["Six premium/payment declarations<br/>DELIVERED"]
 
@@ -331,11 +361,15 @@ flowchart TD
 **Legend:** cylinders are persisted relations; rectangles are dbt models or groups of source declarations; arrows
 labelled `source()`, `ref()` or `successful rows` are dbt dependencies and the row filter applied when materializing; the
 unlabelled lower arrows show column-level allocation rather than data flow. `DELIVERED` marks a node whose artifact
-exists in the repository at this point, here the two source groups, whose read-only declarations are already carried by
-`copybook_field_map.yml`; `PENDING` marks a node this figure contracts and whose artifact does not exist yet, here the
-raw relation, both dbt models and both canonical relations. **This figure is the contracted target architecture: the two
-markers separate what exists at this point from what does not, and a node is promoted to `DELIVERED` only once its
-artifact and its evidence exist.** `dbt run` and `dbt test` outcomes for these models belong to
+exists in the repository at this point, here every node of this figure: the two source groups, whose read-only
+declarations are carried by `copybook_field_map.yml`; the raw relation, defined by
+`modernization/warehouse/ddl/02_raw_genapp_policy_issue.sql` and declared as the single dbt source by
+`_genapp__sources.yml`; and both dbt models and both canonical mart models under
+`modernization/dbt/genapp_rqi/models/`, the marts creating their relations under the aliases `issued_policy` and
+`preissued_rating`. No node of this figure carries `PENDING`. **The two
+markers separate what exists at this point from what does not; a marker states whether a node's artifact exists, never
+that the node has been materialized, and for the three cylinders that artifact is the DDL or the mart model that creates
+the relation rather than rows held in it.** `dbt run` and `dbt test` outcomes for these models belong to
 `modernization/validation/validation-evidence.md` (planned deliverable; not present at this milestone) and not here. The
 source is consistently
 `raw.genapp_policy_issue` — declared once and read only by the staging model — and the marts alias to
@@ -361,9 +395,12 @@ The two allocation groups resolve to named source items:
 
 ## Figure 5 — Validation Harness Control Flow
 
-**State at this milestone:** the flow has run as far as the captures. Of the artifacts this figure names, the five
+**State at this milestone:** the recorded results of this flow reach as far as the captures. Of the artifacts this figure
+names, the five
 read-only source files, the sample definitions, `build_sample_commarea.py`, `translate.py`, the twelve stubs,
-`driver.cbl`, `run_harness.sh` and `verify_readonly.sh` are present; the extractor, the diff gate and
+`driver.cbl`, `run_harness.sh`, `verify_readonly.sh`, the extractor `extract_commarea.py`, the landing writer
+`land_to_s3.py`, the two raw loaders and the dbt models that `dbt run` and `dbt test` execute are present; the diff gate
+`diff_harness_vs_warehouse.py` and
 `validation-evidence.md` are not. The gates executed at this milestone, each with its retained log under
 `modernization/validation/artifacts/`, are: the `SRC` to `BASE` to `RO` read-only baseline check, verdict PASS in
 `readonly-check.log`; the `SAMPLE` to `BUILD` sample construction, which emits both 32,500-character records; `SRC` to
@@ -372,8 +409,10 @@ the twelve stubs as `cobc -m` modules; `MODS` and `BUILD` to `DRIVER`, which com
 executable (`compile.log`); and `DRIVER` to `CAP` for both samples, each traversing `LGAPOL01`, `LGAPDB01` and
 `LGAPVS01` with `CA-RETURN-CODE` `00`, no abend and a 64-byte VSAM record under a 21-byte key (`driver_01amot.log`,
 `driver_01acom.log`, `captures_01amot.txt`, `captures_01acom.txt`). Each of those outcomes is
-validated against local substitute, not AWS. The gates from `CAP` onward have not run: no extract, land, raw-load,
-`dbt run` / `dbt test` or comparison gate has been executed. No comparison result exists and the formal AWS diff
+validated against local substitute, not AWS. No result of the gates from `CAP` onward is recorded: this document records
+no extract, land, raw-load or `dbt run` / `dbt test` outcome, and that record belongs to the absent
+`validation-evidence.md`. The comparison gate has not been executed at all, because its tool does not exist. No
+comparison result exists and the formal AWS diff
 requirement stays OPEN.
 
 The order in which the gates run when the harness is executed: baseline, sample construction, translation, compilation,
@@ -400,11 +439,11 @@ flowchart TD
     MODS["cobc -m modules and stubs<br/>DELIVERED"]
     DRIVER["cobc -x driver<br/>DELIVERED"]
     CAP["post-chain COMMAREA<br/>SQL / VSAM / abend captures<br/>DELIVERED"]
-    EXT["extract_commarea.py<br/>PENDING"]
-    S3O[("S3 or moto object<br/>PENDING")]
-    RAWR[("raw.genapp_policy_issue<br/>PENDING")]
-    DBTRUN["dbt run + dbt test<br/>PENDING"]
-    CANON[("two canonical rows<br/>PENDING")]
+    EXT["extract_commarea.py<br/>DELIVERED"]
+    S3O[("S3 or moto object<br/>DELIVERED")]
+    RAWR[("raw.genapp_policy_issue<br/>DELIVERED")]
+    DBTRUN["dbt run + dbt test<br/>DELIVERED"]
+    CANON[("two canonical rows<br/>DELIVERED")]
     DIFFG{"comparison gate<br/>PENDING"}
     EVID["validation-evidence.md<br/>PENDING"]
     RO["verify_readonly.sh<br/>DELIVERED"]
@@ -433,24 +472,30 @@ comparison; each solid arrow is gate order — the step at the head runs only af
 **The source path has no incoming write edge** — `SRC` only ever originates arrows, so the five files are read for hashing
 and for translation and are never a target. `DELIVERED` marks a step whose own artifact exists in the repository at this
 point, here the five source files, the pinned SHA-256 baseline, the JSON sample definitions, `build_sample_commarea.py`,
-the translator, the `cobc -m` modules and stubs, the `cobc -x` driver, the captures and `verify_readonly.sh`; `PENDING`
-marks a step this figure contracts and whose artifact does not exist yet, here extraction, the landed object, the raw
-relation, the dbt run and test, the canonical rows, the comparison gate and the evidence document. A marker states
+the translator, the `cobc -m` modules and stubs, the `cobc -x` driver, the captures, `verify_readonly.sh`, the extractor,
+the landing writer that produces the landed object, the DDL that defines the raw relation and the dbt models `dbt run`
+and `dbt test` execute to produce the two canonical rows; `PENDING`
+marks a step this figure contracts and whose artifact does not exist yet, here the comparison gate
+`modernization/validation/diff_harness_vs_warehouse.py` and the evidence document
+`modernization/validation/validation-evidence.md`. A marker states
 whether a step's artifact exists, never that the step has produced a result: translation, compilation, execution and
-capture have produced results for the motor and commercial samples, while extraction, landing, transformation and
-comparison have not been run at all. **The two markers separate what exists at this point from what does not, and a step
-is promoted to `DELIVERED` only once its artifact and its evidence exist.**
+capture have produced recorded results for the motor and commercial samples, this document records no result for
+extraction, landing, raw load or transformation, and the comparison has not been run at all. **The two markers separate
+what exists at this point from what does not; a step is promoted to `DELIVERED` once its artifact exists, and the
+recorded results are stated separately — in the state line above and, once it exists, in the consolidated evidence
+record.**
 The comparison gate receives two independent inputs: the SQL and VSAM
 captures come from the harness stubs, while the canonical rows come from the landed post-chain COMMAREA; request and
 return fields are taken from the driver input and the returned COMMAREA. `verify_readonly.sh` takes the SHA-256 baseline
 and feeds the evidence record: its verdict for this milestone is in
 `modernization/validation/artifacts/readonly-check.log`, and the comparison verdict it will stand beside does not exist
-yet. The harness segment of this flow carries results and the segment from `CAP` onward carries none. Every result on
+yet. The harness segment of this flow carries recorded results and no result of the segment from `CAP` onward is recorded
+here. Every result on
 this path, the harness results already recorded included, carries the label validated against local substitute, not AWS,
 will be consolidated in `modernization/validation/validation-evidence.md` (planned deliverable; not present at this
 milestone), and cannot close the formal AWS diff requirement, which remains OPEN.
 Rationale for the tolerance rule and for the choice of local
-substitutes belongs to `modernization/docs/decision-log.md` (planned deliverable; not present at this milestone).
+substitutes belongs to `modernization/docs/decision-log.md`.
 
 ---
 
@@ -469,13 +514,37 @@ claimed only once each listed file exists and contains the figure's exact title.
 | Figure 4 — dbt Transformation DAG and Field Allocation | `modernization/extraction/extraction-spec.md`, `modernization/docs/field-level-lineage.md` | Both planned deliverables; not present — closure not yet verifiable |
 | Figure 5 — Validation Harness Control Flow | `modernization/README.md`, `modernization/harness/translation-rules.md`, `modernization/validation/validation-evidence.md` | All three planned deliverables; not present — closure not yet verifiable |
 
-Twenty-four authored files besides this document are present at this milestone and already carry an exact figure title, so
-those references are verifiable here. The generated `modernization/harness/build/` tree is not counted: it copies the four
-shared copybooks verbatim on each run and inherits their titles.
+Forty-two authored files besides this document are present at this milestone and carry an exact figure title, in 46
+file-to-figure pairs — four files cite two figures each — and those 46 pairs hold 47 references, one file citing its
+figure twice, so every one of those references is verifiable here. Six authored files carry no figure title at all:
+`modernization/.gitignore`, `modernization/requirements.txt`,
+`modernization/extraction/copybook_field_map.yml`, `modernization/extraction/build_sample_commarea.py`,
+`modernization/extraction/sample_input/commarea_01amot.json` and
+`modernization/extraction/sample_input/commarea_01acom.json`. Together with
+this document that accounts for all 49 authored files present. The generated `modernization/harness/build/` tree is not
+counted: it copies the four shared copybooks verbatim on each run and inherits their titles.
 
-- `Figure 4 — dbt Transformation DAG and Field Allocation` — 3 files: `modernization/warehouse/ddl/01_schemas.sql`,
-  `modernization/dbt/genapp_rqi/dbt_project.yml`, `modernization/dbt/genapp_rqi/macros/generate_schema_name.sql`.
-- `Figure 5 — Validation Harness Control Flow` — 21 files: the four shared copybooks
+- `Figure 1 — BEFORE: GenApp Policy-Issue Chain, As-Is` — 0 files.
+- `Figure 2 — AFTER (BUILT): Canonical Warehouse Bridge` — 6 files:
+  `modernization/extraction/extract_commarea.py`, `modernization/landing/landing-schema.json`,
+  `modernization/landing/land_to_s3.py`, `modernization/landing/load_local.py`,
+  `modernization/landing/load_redshift.sql`, `modernization/dbt/genapp_rqi/profiles.example.yml`.
+- `Figure 3 — AFTER (PROPOSED, NOT BUILT): AWS-Native Multi-RQI Warehouse` — 0 files.
+- `Figure 4 — dbt Transformation DAG and Field Allocation` — 15 files carrying 16 references:
+  `modernization/warehouse/ddl/01_schemas.sql`, `modernization/warehouse/ddl/02_raw_genapp_policy_issue.sql`,
+  `modernization/dbt/genapp_rqi/dbt_project.yml`, `modernization/dbt/genapp_rqi/macros/generate_schema_name.sql`,
+  `modernization/dbt/genapp_rqi/models/staging/genapp_class_exemplar/_genapp__sources.yml`,
+  `modernization/dbt/genapp_rqi/models/staging/genapp_class_exemplar/_genapp__models.yml`,
+  `modernization/dbt/genapp_rqi/models/staging/genapp_class_exemplar/stg_genapp__policy_issue.sql`,
+  `modernization/dbt/genapp_rqi/models/intermediate/_int__models.yml` (two references),
+  `modernization/dbt/genapp_rqi/models/intermediate/int_policy_issue_decoded.sql`,
+  `modernization/dbt/genapp_rqi/models/marts/canonical/_canonical__models.yml`,
+  `modernization/dbt/genapp_rqi/models/marts/canonical/canonical_issued_policy.sql`,
+  `modernization/dbt/genapp_rqi/models/marts/canonical/canonical_preissued_rating.sql`,
+  `modernization/dbt/genapp_rqi/tests/assert_issued_policy_unique_key.sql`,
+  `modernization/dbt/genapp_rqi/tests/assert_preissued_rating_unique_key.sql`,
+  `modernization/dbt/genapp_rqi/tests/assert_product_premium_nullability.sql`.
+- `Figure 5 — Validation Harness Control Flow` — 25 files: the four shared copybooks
   `modernization/harness/copybooks/dfheiblk.cpy`, `modernization/harness/copybooks/dfhresp.cpy`,
   `modernization/harness/copybooks/hsqlca.cpy`, `modernization/harness/copybooks/hcapture.cpy`;
   `modernization/harness/statement_map.yml`; the twelve stubs `modernization/harness/stubs/cics_abend.cbl`,
@@ -485,9 +554,12 @@ shared copybooks verbatim on each run and inherits their titles.
   `modernization/harness/stubs/sql_insert_commercial.cbl`, `modernization/harness/stubs/sql_insert_endowment.cbl`,
   `modernization/harness/stubs/sql_insert_house.cbl`, `modernization/harness/stubs/sql_set_identity.cbl`,
   `modernization/harness/stubs/sql_select_lastchanged.cbl`; `modernization/harness/translate.py`,
-  `modernization/harness/driver.cbl`, `modernization/harness/run_harness.sh`; and
-  `modernization/validation/verify_readonly.sh`.
+  `modernization/harness/driver.cbl`, `modernization/harness/run_harness.sh`;
+  `modernization/validation/verify_readonly.sh`; and the four files that also cite Figure 2,
+  `modernization/extraction/extract_commarea.py`, `modernization/landing/land_to_s3.py`,
+  `modernization/landing/load_local.py` and `modernization/dbt/genapp_rqi/profiles.example.yml`.
 
-These twenty-four references do not close the by-name contract in the table above, which is closed only per the table's
-own rule. Figures 1, 2 and 3 have no in-tree reference yet: every document listed against them in the table above is a
-planned deliverable.
+These 46 pairs do not close the by-name contract in the table above, which is closed only per the table's own rule:
+not one of the documents listed there is present at this milestone. Figure 2 already carries six in-tree exact
+references, none of them one of the four documents its row names. Figures 1 and 3 have no in-tree reference at all, and
+every document listed against them is a planned deliverable.

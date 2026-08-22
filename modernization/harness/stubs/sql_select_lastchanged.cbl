@@ -70,10 +70,38 @@
       * HC-IDENT-SEQ leaves both items as
       * modernization/harness/driver.cbl set them. The INSERT INTO
       * POLICY block ahead of both is the predecessor the SET block
-      * tests for itself. The execution_order block of
-      * modernization/harness/statement_map.yml declares no constraint
-      * naming select_lastchanged; the constraint tested here is the one
-      * the source paragraph states.
+      * tests for itself. This is the constraint the execution_order
+      * entry identity_before_lastchanged of
+      * modernization/harness/statement_map.yml declares, and this
+      * block is in turn the predecessor its four product entries
+      * declare, so HC-LCHG-SEQ carries the whole paragraph to them.
+      * modernization/harness/translate.py reconciles this guard with
+      * those entries on every run.
+      *
+      * The execution_order block of
+      * modernization/harness/statement_map.yml declares eight ordering
+      * constraints, and each names in its enforced_by field the one
+      * stub that tests it at run time. This module is the enforced_by
+      * module of identity_before_lastchanged, the constraint the guard
+      * above tests: predecessor set_identity, successor
+      * select_lastchanged, reason_kind data_dependency on
+      * DB2-POLICYNUM-INT, witness ordinals HC-IDENT-SEQ and
+      * HC-LCHG-SEQ.
+      *
+      * The HC-LCHG-SEQ stamped here is read by four further constraints
+      * that this module does not enforce, one per product insert, each
+      * declaring select_lastchanged as its predecessor and HC-LCHG-SEQ
+      * as its predecessor ordinal: lastchanged_before_motor, enforced
+      * by modernization/harness/stubs/sql_insert_motor.cbl;
+      * lastchanged_before_house, enforced by
+      * modernization/harness/stubs/sql_insert_house.cbl;
+      * lastchanged_before_endowment, enforced by
+      * modernization/harness/stubs/sql_insert_endowment.cbl; and
+      * lastchanged_before_commercial, enforced by
+      * modernization/harness/stubs/sql_insert_commercial.cbl. The
+      * remaining three, policy_first_captured, policy_before_identity
+      * and policy_and_product_before_vsam_write, name neither
+      * select_lastchanged nor HC-LCHG-SEQ.
       *
       * SQLCODE of the shared SQLCA is set to zero on every call. The
       * translated LGAPDB01 issues no SQLCODE test after this block; the
@@ -90,10 +118,9 @@
       * read here and never written.
       *
       * Rationale for the deterministic seeding of the timestamp, for
-      * the order guard and for the always-zero SQLCODE is to be
-      * recorded in modernization/docs/decision-log.md (planned
-      * deliverable; not present at this milestone), rows: uniform
-      * stub-side capture-order guard.
+      * the order guard and for the always-zero SQLCODE belongs to
+      * modernization/docs/decision-log.md, row: uniform stub-side
+      * capture-order guard.
       *
       * Harness topology: Figure 5 — Validation Harness Control Flow
       * in modernization/docs/architecture.md.

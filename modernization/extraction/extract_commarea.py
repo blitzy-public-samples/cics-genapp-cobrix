@@ -12,47 +12,105 @@ WHAT THIS TOOL DOES
     stripped, and a premium the derived policy type does not apply to is written as
     null. The four commercial peril codes are never read.
 
+WHICH RECORDS IT LANDS
+    Successful extractions only. A returned ``CA-RETURN-CODE`` of
+    ``RETURN_CODE_SUCCESS`` is landed. A record carrying any other code of the domain
+    the field map records - ``70`` policy insert returned SQLCODE -530, ``80`` VSAM
+    write response was not normal, ``90`` SQL failure, ``98`` COMMAREA shorter than
+    the required length, ``99`` unsupported request id - is refused with a diagnostic
+    naming the observed code, the meaning the map's ``return_codes`` section records
+    for it and the stage ``RETURN_CODE_STAGES`` records it stopped at, and nothing is
+    written; the codes and their meanings are set at base/src/lgapol01.cbl:108-126 and
+    base/src/lgapdb01.cbl:184-213,290-305. A code outside that recorded domain is
+    refused as a breached record contract, with its own status. The landing and raw
+    contracts therefore carry no failure row: the evidence of a run that returned
+    another code is the harness captures and driver logs the harness retains under
+    modernization/validation/artifacts/.
+
 WHICH INPUTS IT ACCEPTS
     --commarea   the post-chain COMMAREA capture: exactly
                  ``COMMAREA_RECORD_LENGTH`` characters, optionally followed by one
                  line ending, in a file of at most ``MAX_CAPTURE_BYTES`` bytes.
     --field-map  the field map supplying every offset, length, kind, routing entry,
-                 nullability rule and landing key, in a file of at most
-                 ``MAX_FIELD_MAP_BYTES`` bytes (default: ``copybook_field_map.yml``
-                 beside this script; every working directory resolves the same
-                 default).
+                 nullability rule, return-code meaning and landing key, in a file of
+                 at most ``MAX_FIELD_MAP_BYTES`` bytes (default:
+                 ``copybook_field_map.yml`` beside this script; every working
+                 directory resolves the same default).
     --output     destination path for the landing JSON record; missing parent
                  directories are created.
     --source-system-key
                  the source-system discriminator written to the record. Taken from
                  the ``SOURCE_SYSTEM_KEY`` environment variable when the option is
                  omitted and from ``DEFAULT_SOURCE_SYSTEM_KEY`` when neither is
-                 present. It carries 1 to ``MAX_SOURCE_SYSTEM_KEY_CHARACTERS``
-                 characters drawn from ASCII letters, digits, underscore, dot and
-                 hyphen. The same value forms the ``source_system_key`` element of
-                 the landing prefix.
-    --allow-nonzero-return-code
-                 land the record even when the returned ``CA-RETURN-CODE`` is not
-                 ``00``. Without it, any other code of the map's recorded domain is
-                 rejected and nothing is written.
+                 present; a variable holding the empty string or whitespace alone
+                 counts as unset, which is the resolution every command-line tool of
+                 this bridge applies. It carries 1 to
+                 ``MAX_SOURCE_SYSTEM_KEY_CHARACTERS`` characters drawn from ASCII
+                 letters, digits, underscore, dot and hyphen. The same value forms
+                 the ``source_system_key`` element of the landing prefix.
+    --show-identifiers
+                 carry record values in diagnostics and the request id, policy type,
+                 policy number, customer number, broker id, broker's reference and
+                 return code on the summary line. Withheld by default; also enabled
+                 by the ``GENAPP_SHOW_IDENTIFIERS`` environment variable.
+    --self-test  run the built-in case matrix instead of extracting a record. It
+                 accepts ``--field-map`` and neither ``--commarea`` nor ``--output``.
+
+WHICH DESTINATIONS IT ACCEPTS
+    The destination is canonicalised - every component of its parent chain is
+    resolved, so a symbolic-link chain and a ``/proc/self/cwd`` style alias reach the
+    same check as the path they name. A canonical destination inside the repository
+    directory holding this script must stand below one of the generated roots
+    ``GENERATED_OUTPUT_ROOTS``; any other path inside that repository, an authored
+    file and anything below ``READ_ONLY_SOURCE_ROOT`` among them, is refused by name.
+    A canonical destination outside that repository is accepted. A destination whose
+    final component is a symbolic link, and one that resolves onto an existing entry
+    that is not a regular file, are refused before anything is created.
 
 WHAT IT WRITES
     One JSON object serialised as a single line terminated by one line feed, holding
     the landing keys in the order the field map lists them. Every value is a JSON
     string or null; no number, boolean, array or nested object is emitted. The record
-    is written through a temporary entry in the destination directory and moved onto
-    the destination name. On success one summary line naming the destination, the
-    request id, the derived policy type, the policy number and the return code
-    reaches stdout, and nothing else does.
+    is written through a temporary entry in the destination directory, created and
+    moved through a descriptor held on that directory, so the parent the record lands
+    in cannot be substituted between the checks and the write. Each directory this
+    tool creates carries mode ``DIRECTORY_MODE`` and the landed record carries mode
+    ``FILE_MODE``, both set on the created entry itself so the ambient umask cannot
+    widen them. On success one summary line naming the destination, the derived policy
+    type and the landed key counts reaches stdout, and nothing else does; the business
+    identifiers reach stdout only under ``--show-identifiers``.
 
 HOW IT FAILS
     Every failure writes one diagnostic line to stderr and returns a non-zero status:
     2 for a capture that breaches the record contract, 3 for a field map missing a
-    member this tool reads or contradicting itself, 4 for an unreadable input, an
-    unwritable output or a rejected command line. Diagnostics carry untrusted text
-    escaped to one printable 7-bit ASCII line. The tool never prompts and requires no
-    TTY. It reads the capture and the field map without modifying either, and writes
-    nothing outside the destination the command line names.
+    member this tool reads or contradicting itself, 4 for an unreadable input, a
+    refused output or a rejected command line, 5 for a failed self-test case, 6 for a
+    capture whose returned ``CA-RETURN-CODE`` is a recorded code other than
+    ``RETURN_CODE_SUCCESS``, 130 for an interrupt. Diagnostics carry untrusted text
+    escaped to one printable 7-bit ASCII line. A record value never reaches a
+    diagnostic or stdout unless ``--show-identifiers`` is given: without it a rejected
+    window, timestamp or identifier is reported by field name, COBOL item, byte range,
+    the constraint it breached and its character count alone. The tool never prompts
+    and requires no TTY. It reads the capture and the field map without modifying
+    either, and writes nothing outside the destination the command line names; an
+    interrupt removes the temporary entry it was writing through, and under
+    ``--self-test`` it writes only inside the private scratch directory the case matrix
+    creates and removes.
+
+WHAT --self-test CHECKS
+    One case matrix, run in this process against the field map and records this module
+    renders from the map's own windows: field-map validation and every way the map can
+    contradict itself, capture reading at, below and above the record length, window
+    decoding for every landing key including blank and all-zero windows, request-id
+    routing for the four routed ids and an unrouted one, all six return codes and an
+    out-of-domain code, timestamp normalisation and calendar validity for both dates
+    and the returned timestamp, the product-specific NULL pattern for M, C, E and H,
+    landing key order and JSON serialisation, summary redaction with and without
+    ``--show-identifiers``, destination confinement and refusal, the modes of the
+    created directory and the landed record under a permissive umask, and the output
+    failure paths. Every case runs in one private scratch directory the matrix creates
+    and removes, reads and writes nothing else, and depends on no network, no S3 and
+    no clock.
 
 WHICH CHARACTER SET IT READS
     The capture is decoded as ``CAPTURE_ENCODING``, the workstation character set the
@@ -60,8 +118,9 @@ WHICH CHARACTER SET IT READS
     285 by default, and is not decoded by this tool.
 
 WHERE THIS STEP SITS
-    Figure 2 - AFTER (BUILT): Canonical Warehouse Bridge and Figure 5 - Validation
-    Harness Control Flow, both in modernization/docs/architecture.md.
+    Figure 2 — AFTER (BUILT): Canonical Warehouse Bridge and
+    Figure 5 — Validation Harness Control Flow, both in
+    modernization/docs/architecture.md.
 
 Decision rationale: see modernization/docs/decision-log.md.
 """
@@ -69,13 +128,19 @@ Decision rationale: see modernization/docs/decision-log.md.
 from __future__ import annotations
 
 import argparse
+import contextlib
+import copy
 import datetime
+import hashlib
+import io
 import json
 import os
 import re
+import shutil
 import stat
 import sys
-from collections.abc import Iterable, Mapping, Sequence
+import tempfile
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from pathlib import Path
 from typing import Any, NamedTuple, NoReturn
 
@@ -92,9 +157,21 @@ DEFAULT_FIELD_MAP = _THIS_DIR / "copybook_field_map.yml"
 # root) and the read-only source directory no destination may resolve inside. A copy of
 # this script placed fewer than two directories below the filesystem root takes its own
 # directory as the root, which keeps importing this module free of any path assumption.
+# The root is taken from this file's own location and never from the working directory.
 _ANCESTORS = _THIS_DIR.parents
 REPOSITORY_ROOT = _ANCESTORS[1] if len(_ANCESTORS) > 1 else _THIS_DIR
 READ_ONLY_SOURCE_ROOT = REPOSITORY_ROOT / "base"
+
+# The generated roots of the bridge, relative to REPOSITORY_ROOT. A destination that
+# canonicalises inside the repository must stand below one of them; every other path
+# inside the repository holds an authored artifact or read-only source and is refused.
+GENERATED_OUTPUT_ROOTS = (
+    Path("modernization/harness/build"),
+    Path("modernization/validation/artifacts"),
+    Path("modernization/validation/expected"),
+    Path("modernization/dbt/genapp_rqi/target"),
+    Path("modernization/dbt/genapp_rqi/logs"),
+)
 
 # Record width the capture must carry: the sum of the four level-03 items declared at
 # base/src/lgcmarea.cpy:10-13, which are 6 + 2 + 10 + 32482 characters. The field map
@@ -116,16 +193,37 @@ EXIT_OK = 0
 EXIT_RECORD_REJECTED = 2
 EXIT_FIELD_MAP_INVALID = 3
 EXIT_IO_ERROR = 4
+EXIT_SELF_TEST_FAILED = 5
+EXIT_CHAIN_NOT_SUCCESSFUL = 6
+EXIT_INTERRUPTED = 130
 
-# Characters of untrusted text one diagnostic fragment carries before truncation.
+# Characters of untrusted text one diagnostic fragment carries before truncation, and
+# the window positions one diagnostic lists.
 MAX_DIAGNOSTIC_CHARACTERS = 64
 MAX_DIAGNOSTIC_PATH_CHARACTERS = 160
 MAX_DIAGNOSTIC_MESSAGE_CHARACTERS = 200
+MAX_REPORTED_POSITIONS = 8
+
+# Opt-in carrying record values into diagnostics and the business identifiers onto the
+# summary line, the environment variable consulted when the option is omitted, and the
+# values that variable may carry to enable it. Without the opt-in a record value is
+# reported by its character count and the policy number by its digest.
+SHOW_IDENTIFIERS_OPTION = "--show-identifiers"
+SHOW_IDENTIFIERS_VARIABLE = "GENAPP_SHOW_IDENTIFIERS"
+SHOW_IDENTIFIERS_ENABLING = ("1", "true", "yes", "on")
+IDENTIFIER_DIGEST_CHARACTERS = 12
+IDENTIFIER_DIGEST_PREFIX = "sha256-"
 
 # Candidate names tried when creating the temporary entry the record is written
-# through, and the mode requested for a directory created for the destination.
+# through, the modes carried by a directory this tool creates and by the landed
+# record, and the directories one containment check ascends before it reports the
+# destination directory as unreachable from the filesystem root. Both modes are set on
+# the created entry as well as requested at creation, so the ambient umask cannot widen
+# either: the landed policy data is readable and writable by its owner alone.
 MAX_TEMPORARY_ATTEMPTS = 8
-DIRECTORY_MODE = 0o777
+DIRECTORY_MODE = 0o700
+FILE_MODE = 0o600
+MAX_CONTAINMENT_ASCENT = 256
 
 # Item kinds the field map declares under layout.<group>.items[].kind.
 KIND_NUMERIC = "numeric_display"
@@ -143,6 +241,42 @@ GROUP_PREMIUM_PAYMENT = "premium_payment"
 # The return code the chain writes on a completed policy issue.
 RETURN_CODE_SUCCESS = "00"
 
+# The return code LGAPVS01 writes when the VSAM write response was not normal, at
+# base/src/lgapvs01.cbl:142-147.
+RETURN_CODE_VSAM_WRITE_FAILED = "80"
+
+# The return codes a record may be landed under, and the stage each remaining code of
+# the recorded domain stops at. Only a completed policy issue is landed, so
+# LANDABLE_RETURN_CODES holds RETURN_CODE_SUCCESS alone; every other code of the domain
+# is rejected and named with the stage it stopped at and the base/src locators of that
+# stage.
+LANDABLE_RETURN_CODES = (RETURN_CODE_SUCCESS,)
+RETURN_CODE_STAGES = {
+    "70": (
+        "the policy insert returned SQLCODE -530 and no policy row was written "
+        "(base/src/lgapdb01.cbl:290-299)"
+    ),
+    RETURN_CODE_VSAM_WRITE_FAILED: (
+        "the policy and product rows were written and the identity and timestamp were "
+        "read back, and the VSAM write response was then not normal, so the chain did "
+        "not complete the issue (base/src/lgapvs01.cbl:142-147, "
+        "base/src/lgapdb01.cbl:307-321)"
+    ),
+    "90": (
+        "a SQL operation failed before or during the inserts "
+        "(base/src/lgapdb01.cbl:300-303, 389-395, 427-433, 473-479, 547-553)"
+    ),
+    "98": (
+        "the COMMAREA was shorter than the length the request requires and the chain "
+        "returned before any insert (base/src/lgapol01.cbl:108-116, "
+        "base/src/lgapdb01.cbl:181-213)"
+    ),
+    "99": (
+        "the request id is not one the chain routes and no product path ran "
+        "(base/src/lgapdb01.cbl:184-207, 239)"
+    ),
+}
+
 # Landing keys this tool treats individually. Each must appear in the field map's
 # landing.field_order, and each name below is the map's own landing_field value.
 LANDING_SOURCE_SYSTEM_KEY = "source_system_key"
@@ -150,7 +284,32 @@ LANDING_REQUEST_ID = "request_id"
 LANDING_RETURN_CODE = "return_code"
 LANDING_POLICY_TYPE = "policy_type"
 LANDING_POLICY_NUMBER = "policy_number"
+LANDING_CUSTOMER_NUMBER = "customer_number"
+LANDING_ISSUE_DATE = "issue_date"
+LANDING_EXPIRY_DATE = "expiry_date"
 LANDING_LAST_CHANGED = "last_changed"
+LANDING_BROKER_ID = "broker_id"
+LANDING_BROKERS_REFERENCE = "brokers_reference"
+
+# Landing keys validated as calendar dates, being the two X(10) date items declared at
+# base/src/lgcmarea.cpy:38-39. Each is parsed as a real date before it is landed, so a
+# value of the right shape that names no day, such as 2026-02-31, is rejected here
+# rather than at the DATE cast of the downstream dbt models.
+CALENDAR_DATE_FIELDS = (LANDING_ISSUE_DATE, LANDING_EXPIRY_DATE)
+
+# Canonical column types the field map records under fields[].targets[].type. They
+# name the landing keys whose value carries calendar and clock semantics, which this
+# tool confirms before the value is written.
+CANONICAL_TYPE_DATE = "DATE"
+CANONICAL_TYPE_TIMESTAMP = "TIMESTAMP"
+
+# Landing keys the summary line carries only under --show-identifiers.
+IDENTIFIER_FIELDS = (
+    LANDING_POLICY_NUMBER,
+    LANDING_CUSTOMER_NUMBER,
+    LANDING_BROKER_ID,
+    LANDING_BROKERS_REFERENCE,
+)
 
 # Source-system key accepted values and where an omitted option looks for one.
 DEFAULT_SOURCE_SYSTEM_KEY = "GENAPP_CLASS_EXEMPLAR"
@@ -163,17 +322,44 @@ _SOURCE_SYSTEM_KEY_SHAPE = re.compile(r"\A[A-Za-z0-9_.\-]+\Z")
 _ASCII_DIGITS = re.compile(r"\A[0-9]+\Z")
 _CONTROL_CHARACTERS = re.compile(r"[\x00-\x1f\x7f-\x9f]")
 
+# Shape of a landed calendar date, being the form the two X(10) date items carry.
+CALENDAR_DATE_FORM = "YYYY-MM-DD"
+_CALENDAR_DATE_SHAPE = re.compile(r"\A([0-9]{4})-([0-9]{2})-([0-9]{2})\Z")
+
 # Timestamp forms accepted for CA-LASTCHANGED, tried in this order. The first is the
-# Db2 character form; the rest are ISO-8601 with a T or a space separator. Each is
-# tried with and without the fractional-second part.
+# Db2 character form the 26-character read-back at base/src/lgapdb01.cbl:315-321
+# carries; the rest are ISO-8601 with a T or a space separator. Each accepts a
+# fractional-second part of one to six digits and each accepts the form without one.
+# Every form is a shape only: the calendar and clock components a matched form yields
+# are validated afterwards.
 TIMESTAMP_INPUT_FORMATS = (
-    "%Y-%m-%d-%H.%M.%S.%f",
-    "%Y-%m-%d-%H.%M.%S",
-    "%Y-%m-%dT%H:%M:%S.%f",
-    "%Y-%m-%dT%H:%M:%S",
-    "%Y-%m-%d %H:%M:%S.%f",
-    "%Y-%m-%d %H:%M:%S",
+    "YYYY-MM-DD-HH.MM.SS.ffffff",
+    "YYYY-MM-DDTHH:MM:SS.ffffff",
+    "YYYY-MM-DD HH:MM:SS.ffffff",
 )
+_TIMESTAMP_SHAPES = (
+    re.compile(
+        r"\A([0-9]{4})-([0-9]{2})-([0-9]{2})-([0-9]{2})\.([0-9]{2})\.([0-9]{2})"
+        r"(?:\.([0-9]{1,6}))?\Z"
+    ),
+    re.compile(
+        r"\A([0-9]{4})-([0-9]{2})-([0-9]{2})T([0-9]{2}):([0-9]{2}):([0-9]{2})"
+        r"(?:\.([0-9]{1,6}))?\Z"
+    ),
+    re.compile(
+        r"\A([0-9]{4})-([0-9]{2})-([0-9]{2}) ([0-9]{2}):([0-9]{2}):([0-9]{2})"
+        r"(?:\.([0-9]{1,6}))?\Z"
+    ),
+)
+
+# Digits the emitted fractional-second part carries, and the accepted ranges of the
+# clock components a matched timestamp shape yields.
+TIMESTAMP_FRACTION_DIGITS = 6
+_HOUR_RANGE = (0, 23)
+_MINUTE_RANGE = (0, 59)
+_SECOND_RANGE = (0, 59)
+_MONTH_RANGE = (1, 12)
+_DAY_RANGE = (1, 31)
 
 # Separator and precision the normalised timestamp is emitted with.
 TIMESTAMP_OUTPUT_SEPARATOR = "T"
@@ -192,6 +378,18 @@ class RecordError(ExtractError):
     exit_status = EXIT_RECORD_REJECTED
 
 
+class ChainNotSuccessfulError(ExtractError):
+    """The returned ``CA-RETURN-CODE`` is a recorded code other than ``00``.
+
+    The capture is well formed and the chain ran; it did not complete the policy
+    issue, so there is no successful extraction to land. This status is distinct from
+    the one a breached record contract returns, which a code outside the recorded
+    domain carries.
+    """
+
+    exit_status = EXIT_CHAIN_NOT_SUCCESSFUL
+
+
 class FieldMapError(ExtractError):
     """The field map is missing a member this tool reads or contradicts itself."""
 
@@ -208,6 +406,40 @@ class UsageError(ExtractError):
     """The command line omits a required argument or carries a rejected value."""
 
     exit_status = EXIT_IO_ERROR
+
+
+# Whether a diagnostic and the summary may carry record values. Set once from the
+# command line and the environment before any decoding starts.
+_show_identifiers = False
+
+
+def set_show_identifiers(enabled: bool) -> None:
+    """Record whether a diagnostic and the summary may carry record values."""
+    global _show_identifiers
+    _show_identifiers = bool(enabled)
+
+
+def show_identifiers_enabled() -> bool:
+    """Return True when a diagnostic and the summary may carry record values."""
+    return _show_identifiers
+
+
+def resolve_show_identifiers(supplied: bool) -> bool:
+    """Return whether record values are shown, from the option then the environment.
+
+    ``supplied`` is the ``--show-identifiers`` flag, which enables display on its own.
+    With the flag absent the ``SHOW_IDENTIFIERS_VARIABLE`` environment variable enables
+    display
+    when it carries one of ``SHOW_IDENTIFIERS_ENABLING``, in any case and ignoring
+    surrounding spaces; every other value, including an empty one and an absent
+    variable, leaves record values withheld.
+    """
+    if supplied:
+        return True
+    carried = os.environ.get(SHOW_IDENTIFIERS_VARIABLE)
+    if carried is None:
+        return False
+    return carried.strip().lower() in SHOW_IDENTIFIERS_ENABLING
 
 
 def _type_name(value: Any) -> str:
@@ -275,6 +507,41 @@ def _reason(error: BaseException) -> str:
     return _escaped(text, MAX_DIAGNOSTIC_MESSAGE_CHARACTERS)
 
 
+def _withheld(length: int) -> str:
+    """Return the fragment standing for a withheld value of ``length`` characters."""
+    return f"<redacted {length} chars>"
+
+
+def _value(value: str, limit: int = MAX_DIAGNOSTIC_CHARACTERS) -> str:
+    """Return one record value for a diagnostic, withheld unless display is enabled.
+
+    With display enabled the value is quoted and escaped as any other fragment. With
+    display withheld the fragment carries the character count alone, so a diagnostic
+    still states how long the rejected value was without carrying the value itself.
+    """
+    if show_identifiers_enabled():
+        return _shown(value, limit)
+    return _withheld(len(value))
+
+
+def _digest(value: str) -> str:
+    """Return a stable short digest of ``value``, standing in for the value itself.
+
+    The digest is the leading ``IDENTIFIER_DIGEST_CHARACTERS`` hexadecimal characters
+    of the SHA-256 of the UTF-8 encoding of ``value``, so two runs carrying the same
+    identifier report the same fragment.
+    """
+    encoded = hashlib.sha256(value.encode("utf-8")).hexdigest()
+    return IDENTIFIER_DIGEST_PREFIX + encoded[:IDENTIFIER_DIGEST_CHARACTERS]
+
+
+def _identifier(value: str) -> str:
+    """Return one business identifier for output: the value, or its digest."""
+    if show_identifiers_enabled():
+        return value
+    return _digest(value)
+
+
 def _quote_all(names: Iterable[str]) -> str:
     """Return ``names`` quoted, escaped and joined by a comma, in the order given."""
     return ", ".join(_shown(str(name)) for name in names)
@@ -294,6 +561,30 @@ def _offending_characters(window: str) -> str:
     return _quote_all(seen)
 
 
+def _non_digit_report(window: str) -> str:
+    """Return how many characters of ``window`` are outside 0-9 and where they sit.
+
+    Positions are 1-based within the window and at most ``MAX_REPORTED_POSITIONS`` of
+    them are listed, with the number withheld recorded. The distinct offending
+    characters are named only when record values are shown.
+    """
+    positions = [
+        index
+        for index, character in enumerate(window, start=1)
+        if character not in "0123456789"
+    ]
+    listed = ", ".join(str(position) for position in positions[:MAX_REPORTED_POSITIONS])
+    withheld = len(positions) - min(len(positions), MAX_REPORTED_POSITIONS)
+    if withheld:
+        listed = f"{listed} (+{withheld} further)"
+    report = (
+        f"{len(positions)} characters lie outside 0-9, at window positions {listed}"
+    )
+    if show_identifiers_enabled():
+        return f"{report}; they are {_offending_characters(window)}"
+    return report
+
+
 # ---------------------------------------------------------------------------
 # Field map
 # ---------------------------------------------------------------------------
@@ -305,8 +596,10 @@ class LandingField(NamedTuple):
     ``offset``, ``length`` and ``kind`` are None for a landing key the map records
     without a ``commarea`` block, which is a key this tool derives rather than reads.
     ``applicable_policy_types`` holds the policy-type letters the map records for the
-    entry, ``evidence`` holds the locators it cites, and ``domain`` holds the accepted
-    values where the entry records them.
+    entry, ``evidence`` holds the locators it cites, ``domain`` holds the accepted
+    values where the entry records them, and ``target_types`` holds the distinct
+    canonical column types its ``targets`` block records, which is where the calendar
+    and clock semantics of a value are declared.
     """
 
     name: str
@@ -324,6 +617,7 @@ class LandingField(NamedTuple):
     applicable_policy_types: tuple[str, ...]
     evidence: tuple[str, ...]
     domain: tuple[str, ...] = ()
+    target_types: tuple[str, ...] = ()
 
     @property
     def is_read_from_record(self) -> bool:
@@ -356,6 +650,11 @@ class FieldMap(NamedTuple):
     ``source_system_key_field`` names. ``nullability`` maps a policy-type letter to the
     amount keys populated for it and the amount keys left null for it, with the keys
     the map records as always populated held separately in ``always_populated``.
+    ``date_fields`` and ``timestamp_fields`` hold the landing keys whose recorded
+    canonical type is ``CANONICAL_TYPE_DATE`` and ``CANONICAL_TYPE_TIMESTAMP``, whose
+    values are confirmed as calendar dates and timestamps before they are written.
+    ``return_code_meanings`` maps every code of ``return_code_domain`` to the meaning
+    the map's ``return_codes`` section records for it.
     """
 
     path: Path
@@ -367,10 +666,13 @@ class FieldMap(NamedTuple):
     always_populated: frozenset[str]
     nullability: Mapping[str, tuple[frozenset[str], frozenset[str]]]
     return_code_domain: tuple[str, ...]
+    return_code_meanings: Mapping[str, str]
     source_system_key_field: str
     source_system_key_run_value: str
     chain_populated: frozenset[str]
     unrecognised_request_return_code: str
+    date_fields: frozenset[str]
+    timestamp_fields: frozenset[str]
 
 
 class _DuplicateRejectingLoader(yaml.SafeLoader):
@@ -497,6 +799,31 @@ def _optional_text_sequence(
     if container.get(key) is None:
         return ()
     return _text_sequence(container, key, where)
+
+
+def _target_types(entry: Mapping[str, Any], where: str) -> tuple[str, ...]:
+    """Return the distinct canonical column types the entry's ``targets`` records.
+
+    Each element of a ``targets`` block records the relation, column, type and
+    nullability of one canonical column the landing key feeds. The recorded types are
+    where a landed value's calendar and clock semantics are declared: a key targeting
+    ``CANONICAL_TYPE_DATE`` carries a calendar date and a key targeting
+    ``CANONICAL_TYPE_TIMESTAMP`` carries a timestamp. The types are returned in
+    first-seen order, so a key feeding both canonical relations with the same type
+    yields that type once. An entry recording no ``targets`` block contributes none.
+
+    Raises ``FieldMapError`` when ``targets`` is not a sequence of mappings or an
+    element records a ``type`` that is not a non-empty string.
+    """
+    if entry.get("targets") is None:
+        return ()
+    targets = _member_sequence(entry, "targets", where)
+    types: list[str] = []
+    for position, target in enumerate(targets):
+        recorded = _member_text(target, "type", f"{where}.targets[{position}]")
+        if recorded not in types:
+            types.append(recorded)
+    return tuple(types)
 
 
 # ---------------------------------------------------------------------------
@@ -665,6 +992,7 @@ def _landing_field(
     applicable = _optional_text_sequence(entry, "applicable_policy_types", where)
     evidence = _optional_text_sequence(entry, "evidence", where)
     domain = _optional_text_sequence(entry, "domain", where)
+    target_types = _target_types(entry, where)
     commarea = entry.get("commarea")
     if commarea is None:
         return LandingField(
@@ -683,6 +1011,7 @@ def _landing_field(
             applicable_policy_types=applicable,
             evidence=evidence,
             domain=domain,
+            target_types=target_types,
         )
     commarea_where = f"{where}.commarea"
     item = _member_text(commarea, "item", commarea_where)
@@ -719,6 +1048,7 @@ def _landing_field(
         applicable_policy_types=applicable,
         evidence=evidence,
         domain=domain,
+        target_types=target_types,
     )
 
 
@@ -861,6 +1191,40 @@ def _amount_fields(
     return names
 
 
+def _return_code_meanings(
+    document: Mapping[str, Any], domain: Sequence[str]
+) -> Mapping[str, str]:
+    """Return the meaning the ``return_codes`` section records for each code.
+
+    The section keys must be exactly the codes ``domain`` holds, which is the domain the
+    ``return_code`` entry records, and each entry must carry a non-empty ``meaning``.
+    Those meanings are the observed return convention of the chain: the codes are set at
+    base/src/lgapol01.cbl:105,114 and base/src/lgapdb01.cbl:204,211,239,293,296,301 and
+    base/src/lgapvs01.cbl:144.
+
+    Raises ``FieldMapError`` when the section is absent, when its keys differ from
+    ``domain``, or when an entry records no meaning.
+    """
+    section = _member_mapping(document, "return_codes", "")
+    meanings: dict[str, str] = {}
+    for code, entry in section.items():
+        if not isinstance(code, str):
+            raise FieldMapError(
+                f"the field map records {_display(code)} as a key of 'return_codes'; a "
+                "string is required"
+            )
+        meanings[code] = _member_text(entry, "meaning", f"return_codes.{code}")
+    absent = sorted(set(domain) - set(meanings))
+    extra = sorted(set(meanings) - set(domain))
+    if absent or extra:
+        raise FieldMapError(
+            "the field map's 'return_codes' section does not cover the recorded domain "
+            f"of {_shown(LANDING_RETURN_CODE)}: absent {_quote_all(absent) or 'none'}, "
+            f"outside the domain {_quote_all(extra) or 'none'}"
+        )
+    return meanings
+
+
 def _nullability(
     document: Mapping[str, Any],
     amount_fields: Sequence[str],
@@ -951,8 +1315,11 @@ def load_field_map(path: Path) -> FieldMap:
     single-character policy type, an amount outside group ``premium_payment``, a
     nullability split that disagrees with the recorded applicable policy types, a
     landing key sourced from an item the map records under ``excluded``, a
-    source-system runtime status other than ``RUNTIME_STATUS_WAREHOUSE_ASSIGNED``, or a
-    recorded source-system run value other than ``DEFAULT_SOURCE_SYSTEM_KEY``.
+    ``return_codes`` section that does not cover the recorded return-code domain, a
+    source-system runtime status other than ``RUNTIME_STATUS_WAREHOUSE_ASSIGNED``, a
+    recorded source-system run value other than ``DEFAULT_SOURCE_SYSTEM_KEY``, or a
+    date or timestamp landing key whose ``targets`` block does not record the canonical
+    type this tool confirms that key's value against.
     """
     content = _read_bounded_bytes(path, MAX_FIELD_MAP_BYTES, "the field map")
     try:
@@ -1040,6 +1407,7 @@ def load_field_map(path: Path) -> FieldMap:
         LANDING_POLICY_TYPE,
         LANDING_POLICY_NUMBER,
         LANDING_LAST_CHANGED,
+        *CALENDAR_DATE_FIELDS,
     ):
         if name not in fields:
             raise FieldMapError(
@@ -1087,11 +1455,46 @@ def load_field_map(path: Path) -> FieldMap:
                 f"the field map records {_shown(code)} in the domain of "
                 f"{_shown(LANDING_RETURN_CODE)}; {expected_width} digits are required"
             )
-    if RETURN_CODE_SUCCESS not in domain:
-        raise FieldMapError(
-            f"the field map's domain for {_shown(LANDING_RETURN_CODE)} omits "
-            f"{_shown(RETURN_CODE_SUCCESS)}"
-        )
+    for code in LANDABLE_RETURN_CODES:
+        if code not in domain:
+            raise FieldMapError(
+                f"the field map's domain for {_shown(LANDING_RETURN_CODE)} omits "
+                f"{_shown(code)}, which is one of the codes a record is landed under "
+                f"({_quote_all(LANDABLE_RETURN_CODES)})"
+            )
+    for code in domain:
+        if code not in LANDABLE_RETURN_CODES and code not in RETURN_CODE_STAGES:
+            raise FieldMapError(
+                f"the field map records {_shown(code)} in the domain of "
+                f"{_shown(LANDING_RETURN_CODE)}; this tool records neither a landing "
+                f"stage for it nor the stage it stops at, and lands only "
+                f"{_quote_all(LANDABLE_RETURN_CODES)}"
+            )
+    return_code_meanings = _return_code_meanings(document, domain)
+
+    date_fields = frozenset(
+        name
+        for name, field in fields.items()
+        if CANONICAL_TYPE_DATE in field.target_types
+    )
+    timestamp_fields = frozenset(
+        name
+        for name, field in fields.items()
+        if CANONICAL_TYPE_TIMESTAMP in field.target_types
+    )
+    for name, recorded, required_type in (
+        (LANDING_ISSUE_DATE, date_fields, CANONICAL_TYPE_DATE),
+        (LANDING_EXPIRY_DATE, date_fields, CANONICAL_TYPE_DATE),
+        (LANDING_LAST_CHANGED, timestamp_fields, CANONICAL_TYPE_TIMESTAMP),
+    ):
+        if name not in recorded:
+            raise FieldMapError(
+                f"the field map records landing key {_shown(name)} with the canonical "
+                f"target types {_quote_all(fields[name].target_types) or 'none'}; a "
+                f"target of type {_shown(required_type)} is required, because this "
+                "tool confirms the calendar and clock values of that key before "
+                "writing them"
+            )
 
     return FieldMap(
         path=path,
@@ -1103,6 +1506,7 @@ def load_field_map(path: Path) -> FieldMap:
         always_populated=always_populated,
         nullability=nullability,
         return_code_domain=domain,
+        return_code_meanings=return_code_meanings,
         source_system_key_field=source_system_key_field,
         source_system_key_run_value=source_system_key_run_value,
         chain_populated=frozenset(
@@ -1111,6 +1515,8 @@ def load_field_map(path: Path) -> FieldMap:
             if field.populated_by == POPULATED_BY_CHAIN
         ),
         unrecognised_request_return_code=unrecognised_return_code,
+        date_fields=date_fields,
+        timestamp_fields=timestamp_fields,
     )
 
 
@@ -1155,14 +1561,16 @@ def decode_numeric_display(field: LandingField, window: str) -> str:
     """Return the digits of ``window`` with leading zeros stripped.
 
     ``window`` must hold digits only; all zeros decode to ``'0'`` so at least one digit
-    is always carried. Raises ``RecordError`` naming the item, its byte range and the
-    characters outside 0-9 when the window holds anything else. No arithmetic is
-    applied: the returned text holds the digits the record carries.
+    is always carried. Raises ``RecordError`` naming the item, its byte range, how many
+    characters lie outside 0-9 and where they sit in the window when the window holds
+    anything else; the window content itself is reported only when record values are
+    shown. No arithmetic is applied: the returned text holds the digits the record
+    carries.
     """
     if not _ASCII_DIGITS.fullmatch(window):
         raise RecordError(
-            f"{field.described} holds {_shown(window)}, which is not all digits; the "
-            f"characters outside 0-9 are {_offending_characters(window)}"
+            f"{field.described} holds {_value(window)}, which is not all digits; "
+            f"{_non_digit_report(window)}"
         )
     return window.lstrip("0") or "0"
 
@@ -1196,13 +1604,15 @@ def decode_return_code(field: LandingField, record: str) -> str:
 
     The window is carried verbatim: a leading zero is never stripped and the value is
     never converted to an integer. Raises ``RecordError`` when the window is not all
-    digits or holds a value outside the domain the field map records.
+    digits or holds a value outside the domain the field map records. A digit pair
+    outside the domain is named, being the status the chain reported; a window that is
+    not a digit pair is reported by its character count unless record values are shown.
     """
     assert field.offset is not None and field.length is not None
     window = slice_field(record, field.offset, field.length)
     if not _ASCII_DIGITS.fullmatch(window):
         raise RecordError(
-            f"{field.described} holds {_shown(window)}, which is not all digits; the "
+            f"{field.described} holds {_value(window)}, which is not all digits; the "
             f"chain writes one of {_quote_all(field.domain)} there"
         )
     if window not in field.domain:
@@ -1226,9 +1636,13 @@ def derive_policy_type(request_id: str, field_map: FieldMap) -> str:
     base/src/lgapdb01.cbl:184-207. ``request_id`` is the trimmed ``CA-REQUEST-ID``
     value.
 
-    Raises ``RecordError`` naming the accepted request ids when the table holds no
-    entry for ``request_id``. No default letter is substituted and no other source is
-    consulted.
+    No default letter is substituted and no other source is consulted: an id the
+    table holds no entry for is refused, since the chain sets return code
+    ``unrecognised_request_return_code`` at base/src/lgapdb01.cbl:204 for one and only a
+    successful execution is landed.
+
+    Raises ``RecordError`` naming the accepted request ids when the table holds no entry
+    for ``request_id``.
     """
     policy_type = field_map.routing.get(request_id)
     if policy_type is None:
@@ -1241,20 +1655,87 @@ def derive_policy_type(request_id: str, field_map: FieldMap) -> str:
     return policy_type
 
 
+def _refuse_component(
+    field: LandingField, raw: str, what: str, value: int, bounds: tuple[int, int]
+) -> NoReturn:
+    """Raise ``RecordError`` for a date or clock component outside its range."""
+    low, high = bounds
+    raise RecordError(
+        f"{field.described} holds {_value(raw)}, whose {what} is {value:02d}; "
+        f"{low:02d} to {high:02d} is the accepted range"
+    )
+
+
+def _checked_calendar_day(
+    field: LandingField, raw: str, year: int, month: int, day: int
+) -> datetime.date:
+    """Return the calendar date ``year``, ``month`` and ``day`` name.
+
+    The month and day are first checked against their own ranges, then the three
+    components are built into a date, which refuses a day the month does not hold: the
+    30th of February, and the 29th of a February outside a leap year.
+
+    Raises ``RecordError`` naming the item, its byte range, the raw characters and the
+    component at fault.
+    """
+    if not _MONTH_RANGE[0] <= month <= _MONTH_RANGE[1]:
+        _refuse_component(field, raw, "month", month, _MONTH_RANGE)
+    if not _DAY_RANGE[0] <= day <= _DAY_RANGE[1]:
+        _refuse_component(field, raw, "day", day, _DAY_RANGE)
+    try:
+        return datetime.date(year, month, day)
+    except ValueError as error:
+        raise RecordError(
+            f"{field.described} holds {_value(raw)}, which names day {day:02d} of "
+            f"month {month:02d} in {year:04d}: {_reason(error)}"
+        ) from error
+
+
+def validate_calendar_date(value: str | None, field: LandingField) -> str | None:
+    """Return ``value`` once it is confirmed to be a real calendar date, or None.
+
+    ``value`` is the trimmed window of a landed date item, being ``CA-ISSUE-DATE`` or
+    ``CA-EXPIRY-DATE`` at base/src/lgcmarea.cpy:38-39, or None when that window holds
+    only spaces. A value must be written ``CALENDAR_DATE_FORM`` and must name a day the
+    month holds in that year, so an impossible date reaches this refusal rather than the
+    warehouse cast that would otherwise be the first check of it.
+
+    Raises ``RecordError`` naming the item, its byte range and the raw characters when
+    the value is not written in that form or is not a real date.
+    """
+    if value is None:
+        return None
+    matched = _CALENDAR_DATE_SHAPE.fullmatch(value)
+    if matched is None:
+        raise RecordError(
+            f"{field.described} holds {_value(value)}, which is not written "
+            f"{CALENDAR_DATE_FORM}"
+        )
+    year, month, day = (int(part) for part in matched.groups())
+    _checked_calendar_day(field, value, year, month, day)
+    return value
+
+
 def normalise_timestamp(raw: str, field: LandingField) -> str:
     """Return ``raw`` as an ISO-8601 timestamp with microsecond precision.
 
     ``raw`` is the trimmed ``CA-LASTCHANGED`` value the chain read back from the POLICY
-    row. Every form listed in ``TIMESTAMP_INPUT_FORMATS`` is accepted, in that order:
-    the Db2 character form ``YYYY-MM-DD-HH.MM.SS.ffffff`` and the ISO forms using a
-    ``T`` or a space separator with colons in the time part, each with or without the
-    fractional-second part. The result is emitted as
-    ``YYYY-MM-DDTHH:MM:SS.ffffff``; a fractional part shorter than six digits is
-    carried at microsecond precision and no value is truncated or rounded.
+    row at base/src/lgapdb01.cbl:315-321. Every shape listed in
+    ``TIMESTAMP_INPUT_FORMATS`` is accepted, in that order: the Db2 character form
+    ``YYYY-MM-DD-HH.MM.SS.ffffff`` and the ISO forms using a ``T`` or a space separator
+    with colons in the time part, each with a fractional-second part of one to six
+    digits or without one. A matched shape is then validated as a real date and clock
+    time, so an impossible month, day, hour, minute or second is refused here rather
+    than at the warehouse cast. The result is emitted as
+    ``YYYY-MM-DDTHH:MM:SS.ffffff``; a fractional part shorter than
+    ``TIMESTAMP_FRACTION_DIGITS`` digits is carried at microsecond precision and no
+    value is truncated or rounded.
 
-    Raises ``RecordError`` naming the item, its byte range and the raw characters when
-    no accepted form matches, when the calendar values are not a real date and time, or
-    when ``raw`` is empty. The current wall-clock time is never substituted.
+    Raises ``RecordError`` naming the item, its byte range, the accepted forms and the
+    character count of the rejected value when no accepted form matches, when a
+    component is outside its range, when the day is not a day of that month, or when
+    ``raw`` is empty; the rejected characters themselves are reported only when record
+    values are shown. The current wall-clock time is never substituted.
     """
     if not raw:
         raise RecordError(
@@ -1262,36 +1743,65 @@ def normalise_timestamp(raw: str, field: LandingField) -> str:
             f"from the POLICY row "
             f"({_quote_all(field.evidence) or 'no locator recorded'})"
         )
-    for accepted in TIMESTAMP_INPUT_FORMATS:
-        try:
-            moment = datetime.datetime.strptime(raw, accepted)
-        except ValueError:
+    for shape in _TIMESTAMP_SHAPES:
+        matched = shape.fullmatch(raw)
+        if matched is None:
             continue
+        year, month, day, hour, minute, second = (
+            int(part) for part in matched.groups()[:6]
+        )
+        fraction = matched.group(7) or ""
+        if not _HOUR_RANGE[0] <= hour <= _HOUR_RANGE[1]:
+            _refuse_component(field, raw, "hour", hour, _HOUR_RANGE)
+        if not _MINUTE_RANGE[0] <= minute <= _MINUTE_RANGE[1]:
+            _refuse_component(field, raw, "minute", minute, _MINUTE_RANGE)
+        if not _SECOND_RANGE[0] <= second <= _SECOND_RANGE[1]:
+            _refuse_component(field, raw, "second", second, _SECOND_RANGE)
+        date = _checked_calendar_day(field, raw, year, month, day)
+        moment = datetime.datetime(
+            date.year,
+            date.month,
+            date.day,
+            hour,
+            minute,
+            second,
+            int(fraction.ljust(TIMESTAMP_FRACTION_DIGITS, "0")),
+        )
         return moment.isoformat(
             sep=TIMESTAMP_OUTPUT_SEPARATOR, timespec=TIMESTAMP_OUTPUT_PRECISION
         )
     raise RecordError(
-        f"{field.described} holds {_shown(raw)}, which matches none of the accepted "
-        f"timestamp forms {_quote_all(TIMESTAMP_INPUT_FORMATS)}"
+        f"{field.described} holds {_value(raw)}, which matches none of the accepted "
+        f"timestamp forms {_quote_all(TIMESTAMP_INPUT_FORMATS)}, each accepting a "
+        f"fractional-second part of 1 to {TIMESTAMP_FRACTION_DIGITS} digits or none"
     )
 
 
-def amount_applies(name: str, policy_type: str, field_map: FieldMap) -> bool:
+def amount_applies(name: str, policy_type: str | None, field_map: FieldMap) -> bool:
     """Return True when the field map populates amount ``name`` for ``policy_type``.
 
     The answer is read from ``product_premium_nullability``: the amount keys the map
     records as always populated together with those it lists as populated for this
     policy type. ``load_field_map`` has already confirmed that this split agrees with
-    each amount entry's ``applicable_policy_types`` in both directions.
+    each amount entry's ``applicable_policy_types`` in both directions. A None
+    ``policy_type`` selects no product overlay, and only the map's always-populated
+    amounts apply.
 
-    Raises ``FieldMapError`` when the map records no split for ``policy_type`` or when
-    ``name`` is not one of its amount keys.
+    A ``policy_type`` of None is the record the routing selected no product for, which
+    is the path that sets return code 99. No product overlay is selected there, so only
+    the amounts the map records as always populated apply; those sit in the fixed policy
+    header rather than in an overlay. Every product premium returns False.
+
+    Raises ``FieldMapError`` when the map records no split for a named ``policy_type``
+    or when ``name`` is not one of its amount keys.
     """
     if name not in field_map.amount_fields:
         raise FieldMapError(
             f"landing key {_shown(name)} is not one of the field map's amounts "
             f"{_quote_all(field_map.amount_fields)}"
         )
+    if policy_type is None:
+        return name in field_map.always_populated
     split = field_map.nullability.get(policy_type)
     if split is None:
         raise FieldMapError(
@@ -1303,7 +1813,7 @@ def amount_applies(name: str, policy_type: str, field_map: FieldMap) -> bool:
 
 
 def decode_amount(
-    field: LandingField, record: str, policy_type: str, field_map: FieldMap
+    field: LandingField, record: str, policy_type: str | None, field_map: FieldMap
 ) -> str | None:
     """Return one amount as the digits the record carries, or None when inapplicable.
 
@@ -1312,6 +1822,7 @@ def decode_amount(
     an unselected overlay holds the selected overlay's content. An applicable window is
     validated as all digits and returned with leading zeros stripped. No arithmetic is
     applied: no scaling, rounding, defaulting or unit conversion touches the value.
+    A ``policy_type`` of None selects no overlay, so every product premium returns None.
 
     Raises ``RecordError`` naming the item and its byte range when an applicable window
     is not all digits.
@@ -1330,11 +1841,12 @@ def decode_amount(
 
 
 def _decode_chain_populated(field: LandingField, record: str) -> str | None:
-    """Return one chain-assigned value, or None when the chain left the window blank.
+    """Return one chain-assigned value, or None when the chain never assigned it.
 
-    A window holding only spaces returns None whatever the field's kind. An unassigned
-    value reaches the return-code checks as absent rather than as a decoding failure. A
-    window holding content is decoded by the field's recorded kind.
+    A window holding only spaces returns None whatever the field's kind, so an
+    unassigned value reaches ``_require_assigned`` as absent and is reported as the
+    unassigned value it is rather than as a numeric decoding failure. A window holding
+    content is decoded by the field's recorded kind.
     """
     assert field.offset is not None and field.length is not None
     window = slice_field(record, field.offset, field.length)
@@ -1350,46 +1862,68 @@ def _require_assigned(field: LandingField, value: str | None) -> str:
 
     An absent value and a numeric value of only zeros both raise, and the diagnostic
     names the item, its byte range and every locator the field map cites for the field.
+    Every landed record carries return code ``RETURN_CODE_SUCCESS``, so this applies to
+    each of them.
     """
     locators = _quote_all(field.evidence) or "no locator recorded"
     if value is None:
         raise RecordError(
-            f"{field.described} is blank on a record whose return code is "
-            f"{_shown(RETURN_CODE_SUCCESS)}; the chain assigns it, per {locators}"
+            f"{field.described} is blank; the chain assigns it on every execution "
+            f"returning {_shown(RETURN_CODE_SUCCESS)}, per {locators}"
         )
     if field.kind == KIND_NUMERIC and value == "0":
         raise RecordError(
-            f"{field.described} holds only zeros on a record whose return code is "
-            f"{_shown(RETURN_CODE_SUCCESS)}; the chain assigns a non-zero value, per "
+            f"{field.described} holds only zeros; the chain assigns a non-zero value "
+            f"on every execution returning {_shown(RETURN_CODE_SUCCESS)}, per "
             f"{locators}"
         )
     return value
+
+
+def refuse_unsuccessful_return_code(return_code: str, field_map: FieldMap) -> None:
+    """Refuse a capture whose returned ``CA-RETURN-CODE`` is not ``00``.
+
+    ``return_code`` is the code ``decode_return_code`` read, already confirmed to be one
+    of the domain the field map records. The landing and raw contracts carry successful
+    extractions only, so a record carrying any other recorded code has nothing to land:
+    the diagnostic names the code, the meaning the map's ``return_codes`` section
+    records for it and the code that is landed.
+
+    Raises ``ChainNotSuccessfulError``, whose status is distinct from the one a breached
+    record contract returns.
+    """
+    if return_code == RETURN_CODE_SUCCESS:
+        return
+    meaning = field_map.return_code_meanings.get(return_code, "no meaning recorded")
+    raise ChainNotSuccessfulError(
+        f"{field_map.fields[LANDING_RETURN_CODE].described} holds "
+        f"{_shown(return_code)}, recorded as {_shown(meaning)}; the chain did not "
+        f"complete the policy issue and only {_shown(RETURN_CODE_SUCCESS)} is landed"
+    )
 
 
 def build_landing_record(
     record: str,
     field_map: FieldMap,
     source_system_key: str,
-    *,
-    allow_nonzero_return_code: bool = False,
 ) -> dict[str, str | None]:
-    """Return the landing record decoded from one post-chain COMMAREA record.
+    """Return the landing record decoded from one successful post-chain COMMAREA record.
 
     ``record`` is the fixed-width record ``read_commarea`` returned, ``field_map`` the
     validated map and ``source_system_key`` the discriminator to write. The returned
     mapping holds the field map's ``landing.field_order`` keys, in that order, and
-    every value is a string or None. ``allow_nonzero_return_code`` lands a record whose
-    returned ``CA-RETURN-CODE`` is not ``RETURN_CODE_SUCCESS``; on such a record a value
-    the chain assigns lands as None where its window is blank and as the digits it holds
-    where the window carries them; a zero-filled window lands as ``'0'``.
+    every value is a string or None. Only a record whose returned ``CA-RETURN-CODE`` is
+    ``RETURN_CODE_SUCCESS`` yields a landing record; every value the chain assigns is
+    then confirmed to be assigned, both dates are confirmed to be real calendar dates
+    and the returned timestamp is normalised.
 
-    Raises ``RecordError`` when the request id is not routed, when the return code is
-    outside the recorded domain, when the return code is not ``RETURN_CODE_SUCCESS``
-    and ``allow_nonzero_return_code`` is not set, when an applicable amount window is
-    not all digits, when the returned timestamp cannot be normalised, or when a value
-    the chain assigns is unassigned on a record whose return code is
-    ``RETURN_CODE_SUCCESS``. Raises ``FieldMapError`` when the assembled keys do not
-    match ``landing.field_order`` or a value is not a string or None.
+    Raises ``ChainNotSuccessfulError`` when the return code is a recorded code other
+    than ``RETURN_CODE_SUCCESS``. Raises ``RecordError`` when the request id is not
+    routed, when the return code is outside the recorded domain, when an applicable
+    amount window is not all digits, when a landed date is not a real calendar date,
+    when the returned timestamp cannot be normalised, or when a value the chain assigns
+    is unassigned. Raises ``FieldMapError`` when the assembled keys do not match
+    ``landing.field_order`` or a value is not a string or None.
     """
     request_id = decode_window(field_map.fields[LANDING_REQUEST_ID], record)
     if request_id is None:
@@ -1398,12 +1932,7 @@ def build_landing_record(
             "routes on it"
         )
     return_code = decode_return_code(field_map.fields[LANDING_RETURN_CODE], record)
-    if return_code != RETURN_CODE_SUCCESS and not allow_nonzero_return_code:
-        raise RecordError(
-            f"{field_map.fields[LANDING_RETURN_CODE].described} holds "
-            f"{_shown(return_code)} rather than {_shown(RETURN_CODE_SUCCESS)}; pass "
-            "--allow-nonzero-return-code to land the record as failure evidence"
-        )
+    refuse_unsuccessful_return_code(return_code, field_map)
     policy_type = derive_policy_type(request_id, field_map)
 
     values: dict[str, str | None] = {}
@@ -1426,13 +1955,17 @@ def build_landing_record(
                 decoded = normalise_timestamp(decoded, field)
             values[name] = decoded
         else:
-            values[name] = decode_window(field, record)
+            decoded = decode_window(field, record)
+            if name in field_map.date_fields:
+                decoded = validate_calendar_date(decoded, field)
+            values[name] = decoded
 
-    if return_code == RETURN_CODE_SUCCESS:
-        for name in field_map.field_order:
-            if name == LANDING_RETURN_CODE or name not in field_map.chain_populated:
-                continue
-            _require_assigned(field_map.fields[name], values[name])
+    # Every record reaching this point carries RETURN_CODE_SUCCESS. Every value the
+    # chain assigns is required on it.
+    for name in field_map.field_order:
+        if name == LANDING_RETURN_CODE or name not in field_map.chain_populated:
+            continue
+        _require_assigned(field_map.fields[name], values[name])
 
     if tuple(values) != field_map.field_order:
         absent = sorted(set(field_map.field_order) - set(values))
@@ -1445,7 +1978,7 @@ def build_landing_record(
     for name, value in values.items():
         if value is not None and not isinstance(value, str):
             raise FieldMapError(
-                f"the assembled landing record carries {_display(value)} for "
+                f"the assembled landing record carries a {_type_name(value)} for "
                 f"{_shown(name)}; a string or null is required"
             )
     return values
@@ -1471,101 +2004,323 @@ def serialise_record(
     for name, value in record.items():
         if value is not None and not isinstance(value, str):
             raise FieldMapError(
-                f"the landing record carries {_display(value)} for {_shown(name)}; a "
-                "string or null is required"
+                f"the landing record carries a {_type_name(value)} for "
+                f"{_shown(name)}; a string or null is required"
             )
     return json.dumps(dict(record), ensure_ascii=True) + "\n"
 
 
-def _created_file_mode() -> int:
-    """Return the mode a newly created file requests, with the process umask applied.
+def _stands_inside(path: Path, root: Path) -> bool:
+    """Return True when ``path`` is ``root`` itself or stands below it."""
+    return path == root or root in path.parents
 
-    The umask is read by setting it and restoring it immediately. The landed record
-    carries the same mode as any other file this bridge creates.
+
+def _canonical_generated_roots() -> tuple[Path, ...]:
+    """Return the generated output roots as canonical paths under the repository.
+
+    Each root is resolved so a symbolic-link component of the repository checkout is
+    compared in the same form a canonicalised destination carries. A root that does not
+    exist yet resolves to the pathname itself, which is the form a destination below it
+    canonicalises to.
     """
-    mask = os.umask(0)
-    os.umask(mask)
-    return 0o666 & ~mask
+    return tuple(
+        Path(os.path.realpath(REPOSITORY_ROOT / relative))
+        for relative in GENERATED_OUTPUT_ROOTS
+    )
 
 
-def _refuse_read_only_destination(destination: Path) -> None:
-    """Raise ``InputOutputError`` when ``destination`` resolves inside base/."""
+def confine_destination(destination: Path) -> Path:
+    """Return the canonical path ``destination`` names, or refuse it.
+
+    Every component of the destination's parent chain is resolved, so a symbolic-link
+    chain, a ``..`` component and a ``/proc/self/cwd`` style alias all reach this check
+    in the form of the path they actually name; the components that do not exist yet
+    cannot be links and are carried as spelled. The repository directory is taken from
+    this file's own location, never from the working directory.
+
+    A canonical destination inside that repository is accepted only below one of
+    ``GENERATED_OUTPUT_ROOTS``: every other path inside it holds an authored artifact,
+    and anything below ``READ_ONLY_SOURCE_ROOT`` is refused by that name. A canonical
+    destination outside the repository is accepted, which is the documented workflow of
+    landing into a temporary directory. A destination whose final component is a
+    symbolic link, and one that resolves onto an existing entry that is not a regular
+    file, are refused.
+
+    Raises ``InputOutputError`` naming the destination, the canonical form it resolves
+    to and the roots that are accepted.
+    """
     absolute = Path(os.path.abspath(destination))
-    if absolute == READ_ONLY_SOURCE_ROOT or READ_ONLY_SOURCE_ROOT in absolute.parents:
+    if not absolute.name:
         raise InputOutputError(
-            f"the destination resolves inside the read-only source directory "
-            f"{_path_shown(READ_ONLY_SOURCE_ROOT)}: {_path_shown(destination)}"
+            f"the destination names no file: {_path_shown(destination)}"
         )
-
-
-def write_record(
-    record: Mapping[str, str | None], destination: Path, field_order: Sequence[str]
-) -> Path:
-    """Write the landing record to ``destination`` and return the path written.
-
-    Missing parent directories are created. The serialised line is written to a
-    temporary entry in the destination's own directory, flushed to disk and moved onto
-    the destination name. A reader never observes a partial record. An existing
-    destination is replaced only when it is a regular file and is not a symbolic link.
-
-    Raises ``FieldMapError`` when the record does not match ``field_order`` and
-    ``InputOutputError`` when the destination is refused, cannot be created or cannot
-    be written.
-    """
-    text = serialise_record(record, field_order)
-    _refuse_read_only_destination(destination)
-    if destination.is_symlink():
+    if os.path.islink(absolute):
         raise InputOutputError(
             f"the destination is a symbolic link: {_path_shown(destination)}"
         )
-    if destination.exists() and not destination.is_file():
+    canonical = Path(os.path.realpath(absolute.parent)) / absolute.name
+    repository = Path(os.path.realpath(REPOSITORY_ROOT))
+    read_only = Path(os.path.realpath(READ_ONLY_SOURCE_ROOT))
+    if _stands_inside(canonical, read_only):
+        raise InputOutputError(
+            f"the destination resolves inside the read-only source directory "
+            f"{_path_shown(read_only)}: {_path_shown(destination)} resolves to "
+            f"{_path_shown(canonical)}"
+        )
+    if _stands_inside(canonical, repository):
+        roots = _canonical_generated_roots()
+        if not any(root in canonical.parents for root in roots):
+            raise InputOutputError(
+                f"the destination resolves inside the repository directory "
+                f"{_path_shown(repository)} and outside every generated root "
+                f"{_quote_all(str(root) for root in GENERATED_OUTPUT_ROOTS)}: "
+                f"{_path_shown(destination)} resolves to {_path_shown(canonical)}"
+            )
+    try:
+        status = os.lstat(canonical)
+    except FileNotFoundError:
+        return canonical
+    except OSError as error:
+        raise InputOutputError(
+            f"the destination cannot be examined: {_path_shown(canonical)}: "
+            f"{_reason(error)}"
+        ) from error
+    if not stat.S_ISREG(status.st_mode):
+        raise InputOutputError(
+            f"the destination exists and is not a regular file: "
+            f"{_path_shown(canonical)}"
+        )
+    return canonical
+
+
+def _create_destination_directory(directory: Path) -> None:
+    """Create ``directory`` and every missing directory above it, mode DIRECTORY_MODE.
+
+    ``directory`` is the canonical parent of an accepted destination, so no component
+    that already exists is a symbolic link. Each missing component is created one at a
+    time and its mode is then set on the created directory itself through a descriptor
+    opened without following a link, which leaves the mode at ``DIRECTORY_MODE``
+    whatever the ambient umask requested. A directory that already exists keeps the mode
+    it carries. Once every component exists, the canonical form of ``directory`` is
+    confirmed to be unchanged, so a component replaced while it was being created is
+    refused instead of written through.
+
+    Raises ``InputOutputError`` when a directory cannot be created, when its mode cannot
+    be set, or when the canonical form changed.
+    """
+    missing: list[Path] = []
+    probe = directory
+    while not probe.exists():
+        missing.append(probe)
+        if probe.parent == probe:
+            break
+        probe = probe.parent
+    for path in reversed(missing):
+        try:
+            os.mkdir(path, DIRECTORY_MODE)
+        except FileExistsError:
+            continue
+        except OSError as error:
+            raise InputOutputError(
+                f"the destination directory cannot be created: {_path_shown(path)}: "
+                f"{_reason(error)}"
+            ) from error
+        try:
+            descriptor = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        except OSError as error:
+            raise InputOutputError(
+                f"the created destination directory cannot be opened to set its mode: "
+                f"{_path_shown(path)}: {_reason(error)}"
+            ) from error
+        try:
+            os.fchmod(descriptor, DIRECTORY_MODE)
+        except OSError as error:
+            raise InputOutputError(
+                f"the mode of the created destination directory cannot be set to "
+                f"{DIRECTORY_MODE:04o}: {_path_shown(path)}: {_reason(error)}"
+            ) from error
+        finally:
+            os.close(descriptor)
+    if not directory.is_dir():
+        raise InputOutputError(
+            f"the destination directory is not a directory: {_path_shown(directory)}"
+        )
+    settled = Path(os.path.realpath(directory))
+    if settled != directory:
+        raise InputOutputError(
+            f"the destination directory {_path_shown(directory)} now resolves to "
+            f"{_path_shown(settled)}; it was replaced while it was being created"
+        )
+
+
+def _descriptor_path(descriptor: int) -> str | None:
+    """Return the path the kernel reports for ``descriptor``, or None when unavailable.
+
+    The path is read from /proc/self/fd, so it names the directory the descriptor
+    holds without walking the destination path a second time. None is returned on a
+    system that publishes no such entry.
+    """
+    try:
+        return os.readlink(f"/proc/self/fd/{descriptor}")
+    except OSError:
+        return None
+
+
+def _refuse_read_only_directory(descriptor: int, directory: Path) -> None:
+    """Raise ``InputOutputError`` when the held directory is base/ or lies inside it.
+
+    The directory is identified by ``descriptor`` alone: its device and inode numbers
+    are compared with those of ``READ_ONLY_SOURCE_ROOT`` and the check then ascends
+    through ``..`` descriptors, comparing every ancestor the same way, so a path
+    component replaced after the destination was resolved cannot place the write inside
+    the read-only source directory. The ascent stops at the filesystem root, where
+    ``..`` is the directory itself, and after ``MAX_CONTAINMENT_ASCENT`` levels. A
+    ``READ_ONLY_SOURCE_ROOT`` that cannot be examined holds no file to protect and
+    passes.
+    """
+    try:
+        protected = os.stat(READ_ONLY_SOURCE_ROOT)
+    except OSError:
+        return
+    protected_identity = (protected.st_dev, protected.st_ino)
+    reported = _descriptor_path(descriptor)
+    shown = _path_shown(reported if reported is not None else directory)
+    try:
+        current = os.open(".", os.O_RDONLY | os.O_DIRECTORY, dir_fd=descriptor)
+    except OSError as error:
+        raise InputOutputError(
+            f"the destination directory cannot be examined: {shown}: {_reason(error)}"
+        ) from error
+    try:
+        for _ in range(MAX_CONTAINMENT_ASCENT):
+            try:
+                info = os.stat(current)
+            except OSError as error:
+                raise InputOutputError(
+                    f"the destination directory cannot be confirmed to lie outside "
+                    f"{_path_shown(READ_ONLY_SOURCE_ROOT)}: {shown}: {_reason(error)}"
+                ) from error
+            if (info.st_dev, info.st_ino) == protected_identity:
+                raise InputOutputError(
+                    f"the destination directory lies inside the read-only source "
+                    f"directory {_path_shown(READ_ONLY_SOURCE_ROOT)}: {shown}"
+                )
+            try:
+                parent = os.open("..", os.O_RDONLY | os.O_DIRECTORY, dir_fd=current)
+            except OSError as error:
+                raise InputOutputError(
+                    f"the destination directory cannot be confirmed to lie outside "
+                    f"{_path_shown(READ_ONLY_SOURCE_ROOT)}: {shown}: {_reason(error)}"
+                ) from error
+            try:
+                parent_info = os.stat(parent)
+            except OSError as error:
+                os.close(parent)
+                raise InputOutputError(
+                    f"the destination directory cannot be confirmed to lie outside "
+                    f"{_path_shown(READ_ONLY_SOURCE_ROOT)}: {shown}: {_reason(error)}"
+                ) from error
+            reached_root = (parent_info.st_dev, parent_info.st_ino) == (
+                info.st_dev,
+                info.st_ino,
+            )
+            os.close(current)
+            current = parent
+            if reached_root:
+                return
+        raise InputOutputError(
+            f"the destination directory sits more than {MAX_CONTAINMENT_ASCENT} "
+            f"directories below the filesystem root, so it cannot be confirmed to lie "
+            f"outside {_path_shown(READ_ONLY_SOURCE_ROOT)}: {shown}"
+        )
+    finally:
+        os.close(current)
+
+
+def _confirm_replaceable(name: str, descriptor: int, destination: Path) -> None:
+    """Confirm ``name`` inside the held directory is absent or is a regular file.
+
+    The entry is examined relative to ``descriptor`` and without following a symbolic
+    link, so the entry examined is the entry inside the directory the caller holds. An
+    absent name passes, and a symbolic link or anything that is not a regular file is
+    refused. ``destination`` names the entry in any diagnostic.
+    """
+    try:
+        info = os.stat(name, dir_fd=descriptor, follow_symlinks=False)
+    except FileNotFoundError:
+        return
+    except OSError as error:
+        raise InputOutputError(
+            f"the destination cannot be examined: {_path_shown(destination)}: "
+            f"{_reason(error)}"
+        ) from error
+    if stat.S_ISLNK(info.st_mode):
+        raise InputOutputError(
+            f"the destination is a symbolic link: {_path_shown(destination)}"
+        )
+    if not stat.S_ISREG(info.st_mode):
         raise InputOutputError(
             f"the destination exists and is not a regular file: "
             f"{_path_shown(destination)}"
         )
-    directory = destination.parent if str(destination.parent) else Path(".")
-    try:
-        directory.mkdir(mode=DIRECTORY_MODE, parents=True, exist_ok=True)
-    except OSError as error:
-        raise InputOutputError(
-            f"the destination directory cannot be created: {_path_shown(directory)}: "
-            f"{_reason(error)}"
-        ) from error
-    _refuse_read_only_destination(Path(os.path.realpath(directory)) / destination.name)
 
-    encoded = text.encode(CAPTURE_ENCODING)
-    mode = _created_file_mode()
+
+def _write_through_temporary(
+    encoded: bytes, name: str, descriptor: int, destination: Path
+) -> None:
+    """Write ``encoded`` to a temporary entry beside ``name`` and move it onto ``name``.
+
+    Every step is taken relative to ``descriptor``: the temporary entry is created
+    exclusively and without following a symbolic link, the content is written and
+    flushed, the destination name is confirmed once more immediately before the move,
+    and the move replaces the destination in one step, so no reader observes a partial
+    record. The directory entry is flushed as well, and a filesystem that refuses to
+    flush a directory leaves the record in place rather than failing the run. A
+    temporary entry that survives a failure is removed relative to the same descriptor.
+
+    The temporary entry is created with ``FILE_MODE`` and its mode is then set on the
+    open descriptor, so the landed record carries that mode whatever the ambient umask
+    requested, and it carries it across the move onto the destination name.
+    """
     flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW
-    temporary: Path | None = None
-    descriptor = -1
+    temporary: str | None = None
+    file_descriptor = -1
     for attempt in range(MAX_TEMPORARY_ATTEMPTS):
-        candidate = directory / f".{destination.name}.{os.getpid()}.{attempt}.tmp"
+        candidate = f".{name}.{os.getpid()}.{attempt}.tmp"
         try:
-            descriptor = os.open(candidate, flags, mode)
+            file_descriptor = os.open(
+                candidate, flags, FILE_MODE, dir_fd=descriptor
+            )
         except FileExistsError:
             continue
         except OSError as error:
             raise InputOutputError(
                 f"the destination cannot be written through a temporary entry: "
-                f"{_path_shown(candidate)}: {_reason(error)}"
+                f"{_path_shown(destination)}: {_reason(error)}"
             ) from error
         temporary = candidate
         break
-    if temporary is None or descriptor < 0:
+    if temporary is None or file_descriptor < 0:
         raise InputOutputError(
             f"no temporary entry could be created beside the destination after "
             f"{MAX_TEMPORARY_ATTEMPTS} attempts: {_path_shown(destination)}"
         )
     try:
         try:
+            os.fchmod(file_descriptor, FILE_MODE)
             written = 0
             while written < len(encoded):
-                written += os.write(descriptor, encoded[written:])
-            os.fsync(descriptor)
+                written += os.write(file_descriptor, encoded[written:])
+            os.fsync(file_descriptor)
         finally:
-            os.close(descriptor)
-        os.replace(temporary, destination)
+            os.close(file_descriptor)
+        _confirm_replaceable(name, descriptor, destination)
+        os.replace(temporary, name, src_dir_fd=descriptor, dst_dir_fd=descriptor)
         temporary = None
+        try:
+            os.fsync(descriptor)
+        except OSError:
+            pass
     except OSError as error:
         raise InputOutputError(
             f"the landing record cannot be written: {_path_shown(destination)}: "
@@ -1574,36 +2329,2388 @@ def write_record(
     finally:
         if temporary is not None:
             try:
-                os.unlink(temporary)
+                os.unlink(temporary, dir_fd=descriptor)
             except OSError:
                 pass
+
+
+def write_record(
+    record: Mapping[str, str | None], destination: Path, field_order: Sequence[str]
+) -> Path:
+    """Write the landing record to ``destination`` and return the path written.
+
+    The destination is confined by ``confine_destination`` before anything is created,
+    and the canonical form it returns is the path written. Missing parent directories
+    are then created one at a time, outermost first, so each of them carries
+    ``DIRECTORY_MODE`` rather than only the innermost one. The destination directory is
+    held open as one descriptor, opened without following a symbolic link, and every
+    later step is taken relative to that descriptor: the containment check against the
+    read-only source directory, the examination of the destination name, the creation of
+    the temporary entry, the move onto the destination name and both flushes. The parent
+    therefore cannot be substituted between the checks and the write. The temporary
+    entry carries ``FILE_MODE`` and the destination name carries that same mode, so a
+    reader never observes a partial record. An existing destination is replaced only
+    when it is a regular file and is not a symbolic link, and a destination directory
+    that is itself a symbolic link is refused.
+
+    Raises ``FieldMapError`` when the record does not match ``field_order`` and
+    ``InputOutputError`` when the destination is refused, cannot be created or cannot
+    be written.
+    """
+    encoded = serialise_record(record, field_order).encode(CAPTURE_ENCODING)
+    target = confine_destination(destination)
+    name = target.name
+    directory = target.parent
+    _create_destination_directory(directory)
     try:
-        directory_descriptor = os.open(directory, os.O_RDONLY)
-    except OSError:
-        return destination
+        descriptor = os.open(
+            directory, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+        )
+    except OSError as error:
+        raise InputOutputError(
+            f"the destination directory cannot be opened: {_path_shown(directory)}: "
+            f"{_reason(error)}"
+        ) from error
     try:
-        os.fsync(directory_descriptor)
-    except OSError:
-        pass
+        _refuse_read_only_directory(descriptor, directory)
+        _confirm_replaceable(name, descriptor, target)
+        _write_through_temporary(encoded, name, descriptor, target)
     finally:
-        os.close(directory_descriptor)
-    return destination
+        os.close(descriptor)
+    return target
 
 
-def summarise(destination: Path, record: Mapping[str, str | None]) -> str:
-    """Return the one-line stdout summary of a written landing record."""
+def summarise(
+    destination: Path,
+    record: Mapping[str, str | None],
+    *,
+    show_identifiers: bool = False,
+) -> str:
+    """Return the one-line stdout summary of a written landing record.
+
+    ``destination`` is the canonical path the record was written to. The default line
+    names that path, the derived policy type - a product class of four letters, not an
+    identifier of any policy, customer or broker - the return code, how many landing
+    keys carry a value and how many are null, and the digest ``_identifier`` returns for
+    the policy number, so the same run stays recognisable without the identifier
+    reaching stdout. It carries no policy number, customer number, broker id or
+    broker's reference, so a captured run log holds no business identifier.
+
+    ``show_identifiers`` restores the identifier line for a local run: the request id,
+    the policy type, the policy number, the customer number, the broker id, the
+    broker's reference and the return code, each named with its landing key.
+    """
 
     def shown(name: str) -> str:
         value = record.get(name)
         return "null" if value is None else value
 
+    def identified(name: str) -> str:
+        value = record.get(name)
+        return "null" if value is None else _identifier(value)
+
+    if show_identifiers:
+        named = (
+            LANDING_REQUEST_ID,
+            LANDING_POLICY_TYPE,
+            LANDING_POLICY_NUMBER,
+            LANDING_CUSTOMER_NUMBER,
+            LANDING_BROKER_ID,
+            LANDING_BROKERS_REFERENCE,
+            LANDING_RETURN_CODE,
+        )
+        values = " ".join(f"{name}={shown(name)}" for name in named)
+        return f"landed {destination} {values}"
+    present = sum(1 for value in record.values() if value is not None)
     return (
         f"landed {destination} "
-        f"{LANDING_REQUEST_ID}={shown(LANDING_REQUEST_ID)} "
         f"{LANDING_POLICY_TYPE}={shown(LANDING_POLICY_TYPE)} "
-        f"{LANDING_POLICY_NUMBER}={shown(LANDING_POLICY_NUMBER)} "
-        f"{LANDING_RETURN_CODE}={shown(LANDING_RETURN_CODE)}"
+        f"{LANDING_RETURN_CODE}={shown(LANDING_RETURN_CODE)} "
+        f"keys={len(record)} values={present} nulls={len(record) - present} "
+        f"policy_digest={identified(LANDING_POLICY_NUMBER)} "
+        "identifiers=redacted (--show-identifiers carries them)"
     )
+
+
+# ---------------------------------------------------------------------------
+# Self-test
+# ---------------------------------------------------------------------------
+
+# Prefix of the private scratch directory one self-test run creates and removes, and the
+# names the cases give the capture and the landing record inside it.
+_SCRATCH_PREFIX = "extract-commarea-selftest-"
+_SCRATCH_CAPTURE_NAME = "commarea_post.dat"
+_SCRATCH_RECORD_NAME = "landing.json"
+
+# Window content the matrix renders a record from, keyed by the field map's landing key.
+# A value is padded to the declared window: left with zeros for a numeric_display item
+# and right with spaces for an alphanumeric one. An empty value renders a blank window.
+# Both sets carry the values the harness driver's post-chain captures hold for request
+# ids 01AMOT and 01ACOM, so the two records share no identifier and no amount.
+_MOTOR_WINDOWS: Mapping[str, str] = {
+    LANDING_REQUEST_ID: "01AMOT",
+    LANDING_RETURN_CODE: RETURN_CODE_SUCCESS,
+    LANDING_CUSTOMER_NUMBER: "1001",
+    LANDING_POLICY_NUMBER: "1000301",
+    LANDING_ISSUE_DATE: "2026-08-19",
+    LANDING_EXPIRY_DATE: "2027-08-18",
+    LANDING_LAST_CHANGED: "2026-08-19-12.00.00.000000",
+    LANDING_BROKER_ID: "42",
+    LANDING_BROKERS_REFERENCE: "BRMOT001",
+    "payment_amount": "500",
+    "motor_premium_amount": "450",
+}
+_MOTOR_RECORD: Mapping[str, str | None] = {
+    LANDING_SOURCE_SYSTEM_KEY: DEFAULT_SOURCE_SYSTEM_KEY,
+    LANDING_POLICY_NUMBER: "1000301",
+    LANDING_POLICY_TYPE: "M",
+    LANDING_CUSTOMER_NUMBER: "1001",
+    LANDING_REQUEST_ID: "01AMOT",
+    LANDING_RETURN_CODE: "00",
+    LANDING_ISSUE_DATE: "2026-08-19",
+    LANDING_EXPIRY_DATE: "2027-08-18",
+    LANDING_LAST_CHANGED: "2026-08-19T12:00:00.000000",
+    LANDING_BROKER_ID: "42",
+    LANDING_BROKERS_REFERENCE: "BRMOT001",
+    "payment_amount": "500",
+    "motor_premium_amount": "450",
+    "fire_premium_amount": None,
+    "crime_premium_amount": None,
+    "flood_premium_amount": None,
+    "weather_premium_amount": None,
+}
+_COMMERCIAL_WINDOWS: Mapping[str, str] = {
+    LANDING_REQUEST_ID: "01ACOM",
+    LANDING_RETURN_CODE: RETURN_CODE_SUCCESS,
+    LANDING_CUSTOMER_NUMBER: "2002",
+    LANDING_POLICY_NUMBER: "1000302",
+    LANDING_ISSUE_DATE: "2026-08-19",
+    LANDING_EXPIRY_DATE: "2027-08-18",
+    LANDING_LAST_CHANGED: "2026-08-19-12.00.00.000000",
+    LANDING_BROKER_ID: "84",
+    LANDING_BROKERS_REFERENCE: "BRCOM001",
+    "payment_amount": "1750",
+    "fire_premium_amount": "13500",
+    "crime_premium_amount": "3400",
+    "flood_premium_amount": "7800",
+    "weather_premium_amount": "2600",
+}
+_COMMERCIAL_RECORD: Mapping[str, str | None] = {
+    LANDING_SOURCE_SYSTEM_KEY: DEFAULT_SOURCE_SYSTEM_KEY,
+    LANDING_POLICY_NUMBER: "1000302",
+    LANDING_POLICY_TYPE: "C",
+    LANDING_CUSTOMER_NUMBER: "2002",
+    LANDING_REQUEST_ID: "01ACOM",
+    LANDING_RETURN_CODE: "00",
+    LANDING_ISSUE_DATE: "2026-08-19",
+    LANDING_EXPIRY_DATE: "2027-08-18",
+    LANDING_LAST_CHANGED: "2026-08-19T12:00:00.000000",
+    LANDING_BROKER_ID: "84",
+    LANDING_BROKERS_REFERENCE: "BRCOM001",
+    "payment_amount": "1750",
+    "motor_premium_amount": None,
+    "fire_premium_amount": "13500",
+    "crime_premium_amount": "3400",
+    "flood_premium_amount": "7800",
+    "weather_premium_amount": "2600",
+}
+
+# The 17 landing keys in the order the field map lists them, which is the order every
+# landed record and every JSON line carries.
+_EXPECTED_FIELD_ORDER = tuple(_MOTOR_RECORD)
+
+# Request ids and the policy types the routing table assigns them, and one id no branch
+# of the EVALUATE at base/src/lgapdb01.cbl:184-207 recognises.
+_ROUTED_REQUEST_IDS = {
+    "01AEND": "E",
+    "01AHOU": "H",
+    "01AMOT": "M",
+    "01ACOM": "C",
+}
+_UNROUTED_REQUEST_ID = "01AXXX"
+
+# Content a case writes into a window of the product overlay its request does not
+# select; the overlays redefine the same bytes from offset 101.
+_INACTIVE_OVERLAY_TEXT = "ADDRESS1"
+
+
+class _SelfTestFailure(Exception):
+    """One self-test case did not hold; the message states what was observed."""
+
+
+class _CaseResult(NamedTuple):
+    """The outcome of one self-test case."""
+
+    name: str
+    passed: bool
+    detail: str
+
+
+class _CliResult(NamedTuple):
+    """The status and captured streams of one command line run in this process."""
+
+    status: int
+    stdout: str
+    stderr: str
+
+
+def _run_cli(argv: list[str]) -> _CliResult:
+    """Run one command line in this process and capture its status and streams."""
+    out = io.StringIO()
+    err = io.StringIO()
+    with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+        try:
+            status = main(argv)
+        except SystemExit as request:
+            status = request.code if isinstance(request.code, int) else 1
+    return _CliResult(status=status, stdout=out.getvalue(), stderr=err.getvalue())
+
+
+def _expect(observed: Any, expected: Any, what: str) -> None:
+    """Confirm ``observed`` equals ``expected``, naming ``what`` when it does not."""
+    if observed != expected:
+        raise _SelfTestFailure(
+            f"{what} is {_display(observed)}, expected {_display(expected)}"
+        )
+
+
+def _expect_record(
+    observed: Mapping[str, str | None],
+    expected: Mapping[str, str | None],
+    what: str,
+) -> None:
+    """Confirm one landing record carries the expected keys, in order, and values."""
+    if tuple(observed) != tuple(expected):
+        raise _SelfTestFailure(
+            f"{what} carries keys {_quote_all(observed)}, expected "
+            f"{_quote_all(expected)}"
+        )
+    differing = [name for name in expected if observed[name] != expected[name]]
+    if differing:
+        detail = "; ".join(
+            f"{name} is {_display(observed[name])}, expected "
+            f"{_display(expected[name])}"
+            for name in differing
+        )
+        raise _SelfTestFailure(f"{what} differs: {detail}")
+
+
+def _expect_holds(text: str, fragment: str, what: str) -> None:
+    """Confirm ``text`` names ``fragment``."""
+    if fragment not in text:
+        raise _SelfTestFailure(
+            f"{what} is {_shown(text, MAX_DIAGNOSTIC_MESSAGE_CHARACTERS)}, which does "
+            f"not name {_shown(fragment)}"
+        )
+
+
+def _expect_lacks(text: str, fragment: str, what: str) -> None:
+    """Confirm ``text`` does not name ``fragment``."""
+    if fragment in text:
+        raise _SelfTestFailure(
+            f"{what} is {_shown(text, MAX_DIAGNOSTIC_MESSAGE_CHARACTERS)}, which names "
+            f"{_shown(fragment)}"
+        )
+
+
+def _expect_raised(
+    kind: type[ExtractError],
+    status: int,
+    fragments: Sequence[str],
+    action: Callable[[], Any],
+    what: str,
+) -> str:
+    """Run ``action``, confirm the diagnostic it raises, and return that diagnostic.
+
+    The raised error must be an instance of ``kind``, must carry ``status`` as its exit
+    status, and its message must name every fragment. An action that returns instead of
+    raising fails the case.
+    """
+    try:
+        outcome = action()
+    except ExtractError as error:
+        if not isinstance(error, kind):
+            raise _SelfTestFailure(
+                f"{what} raised {_type_name(error)} carrying "
+                f"{_shown(str(error), MAX_DIAGNOSTIC_MESSAGE_CHARACTERS)}, expected "
+                f"{kind.__name__}"
+            ) from None
+        if error.exit_status != status:
+            raise _SelfTestFailure(
+                f"{what} raised {kind.__name__} with status {error.exit_status}, "
+                f"expected {status}"
+            ) from None
+        message = str(error)
+        for fragment in fragments:
+            _expect_holds(message, fragment, f"the diagnostic {what} raised")
+        return _escaped(message, MAX_DIAGNOSTIC_MESSAGE_CHARACTERS)
+    raise _SelfTestFailure(
+        f"{what} returned {_display(outcome)}, expected {kind.__name__}"
+    )
+
+
+def _expect_cli_failure(
+    result: _CliResult, status: int, fragments: Sequence[str], what: str
+) -> str:
+    """Confirm one command line failed with ``status`` and one named diagnostic line."""
+    if result.status != status:
+        raise _SelfTestFailure(
+            f"{what} returned status {result.status} carrying "
+            f"{_shown(result.stderr, MAX_DIAGNOSTIC_MESSAGE_CHARACTERS)}, expected "
+            f"{status}"
+        )
+    if result.stdout:
+        raise _SelfTestFailure(
+            f"{what} wrote {_shown(result.stdout, MAX_DIAGNOSTIC_CHARACTERS)} to "
+            "stdout, expected nothing"
+        )
+    if not result.stderr.endswith("\n") or result.stderr.count("\n") != 1:
+        raise _SelfTestFailure(
+            f"{what} wrote {result.stderr.count(chr(10))} line ending(s) to stderr, "
+            "expected 1"
+        )
+    line = result.stderr[:-1]
+    if not line.startswith(f"{_PROGRAM}: "):
+        raise _SelfTestFailure(
+            f"{what} wrote a diagnostic that does not name this tool: "
+            f"{_shown(line, MAX_DIAGNOSTIC_MESSAGE_CHARACTERS)}"
+        )
+    for fragment in fragments:
+        _expect_holds(line, fragment, f"the diagnostic {what} wrote")
+    return _escaped(line, MAX_DIAGNOSTIC_MESSAGE_CHARACTERS)
+
+
+def _expect_cli_success(result: _CliResult, what: str) -> str:
+    """Confirm one command line succeeded and wrote one summary line to stdout."""
+    if result.status != EXIT_OK:
+        raise _SelfTestFailure(
+            f"{what} returned status {result.status} carrying "
+            f"{_shown(result.stderr, MAX_DIAGNOSTIC_MESSAGE_CHARACTERS)}, expected "
+            f"{EXIT_OK}"
+        )
+    if result.stderr:
+        raise _SelfTestFailure(
+            f"{what} wrote {_shown(result.stderr, MAX_DIAGNOSTIC_CHARACTERS)} to "
+            "stderr, expected nothing"
+        )
+    if not result.stdout.endswith("\n") or result.stdout.count("\n") != 1:
+        raise _SelfTestFailure(
+            f"{what} wrote {result.stdout.count(chr(10))} line ending(s) to stdout, "
+            "expected 1"
+        )
+    return result.stdout[:-1]
+
+
+def _rendered_record(field_map: FieldMap, windows: Mapping[str, str]) -> str:
+    """Return one COMMAREA record of the map's record length carrying ``windows``.
+
+    Each key of ``windows`` is a landing key the field map places in the record. Its
+    text is padded to the declared length, left with zeros for a ``KIND_NUMERIC`` item
+    and right with spaces for a ``KIND_ALPHANUMERIC`` one; an empty value renders the
+    window blank whatever its kind. A key whose window belongs to a product overlay the
+    request does not select is written all the same, which is how a case fills the bytes
+    of an inactive overlay. Every other byte of the record is a space.
+    """
+    characters = [" "] * field_map.record_length
+    for name, value in windows.items():
+        field = field_map.fields.get(name)
+        if field is None or field.offset is None or field.length is None:
+            raise _SelfTestFailure(
+                f"the field map places no window for landing key {_shown(name)}"
+            )
+        if len(value) > field.length:
+            raise _SelfTestFailure(
+                f"the case gives landing key {_shown(name)} {len(value)} characters "
+                f"for its {field.length}-character window"
+            )
+        if not value:
+            padded = " " * field.length
+        elif field.kind == KIND_NUMERIC:
+            padded = value.rjust(field.length, "0")
+        else:
+            padded = value.ljust(field.length, " ")
+        start = field.offset - 1
+        characters[start : start + field.length] = list(padded)
+    return "".join(characters)
+
+
+def _written(directory: Path, name: str, payload: bytes) -> Path:
+    """Write one scratch file below ``directory`` and return its path."""
+    path = directory / name
+    descriptor = os.open(
+        path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, FILE_MODE
+    )
+    try:
+        written = 0
+        while written < len(payload):
+            written += os.write(descriptor, payload[written:])
+    finally:
+        os.close(descriptor)
+    return path
+
+
+def _case_directory(scratch: Path, name: str) -> Path:
+    """Return one private directory for a case, created below the run's scratch root."""
+    directory = scratch / name
+    directory.mkdir(mode=DIRECTORY_MODE)
+    return directory
+
+
+def _extraction_argv(
+    capture: Path, destination: Path, map_path: Path, *extra: str
+) -> list[str]:
+    """Return one extraction command line naming the capture, output and field map."""
+    return [
+        "--commarea",
+        str(capture),
+        "--output",
+        str(destination),
+        "--field-map",
+        str(map_path),
+        "--source-system-key",
+        DEFAULT_SOURCE_SYSTEM_KEY,
+        *extra,
+    ]
+
+
+def _mutated_map_text(text: str, mutate: Callable[[Any], None]) -> str:
+    """Return the field map text with ``mutate`` applied to the parsed document.
+
+    The document is parsed, handed to ``mutate`` as a deep copy of the real map's
+    members, and serialised again, so a case describes the one contradiction it is
+    exercising rather than restating the whole map.
+    """
+    document = copy.deepcopy(yaml.safe_load(text))
+    mutate(document)
+    return yaml.safe_dump(document, sort_keys=False, allow_unicode=True)
+
+
+def _field_entry(document: Any, landing_field: str) -> Any:
+    """Return the ``fields`` entry of ``document`` carrying ``landing_field``."""
+    for entry in document["fields"]:
+        if entry.get("landing_field") == landing_field:
+            return entry
+    raise _SelfTestFailure(
+        f"the field map records no entry for landing key {_shown(landing_field)}"
+    )
+
+
+def _fingerprint(path: Path) -> tuple[bytes, int]:
+    """Return the content and modification time of one file, to compare it later."""
+    return path.read_bytes(), os.stat(path).st_mtime_ns
+
+
+def _expect_untouched(path: Path, before: tuple[bytes, int], what: str) -> None:
+    """Confirm one file still holds the content and modification time it held."""
+    after = _fingerprint(path)
+    if after[0] != before[0]:
+        raise _SelfTestFailure(
+            f"{what} holds {len(after[0])} bytes, held {len(before[0])} bytes before "
+            "the refused run"
+        )
+    if after[1] != before[1]:
+        raise _SelfTestFailure(
+            f"{what} carries modification time {after[1]}, carried {before[1]} before "
+            "the refused run"
+        )
+
+
+def _decoded_line(path: Path) -> tuple[str, dict[str, Any]]:
+    """Return the landed line and the object it parses to, rejecting a repeated key.
+
+    The line must be one JSON object terminated by exactly one line feed, and a member
+    the object repeats is refused rather than resolved to its last value.
+    """
+
+    def _no_duplicates(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+        seen: dict[str, Any] = {}
+        for key, value in pairs:
+            if key in seen:
+                raise _SelfTestFailure(
+                    f"the landed record repeats the member {_shown(key)}"
+                )
+            seen[key] = value
+        return seen
+
+    text = path.read_bytes().decode(CAPTURE_ENCODING)
+    if not text.endswith("\n") or text.count("\n") != 1:
+        raise _SelfTestFailure(
+            f"the landed record carries {text.count(chr(10))} line ending(s), "
+            "expected 1"
+        )
+    return text, json.loads(text, object_pairs_hook=_no_duplicates)
+
+
+# ---------------------------------------------------------------------------
+# Self-test cases: field map
+# ---------------------------------------------------------------------------
+
+
+def _case_field_map_members(field_map: FieldMap) -> str:
+    """Confirm the real field map supplies every member this tool reads."""
+    _expect(field_map.record_length, COMMAREA_RECORD_LENGTH, "the record length")
+    _expect(field_map.field_order, _EXPECTED_FIELD_ORDER, "the landing field order")
+    _expect(len(field_map.field_order), 17, "the number of landing keys")
+    _expect(
+        {name: field_map.routing[name] for name in sorted(field_map.routing)},
+        _ROUTED_REQUEST_IDS,
+        "the request routing table",
+    )
+    _expect(len(field_map.amount_fields), 6, "the number of amount keys")
+    _expect(
+        tuple(sorted(field_map.return_code_domain)),
+        ("00", "70", "80", "90", "98", "99"),
+        "the return-code domain",
+    )
+    _expect(
+        sorted(field_map.return_code_meanings),
+        sorted(field_map.return_code_domain),
+        "the codes the return_codes section records",
+    )
+    _expect(
+        field_map.source_system_key_field,
+        LANDING_SOURCE_SYSTEM_KEY,
+        "the warehouse-assigned landing key",
+    )
+    _expect(
+        sorted(field_map.nullability),
+        sorted(set(_ROUTED_REQUEST_IDS.values())),
+        "the policy types the nullability section records",
+    )
+    return (
+        f"{len(field_map.field_order)} landing keys, "
+        f"{len(field_map.routing)} routed request ids, "
+        f"{len(field_map.amount_fields)} amounts, "
+        f"{len(field_map.return_code_domain)} return codes"
+    )
+
+
+def _case_return_code_meanings(field_map: FieldMap) -> str:
+    """Confirm every recorded return code carries the meaning the chain gives it."""
+    expected = {
+        "00": "success",
+        "70": "policy insert returned SQLCODE -530",
+        "80": "VSAM write response was not normal",
+        "90": "SQL failure",
+        "98": "COMMAREA shorter than the required length",
+        "99": "unsupported request id",
+    }
+    for code, meaning in expected.items():
+        _expect(
+            field_map.return_code_meanings.get(code),
+            meaning,
+            f"the meaning recorded for return code {code}",
+        )
+    return f"{len(expected)} return-code meanings match the recorded convention"
+
+
+def _case_map_refused(
+    directory: Path,
+    map_text: str,
+    name: str,
+    mutate: Callable[[Any], None],
+    fragments: Sequence[str],
+) -> str:
+    """Confirm one contradiction inside the field map is refused with its own status."""
+    path = _written(
+        directory, f"{name}.yml", _mutated_map_text(map_text, mutate).encode("utf-8")
+    )
+    return _expect_raised(
+        FieldMapError,
+        EXIT_FIELD_MAP_INVALID,
+        fragments,
+        lambda: load_field_map(path),
+        f"loading the field map mutated for {name}",
+    )
+
+
+def _case_map_bytes_refused(
+    directory: Path,
+    name: str,
+    payload: bytes,
+    kind: type[ExtractError],
+    status: int,
+    fragments: Sequence[str],
+) -> str:
+    """Confirm one field map document this tool cannot read is refused."""
+    path = _written(directory, f"{name}.yml", payload)
+    return _expect_raised(
+        kind,
+        status,
+        fragments,
+        lambda: load_field_map(path),
+        f"loading the field map written for {name}",
+    )
+
+
+def _case_map_missing_refused(directory: Path) -> str:
+    """Confirm a field map path that names no file is refused as an input failure."""
+    path = directory / "absent.yml"
+    return _expect_raised(
+        InputOutputError,
+        EXIT_IO_ERROR,
+        ["the field map cannot be opened"],
+        lambda: load_field_map(path),
+        "loading a field map that does not exist",
+    )
+
+
+# ---------------------------------------------------------------------------
+# Self-test cases: capture reading
+# ---------------------------------------------------------------------------
+
+
+def _case_capture_accepted(
+    directory: Path, name: str, payload: bytes, field_map: FieldMap
+) -> str:
+    """Confirm one capture is read as exactly the record the field map declares."""
+    path = _written(directory, name, payload)
+    record = read_commarea(path, field_map.record_length)
+    _expect(len(record), field_map.record_length, "the length of the record read")
+    return f"{len(payload)} bytes read as a {len(record)}-character record"
+
+
+def _case_capture_refused(
+    directory: Path,
+    name: str,
+    payload: bytes,
+    kind: type[ExtractError],
+    status: int,
+    fragments: Sequence[str],
+    field_map: FieldMap,
+) -> str:
+    """Confirm one capture that breaches the record contract is refused."""
+    path = _written(directory, name, payload)
+    return _expect_raised(
+        kind,
+        status,
+        fragments,
+        lambda: read_commarea(path, field_map.record_length),
+        f"reading the capture written for {name}",
+    )
+
+
+def _case_capture_directory_refused(directory: Path, field_map: FieldMap) -> str:
+    """Confirm a capture path naming a directory is refused as an input failure."""
+    path = directory / "capture-directory"
+    path.mkdir(mode=DIRECTORY_MODE)
+    return _expect_raised(
+        InputOutputError,
+        EXIT_IO_ERROR,
+        ["the COMMAREA capture is not a regular file"],
+        lambda: read_commarea(path, field_map.record_length),
+        "reading a capture path that names a directory",
+    )
+
+
+def _case_capture_missing_refused(directory: Path, field_map: FieldMap) -> str:
+    """Confirm a capture path that names no file is refused as an input failure."""
+    path = directory / "absent.dat"
+    return _expect_raised(
+        InputOutputError,
+        EXIT_IO_ERROR,
+        ["the COMMAREA capture cannot be opened"],
+        lambda: read_commarea(path, field_map.record_length),
+        "reading a capture that does not exist",
+    )
+
+
+# ---------------------------------------------------------------------------
+# Self-test cases: decoding, routing and the landing record
+# ---------------------------------------------------------------------------
+
+
+def _case_landing_record(
+    field_map: FieldMap,
+    windows: Mapping[str, str],
+    expected: Mapping[str, str | None],
+    what: str,
+) -> str:
+    """Confirm one rendered record decodes to the expected landing record."""
+    record = build_landing_record(
+        _rendered_record(field_map, windows), field_map, DEFAULT_SOURCE_SYSTEM_KEY
+    )
+    _expect_record(record, expected, f"the landing record of {what}")
+    populated = sum(1 for value in record.values() if value is not None)
+    return (
+        f"{len(record)} keys in the map's order, {populated} populated, "
+        f"{len(record) - populated} null"
+    )
+
+
+def _case_record_refused(
+    field_map: FieldMap,
+    windows: Mapping[str, str],
+    kind: type[ExtractError],
+    status: int,
+    fragments: Sequence[str],
+    what: str,
+) -> str:
+    """Confirm one rendered record is refused with the expected status."""
+    record = _rendered_record(field_map, windows)
+    return _expect_raised(
+        kind,
+        status,
+        fragments,
+        lambda: build_landing_record(record, field_map, DEFAULT_SOURCE_SYSTEM_KEY),
+        f"decoding {what}",
+    )
+
+
+def _case_refusal_names_values_under_the_option(field_map: FieldMap) -> str:
+    """Confirm a refused window names its own characters once display is enabled.
+
+    The default contract withholds every record value from a diagnostic, so the same
+    refusal is exercised twice: once withheld, where the diagnostic states the character
+    count alone, and once with display enabled, where it names the offending character.
+    The setting is restored before the case returns.
+    """
+    windows = {**_MOTOR_WINDOWS, "payment_amount": "50A"}
+    record = _rendered_record(field_map, windows)
+    previous = show_identifiers_enabled()
+    try:
+        set_show_identifiers(False)
+        withheld = _expect_raised(
+            RecordError,
+            EXIT_RECORD_REJECTED,
+            ("CA-PAYMENT", "not all digits", _withheld(6)),
+            lambda: build_landing_record(record, field_map, DEFAULT_SOURCE_SYSTEM_KEY),
+            "decoding a non-numeric payment with values withheld",
+        )
+        _expect_lacks(withheld, "'00050A'", "the withheld diagnostic")
+        set_show_identifiers(True)
+        shown = _expect_raised(
+            RecordError,
+            EXIT_RECORD_REJECTED,
+            ("CA-PAYMENT", "not all digits", "'00050A'", "'A'"),
+            lambda: build_landing_record(record, field_map, DEFAULT_SOURCE_SYSTEM_KEY),
+            "decoding a non-numeric payment with values shown",
+        )
+    finally:
+        set_show_identifiers(previous)
+    return (
+        f"withheld as {_shown(_withheld(6))}, named under "
+        f"{SHOW_IDENTIFIERS_OPTION}: {_escaped(shown, 72)}"
+    )
+
+
+def _case_window_decoding(
+    field_map: FieldMap,
+    windows: Mapping[str, str],
+    expected: Mapping[str, str | None],
+    what: str,
+) -> str:
+    """Confirm every landing key the map reads from the record decodes as expected."""
+    record = _rendered_record(field_map, windows)
+    policy_type = str(expected[LANDING_POLICY_TYPE])
+    checked = 0
+    for name in field_map.field_order:
+        field = field_map.fields.get(name)
+        if field is None or not field.is_read_from_record:
+            continue
+        if name == LANDING_RETURN_CODE:
+            observed: str | None = decode_return_code(field, record)
+        elif name in field_map.amount_fields:
+            observed = decode_amount(field, record, policy_type, field_map)
+        elif name == LANDING_LAST_CHANGED:
+            decoded = _decode_chain_populated(field, record)
+            observed = None if decoded is None else normalise_timestamp(decoded, field)
+        elif name in CALENDAR_DATE_FIELDS:
+            observed = validate_calendar_date(decode_window(field, record), field)
+        else:
+            observed = decode_window(field, record)
+        _expect(observed, expected[name], f"the decoded window of {name} on {what}")
+        checked += 1
+    return f"{checked} windows of {what} decoded to their expected values"
+
+
+def _case_request_routing(field_map: FieldMap, request_id: str, expected: str) -> str:
+    """Confirm one routed request id yields the policy type the map records for it."""
+    _expect(
+        derive_policy_type(request_id, field_map),
+        expected,
+        f"the policy type derived for request id {request_id}",
+    )
+    return f"request id {request_id} routes to policy type {expected}"
+
+
+def _case_return_code_refused(field_map: FieldMap, code: str) -> str:
+    """Confirm one recorded unsuccessful return code is refused with its meaning."""
+    meaning = field_map.return_code_meanings[code]
+    return _case_record_refused(
+        field_map,
+        {**_MOTOR_WINDOWS, LANDING_RETURN_CODE: code},
+        ChainNotSuccessfulError,
+        EXIT_CHAIN_NOT_SUCCESSFUL,
+        [f"'{code}'", meaning, "did not complete the policy issue"],
+        f"a motor record whose return code is {code}",
+    )
+
+
+def _case_product_null_pattern(field_map: FieldMap) -> str:
+    """Confirm the amount keys applicable to each policy type match the recorded split.
+
+    Every policy type the routing table yields is checked against
+    ``product_premium_nullability``: the payment is applicable to all four, the motor
+    premium to M alone, the four commercial premiums to C alone, and E and H carry no
+    product premium.
+    """
+    expected = {
+        "M": {"payment_amount", "motor_premium_amount"},
+        "C": {
+            "payment_amount",
+            "fire_premium_amount",
+            "crime_premium_amount",
+            "flood_premium_amount",
+            "weather_premium_amount",
+        },
+        "E": {"payment_amount"},
+        "H": {"payment_amount"},
+    }
+    for policy_type, applicable in expected.items():
+        observed = {
+            name
+            for name in field_map.amount_fields
+            if amount_applies(name, policy_type, field_map)
+        }
+        _expect(
+            sorted(observed),
+            sorted(applicable),
+            f"the amounts applicable to policy type {policy_type}",
+        )
+    return (
+        "M carries the motor premium only, C the four commercial premiums only, "
+        "E and H no product premium"
+    )
+
+
+def _case_timestamp_window(field_map: FieldMap, raw: str, expected: str) -> str:
+    """Confirm one returned timestamp window normalises to the expected value."""
+    record = build_landing_record(
+        _rendered_record(
+            field_map, {**_MOTOR_WINDOWS, LANDING_LAST_CHANGED: raw}
+        ),
+        field_map,
+        DEFAULT_SOURCE_SYSTEM_KEY,
+    )
+    _expect(
+        record[LANDING_LAST_CHANGED],
+        expected,
+        f"the normalised timestamp of window {_shown(raw)}",
+    )
+    return f"{_shown(raw)} normalised to {_shown(expected)}"
+
+
+def _case_timestamp_refused(
+    field_map: FieldMap, raw: str, fragments: Sequence[str]
+) -> str:
+    """Confirm one impossible or unparsable returned timestamp is refused."""
+    field = field_map.fields[LANDING_LAST_CHANGED]
+    return _expect_raised(
+        RecordError,
+        EXIT_RECORD_REJECTED,
+        fragments,
+        lambda: normalise_timestamp(raw, field),
+        f"normalising the timestamp {_shown(raw)}",
+    )
+
+
+def _case_date_accepted(field_map: FieldMap, name: str, value: str) -> str:
+    """Confirm one real calendar date lands unchanged."""
+    record = build_landing_record(
+        _rendered_record(field_map, {**_MOTOR_WINDOWS, name: value}),
+        field_map,
+        DEFAULT_SOURCE_SYSTEM_KEY,
+    )
+    _expect(record[name], value, f"the landed value of {name}")
+    return f"{name} {_shown(value)} landed unchanged"
+
+
+def _case_date_refused(
+    field_map: FieldMap, name: str, value: str, fragments: Sequence[str]
+) -> str:
+    """Confirm one impossible calendar date is refused before the record is landed."""
+    return _case_record_refused(
+        field_map,
+        {**_MOTOR_WINDOWS, name: value},
+        RecordError,
+        EXIT_RECORD_REJECTED,
+        fragments,
+        f"a motor record whose {name} window holds {_shown(value)}",
+    )
+
+
+# ---------------------------------------------------------------------------
+# Self-test cases: serialisation
+# ---------------------------------------------------------------------------
+
+
+def _case_serialised_line(field_map: FieldMap) -> str:
+    """Confirm the landing record serialises to one JSON line in the map's order."""
+    record = build_landing_record(
+        _rendered_record(field_map, _COMMERCIAL_WINDOWS),
+        field_map,
+        DEFAULT_SOURCE_SYSTEM_KEY,
+    )
+    line = serialise_record(record, field_map.field_order)
+    if not line.endswith("\n") or line.count("\n") != 1:
+        raise _SelfTestFailure(
+            f"the serialised record carries {line.count(chr(10))} line ending(s), "
+            "expected 1"
+        )
+    parsed = json.loads(line)
+    _expect_record(parsed, _COMMERCIAL_RECORD, "the parsed serialised record")
+    positions = [line.index(f'"{name}"') for name in field_map.field_order]
+    if positions != sorted(positions):
+        raise _SelfTestFailure(
+            "the serialised keys are not written in the field map's landing order"
+        )
+    _expect(line.isascii(), True, "whether the serialised line is ASCII")
+    return f"{len(line)} characters, {len(parsed)} keys in the map's landing order"
+
+
+def _case_serialised_rejects_non_string(field_map: FieldMap) -> str:
+    """Confirm a landing value that is not a string or null is refused."""
+    record: dict[str, Any] = dict(_COMMERCIAL_RECORD)
+    record["payment_amount"] = 1750
+    return _expect_raised(
+        FieldMapError,
+        EXIT_FIELD_MAP_INVALID,
+        ["a string or null is required", "payment_amount"],
+        lambda: serialise_record(record, field_map.field_order),
+        "serialising a record carrying a number",
+    )
+
+
+def _case_serialised_rejects_wrong_order(field_map: FieldMap) -> str:
+    """Confirm a landing record whose keys are out of order is refused."""
+    record = dict(reversed(list(_COMMERCIAL_RECORD.items())))
+    return _expect_raised(
+        FieldMapError,
+        EXIT_FIELD_MAP_INVALID,
+        ["does not carry the field map's landing keys in order"],
+        lambda: serialise_record(record, field_map.field_order),
+        "serialising a record whose keys are reversed",
+    )
+
+
+# ---------------------------------------------------------------------------
+# Self-test cases: destination, modes and output failures
+# ---------------------------------------------------------------------------
+
+
+def _prepared_capture(
+    directory: Path, field_map: FieldMap, windows: Mapping[str, str]
+) -> Path:
+    """Write one rendered COMMAREA capture below ``directory`` and return its path."""
+    record = _rendered_record(field_map, windows)
+    return _written(
+        directory, _SCRATCH_CAPTURE_NAME, (record + "\n").encode(CAPTURE_ENCODING)
+    )
+
+
+def _case_extraction_writes_record(
+    scratch: Path, map_path: Path, field_map: FieldMap
+) -> str:
+    """Confirm one extraction lands the 17 keys of the record, in the map's order."""
+    directory = _case_directory(scratch, "extraction")
+    capture = _prepared_capture(directory, field_map, _MOTOR_WINDOWS)
+    destination = directory / "landed" / "deeper" / _SCRATCH_RECORD_NAME
+    result = _run_cli(_extraction_argv(capture, destination, map_path))
+    summary = _expect_cli_success(result, "the extraction of a motor capture")
+    written = Path(os.path.realpath(destination.parent)) / destination.name
+    _expect_holds(summary, str(written), "the summary line")
+    text, parsed = _decoded_line(destination)
+    _expect_record(parsed, _MOTOR_RECORD, "the landed record")
+    return f"{len(parsed)} keys landed in {len(text)} characters"
+
+
+def _case_created_modes(scratch: Path, map_path: Path, field_map: FieldMap) -> str:
+    """Confirm the created directories and the landed record carry the private modes.
+
+    The ambient umask is set to zero for the run, which is the setting under which a
+    mode taken from the umask would leave the landed policy data world-readable. The
+    expected modes are the required ones - 0700 for a created directory and 0600 for
+    the landed record - rather than the constants the run applied.
+    """
+    directory = _case_directory(scratch, "modes")
+    capture = _prepared_capture(directory, field_map, _COMMERCIAL_WINDOWS)
+    created = directory / "landed"
+    destination = created / "deeper" / _SCRATCH_RECORD_NAME
+    previous = os.umask(0o000)
+    try:
+        result = _run_cli(_extraction_argv(capture, destination, map_path))
+    finally:
+        os.umask(previous)
+    _expect_cli_success(result, "the extraction run under a zero umask")
+    for path in (created, destination.parent):
+        _expect(
+            f"{stat.S_IMODE(os.stat(path).st_mode):04o}",
+            "0700",
+            f"the mode of the created directory {path.name}",
+        )
+    _expect(
+        f"{stat.S_IMODE(os.stat(destination).st_mode):04o}",
+        "0600",
+        "the mode of the landed record",
+    )
+    return "two directories at 0700 and the record at 0600 under a zero umask"
+
+
+def _case_replaced_record_mode(
+    scratch: Path, map_path: Path, field_map: FieldMap
+) -> str:
+    """Confirm replacing a world-readable record leaves the landed mode private."""
+    directory = _case_directory(scratch, "replace")
+    capture = _prepared_capture(directory, field_map, _MOTOR_WINDOWS)
+    destination = _written(directory, _SCRATCH_RECORD_NAME, b"{}\n")
+    os.chmod(destination, 0o644)
+    previous = os.umask(0o000)
+    try:
+        result = _run_cli(_extraction_argv(capture, destination, map_path))
+    finally:
+        os.umask(previous)
+    _expect_cli_success(result, "the extraction over an existing record")
+    _expect(
+        f"{stat.S_IMODE(os.stat(destination).st_mode):04o}",
+        "0600",
+        "the mode of the replaced record",
+    )
+    _expect_record(_decoded_line(destination)[1], _MOTOR_RECORD, "the landed record")
+    return "an existing 0644 record replaced at 0600"
+
+
+def _case_generated_roots_accepted() -> str:
+    """Confirm a destination below each generated root is accepted, creating nothing."""
+    marker = f"extractor-selftest-{os.getpid()}"
+    for relative in GENERATED_OUTPUT_ROOTS:
+        candidate = REPOSITORY_ROOT / relative / marker / _SCRATCH_RECORD_NAME
+        target = confine_destination(candidate)
+        root = Path(os.path.realpath(REPOSITORY_ROOT / relative))
+        if root not in target.parents:
+            raise _SelfTestFailure(
+                f"the destination below {relative} canonicalises to "
+                f"{_path_shown(target)}, which does not stand below "
+                f"{_path_shown(root)}"
+            )
+        if os.path.lexists(target) or os.path.lexists(candidate.parent):
+            raise _SelfTestFailure(
+                f"validating the destination below {relative} created "
+                f"{_path_shown(candidate.parent)}"
+            )
+    return f"{len(GENERATED_OUTPUT_ROOTS)} generated roots accept a destination below"
+
+
+def _case_out_of_tree_accepted(scratch: Path) -> str:
+    """Confirm a destination outside the repository directory is accepted."""
+    candidate = scratch / "out-of-tree" / _SCRATCH_RECORD_NAME
+    target = confine_destination(candidate)
+    repository = Path(os.path.realpath(REPOSITORY_ROOT))
+    if _stands_inside(target, repository):
+        raise _SelfTestFailure(
+            f"the scratch destination {_path_shown(target)} stands inside "
+            f"the repository directory {_path_shown(repository)}"
+        )
+    return f"{_path_shown(target)} accepted outside the repository"
+
+
+def _case_authored_destination_refused(relative: str) -> str:
+    """Confirm one authored in-tree path is refused as a destination."""
+    candidate = REPOSITORY_ROOT / relative
+    return _expect_raised(
+        InputOutputError,
+        EXIT_IO_ERROR,
+        ["outside every generated root"],
+        lambda: confine_destination(candidate),
+        f"validating the authored destination {relative}",
+    )
+
+
+def _case_this_module_destination_refused(
+    scratch: Path, map_path: Path, field_map: FieldMap
+) -> str:
+    """Confirm an extraction cannot replace this module, and does not modify it."""
+    directory = _case_directory(scratch, "authored-destination")
+    capture = _prepared_capture(directory, field_map, _MOTOR_WINDOWS)
+    destination = Path(__file__).resolve()
+    before = _fingerprint(destination)
+    result = _run_cli(_extraction_argv(capture, destination, map_path))
+    diagnostic = _expect_cli_failure(
+        result,
+        EXIT_IO_ERROR,
+        ["outside every generated root", destination.name],
+        "the extraction aimed at this module",
+    )
+    _expect_untouched(destination, before, "this module")
+    return f"refused and unchanged: {diagnostic}"
+
+
+def _case_read_only_source_refused() -> str:
+    """Confirm a destination inside base/ is refused, and the source is unchanged."""
+    destination = READ_ONLY_SOURCE_ROOT / "src" / "lgcmarea.cpy"
+    before = _fingerprint(destination)
+    diagnostic = _expect_raised(
+        InputOutputError,
+        EXIT_IO_ERROR,
+        ["read-only source directory"],
+        lambda: confine_destination(destination),
+        "validating a destination inside the read-only source directory",
+    )
+    _expect_untouched(destination, before, "base/src/lgcmarea.cpy")
+    return f"refused and unchanged: {diagnostic}"
+
+
+def _case_symlink_alias_refused(scratch: Path) -> str:
+    """Confirm a symbolic link into the repository cannot smuggle a destination in.
+
+    The link stands in this run's scratch directory and names the authored directory
+    holding this module; the destination it spells resolves onto this module, so the
+    canonicalised path reaches the same refusal the module's own pathname reaches.
+    """
+    directory = _case_directory(scratch, "alias")
+    alias = directory / "alias"
+    alias.symlink_to(_THIS_DIR)
+    victim = _THIS_DIR / Path(__file__).name
+    before = _fingerprint(victim)
+    candidate = alias / Path(__file__).name
+    diagnostic = _expect_raised(
+        InputOutputError,
+        EXIT_IO_ERROR,
+        ["outside every generated root"],
+        lambda: confine_destination(candidate),
+        "validating a destination spelled through a symbolic-link alias",
+    )
+    _expect_untouched(victim, before, "the module the alias names")
+    return f"refused and unchanged: {diagnostic}"
+
+
+def _case_final_symlink_refused(
+    scratch: Path, map_path: Path, field_map: FieldMap
+) -> str:
+    """Confirm a destination whose final component is a symbolic link is refused."""
+    directory = _case_directory(scratch, "final-link")
+    capture = _prepared_capture(directory, field_map, _MOTOR_WINDOWS)
+    victim = _written(directory, "victim.json", b"untouched\n")
+    link = directory / "link.json"
+    link.symlink_to(victim)
+    before = _fingerprint(victim)
+    result = _run_cli(_extraction_argv(capture, link, map_path))
+    diagnostic = _expect_cli_failure(
+        result,
+        EXIT_IO_ERROR,
+        ["the destination is a symbolic link"],
+        "the extraction aimed at a symbolic link",
+    )
+    _expect_untouched(victim, before, "the file the link names")
+    return f"refused and unchanged: {diagnostic}"
+
+
+def _case_existing_directory_refused(
+    scratch: Path, map_path: Path, field_map: FieldMap
+) -> str:
+    """Confirm a destination that is an existing directory is refused."""
+    directory = _case_directory(scratch, "existing-directory")
+    capture = _prepared_capture(directory, field_map, _MOTOR_WINDOWS)
+    destination = directory / _SCRATCH_RECORD_NAME
+    destination.mkdir(mode=DIRECTORY_MODE)
+    result = _run_cli(_extraction_argv(capture, destination, map_path))
+    return _expect_cli_failure(
+        result,
+        EXIT_IO_ERROR,
+        ["exists and is not a regular file"],
+        "the extraction aimed at an existing directory",
+    )
+
+
+def _case_parent_is_a_file_refused(
+    scratch: Path, map_path: Path, field_map: FieldMap
+) -> str:
+    """Confirm a destination whose parent is a regular file is refused."""
+    directory = _case_directory(scratch, "parent-file")
+    capture = _prepared_capture(directory, field_map, _MOTOR_WINDOWS)
+    blocking = _written(directory, "blocking", b"not a directory\n")
+    destination = blocking / _SCRATCH_RECORD_NAME
+    result = _run_cli(_extraction_argv(capture, destination, map_path))
+    return _expect_cli_failure(
+        result,
+        EXIT_IO_ERROR,
+        ["the destination cannot be examined"],
+        "the extraction aimed below a regular file",
+    )
+
+
+def _case_destination_names_no_file_refused() -> str:
+    """Confirm a destination naming a filesystem root, and no file, is refused."""
+    return _expect_raised(
+        InputOutputError,
+        EXIT_IO_ERROR,
+        ["names no file"],
+        lambda: confine_destination(Path(os.sep)),
+        "validating a destination that names the filesystem root",
+    )
+
+
+def _case_removed_parent_recreated(
+    scratch: Path, map_path: Path, field_map: FieldMap
+) -> str:
+    """Confirm a destination directory removed before the write is created again."""
+    directory = _case_directory(scratch, "removed-parent")
+    capture = _prepared_capture(directory, field_map, _MOTOR_WINDOWS)
+    parent = directory / "landed"
+    parent.mkdir(mode=DIRECTORY_MODE)
+    parent.rmdir()
+    destination = parent / _SCRATCH_RECORD_NAME
+    result = _run_cli(_extraction_argv(capture, destination, map_path))
+    _expect_cli_success(result, "the extraction into a removed directory")
+    _expect_record(_decoded_line(destination)[1], _MOTOR_RECORD, "the landed record")
+    return "the removed directory was created again and the record landed"
+
+
+def _temporary_candidates(directory: Path, name: str) -> list[Path]:
+    """Return the temporary entries the write tries beside a destination, in order."""
+    return [
+        directory / f".{name}.{os.getpid()}.{attempt}.tmp"
+        for attempt in range(MAX_TEMPORARY_ATTEMPTS)
+    ]
+
+
+def _case_temporary_collision_retried(
+    scratch: Path, map_path: Path, field_map: FieldMap
+) -> str:
+    """Confirm an occupied first temporary name is stepped over rather than followed."""
+    directory = _case_directory(scratch, "temporary-collision")
+    capture = _prepared_capture(directory, field_map, _MOTOR_WINDOWS)
+    destination = directory / _SCRATCH_RECORD_NAME
+    occupied = _temporary_candidates(directory, _SCRATCH_RECORD_NAME)[0]
+    occupied.mkdir(mode=DIRECTORY_MODE)
+    result = _run_cli(_extraction_argv(capture, destination, map_path))
+    _expect_cli_success(result, "the extraction past an occupied temporary name")
+    _expect_record(_decoded_line(destination)[1], _MOTOR_RECORD, "the landed record")
+    if not occupied.is_dir():
+        raise _SelfTestFailure(
+            f"the occupied temporary name {_path_shown(occupied)} was replaced"
+        )
+    return "the first temporary name was left in place and the record landed"
+
+
+def _case_temporary_candidates_exhausted(
+    scratch: Path, map_path: Path, field_map: FieldMap
+) -> str:
+    """Confirm the write is refused when every temporary name is occupied."""
+    directory = _case_directory(scratch, "temporary-exhausted")
+    capture = _prepared_capture(directory, field_map, _MOTOR_WINDOWS)
+    destination = directory / _SCRATCH_RECORD_NAME
+    for candidate in _temporary_candidates(directory, _SCRATCH_RECORD_NAME):
+        candidate.mkdir(mode=DIRECTORY_MODE)
+    result = _run_cli(_extraction_argv(capture, destination, map_path))
+    diagnostic = _expect_cli_failure(
+        result,
+        EXIT_IO_ERROR,
+        ["no temporary entry could be created"],
+        "the extraction with every temporary name occupied",
+    )
+    if os.path.lexists(destination):
+        raise _SelfTestFailure(
+            f"the refused write created {_path_shown(destination)}"
+        )
+    return f"refused after {MAX_TEMPORARY_ATTEMPTS} attempts: {diagnostic}"
+
+
+def _case_temporary_entry_refused(
+    scratch: Path, map_path: Path, field_map: FieldMap
+) -> str:
+    """Confirm a directory that refuses the temporary entry refuses the write.
+
+    The destination name is long enough that the temporary name beside it exceeds the
+    length the directory accepts, which is the failure of the temporary open a directory
+    refusing the creation raises. Nothing is landed and nothing is left behind.
+    """
+    directory = _case_directory(scratch, "temporary-refused")
+    capture = _prepared_capture(directory, field_map, _MOTOR_WINDOWS)
+    destination = directory / ("L" * 250)
+    result = _run_cli(_extraction_argv(capture, destination, map_path))
+    diagnostic = _expect_cli_failure(
+        result,
+        EXIT_IO_ERROR,
+        ["cannot be written through a temporary entry"],
+        "the extraction into a directory refusing the temporary entry",
+    )
+    if os.path.lexists(destination):
+        raise _SelfTestFailure(
+            f"the refused write created {_path_shown(destination)}"
+        )
+    remaining = sorted(entry.name for entry in directory.iterdir())
+    if remaining != [capture.name]:
+        raise _SelfTestFailure(
+            f"the refused write left {_quote_all(remaining)} in the case directory, "
+            f"expected the capture {_shown(capture.name)} alone"
+        )
+    return f"refused before anything was created: {diagnostic}"
+
+
+# ---------------------------------------------------------------------------
+# Self-test cases: summary, return-code refusal and command line
+# ---------------------------------------------------------------------------
+
+
+def _case_summary_redacted(scratch: Path, map_path: Path, field_map: FieldMap) -> str:
+    """Confirm the default summary names no business identifier."""
+    directory = _case_directory(scratch, "summary-redacted")
+    capture = _prepared_capture(directory, field_map, _MOTOR_WINDOWS)
+    destination = directory / _SCRATCH_RECORD_NAME
+    result = _run_cli(_extraction_argv(capture, destination, map_path))
+    summary = _expect_cli_success(result, "the extraction summarised by default")
+    for fragment in (
+        f"{LANDING_POLICY_TYPE}=M",
+        "keys=17",
+        "identifiers=redacted",
+    ):
+        _expect_holds(summary, fragment, "the default summary line")
+    for fragment in (
+        *IDENTIFIER_FIELDS,
+        str(_MOTOR_RECORD[LANDING_POLICY_NUMBER]),
+        str(_MOTOR_RECORD[LANDING_BROKERS_REFERENCE]),
+    ):
+        _expect_lacks(summary, fragment, "the default summary line")
+    return f"summary carries no identifier: {_escaped(summary, 96)}"
+
+
+def _case_summary_identifiers(
+    scratch: Path, map_path: Path, field_map: FieldMap
+) -> str:
+    """Confirm --show-identifiers restores the identifier line."""
+    directory = _case_directory(scratch, "summary-identifiers")
+    capture = _prepared_capture(directory, field_map, _MOTOR_WINDOWS)
+    destination = directory / _SCRATCH_RECORD_NAME
+    result = _run_cli(
+        _extraction_argv(capture, destination, map_path, "--show-identifiers")
+    )
+    summary = _expect_cli_success(result, "the extraction summarised with identifiers")
+    for name in (
+        LANDING_REQUEST_ID,
+        LANDING_POLICY_TYPE,
+        LANDING_POLICY_NUMBER,
+        LANDING_CUSTOMER_NUMBER,
+        LANDING_BROKER_ID,
+        LANDING_BROKERS_REFERENCE,
+        LANDING_RETURN_CODE,
+    ):
+        _expect_holds(
+            summary, f"{name}={_MOTOR_RECORD[name]}", "the identifier summary line"
+        )
+    return f"summary carries seven named values: {_escaped(summary, 96)}"
+
+
+def _case_cli_return_code_refused(
+    scratch: Path, map_path: Path, field_map: FieldMap, code: str
+) -> str:
+    """Confirm the command line refuses an unsuccessful capture and writes nothing."""
+    directory = _case_directory(scratch, f"return-code-{code}")
+    capture = _prepared_capture(
+        directory, field_map, {**_MOTOR_WINDOWS, LANDING_RETURN_CODE: code}
+    )
+    destination = directory / _SCRATCH_RECORD_NAME
+    result = _run_cli(_extraction_argv(capture, destination, map_path))
+    diagnostic = _expect_cli_failure(
+        result,
+        EXIT_CHAIN_NOT_SUCCESSFUL,
+        [f"'{code}'", field_map.return_code_meanings[code]],
+        f"the extraction of a capture whose return code is {code}",
+    )
+    if os.path.lexists(destination):
+        raise _SelfTestFailure(
+            f"the refused extraction created {_path_shown(destination)}"
+        )
+    return f"status {EXIT_CHAIN_NOT_SUCCESSFUL}, nothing written: {diagnostic}"
+
+
+def _case_cli_self_test_rejects_extraction_arguments(scratch: Path) -> str:
+    """Confirm --self-test accepts neither --commarea nor --output."""
+    destination = scratch / "never-written.json"
+    result = _run_cli(["--self-test", "--output", str(destination)])
+    diagnostic = _expect_cli_failure(
+        result,
+        EXIT_IO_ERROR,
+        ["--self-test accepts neither --commarea nor --output"],
+        "a self-test command line naming an output",
+    )
+    if os.path.lexists(destination):
+        raise _SelfTestFailure("the rejected command line created its output")
+    return diagnostic
+
+
+def _case_cli_requires_capture_and_output(map_path: Path) -> str:
+    """Confirm an extraction command line without a capture or output is rejected."""
+    result = _run_cli(["--field-map", str(map_path)])
+    return _expect_cli_failure(
+        result,
+        EXIT_IO_ERROR,
+        ["--commarea and --output are required unless --self-test is given"],
+        "a command line naming neither a capture nor an output",
+    )
+
+
+def _case_cli_rejects_withdrawn_option(
+    scratch: Path, map_path: Path, field_map: FieldMap
+) -> str:
+    """Confirm the withdrawn failure-landing option is no longer accepted."""
+    directory = _case_directory(scratch, "withdrawn-option")
+    capture = _prepared_capture(
+        directory, field_map, {**_MOTOR_WINDOWS, LANDING_RETURN_CODE: "90"}
+    )
+    destination = directory / _SCRATCH_RECORD_NAME
+    result = _run_cli(
+        _extraction_argv(
+            capture, destination, map_path, "--allow-nonzero-return-code"
+        )
+    )
+    diagnostic = _expect_cli_failure(
+        result,
+        EXIT_IO_ERROR,
+        ["command line rejected", "allow-nonzero-return-code"],
+        "a command line asking to land a failure record",
+    )
+    if os.path.lexists(destination):
+        raise _SelfTestFailure("the rejected command line created its output")
+    return diagnostic
+
+
+def _case_source_system_key(supplied: str | None, expected: str, what: str) -> str:
+    """Confirm one accepted source-system key resolves to the expected value."""
+    _expect(resolve_source_system_key(supplied), expected, f"the key from {what}")
+    return f"{what} resolved to {_shown(expected)}"
+
+
+def _case_source_system_key_refused(
+    supplied: str, fragments: Sequence[str], what: str
+) -> str:
+    """Confirm one rejected source-system key is refused as a usage error."""
+    return _expect_raised(
+        UsageError,
+        EXIT_IO_ERROR,
+        fragments,
+        lambda: resolve_source_system_key(supplied),
+        f"resolving {what}",
+    )
+
+
+def _case_source_system_key_from_environment() -> str:
+    """Confirm an omitted option reads the environment, then the built-in default."""
+    previous = os.environ.get(SOURCE_SYSTEM_KEY_VARIABLE)
+    try:
+        os.environ[SOURCE_SYSTEM_KEY_VARIABLE] = "FROM_ENVIRONMENT"
+        _expect(
+            resolve_source_system_key(None),
+            "FROM_ENVIRONMENT",
+            "the key taken from the environment",
+        )
+        del os.environ[SOURCE_SYSTEM_KEY_VARIABLE]
+        _expect(
+            resolve_source_system_key(None),
+            DEFAULT_SOURCE_SYSTEM_KEY,
+            "the key taken from the built-in default",
+        )
+    finally:
+        if previous is None:
+            os.environ.pop(SOURCE_SYSTEM_KEY_VARIABLE, None)
+        else:
+            os.environ[SOURCE_SYSTEM_KEY_VARIABLE] = previous
+    return (
+        f"the {SOURCE_SYSTEM_KEY_VARIABLE} variable is read first and "
+        f"{_shown(DEFAULT_SOURCE_SYSTEM_KEY)} last"
+    )
+
+
+def _case_scratch_removed(scratch: Path) -> str:
+    """Confirm the private scratch directory of this run no longer exists."""
+    if os.path.lexists(scratch):
+        raise _SelfTestFailure(
+            f"the self-test scratch directory {_path_shown(scratch)} was left behind"
+        )
+    return f"{_path_shown(scratch)} removed"
+
+
+# ---------------------------------------------------------------------------
+# Self-test runner
+# ---------------------------------------------------------------------------
+
+
+def _run_case(
+    results: list[_CaseResult],
+    stream: Any,
+    name: str,
+    case: Callable[[], str],
+) -> None:
+    """Run one case, record its outcome and write one line naming it to ``stream``."""
+    try:
+        detail = case()
+    except _SelfTestFailure as failure:
+        result = _CaseResult(name=name, passed=False, detail=str(failure))
+    except ExtractError as error:
+        result = _CaseResult(
+            name=name, passed=False, detail=f"{_type_name(error)}: {error}"
+        )
+    except (
+        ArithmeticError,
+        AssertionError,
+        AttributeError,
+        LookupError,
+        NameError,
+        OSError,
+        RuntimeError,
+        StopIteration,
+        TypeError,
+        ValueError,
+        yaml.YAMLError,
+    ) as error:
+        result = _CaseResult(
+            name=name,
+            passed=False,
+            detail=f"unexpected {_type_name(error)}: {_display(error)}",
+        )
+    else:
+        result = _CaseResult(name=name, passed=True, detail=detail)
+    results.append(result)
+    verdict = "PASS" if result.passed else "FAIL"
+    print(f"self-test {verdict} {result.name} -- {_one_line(result.detail)}",
+          file=stream)
+
+
+def _field_map_cases(
+    results: list[_CaseResult],
+    out: Any,
+    field_map: FieldMap,
+    map_text: str,
+    directory: Path,
+) -> None:
+    """Run the field-map cases: the real map, and every contradiction it can carry."""
+    _run_case(results, out, "field_map_members", lambda: _case_field_map_members(
+        field_map))
+    _run_case(
+        results, out, "field_map_return_code_meanings",
+        lambda: _case_return_code_meanings(field_map),
+    )
+    refusals: tuple[tuple[str, Callable[[Any], None], tuple[str, ...]], ...] = (
+        (
+            "missing_record_section",
+            lambda document: document.pop("record"),
+            ("the field map is missing 'record'",),
+        ),
+        (
+            "missing_landing_section",
+            lambda document: document.pop("landing"),
+            ("the field map is missing 'landing'",),
+        ),
+        (
+            "missing_return_codes_section",
+            lambda document: document.pop("return_codes"),
+            ("the field map is missing 'return_codes'",),
+        ),
+        (
+            "record_length_changed",
+            lambda document: document["record"].update({"length": 32499}),
+            ("records 'record.length' as 32499", "32500 is required"),
+        ),
+        (
+            "offset_past_record",
+            lambda document: document["layout"]["header"]["items"][0].update(
+                {"offset": 32499}
+            ),
+            ("past the 32500-character record",),
+        ),
+        (
+            "length_below_one",
+            lambda document: document["layout"]["header"]["items"][0].update(
+                {"length": 0}
+            ),
+            ("an integer of at least 1 is required",),
+        ),
+        (
+            "kind_unknown",
+            lambda document: document["layout"]["header"]["items"][0].update(
+                {"kind": "packed_decimal"}
+            ),
+            ("'packed_decimal'", "is required"),
+        ),
+        (
+            "pic_empty",
+            lambda document: _field_entry(document, LANDING_POLICY_NUMBER)[
+                "commarea"
+            ].update({"pic": ""}),
+            ("commarea.pic", "a non-empty string is required"),
+        ),
+        (
+            "window_disagrees_with_layout",
+            lambda document: _field_entry(document, LANDING_POLICY_NUMBER)[
+                "commarea"
+            ].update({"offset": 20}),
+            ("under 'layout'",),
+        ),
+        (
+            "landing_key_recorded_twice",
+            lambda document: document["fields"].append(
+                copy.deepcopy(_field_entry(document, LANDING_REQUEST_ID))
+            ),
+            ("on two entries",),
+        ),
+        (
+            "landing_order_carries_unknown_key",
+            lambda document: document["landing"]["field_order"].append("extra_key"),
+            ("does not match its recorded landing keys", "extra_key"),
+        ),
+        (
+            "landing_order_repeats_a_key",
+            lambda document: document["landing"]["field_order"].append(
+                LANDING_POLICY_NUMBER
+            ),
+            ("repeats", LANDING_POLICY_NUMBER),
+        ),
+        (
+            "nullability_contradicts_applicability",
+            lambda document: document["product_premium_nullability"][
+                "by_policy_type"
+            ]["E"].update(
+                {
+                    "populated": ["motor_premium_amount"],
+                    "null_fields": [
+                        "fire_premium_amount",
+                        "crime_premium_amount",
+                        "flood_premium_amount",
+                        "weather_premium_amount",
+                    ],
+                }
+            ),
+            ("motor_premium_amount", "inapplicable to policy type 'E'"),
+        ),
+        (
+            "zero_substitution_permitted",
+            lambda document: document["product_premium_nullability"].update(
+                {"zero_substitution_permitted": True}
+            ),
+            ("zero_substitution_permitted", "false is required"),
+        ),
+        (
+            "inapplicable_value_not_null",
+            lambda document: document["product_premium_nullability"].update(
+                {"inapplicable_value": 0}
+            ),
+            ("inapplicable_value", "null is required"),
+        ),
+        (
+            "return_code_domain_without_success",
+            lambda document: _field_entry(document, LANDING_RETURN_CODE).update(
+                {"domain": ["70", "80", "90", "98", "99"]}
+            ),
+            ("omits '00'",),
+        ),
+        (
+            "return_code_meaning_absent",
+            lambda document: document["return_codes"]["80"].pop("meaning"),
+            ("return_codes.80.meaning",),
+        ),
+        (
+            "return_codes_do_not_cover_the_domain",
+            lambda document: document["return_codes"].pop("99"),
+            ("does not cover the recorded domain", "'99'"),
+        ),
+        (
+            "landing_key_sourced_from_excluded_item",
+            lambda document: _field_entry(document, "fire_premium_amount")[
+                "commarea"
+            ].update({"item": "CA-B-FirePeril", "offset": 896, "length": 4}),
+            ("under 'excluded'",),
+        ),
+        (
+            "source_system_run_value_changed",
+            lambda document: document[LANDING_SOURCE_SYSTEM_KEY].update(
+                {"run_value": "OTHER_SYSTEM"}
+            ),
+            ("run_value", DEFAULT_SOURCE_SYSTEM_KEY),
+        ),
+        (
+            "source_system_runtime_status_changed",
+            lambda document: document[LANDING_SOURCE_SYSTEM_KEY].update(
+                {"runtime_status": "active"}
+            ),
+            ("runtime_status", RUNTIME_STATUS_WAREHOUSE_ASSIGNED),
+        ),
+        (
+            "policy_type_read_from_the_record",
+            lambda document: _field_entry(document, LANDING_POLICY_TYPE).update(
+                {
+                    "commarea": {
+                        "item": "CA-REQUEST-ID",
+                        "copybook": "base/src/lgcmarea.cpy",
+                        "line": 10,
+                        "pic": "X(6)",
+                        "offset": 1,
+                        "length": 6,
+                    }
+                }
+            ),
+            ("is derived from the request id",),
+        ),
+    )
+    for name, mutate, fragments in refusals:
+        _run_case(
+            results,
+            out,
+            f"field_map_{name}_refused",
+            lambda name=name, mutate=mutate, fragments=fragments: _case_map_refused(
+                directory, map_text, name, mutate, fragments
+            ),
+        )
+    documents: tuple[
+        tuple[str, bytes, type[ExtractError], int, tuple[str, ...]], ...
+    ] = (
+        (
+            "duplicate_key_at_the_root",
+            (map_text + "\nrecord:\n  length: 32500\n").encode("utf-8"),
+            FieldMapError,
+            EXIT_FIELD_MAP_INVALID,
+            ("cannot be parsed", "duplicate key"),
+        ),
+        (
+            "duplicate_nested_key",
+            map_text.replace(
+                "  name: DFHCOMMAREA", "  name: DFHCOMMAREA\n  name: DFHCOMMAREA", 1
+            ).encode("utf-8"),
+            FieldMapError,
+            EXIT_FIELD_MAP_INVALID,
+            ("cannot be parsed", "duplicate key 'name'"),
+        ),
+        (
+            "not_a_mapping",
+            b"- one\n- two\n",
+            FieldMapError,
+            EXIT_FIELD_MAP_INVALID,
+            ("a mapping is required",),
+        ),
+        (
+            "not_utf8_text",
+            b"\xffrecord:\n  length: 32500\n",
+            InputOutputError,
+            EXIT_IO_ERROR,
+            ("is not UTF-8 text",),
+        ),
+        (
+            "above_the_byte_limit",
+            b" " * (MAX_FIELD_MAP_BYTES + 1),
+            InputOutputError,
+            EXIT_IO_ERROR,
+            (f"holds more than {MAX_FIELD_MAP_BYTES} bytes",),
+        ),
+    )
+    for name, payload, kind, status, fragments in documents:
+        _run_case(
+            results,
+            out,
+            f"field_map_{name}_refused",
+            lambda name=name, payload=payload, kind=kind, status=status,
+            fragments=fragments: _case_map_bytes_refused(
+                directory, name, payload, kind, status, fragments
+            ),
+        )
+    _run_case(
+        results, out, "field_map_missing_file_refused",
+        lambda: _case_map_missing_refused(directory),
+    )
+
+
+def _capture_cases(
+    results: list[_CaseResult],
+    out: Any,
+    field_map: FieldMap,
+    directory: Path,
+) -> None:
+    """Run the capture-reading cases at, below and above the declared record."""
+    record = _rendered_record(field_map, _MOTOR_WINDOWS)
+    accepted: tuple[tuple[str, bytes], ...] = (
+        ("exact_length", record.encode(CAPTURE_ENCODING)),
+        ("one_line_feed", (record + "\n").encode(CAPTURE_ENCODING)),
+        ("one_carriage_return_line_feed", (record + "\r\n").encode(CAPTURE_ENCODING)),
+    )
+    for name, payload in accepted:
+        _run_case(
+            results,
+            out,
+            f"capture_{name}_accepted",
+            lambda name=name, payload=payload: _case_capture_accepted(
+                directory, f"{name}.dat", payload, field_map
+            ),
+        )
+    refused: tuple[tuple[str, bytes, type[ExtractError], int, tuple[str, ...]], ...] = (
+        (
+            "short_by_one",
+            record[:-1].encode(CAPTURE_ENCODING),
+            RecordError,
+            EXIT_RECORD_REJECTED,
+            ("holds 32499 characters", "exactly 32500 characters are required"),
+        ),
+        (
+            "long_by_one",
+            (record + "X").encode(CAPTURE_ENCODING),
+            RecordError,
+            EXIT_RECORD_REJECTED,
+            ("holds 32501 characters",),
+        ),
+        (
+            "two_line_endings",
+            (record + "\n\n").encode(CAPTURE_ENCODING),
+            RecordError,
+            EXIT_RECORD_REJECTED,
+            ("holds 32501 characters",),
+        ),
+        (
+            "non_ascii_byte",
+            record[:-1].encode(CAPTURE_ENCODING) + b"\xff",
+            RecordError,
+            EXIT_RECORD_REJECTED,
+            (f"is not {CAPTURE_ENCODING} text",),
+        ),
+        (
+            "above_the_byte_limit",
+            b"0" * (MAX_CAPTURE_BYTES + 1),
+            InputOutputError,
+            EXIT_IO_ERROR,
+            (f"holds more than {MAX_CAPTURE_BYTES} bytes",),
+        ),
+    )
+    for name, payload, kind, status, fragments in refused:
+        _run_case(
+            results,
+            out,
+            f"capture_{name}_refused",
+            lambda name=name, payload=payload, kind=kind, status=status,
+            fragments=fragments: _case_capture_refused(
+                directory, f"{name}.dat", payload, kind, status, fragments, field_map
+            ),
+        )
+    _run_case(
+        results, out, "capture_directory_refused",
+        lambda: _case_capture_directory_refused(directory, field_map),
+    )
+    _run_case(
+        results, out, "capture_missing_file_refused",
+        lambda: _case_capture_missing_refused(directory, field_map),
+    )
+
+
+def _record_cases(results: list[_CaseResult], out: Any, field_map: FieldMap) -> None:
+    """Run the decoding, routing, return-code, calendar and serialisation cases."""
+    inactive_commercial = {
+        name: _INACTIVE_OVERLAY_TEXT
+        for name in (
+            "fire_premium_amount",
+            "crime_premium_amount",
+            "flood_premium_amount",
+            "weather_premium_amount",
+        )
+    }
+    endowment_windows = {
+        name: value
+        for name, value in _MOTOR_WINDOWS.items()
+        if name != "motor_premium_amount"
+    }
+    endowment_record = {
+        **_MOTOR_RECORD,
+        LANDING_REQUEST_ID: "01AEND",
+        LANDING_POLICY_TYPE: "E",
+        "motor_premium_amount": None,
+    }
+    landed: tuple[tuple[str, Mapping[str, str], Mapping[str, str | None]], ...] = (
+        ("motor", _MOTOR_WINDOWS, _MOTOR_RECORD),
+        ("commercial", _COMMERCIAL_WINDOWS, _COMMERCIAL_RECORD),
+        (
+            "motor_over_filled_commercial_windows",
+            {**_MOTOR_WINDOWS, **inactive_commercial},
+            _MOTOR_RECORD,
+        ),
+        (
+            "commercial_over_filled_motor_window",
+            {**_COMMERCIAL_WINDOWS, "motor_premium_amount": "MODEL1"},
+            _COMMERCIAL_RECORD,
+        ),
+        (
+            "endowment",
+            {**endowment_windows, LANDING_REQUEST_ID: "01AEND"},
+            endowment_record,
+        ),
+        (
+            "house",
+            {**endowment_windows, LANDING_REQUEST_ID: "01AHOU"},
+            {
+                **endowment_record,
+                LANDING_REQUEST_ID: "01AHOU",
+                LANDING_POLICY_TYPE: "H",
+            },
+        ),
+        (
+            "blank_brokers_reference",
+            {**_MOTOR_WINDOWS, LANDING_BROKERS_REFERENCE: ""},
+            {**_MOTOR_RECORD, LANDING_BROKERS_REFERENCE: None},
+        ),
+        (
+            "blank_issue_date",
+            {**_MOTOR_WINDOWS, LANDING_ISSUE_DATE: ""},
+            {**_MOTOR_RECORD, LANDING_ISSUE_DATE: None},
+        ),
+        (
+            "all_zero_payment_window",
+            {**_MOTOR_WINDOWS, "payment_amount": "0"},
+            {**_MOTOR_RECORD, "payment_amount": "0"},
+        ),
+        (
+            "all_zero_motor_premium_window",
+            {**_MOTOR_WINDOWS, "motor_premium_amount": "0"},
+            {**_MOTOR_RECORD, "motor_premium_amount": "0"},
+        ),
+    )
+    for name, windows, expected in landed:
+        _run_case(
+            results,
+            out,
+            f"record_{name}_lands",
+            lambda windows=windows, expected=expected, name=name: _case_landing_record(
+                field_map, windows, expected, name
+            ),
+        )
+    for name, windows, expected in landed[:2]:
+        _run_case(
+            results,
+            out,
+            f"windows_{name}_decode",
+            lambda windows=windows, expected=expected, name=name: _case_window_decoding(
+                field_map, windows, expected, name
+            ),
+        )
+    _run_case(
+        results, out, "records_motor_and_commercial_share_no_value",
+        lambda: _case_distinct_records(),
+    )
+    _run_case(
+        results, out, "product_premium_null_pattern",
+        lambda: _case_product_null_pattern(field_map),
+    )
+    for request_id, policy_type in sorted(_ROUTED_REQUEST_IDS.items()):
+        _run_case(
+            results,
+            out,
+            f"request_id_{request_id}_routes_to_{policy_type}",
+            lambda request_id=request_id, policy_type=policy_type:
+            _case_request_routing(field_map, request_id, policy_type),
+        )
+    refused: tuple[tuple[str, Mapping[str, str], type[ExtractError], int,
+                         tuple[str, ...]], ...] = (
+        (
+            "unrouted_request_id",
+            {**_MOTOR_WINDOWS, LANDING_REQUEST_ID: _UNROUTED_REQUEST_ID},
+            RecordError,
+            EXIT_RECORD_REJECTED,
+            (_UNROUTED_REQUEST_ID, "request routing does not recognise", "'99'"),
+        ),
+        (
+            "blank_request_id",
+            {**_MOTOR_WINDOWS, LANDING_REQUEST_ID: ""},
+            RecordError,
+            EXIT_RECORD_REJECTED,
+            ("is blank; the chain routes on it",),
+        ),
+        (
+            "return_code_outside_the_domain",
+            {**_MOTOR_WINDOWS, LANDING_RETURN_CODE: "55"},
+            RecordError,
+            EXIT_RECORD_REJECTED,
+            ("'55'", "outside the recorded domain"),
+        ),
+        (
+            "return_code_not_all_digits",
+            {**_MOTOR_WINDOWS, LANDING_RETURN_CODE: "0A"},
+            RecordError,
+            EXIT_RECORD_REJECTED,
+            ("not all digits",),
+        ),
+        (
+            "blank_customer_number",
+            {**_MOTOR_WINDOWS, LANDING_CUSTOMER_NUMBER: ""},
+            RecordError,
+            EXIT_RECORD_REJECTED,
+            ("CA-CUSTOMER-NUM", "not all digits", "lie outside 0-9"),
+        ),
+        (
+            "non_numeric_payment",
+            {**_MOTOR_WINDOWS, "payment_amount": "50A"},
+            RecordError,
+            EXIT_RECORD_REJECTED,
+            ("CA-PAYMENT", "not all digits", "window positions 6"),
+        ),
+        (
+            "non_numeric_motor_premium",
+            {**_MOTOR_WINDOWS, "motor_premium_amount": "45A"},
+            RecordError,
+            EXIT_RECORD_REJECTED,
+            ("CA-M-PREMIUM", "not all digits", "window positions 6"),
+        ),
+        (
+            "non_numeric_commercial_premium",
+            {**_COMMERCIAL_WINDOWS, "flood_premium_amount": "780A"},
+            RecordError,
+            EXIT_RECORD_REJECTED,
+            ("CA-B-FloodPremium", "not all digits"),
+        ),
+        (
+            "blank_policy_number",
+            {**_MOTOR_WINDOWS, LANDING_POLICY_NUMBER: ""},
+            RecordError,
+            EXIT_RECORD_REJECTED,
+            ("CA-POLICY-NUM", "is blank", "on every execution returning '00'"),
+        ),
+        (
+            "all_zero_policy_number",
+            {**_MOTOR_WINDOWS, LANDING_POLICY_NUMBER: "0"},
+            RecordError,
+            EXIT_RECORD_REJECTED,
+            ("CA-POLICY-NUM", "holds only zeros"),
+        ),
+        (
+            "blank_last_changed",
+            {**_MOTOR_WINDOWS, LANDING_LAST_CHANGED: ""},
+            RecordError,
+            EXIT_RECORD_REJECTED,
+            ("CA-LASTCHANGED", "is blank", "on every execution returning '00'"),
+        ),
+    )
+    for name, windows, kind, status, fragments in refused:
+        _run_case(
+            results,
+            out,
+            f"record_{name}_refused",
+            lambda windows=windows, kind=kind, status=status, fragments=fragments,
+            name=name: _case_record_refused(
+                field_map, windows, kind, status, fragments, name
+            ),
+        )
+    _run_case(
+        results,
+        out,
+        "record_refusal_names_values_under_the_option",
+        lambda: _case_refusal_names_values_under_the_option(field_map),
+    )
+    for code in field_map.return_code_domain:
+        if code == RETURN_CODE_SUCCESS:
+            continue
+        _run_case(
+            results,
+            out,
+            f"record_return_code_{code}_refused",
+            lambda code=code: _case_return_code_refused(field_map, code),
+        )
+    normalised: tuple[tuple[str, str], ...] = (
+        ("2026-08-19-12.00.00.000000", "2026-08-19T12:00:00.000000"),
+        ("2026-08-19-23.59.59.999999", "2026-08-19T23:59:59.999999"),
+        ("2026-08-19-12.00.00.1", "2026-08-19T12:00:00.100000"),
+        ("2026-08-19-12.00.00", "2026-08-19T12:00:00.000000"),
+        ("2026-08-19T12:00:00.000000", "2026-08-19T12:00:00.000000"),
+        ("2026-08-19 12:00:00.000000", "2026-08-19T12:00:00.000000"),
+        ("2024-02-29-12.00.00.000000", "2024-02-29T12:00:00.000000"),
+        ("2026-01-01-00.00.00.000000", "2026-01-01T00:00:00.000000"),
+    )
+    for raw, expected in normalised:
+        _run_case(
+            results,
+            out,
+            f"timestamp_{raw}_normalised",
+            lambda raw=raw, expected=expected: _case_timestamp_window(
+                field_map, raw, expected
+            ),
+        )
+    impossible: tuple[tuple[str, tuple[str, ...]], ...] = (
+        ("2023-02-29-12.00.00.000000", ("day 29 of month 02",)),
+        ("2026-00-19-12.00.00.000000", ("whose month is 00",)),
+        ("2026-13-19-12.00.00.000000", ("whose month is 13",)),
+        ("2026-08-00-12.00.00.000000", ("whose day is 00",)),
+        ("2026-08-32-12.00.00.000000", ("whose day is 32",)),
+        ("2026-08-19-24.00.00.000000", ("whose hour is 24",)),
+        ("2026-08-19-12.60.00.000000", ("whose minute is 60",)),
+        ("2026-08-19-12.00.60.000000", ("whose second is 60",)),
+        ("2026-08-19-12.00.00.1234567", ("matches none of the accepted timestamp",)),
+        ("2026-08-19", ("matches none of the accepted timestamp",)),
+        ("19/08/2026 12:00:00", ("matches none of the accepted timestamp",)),
+    )
+    for raw, fragments in impossible:
+        _run_case(
+            results,
+            out,
+            f"timestamp_{raw}_refused",
+            lambda raw=raw, fragments=fragments: _case_timestamp_refused(
+                field_map, raw, fragments
+            ),
+        )
+    for name in CALENDAR_DATE_FIELDS:
+        _run_case(
+            results,
+            out,
+            f"{name}_leap_day_accepted",
+            lambda name=name: _case_date_accepted(field_map, name, "2024-02-29"),
+        )
+        for value, fragments in (
+            ("2023-02-29", ("day 29 of month 02",)),
+            ("2026-13-01", ("whose month is 13",)),
+            ("2026-00-01", ("whose month is 00",)),
+            ("2026-08-32", ("whose day is 32",)),
+            ("2026-08-00", ("whose day is 00",)),
+            ("2026-8-19", (f"not written {CALENDAR_DATE_FORM}",)),
+        ):
+            _run_case(
+                results,
+                out,
+                f"{name}_{value}_refused",
+                lambda name=name, value=value, fragments=fragments: _case_date_refused(
+                    field_map, name, value, fragments
+                ),
+            )
+    _run_case(
+        results, out, "serialised_line_is_one_json_object",
+        lambda: _case_serialised_line(field_map),
+    )
+    _run_case(
+        results, out, "serialised_rejects_a_number",
+        lambda: _case_serialised_rejects_non_string(field_map),
+    )
+    _run_case(
+        results, out, "serialised_rejects_reordered_keys",
+        lambda: _case_serialised_rejects_wrong_order(field_map),
+    )
+
+
+def _case_distinct_records() -> str:
+    """Confirm the motor and commercial fixtures share no identifier and no amount."""
+    shared = [
+        name
+        for name in _EXPECTED_FIELD_ORDER
+        if name not in (LANDING_SOURCE_SYSTEM_KEY, LANDING_RETURN_CODE)
+        and _MOTOR_RECORD[name] is not None
+        and _MOTOR_RECORD[name] == _COMMERCIAL_RECORD[name]
+    ]
+    unexpected = [
+        name
+        for name in shared
+        if name not in (LANDING_ISSUE_DATE, LANDING_EXPIRY_DATE, LANDING_LAST_CHANGED)
+    ]
+    if unexpected:
+        raise _SelfTestFailure(
+            f"the motor and commercial fixtures share {_quote_all(unexpected)}"
+        )
+    _expect(
+        _MOTOR_RECORD["motor_premium_amount"] is not None
+        and _COMMERCIAL_RECORD["motor_premium_amount"] is None,
+        True,
+        "whether only the motor fixture carries a motor premium",
+    )
+    _expect(
+        _MOTOR_RECORD["fire_premium_amount"] is None
+        and _COMMERCIAL_RECORD["fire_premium_amount"] is not None,
+        True,
+        "whether only the commercial fixture carries a fire premium",
+    )
+    return "the two fixtures share no key, no amount and no identifier"
+
+
+def _output_cases(
+    results: list[_CaseResult],
+    out: Any,
+    field_map: FieldMap,
+    map_path: Path,
+    scratch: Path,
+) -> None:
+    """Run the destination, mode, summary, refusal and command line cases."""
+    _run_case(
+        results, out, "extraction_lands_the_record",
+        lambda: _case_extraction_writes_record(scratch, map_path, field_map),
+    )
+    _run_case(
+        results, out, "created_directory_and_record_modes",
+        lambda: _case_created_modes(scratch, map_path, field_map),
+    )
+    _run_case(
+        results, out, "replaced_record_stays_private",
+        lambda: _case_replaced_record_mode(scratch, map_path, field_map),
+    )
+    _run_case(
+        results, out, "destination_generated_roots_accepted",
+        lambda: _case_generated_roots_accepted(),
+    )
+    _run_case(
+        results, out, "destination_outside_the_repository_accepted",
+        lambda: _case_out_of_tree_accepted(scratch),
+    )
+    for relative in (
+        "modernization/extraction/copybook_field_map.yml",
+        "modernization/landing/landing-schema.json",
+        "modernization/dbt/genapp_rqi/dbt_project.yml",
+        "modernization/validation/verify_readonly.sh",
+        "modernization/requirements.txt",
+    ):
+        _run_case(
+            results,
+            out,
+            f"destination_authored_{Path(relative).name}_refused",
+            lambda relative=relative: _case_authored_destination_refused(relative),
+        )
+    _run_case(
+        results, out, "destination_this_module_refused",
+        lambda: _case_this_module_destination_refused(scratch, map_path, field_map),
+    )
+    _run_case(
+        results, out, "destination_read_only_source_refused",
+        lambda: _case_read_only_source_refused(),
+    )
+    _run_case(
+        results, out, "destination_symlink_alias_refused",
+        lambda: _case_symlink_alias_refused(scratch),
+    )
+    _run_case(
+        results, out, "destination_final_component_symlink_refused",
+        lambda: _case_final_symlink_refused(scratch, map_path, field_map),
+    )
+    _run_case(
+        results, out, "destination_existing_directory_refused",
+        lambda: _case_existing_directory_refused(scratch, map_path, field_map),
+    )
+    _run_case(
+        results, out, "destination_below_a_regular_file_refused",
+        lambda: _case_parent_is_a_file_refused(scratch, map_path, field_map),
+    )
+    _run_case(
+        results, out, "destination_naming_no_file_refused",
+        lambda: _case_destination_names_no_file_refused(),
+    )
+    _run_case(
+        results, out, "destination_removed_parent_created_again",
+        lambda: _case_removed_parent_recreated(scratch, map_path, field_map),
+    )
+    _run_case(
+        results, out, "temporary_name_collision_stepped_over",
+        lambda: _case_temporary_collision_retried(scratch, map_path, field_map),
+    )
+    _run_case(
+        results, out, "temporary_names_exhausted_refused",
+        lambda: _case_temporary_candidates_exhausted(scratch, map_path, field_map),
+    )
+    _run_case(
+        results, out, "temporary_entry_refused_by_the_directory",
+        lambda: _case_temporary_entry_refused(scratch, map_path, field_map),
+    )
+    _run_case(
+        results, out, "summary_redacts_identifiers",
+        lambda: _case_summary_redacted(scratch, map_path, field_map),
+    )
+    _run_case(
+        results, out, "summary_shows_identifiers_on_request",
+        lambda: _case_summary_identifiers(scratch, map_path, field_map),
+    )
+    for code in field_map.return_code_domain:
+        if code == RETURN_CODE_SUCCESS:
+            continue
+        _run_case(
+            results,
+            out,
+            f"command_line_return_code_{code}_refused",
+            lambda code=code: _case_cli_return_code_refused(
+                scratch, map_path, field_map, code
+            ),
+        )
+    _run_case(
+        results, out, "command_line_self_test_rejects_extraction_arguments",
+        lambda: _case_cli_self_test_rejects_extraction_arguments(scratch),
+    )
+    _run_case(
+        results, out, "command_line_requires_capture_and_output",
+        lambda: _case_cli_requires_capture_and_output(map_path),
+    )
+    _run_case(
+        results, out, "command_line_rejects_withdrawn_failure_option",
+        lambda: _case_cli_rejects_withdrawn_option(scratch, map_path, field_map),
+    )
+    _run_case(
+        results, out, "source_system_key_from_option",
+        lambda: _case_source_system_key("OTHER_SYSTEM.1-2", "OTHER_SYSTEM.1-2",
+                                        "the option"),
+    )
+    _run_case(
+        results, out, "source_system_key_from_environment_then_default",
+        lambda: _case_source_system_key_from_environment(),
+    )
+    for supplied, fragments, what in (
+        ("", ("is empty",), "an empty source-system key"),
+        (
+            "K" * (MAX_SOURCE_SYSTEM_KEY_CHARACTERS + 1),
+            (f"holds {MAX_SOURCE_SYSTEM_KEY_CHARACTERS + 1} characters",),
+            "an over-long source-system key",
+        ),
+        (
+            "GENAPP/CLASS",
+            ("outside ASCII letters, digits, underscore, dot and hyphen",),
+            "a source-system key carrying a path separator",
+        ),
+    ):
+        _run_case(
+            results,
+            out,
+            f"source_system_key_{what.replace(' ', '_')}_refused",
+            lambda supplied=supplied, fragments=fragments,
+            what=what: _case_source_system_key_refused(supplied, fragments, what),
+        )
+
+
+def run_self_test(
+    field_map_path: str | os.PathLike[str] | None = None,
+    *,
+    stream: Any = None,
+) -> int:
+    """Run every self-test case and return ``EXIT_OK`` or ``EXIT_SELF_TEST_FAILED``.
+
+    The field map is loaded once, and its bytes are read once to seed the mutated maps,
+    so a field map that cannot be read or does not validate raises its own diagnostic
+    before any case runs. Each case then writes one line to ``stream``, which defaults
+    to stdout, followed by one summary line naming the case count. Every capture,
+    mutated map and destination a case writes sits inside one private scratch directory
+    this run creates outside the repository and removes before it returns; the cases
+    that exercise an in-tree destination validate the path without creating anything.
+    """
+    out = sys.stdout if stream is None else stream
+    selected = DEFAULT_FIELD_MAP if field_map_path is None else Path(field_map_path)
+    field_map = load_field_map(selected)
+    map_text = _read_bounded_bytes(
+        selected, MAX_FIELD_MAP_BYTES, "the field map"
+    ).decode("utf-8")
+    results: list[_CaseResult] = []
+    scratch = Path(tempfile.mkdtemp(prefix=_SCRATCH_PREFIX))
+    try:
+        _field_map_cases(
+            results, out, field_map, map_text, _case_directory(scratch, "field-maps")
+        )
+        _capture_cases(results, out, field_map, _case_directory(scratch, "captures"))
+        _record_cases(results, out, field_map)
+        _output_cases(results, out, field_map, selected, scratch)
+    except BaseException:
+        shutil.rmtree(scratch, ignore_errors=True)
+        raise
+    shutil.rmtree(scratch, ignore_errors=True)
+    _run_case(
+        results,
+        out,
+        "self_test_scratch_removed",
+        lambda: _case_scratch_removed(scratch),
+    )
+
+    passed = sum(1 for result in results if result.passed)
+    failed = len(results) - passed
+    print(
+        f"self-test summary cases={len(results)} passed={passed} failed={failed}",
+        file=out,
+    )
+    return EXIT_OK if failed == 0 else EXIT_SELF_TEST_FAILED
 
 
 # ---------------------------------------------------------------------------
@@ -1629,44 +4736,76 @@ class _CommandLineParser(argparse.ArgumentParser):
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
-    """Return the non-interactive command line parser for this tool."""
+    """Return the non-interactive command line parser for this tool.
+
+    Abbreviated option names are not accepted, as in every other command-line tool of
+    this bridge, so an option this tool later gains can never change what an existing
+    command line means.
+    """
     parser = _CommandLineParser(
         prog=_PROGRAM,
+        allow_abbrev=False,
         description=(
             "Decode the post-chain GenApp Policy-Issue COMMAREA capture and write the\n"
             "landing JSON record: one object holding the landing keys the field map\n"
             "lists, as JSON strings or null, on one line terminated by one line feed.\n"
+            "Successful extractions only: a capture whose returned CA-RETURN-CODE is\n"
+            f"not {RETURN_CODE_SUCCESS} is refused and nothing is written.\n"
             "\n"
             "Exit status: 0 success, 2 capture rejected, 3 field map invalid, 4 input\n"
-            "failure, output refused or command line rejected."
+            "failure, output refused or command line rejected, 5 self-test case\n"
+            "failure, 6 returned CA-RETURN-CODE is a recorded unsuccessful code,\n"
+            "130 interrupted."
         ),
         epilog=(
-            "Every offset, length, kind, routing entry, nullability rule and landing "
-            "key is read from the field map; none is written into this tool. The "
-            "capture must hold exactly "
+            "Every offset, length, kind, routing entry, nullability rule, return-code "
+            "meaning and landing key is read from the field map; none is written into "
+            "this tool. The capture must hold exactly "
             f"{COMMAREA_RECORD_LENGTH} characters, optionally followed by one line "
             "ending, and is decoded as "
             f"{CAPTURE_ENCODING}. policy_type is derived from the request id through "
             "the map's request_routing table and is the only derived value; no amount "
             "is derived, and a premium the derived policy type does not apply to is "
-            "written as null rather than as a zero. CA-LASTCHANGED is normalised to "
-            "ISO-8601 and is never replaced by the current time. Neither input is "
-            "modified, and no path outside the destination is written.\n"
+            "written as null rather than as a zero. Both landed dates must be real "
+            "calendar dates and CA-LASTCHANGED is normalised to ISO-8601 after its "
+            "date and clock components are checked; the current time is never "
+            "substituted. Neither input is modified, and no path outside the "
+            "destination is written.\n"
+            f"Only a successful chain execution is landed: a returned CA-RETURN-CODE "
+            f"other than {RETURN_CODE_SUCCESS} is rejected and nothing is written, and "
+            "the evidence of a run that returned another code is the harness captures "
+            "and driver logs under modernization/validation/artifacts/.\n"
+            "The destination is canonicalised before anything is created. One that "
+            "resolves inside the repository directory holding this script is accepted "
+            "only below "
+            f"{_quote_all(str(root) for root in GENERATED_OUTPUT_ROOTS)}; an authored "
+            "file, anything below the repository's base directory, a final component "
+            "that is a symbolic link and an existing entry that is not a regular file "
+            "are refused. A destination outside that repository is accepted. Each "
+            f"directory this tool creates carries mode {DIRECTORY_MODE:04o} and the "
+            f"landed record carries mode {FILE_MODE:04o}, both set on the created "
+            "entry so the ambient umask cannot widen them.\n"
+            "A record value reaches a diagnostic, and a business identifier reaches "
+            f"the summary, only under {SHOW_IDENTIFIERS_OPTION}; without it a rejected "
+            "value is reported by field, COBOL item, byte range, breached constraint "
+            "and character count, and the policy number is reported as a digest.\n"
             "Every failure writes one control-free line to stderr and returns 2 for a "
-            "rejected capture, 3 for an inconsistent field map, or 4 for an unreadable "
-            "input, a refused output or a usage error.\n"
+            "rejected capture, 3 for an inconsistent field map, 4 for an unreadable "
+            "input, a refused output or a usage error, 5 for a failed self-test case, "
+            "6 for a capture the chain did not complete, or 130 for an interrupt.\n"
             "Decision rationale: modernization/docs/decision-log.md"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument(
         "--commarea",
-        required=True,
+        default=None,
         type=Path,
         metavar="PATH",
         help=(
             "post-chain COMMAREA capture written by the harness driver: "
-            f"{COMMAREA_RECORD_LENGTH} characters and at most one trailing line ending"
+            f"{COMMAREA_RECORD_LENGTH} characters and at most one trailing line "
+            "ending; required unless --self-test is given"
         ),
     )
     parser.add_argument(
@@ -1675,16 +4814,23 @@ def build_arg_parser() -> argparse.ArgumentParser:
         type=Path,
         metavar="PATH",
         help=(
-            "field map supplying every offset, length, kind, routing entry and landing "
-            f"key (default: {DEFAULT_FIELD_MAP.name} beside this script)"
+            "field map supplying every offset, length, kind, routing entry, "
+            "return-code meaning and landing key (default: "
+            f"{DEFAULT_FIELD_MAP.name} beside this script)"
         ),
     )
     parser.add_argument(
         "--output",
-        required=True,
+        default=None,
         type=Path,
         metavar="PATH",
-        help="destination for the landing JSON record; parent directories are created",
+        help=(
+            "destination for the landing JSON record; it must canonicalise outside the "
+            "repository directory holding this script or below one of its generated "
+            f"roots, its parent directories are created with mode {DIRECTORY_MODE:04o} "
+            f"and the record is written with mode {FILE_MODE:04o}; required unless "
+            "--self-test is given"
+        ),
     )
     parser.add_argument(
         "--source-system-key",
@@ -1693,17 +4839,33 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help=(
             "source-system discriminator written to the record; defaults to the "
             f"{SOURCE_SYSTEM_KEY_VARIABLE} environment variable, then to "
-            f"{DEFAULT_SOURCE_SYSTEM_KEY}. At most "
+            f"{DEFAULT_SOURCE_SYSTEM_KEY}. A variable holding the empty string or "
+            "whitespace alone counts as unset. At most "
             f"{MAX_SOURCE_SYSTEM_KEY_CHARACTERS} characters drawn from ASCII letters, "
             "digits, underscore, dot and hyphen"
         ),
     )
     parser.add_argument(
-        "--allow-nonzero-return-code",
+        SHOW_IDENTIFIERS_OPTION,
         action="store_true",
         help=(
-            "land the record even when the returned CA-RETURN-CODE is not "
-            f"{RETURN_CODE_SUCCESS}; without this flag any other code is rejected"
+            "carry record values in diagnostics and the request id, policy type, "
+            "policy number, customer number, broker id, broker's reference and return "
+            "code on the summary line; withheld by default, when the summary names the "
+            "policy type, the return code and the landed key counts only, and also "
+            f"enabled by the {SHOW_IDENTIFIERS_VARIABLE} environment variable carrying "
+            f"one of {', '.join(SHOW_IDENTIFIERS_ENABLING)}"
+        ),
+    )
+    parser.add_argument(
+        "--self-test",
+        action="store_true",
+        help=(
+            "run the built-in case matrix against the field map and the records this "
+            "module renders from its windows, then exit; it accepts --field-map and "
+            "neither --commarea nor --output, works inside one private scratch "
+            "directory it creates and removes, and returns "
+            f"{EXIT_SELF_TEST_FAILED} when a case fails"
         ),
     )
     return parser
@@ -1714,16 +4876,24 @@ def resolve_source_system_key(supplied: str | None) -> str:
 
     ``supplied`` is the ``--source-system-key`` value, or None when the option was
     omitted, in which case the ``SOURCE_SYSTEM_KEY`` environment variable is consulted
-    and then ``DEFAULT_SOURCE_SYSTEM_KEY``. Raises ``UsageError`` when the resolved
-    value is empty, longer than ``MAX_SOURCE_SYSTEM_KEY_CHARACTERS`` or carries a
-    character outside the accepted set.
+    and then ``DEFAULT_SOURCE_SYSTEM_KEY``. A variable holding the empty string or
+    whitespace alone counts as unset and the default applies, which is the empty-value
+    resolution modernization/landing/land_to_s3.py,
+    modernization/landing/load_local.py and the local output of
+    modernization/dbt/genapp_rqi/profiles.example.yml all apply. A value the option
+    itself carries is never passed over: an empty option value is a rejected command
+    line rather than a silent default.
+
+    Raises ``UsageError`` when the resolved value is empty, longer than
+    ``MAX_SOURCE_SYSTEM_KEY_CHARACTERS`` or carries a character outside the accepted
+    set.
     """
     if supplied is not None:
         value = supplied
         origin = "--source-system-key"
     else:
         from_environment = os.environ.get(SOURCE_SYSTEM_KEY_VARIABLE)
-        if from_environment is not None:
+        if from_environment is not None and from_environment.strip():
             value = from_environment
             origin = f"the {SOURCE_SYSTEM_KEY_VARIABLE} environment variable"
         else:
@@ -1748,29 +4918,43 @@ def main(argv: list[str] | None = None) -> int:
     """Decode one capture and write one landing record, returning the exit status.
 
     ``argv`` defaults to the process arguments. Every diagnostic reaches stderr as one
-    control-free line and the success summary reaches stdout the same way. A rejected
-    command line is reported through that same single line, without a usage block, and
-    returns the status a refused input or output returns, while ``--help`` prints the
-    full help and exits with status 0.
+    control-free line and the success summary reaches stdout the same way. Whether
+    record values may appear in either is resolved from ``--show-identifiers`` and the
+    environment before the capture is read, so no value reaches a diagnostic before the
+    setting applies. A rejected command line is reported through that same single line,
+    without a usage block, and returns the status a refused input or output returns,
+    while ``--help`` prints the full help and exits with status 0. ``--self-test`` runs
+    the case matrix instead of an extraction and returns ``EXIT_SELF_TEST_FAILED`` when
+    a case fails. An interrupt is reported through that same single line and returns
+    ``EXIT_INTERRUPTED``; the temporary entry ``write_record`` writes through is removed
+    on that path by its own cleanup, so an interrupted run leaves neither a partial
+    record nor a stray temporary file.
     """
     parser = build_arg_parser()
     try:
         args = parser.parse_args(argv)
+        set_show_identifiers(resolve_show_identifiers(args.show_identifiers))
+        if args.self_test:
+            if args.commarea is not None or args.output is not None:
+                parser.error("--self-test accepts neither --commarea nor --output")
+            return run_self_test(args.field_map)
+        if args.commarea is None or args.output is None:
+            parser.error(
+                "--commarea and --output are required unless --self-test is given"
+            )
         source_system_key = resolve_source_system_key(args.source_system_key)
         field_map = load_field_map(args.field_map)
         capture = read_commarea(args.commarea, field_map.record_length)
-        record = build_landing_record(
-            capture,
-            field_map,
-            source_system_key,
-            allow_nonzero_return_code=args.allow_nonzero_return_code,
-        )
+        record = build_landing_record(capture, field_map, source_system_key)
         written = write_record(record, args.output, field_map.field_order)
     except ExtractError as error:
         print(f"{_PROGRAM}: {_one_line(str(error))}", file=sys.stderr)
         return error.exit_status
+    except KeyboardInterrupt:
+        print(f"{_PROGRAM}: interrupted before completion", file=sys.stderr)
+        return EXIT_INTERRUPTED
 
-    print(_one_line(summarise(written, record)))
+    print(_one_line(summarise(written, record, show_identifiers=args.show_identifiers)))
     return EXIT_OK
 
 

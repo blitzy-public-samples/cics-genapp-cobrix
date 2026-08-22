@@ -32,9 +32,7 @@
       * modernization/harness/run_harness.sh stand in the tree, every
       * run of the harness regenerates the tree
       * modernization/harness/build/, and the translated LGAPVS01 the
-      * translator produces is compiled and executed from it. Every
-      * statement below about the harness, about the translated program
-      * or about the driver describes the delivered contract.
+      * translator produces is compiled and executed from it.
       *
       * Caller: the translated LGAPVS01 reaches the command site with
       * the request-type letter, the customer number and the policy
@@ -106,14 +104,8 @@
       * on every call and EIBRESP2 is written on the injected-failure
       * path alone.
       *
-      * Rationale belongs to modernization/docs/decision-log.md
-      * (planned deliverable; not present at this milestone), rows:
-      * flat VSAM payload capture; Ridfld operand captured apart from
-      * the record image; normal-response constant representation;
-      * deterministic failure injection through shared harness state;
-      * chain traversal witnessed through the emulated services;
-      * shared EXTERNAL harness state; uniform stub-side capture-order
-      * guard.
+      * Rationale is recorded in modernization/docs/decision-log.md
+      * (planned deliverable; not present at this milestone).
       *
       * Harness topology: Figure 5 — Validation Harness Control Flow
       * in modernization/docs/architecture.md.

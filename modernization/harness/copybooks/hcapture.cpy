@@ -70,10 +70,11 @@
       * new value to the ordinal item of its own group and moves its
       * own name into HC-ORDER-LAST-STMT as it records that event. A
       * lower ordinal marks the earlier event; zero marks an event that
-      * was never captured. HC-POL-SEQ less than HC-COM-SEQ is the
-      * witness that INSERT-POLICY preceded INSERT-COMMERCIAL, the
-      * constraint recorded as execution_order.policy_before_commercial
-      * in modernization/harness/statement_map.yml. A stub whose
+      * was never captured. HC-LCHG-SEQ less than HC-COM-SEQ is the
+      * witness that the SELECT LASTCHANGED read-back preceded
+      * INSERT-COMMERCIAL, the constraint recorded as
+      * execution_order.lastchanged_before_commercial in
+      * modernization/harness/statement_map.yml. A stub whose
       * declared prerequisite ordinal is still zero when it runs
       * reports that in HC-ORDER-VIOLATION and
       * HC-ORDER-VIOLATION-STMT. A counter records how many times its
@@ -220,13 +221,30 @@
       *                               captured event of the case
       *   sql_set_identity.cbl        HC-POL-SEQ
       *   sql_select_lastchanged.cbl  HC-IDENT-SEQ
-      *   sql_insert_motor.cbl        HC-POL-SEQ
-      *   sql_insert_commercial.cbl   HC-POL-SEQ
-      *   sql_insert_house.cbl        HC-POL-SEQ
-      *   sql_insert_endowment.cbl    HC-POL-SEQ
+      *   sql_insert_motor.cbl        HC-LCHG-SEQ
+      *   sql_insert_commercial.cbl   HC-LCHG-SEQ
+      *   sql_insert_house.cbl        HC-LCHG-SEQ
+      *   sql_insert_endowment.cbl    HC-LCHG-SEQ
       *   cics_write.cbl              HC-POL-SEQ and one of
       *                               HC-MOT-SEQ, HC-COM-SEQ,
       *                               HC-END-SEQ, HC-HOU-SEQ
+      *
+      * Each row above names the immediate predecessor of that member's
+      * own statement, which carries the statements ahead of it
+      * transitively: HC-LCHG-SEQ is stamped by the read-back at
+      * [base/src/lgapdb01.cbl:316-321], the last EXEC SQL block of the
+      * paragraph performed at [base/src/lgapdb01.cbl:219], so a
+      * product insert that finds it non-zero also stands after the
+      * identity recovery at [base/src/lgapdb01.cbl:307-311] and after
+      * the POLICY insert at [base/src/lgapdb01.cbl:268-288].
+      *
+      * modernization/harness/translate.py reads this table and the
+      * execution_order block of
+      * modernization/harness/statement_map.yml on every run and fails
+      * the build when the two disagree on the prerequisite of any
+      * member, when a member's own order guard does not read exactly
+      * the ordinals declared for it, or when an ordinal item either
+      * names is not declared below.
       *
       * cics_abend.cbl, cics_asktime.cbl, cics_formattime.cbl and
       * cics_diag_link.cbl carry no prerequisite, so they neither read
@@ -235,10 +253,9 @@
       * most recently. A case whose HC-ORDER-VIOLATION reports 'Y' did
       * not keep the declared order.
       *
-      * See modernization/docs/decision-log.md (planned deliverable;
-      * not present at this milestone), rows: shared event-sequence
-      * ordering witness and order guard; uniform stub-side
-      * capture-order guard.
+      * See modernization/docs/decision-log.md, rows: shared
+      * event-sequence ordering witness and order guard; uniform
+      * stub-side capture-order guard.
            03 HC-ORDER.
       *
       * Name of the item captured most recently. The SQL groups use the
@@ -335,10 +352,14 @@
               05 HC-POL-COUNT             PIC 9(4).
       *
       * Ordinal stamped from HC-EVENT-SEQ when the block is captured.
-      * Below HC-COM-SEQ on a commercial case: the source performs
-      * INSERT-POLICY at [base/src/lgapdb01.cbl:219] and
-      * INSERT-COMMERCIAL at [base/src/lgapdb01.cbl:235], which
-      * consumes CA-LASTCHANGED at [base/src/lgapdb01.cbl:525].
+      * Below every other ordinal of the case, and equal to 1 on a case
+      * that captured anything: the source performs INSERT-POLICY at
+      * [base/src/lgapdb01.cbl:219] ahead of the two read-backs of that
+      * paragraph at [base/src/lgapdb01.cbl:307-321], of the product
+      * routing at [base/src/lgapdb01.cbl:223-241] and of the link at
+      * [base/src/lgapdb01.cbl:243-246]. It is the prerequisite ordinal
+      * sql_set_identity.cbl reads, and one of the two cics_write.cbl
+      * reads.
               05 HC-POL-SEQ               PIC 9(4).
       *
       * Slot 1, column CUSTOMERNUMBER. Witnesses DB2-CUSTOMERNUM-INT
@@ -395,9 +416,12 @@
               05 HC-IDENT-COUNT           PIC 9(4).
       *
       * Ordinal stamped from HC-EVENT-SEQ when the block is captured.
-      * Above HC-POL-SEQ: the block at [base/src/lgapdb01.cbl:308-310]
-      * follows the INSERT INTO POLICY block at
-      * [base/src/lgapdb01.cbl:268-288] in paragraph INSERT-POLICY.
+      * Above HC-POL-SEQ and below HC-LCHG-SEQ: the block at
+      * [base/src/lgapdb01.cbl:308-310] follows the INSERT INTO POLICY
+      * block at [base/src/lgapdb01.cbl:268-288] and precedes the
+      * read-back at [base/src/lgapdb01.cbl:316-321], all three in
+      * paragraph INSERT-POLICY. It is the prerequisite ordinal
+      * sql_select_lastchanged.cbl reads.
               05 HC-IDENT-SEQ             PIC 9(4).
       *
       * Slot 1, the assigned identity. Witnesses DB2-POLICYNUM-INT
@@ -426,9 +450,15 @@
               05 HC-LCHG-COUNT            PIC 9(4).
       *
       * Ordinal stamped from HC-EVENT-SEQ when the block is captured.
-      * Above HC-IDENT-SEQ: the block at
-      * [base/src/lgapdb01.cbl:316-321] follows the SET block at
-      * [base/src/lgapdb01.cbl:308-310] in paragraph INSERT-POLICY.
+      * Above HC-IDENT-SEQ and below the product ordinal of the case:
+      * the block at [base/src/lgapdb01.cbl:316-321] follows the SET
+      * block at [base/src/lgapdb01.cbl:308-310] and is the last EXEC
+      * SQL block of paragraph INSERT-POLICY, performed at
+      * [base/src/lgapdb01.cbl:219] ahead of the product routing at
+      * [base/src/lgapdb01.cbl:223-241]. It is the prerequisite ordinal
+      * the four product stubs sql_insert_motor.cbl,
+      * sql_insert_commercial.cbl, sql_insert_house.cbl and
+      * sql_insert_endowment.cbl read.
               05 HC-LCHG-SEQ              PIC 9(4).
       *
       * Slot 1, column LASTCHANGED, direction out. Witnesses
@@ -464,9 +494,12 @@
               05 HC-MOT-COUNT             PIC 9(4).
       *
       * Ordinal stamped from HC-EVENT-SEQ when the block is captured.
-      * Above HC-LCHG-SEQ on a motor case: the source performs
-      * INSERT-POLICY at [base/src/lgapdb01.cbl:219] and INSERT-MOTOR
-      * at [base/src/lgapdb01.cbl:232]. Zero on request id '01ACOM'.
+      * Above HC-LCHG-SEQ on a motor case: the read-back at
+      * [base/src/lgapdb01.cbl:316-321] is the last EXEC SQL block of
+      * paragraph INSERT-POLICY, performed at
+      * [base/src/lgapdb01.cbl:219], and INSERT-MOTOR is performed
+      * after it at [base/src/lgapdb01.cbl:232]. Zero on request id
+      * '01ACOM'.
               05 HC-MOT-SEQ               PIC 9(4).
       *
       * Slot 1, column POLICYNUMBER. Witnesses DB2-POLICYNUM-INT
@@ -549,13 +582,13 @@
               05 HC-COM-COUNT             PIC 9(4).
       *
       * Ordinal stamped from HC-EVENT-SEQ when the block is captured.
-      * Above HC-POL-SEQ and HC-LCHG-SEQ: slot 2 below witnesses
-      * CA-LASTCHANGED, which only the read-back at
-      * [base/src/lgapdb01.cbl:316-321] populates. HC-POL-SEQ less
-      * than HC-COM-SEQ is the ordering witness the CA-LASTCHANGED
-      * dependency requires, recorded as
-      * execution_order.policy_before_commercial in
-      * modernization/harness/statement_map.yml.
+      * Above HC-LCHG-SEQ: slot 2 below witnesses CA-LASTCHANGED, which
+      * only the read-back at [base/src/lgapdb01.cbl:316-321]
+      * populates. HC-LCHG-SEQ less than HC-COM-SEQ is the ordering
+      * witness the CA-LASTCHANGED dependency requires, recorded as
+      * execution_order.lastchanged_before_commercial in
+      * modernization/harness/statement_map.yml. Zero on request id
+      * '01AMOT'.
               05 HC-COM-SEQ               PIC 9(4).
       *
       * Slot 1, column PolicyNumber. Witnesses DB2-POLICYNUM-INT
@@ -692,7 +725,12 @@
               05 HC-END-COUNT             PIC 9(4).
       *
       * Ordinal stamped from HC-EVENT-SEQ when either block is
-      * captured. Zero on request ids '01AMOT' and '01ACOM'.
+      * captured. Above HC-LCHG-SEQ on an endowment case: the read-back
+      * at [base/src/lgapdb01.cbl:316-321] is the last EXEC SQL block
+      * of paragraph INSERT-POLICY, performed at
+      * [base/src/lgapdb01.cbl:219], and INSERT-ENDOW is performed
+      * after it at [base/src/lgapdb01.cbl:226]. Zero on request ids
+      * '01AMOT' and '01ACOM'.
               05 HC-END-SEQ               PIC 9(4).
       *
       * Slot 1, column POLICYNUMBER. Witnesses DB2-POLICYNUM-INT
@@ -776,7 +814,12 @@
               05 HC-HOU-COUNT             PIC 9(4).
       *
       * Ordinal stamped from HC-EVENT-SEQ when the block is captured.
-      * Zero on request ids '01AMOT' and '01ACOM'.
+      * Above HC-LCHG-SEQ on a house case: the read-back at
+      * [base/src/lgapdb01.cbl:316-321] is the last EXEC SQL block of
+      * paragraph INSERT-POLICY, performed at
+      * [base/src/lgapdb01.cbl:219], and INSERT-HOUSE is performed
+      * after it at [base/src/lgapdb01.cbl:229]. Zero on request ids
+      * '01AMOT' and '01ACOM'.
               05 HC-HOU-SEQ               PIC 9(4).
       *
       * Slot 1, column POLICYNUMBER. Witnesses DB2-POLICYNUM-INT

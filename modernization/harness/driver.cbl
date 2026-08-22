@@ -25,12 +25,12 @@
       * CA_RETURN_CODE the chain returned. The expected return code is
       * required to differ from them: a case that expects the chain to
       * write the value the fixture image already carries is reported
-      * and ends the run with status 6, since a comparison against that
-      * value cannot tell a code the chain wrote from the content of the
-      * record it was handed. The chain-populated windows of the
-      * generated record carry the content chain_populated_items of that
-      * field map states for them, and the CA-RETURN-CODE seed recorded
-      * there stands outside the codes the chain writes.
+      * and ends the run with status 6. The chain-populated windows of
+      * the generated record carry the content chain_populated_items of
+      * that field map states for them, and the CA-RETURN-CODE seed
+      * recorded there stands outside the codes the chain writes. The
+      * decision-log row named at the end of this block, chain-populated
+      * windows seeded outside the produced domain, carries the "why".
       *
       * The file statements of this program open no path it composed and
       * no path any environment item supplied. Each of its three files
@@ -66,13 +66,11 @@
       * read-only, as in 3<file, therefore has its target truncated and
       * rewritten with the post-chain record or the capture text, and
       * the open, the write and the close all report file status '00',
-      * so the run reports success. COBOL states no writability test
-      * for an open file, and this program has no path of its own to
-      * test, so the form of the redirection is the caller's to get
-      * right. modernization/harness/run_harness.sh opens both
-      * descriptors as "exec 3>" and "exec 4>" and checks each open
-      * before it runs this program, so no run of the harness reaches
-      * that state.
+      * so the run reports success. No statement of this program can
+      * test the access of an open file.
+      * modernization/harness/run_harness.sh opens both descriptors as
+      * "exec 3>" and "exec 4>" and checks each open before it runs
+      * this program.
       *
       * A stream that carries no record, a record holding more than
       * 32,500 characters, a record holding fewer than 32,500
@@ -96,8 +94,23 @@
       *                          the evidence of the run: it is shown
       *                          in the run header and emitted as the
       *                          FIXTURE capture
-      *   HARNESS_POLICY_NUMBER  identity seed for HC-SEED-POLICYNUM
-      *   HARNESS_LASTCHANGED    timestamp seed for HC-SEED-LASTCHANGED
+      *   HARNESS_POLICY_NUMBER  identity seed for HC-SEED-POLICYNUM.
+      *                          One to nine digits above zero; any
+      *                          other value is named on the log and
+      *                          the documented default 1000001 stands
+      *                          as the effective seed
+      *   HARNESS_LASTCHANGED    timestamp seed for HC-SEED-LASTCHANGED.
+      *                          Exactly 26 non-blank characters naming
+      *                          a real Gregorian date and time in the
+      *                          form YYYY-MM-DD-HH.MM.SS.NNNNNN; any
+      *                          other value is named on the log and
+      *                          the documented default
+      *                          2026-08-19-12.00.00.000000 stands as
+      *                          the effective seed. The runner, this
+      *                          program and
+      *                          stubs/sql_insert_policy.cbl apply one
+      *                          rule to this item and resolve one
+      *                          effective seed per case
       *   COB_LS_FIXED           must hold a true value; the 32,500-
       *                          character post-chain record is written
       *                          in full only while it does
@@ -167,32 +180,23 @@
       *      fixture image carries
       *   7  the translated chain could not be called
       *
-      * One failure of the run reports a status this program did not
-      * choose. A module the run-time cannot resolve below the guarded
-      * CALL of this program - one of the two programs the chain calls,
-      * or one of the emulated services any of the three calls - aborts
-      * the process from inside that chain, and libcob reports its own
-      * exit status 1, the status this table gives to a return code that
-      * differs from the expected code. The two are told apart by what
-      * the run left behind: the libcob message naming the module and
-      * the call stack reach standard error, and the capture file and
-      * the post-chain record are both 0 bytes, because the abort
-      * happens before either is written. This program's own
-      * CALL 'LGAPOL01' is guarded and reports status 7 instead.
+      * Status 1 also reaches the caller from outside this table. A
+      * module the run-time cannot resolve below the guarded CALL of
+      * this program - one of the two programs the chain calls, or one
+      * of the emulated services any of the three calls - aborts the
+      * process from inside that chain, and libcob reports its own exit
+      * status 1. The two are told apart by what the run left behind:
+      * the libcob message naming the module and the call stack reach
+      * standard error, and the capture file and the post-chain record
+      * are both 0 bytes, because the abort happens before either is
+      * written. This program's own CALL 'LGAPOL01' is guarded and
+      * reports status 7 instead.
       * modernization/harness/run_harness.sh recompiles all fifteen
       * modules and asserts that each one is present before it runs this
-      * program, so no run of the harness reaches that state.
+      * program.
       *
-      * Rationale belongs to modernization/docs/decision-log.md
-      * (planned deliverable; not present at this milestone), rows:
-      * fixture-derived expected values in the driver; chain-populated
-      * windows seeded outside the produced domain; deterministic
-      * failure injection through shared harness state; driver sample
-      * record on standard input; driver refuses a sample record of any
-      * other width; driver refuses a stream carrying more than one
-      * record; driver outputs written into caller-opened descriptors;
-      * length-preserving VSAM record evidence; driver exit-status
-      * contract; shared EXTERNAL harness state.
+      * Rationale is recorded in modernization/docs/decision-log.md
+      * (planned deliverable; not present at this milestone).
       *
       * Harness topology: Figure 5 — Validation Harness Control Flow
       * in modernization/docs/architecture.md.
@@ -514,10 +518,77 @@
            03 WS-WANT-EVENTS           PIC S9(4) COMP.
            03 WS-WANT-EVENTS-EDIT      PIC 9(4).
       *
-      * Identity this program seeded, and zero when it seeded none, and
-      * the timestamp it seeded, and spaces when it seeded none.
-       01  WS-SEED-SUPPLIED            PIC S9(9) COMP.
-       01  WS-SEED-LCHG-SUPPLIED       PIC X(26).
+      * The effective seeds of the case: the pair
+      * modernization/harness/stubs/sql_insert_policy.cbl leaves in
+      * HC-SEED-POLICYNUM and HC-SEED-LASTCHANGED, which is the pair
+      * the captures of the case report. Each item holds the value this
+      * program seeded when it seeded one, and otherwise the documented
+      * default below, which is the value that stub resolves from the
+      * same environment item under the same rule.
+       01  WS-SEED-EFFECTIVE           PIC S9(9) COMP.
+       01  WS-SEED-LCHG-EFFECTIVE      PIC X(26).
+      *
+      * Documented defaults, the values
+      * modernization/harness/stubs/sql_insert_policy.cbl applies when
+      * neither the shared seed item nor the environment supplies an
+      * acceptable value. Both literals are the ones that stub declares.
+       01  WS-DEFAULT-POLICYNUM        PIC S9(9) COMP VALUE +1000001.
+       01  WS-DEFAULT-LASTCHANGED      PIC X(26)
+           VALUE '2026-08-19-12.00.00.000000'.
+      *
+      * The identity default in the form the log carries it.
+       01  WS-DEFAULT-POLICYNUM-EDIT   PIC Z(8)9.
+      *
+      *----------------------------------------------------------------*
+      * Timestamp seed validation                                      *
+      *----------------------------------------------------------------*
+      * The candidate seed, laid out as the Db2 external form
+      * YYYY-MM-DD-HH.MM.SS.NNNNNN. The character view carries the
+      * class tests; the redefinition below reads the same characters as
+      * the numbers they spell and is addressed only after every one of
+      * them has been found numeric. One rule governs this seed in the
+      * three places that read it - modernization/harness/run_harness.sh
+      * before the run, this program before the chain and
+      * modernization/harness/stubs/sql_insert_policy.cbl inside it - so
+      * the value asserted here is the value that stub leaves in
+      * HC-SEED-LASTCHANGED.
+       01  WS-SEED-STAMP.
+           03 WS-SEED-STAMP-YEAR       PIC X(4).
+           03 WS-SEED-STAMP-SEP1       PIC X.
+           03 WS-SEED-STAMP-MONTH      PIC X(2).
+           03 WS-SEED-STAMP-SEP2       PIC X.
+           03 WS-SEED-STAMP-DAY        PIC X(2).
+           03 WS-SEED-STAMP-SEP3       PIC X.
+           03 WS-SEED-STAMP-HOUR       PIC X(2).
+           03 WS-SEED-STAMP-SEP4       PIC X.
+           03 WS-SEED-STAMP-MINUTE     PIC X(2).
+           03 WS-SEED-STAMP-SEP5       PIC X.
+           03 WS-SEED-STAMP-SECOND     PIC X(2).
+           03 WS-SEED-STAMP-SEP6       PIC X.
+           03 WS-SEED-STAMP-MICROS     PIC X(6).
+      *
+       01  WS-SEED-STAMP-NUM REDEFINES WS-SEED-STAMP.
+           03 WS-SEED-NUM-YEAR         PIC 9(4).
+           03 FILLER                   PIC X.
+           03 WS-SEED-NUM-MONTH        PIC 9(2).
+           03 FILLER                   PIC X.
+           03 WS-SEED-NUM-DAY          PIC 9(2).
+           03 FILLER                   PIC X.
+           03 WS-SEED-NUM-HOUR         PIC 9(2).
+           03 FILLER                   PIC X.
+           03 WS-SEED-NUM-MINUTE       PIC 9(2).
+           03 FILLER                   PIC X.
+           03 WS-SEED-NUM-SECOND       PIC 9(2).
+           03 FILLER                   PIC X.
+           03 WS-SEED-NUM-MICROS       PIC 9(6).
+      *
+      * Outcome of the validation, the element that failed it, the
+      * highest day the month and year allow, and 'Y' while that year is
+      * a leap year under the Gregorian rule.
+       01  WS-SEED-STAMP-OK            PIC X.
+       01  WS-SEED-STAMP-REASON        PIC X(48).
+       01  WS-SEED-STAMP-MAX-DAY       PIC 9(2).
+       01  WS-SEED-STAMP-LEAP          PIC X.
       *
       *----------------------------------------------------------------*
       * Capture line assembly                                          *
@@ -875,8 +946,10 @@
            MOVE ZERO TO WS-WANT-SQLCODE
            MOVE ZERO TO WS-WANT-VSAM-RESP
            MOVE ZERO TO WS-WANT-EVENTS
-           MOVE ZERO TO WS-SEED-SUPPLIED
-           MOVE SPACES TO WS-SEED-LCHG-SUPPLIED
+           MOVE ZERO TO WS-SEED-EFFECTIVE
+           MOVE SPACES TO WS-SEED-LCHG-EFFECTIVE
+           MOVE 'N' TO WS-SEED-STAMP-OK
+           MOVE SPACES TO WS-SEED-STAMP-REASON
            MOVE ZERO TO WS-AMOUNT-CHECKS
            MOVE ZERO TO WS-AMOUNT-DELTA
            MOVE ZERO TO WS-AMOUNT-MAX-DELTA
@@ -1493,22 +1566,16 @@
                MOVE '?' TO WS-WANT-POLICY-TYPE
            END-EVALUATE.
       *
-      * The identity and timestamp the case expects. The values this
-      * program seeded are used when it seeded them; otherwise the
-      * values the shared seed items hold are used, which
-      * sql_insert_policy.cbl resolves before the identity read-back
-      * runs.
+      * The identity and timestamp the case expects: the effective seeds
+      * SEED-IDENTITY-SEED and SEED-TIMESTAMP-SEED resolved before the
+      * chain ran. Each holds the value this program seeded, or the
+      * documented default sql_insert_policy.cbl applies when this
+      * program seeded none, which is the value that stub leaves in the
+      * shared seed item for the read-backs and the captures to carry.
+      * Neither expectation is taken from the capture state.
        DERIVE-EXPECTED-SEEDS.
-           IF WS-SEED-SUPPLIED > ZERO
-               MOVE WS-SEED-SUPPLIED TO WS-WANT-POLICYNUM
-           ELSE
-               MOVE HC-SEED-POLICYNUM TO WS-WANT-POLICYNUM
-           END-IF
-           IF WS-SEED-LCHG-SUPPLIED NOT = SPACES
-               MOVE WS-SEED-LCHG-SUPPLIED TO WS-WANT-LASTCHANGED
-           ELSE
-               MOVE HC-SEED-LASTCHANGED TO WS-WANT-LASTCHANGED
-           END-IF
+           MOVE WS-SEED-EFFECTIVE TO WS-WANT-POLICYNUM
+           MOVE WS-SEED-LCHG-EFFECTIVE TO WS-WANT-LASTCHANGED
            MOVE 'N' TO WS-WANT-IDENTITY
            IF WS-WANT-POLICY-SQL = 'Y' AND WS-INJ-POL-SQLCODE = ZERO
                MOVE 'Y' TO WS-WANT-IDENTITY
@@ -1624,7 +1691,11 @@
       *
       * HARNESS_POLICY_NUMBER reaches HC-SEED-POLICYNUM when it holds
       * at most nine digits and a value above zero. The item is left
-      * at zero otherwise.
+      * at zero otherwise, and
+      * modernization/harness/stubs/sql_insert_policy.cbl then reads the
+      * same environment item under the same rule and applies
+      * WS-DEFAULT-POLICYNUM, so that default is the effective identity
+      * of the case whenever this paragraph seeded none.
        SEED-IDENTITY-SEED.
            MOVE SPACES TO WS-ENV-TEXT
            ACCEPT WS-ENV-TEXT FROM ENVIRONMENT "HARNESS_POLICY_NUMBER"
@@ -1641,25 +1712,202 @@
            END-IF
            IF WS-SEED-POLICYNUM > ZERO
                MOVE WS-SEED-POLICYNUM TO HC-SEED-POLICYNUM
-               MOVE WS-SEED-POLICYNUM TO WS-SEED-SUPPLIED
+               MOVE WS-SEED-POLICYNUM TO WS-SEED-EFFECTIVE
+           ELSE
+               MOVE WS-DEFAULT-POLICYNUM TO WS-SEED-EFFECTIVE
+               MOVE WS-DEFAULT-POLICYNUM
+                 TO WS-DEFAULT-POLICYNUM-EDIT
+               DISPLAY 'DRIVER: HARNESS_POLICY_NUMBER supplies no '
+                       'identity seed; the seed of this case is the '
+                       'documented default '
+                       FUNCTION TRIM(WS-DEFAULT-POLICYNUM-EDIT)
+               END-DISPLAY
            END-IF.
       *
       * HARNESS_LASTCHANGED reaches HC-SEED-LASTCHANGED when it holds
-      * exactly 26 characters and none of them is a space. The item is
-      * left at spaces otherwise.
+      * exactly 26 characters, none of them a space, naming a real
+      * Gregorian date and time. The item is left at spaces otherwise
+      * and the rejected value is named on the log;
+      * modernization/harness/stubs/sql_insert_policy.cbl then reads the
+      * same environment item under the same rule and applies
+      * WS-DEFAULT-LASTCHANGED, so that default is the effective
+      * timestamp of the case whenever this paragraph seeded none. Both
+      * paths leave the effective value in WS-SEED-LCHG-EFFECTIVE, which
+      * is what the expectations of the case are derived from.
        SEED-TIMESTAMP-SEED.
            MOVE SPACES TO WS-ENV-TEXT
            ACCEPT WS-ENV-TEXT FROM ENVIRONMENT "HARNESS_LASTCHANGED"
            END-ACCEPT
            PERFORM TRIM-ENV-TEXT
-           IF WS-SEED-LEN = 26
+           MOVE 'N' TO WS-SEED-STAMP-OK
+           IF WS-SEED-LEN = ZERO
+               MOVE 'no value supplied'
+                   TO WS-SEED-STAMP-REASON
+           ELSE
                MOVE ZERO TO WS-SPACE-COUNT
-               INSPECT WS-ENV-TEXT(1:26) TALLYING WS-SPACE-COUNT
-                   FOR ALL SPACE
-               IF WS-SPACE-COUNT = ZERO
-                   MOVE WS-ENV-TEXT(1:26) TO HC-SEED-LASTCHANGED
-                   MOVE WS-ENV-TEXT(1:26) TO WS-SEED-LCHG-SUPPLIED
+               IF WS-SEED-LEN = 26
+                   INSPECT WS-ENV-TEXT(1:26) TALLYING WS-SPACE-COUNT
+                       FOR ALL SPACE
                END-IF
+               IF WS-SEED-LEN = 26 AND WS-SPACE-COUNT = ZERO
+                   MOVE WS-ENV-TEXT(1:26) TO WS-SEED-STAMP
+                   PERFORM VALIDATE-SEED-TIMESTAMP
+               ELSE
+                   MOVE 'not 26 characters free of blanks'
+                       TO WS-SEED-STAMP-REASON
+               END-IF
+           END-IF
+           IF WS-SEED-STAMP-OK = 'Y'
+               MOVE WS-SEED-STAMP TO HC-SEED-LASTCHANGED
+               MOVE WS-SEED-STAMP TO WS-SEED-LCHG-EFFECTIVE
+           ELSE
+               MOVE WS-DEFAULT-LASTCHANGED TO WS-SEED-LCHG-EFFECTIVE
+               DISPLAY 'DRIVER: HARNESS_LASTCHANGED rejected: '
+                       FUNCTION TRIM(WS-SEED-STAMP-REASON)
+                       '; the seed of this case is the documented '
+                       'default ' WS-DEFAULT-LASTCHANGED
+               END-DISPLAY
+           END-IF.
+      *
+      * Judges the 26 characters of WS-SEED-STAMP as a Db2 external
+      * timestamp: the six separators in their fixed positions, every
+      * other position a digit, a year of 0001 through 9999, a month of
+      * 01 through 12, a day the month and year allow under the
+      * Gregorian leap rule, an hour of 00 through 23, a minute and a
+      * second of 00 through 59, and six fractional digits. This is the
+      * rule modernization/harness/run_harness.sh applies before the run
+      * and modernization/harness/stubs/sql_insert_policy.cbl applies
+      * inside the chain.
+       VALIDATE-SEED-TIMESTAMP.
+           MOVE 'Y' TO WS-SEED-STAMP-OK
+           MOVE SPACES TO WS-SEED-STAMP-REASON
+           PERFORM CHECK-SEED-STAMP-LAYOUT
+           IF WS-SEED-STAMP-OK = 'Y'
+               PERFORM CHECK-SEED-STAMP-RANGES
+           END-IF
+           IF WS-SEED-STAMP-OK = 'Y'
+               PERFORM CHECK-SEED-STAMP-DAY
+           END-IF.
+      *
+      * Confirms the separators and that every remaining position holds
+      * a digit. The numeric redefinition of WS-SEED-STAMP is read only
+      * after this paragraph has passed.
+       CHECK-SEED-STAMP-LAYOUT.
+           EVALUATE TRUE
+             WHEN WS-SEED-STAMP-SEP1 NOT = '-'
+               MOVE 'character 5 is not a hyphen'
+                   TO WS-SEED-STAMP-REASON
+               MOVE 'N' TO WS-SEED-STAMP-OK
+             WHEN WS-SEED-STAMP-SEP2 NOT = '-'
+               MOVE 'character 8 is not a hyphen'
+                   TO WS-SEED-STAMP-REASON
+               MOVE 'N' TO WS-SEED-STAMP-OK
+             WHEN WS-SEED-STAMP-SEP3 NOT = '-'
+               MOVE 'character 11 is not a hyphen'
+                   TO WS-SEED-STAMP-REASON
+               MOVE 'N' TO WS-SEED-STAMP-OK
+             WHEN WS-SEED-STAMP-SEP4 NOT = '.'
+               MOVE 'character 14 is not a point'
+                   TO WS-SEED-STAMP-REASON
+               MOVE 'N' TO WS-SEED-STAMP-OK
+             WHEN WS-SEED-STAMP-SEP5 NOT = '.'
+               MOVE 'character 17 is not a point'
+                   TO WS-SEED-STAMP-REASON
+               MOVE 'N' TO WS-SEED-STAMP-OK
+             WHEN WS-SEED-STAMP-SEP6 NOT = '.'
+               MOVE 'character 20 is not a point'
+                   TO WS-SEED-STAMP-REASON
+               MOVE 'N' TO WS-SEED-STAMP-OK
+             WHEN WS-SEED-STAMP-YEAR NOT NUMERIC
+               MOVE 'the year is not four digits'
+                   TO WS-SEED-STAMP-REASON
+               MOVE 'N' TO WS-SEED-STAMP-OK
+             WHEN WS-SEED-STAMP-MONTH NOT NUMERIC
+               MOVE 'the month is not two digits'
+                   TO WS-SEED-STAMP-REASON
+               MOVE 'N' TO WS-SEED-STAMP-OK
+             WHEN WS-SEED-STAMP-DAY NOT NUMERIC
+               MOVE 'the day is not two digits'
+                   TO WS-SEED-STAMP-REASON
+               MOVE 'N' TO WS-SEED-STAMP-OK
+             WHEN WS-SEED-STAMP-HOUR NOT NUMERIC
+               MOVE 'the hour is not two digits'
+                   TO WS-SEED-STAMP-REASON
+               MOVE 'N' TO WS-SEED-STAMP-OK
+             WHEN WS-SEED-STAMP-MINUTE NOT NUMERIC
+               MOVE 'the minute is not two digits'
+                   TO WS-SEED-STAMP-REASON
+               MOVE 'N' TO WS-SEED-STAMP-OK
+             WHEN WS-SEED-STAMP-SECOND NOT NUMERIC
+               MOVE 'the second is not two digits'
+                   TO WS-SEED-STAMP-REASON
+               MOVE 'N' TO WS-SEED-STAMP-OK
+             WHEN WS-SEED-STAMP-MICROS NOT NUMERIC
+               MOVE 'the fraction is not six digits'
+                   TO WS-SEED-STAMP-REASON
+               MOVE 'N' TO WS-SEED-STAMP-OK
+           END-EVALUATE.
+      *
+      * Confirms the range of every element except the day, which the
+      * month and the year decide.
+       CHECK-SEED-STAMP-RANGES.
+           EVALUATE TRUE
+             WHEN WS-SEED-NUM-YEAR < 1
+               MOVE 'the year is 0000' TO WS-SEED-STAMP-REASON
+               MOVE 'N' TO WS-SEED-STAMP-OK
+             WHEN WS-SEED-NUM-MONTH < 1 OR WS-SEED-NUM-MONTH > 12
+               MOVE 'the month is outside 01 through 12'
+                   TO WS-SEED-STAMP-REASON
+               MOVE 'N' TO WS-SEED-STAMP-OK
+             WHEN WS-SEED-NUM-HOUR > 23
+               MOVE 'the hour is outside 00 through 23'
+                   TO WS-SEED-STAMP-REASON
+               MOVE 'N' TO WS-SEED-STAMP-OK
+             WHEN WS-SEED-NUM-MINUTE > 59
+               MOVE 'the minute is outside 00 through 59'
+                   TO WS-SEED-STAMP-REASON
+               MOVE 'N' TO WS-SEED-STAMP-OK
+             WHEN WS-SEED-NUM-SECOND > 59
+               MOVE 'the second is outside 00 through 59'
+                   TO WS-SEED-STAMP-REASON
+               MOVE 'N' TO WS-SEED-STAMP-OK
+           END-EVALUATE.
+      *
+      * Confirms the day against the length of the month, taking
+      * February from the Gregorian leap rule: a year divisible by four
+      * is a leap year unless it is divisible by 100 without being
+      * divisible by 400.
+       CHECK-SEED-STAMP-DAY.
+           MOVE 'N' TO WS-SEED-STAMP-LEAP
+           IF FUNCTION MOD(WS-SEED-NUM-YEAR 4) = ZERO
+               IF FUNCTION MOD(WS-SEED-NUM-YEAR 100) NOT = ZERO
+                   MOVE 'Y' TO WS-SEED-STAMP-LEAP
+               ELSE
+                   IF FUNCTION MOD(WS-SEED-NUM-YEAR 400) = ZERO
+                       MOVE 'Y' TO WS-SEED-STAMP-LEAP
+                   END-IF
+               END-IF
+           END-IF
+           EVALUATE WS-SEED-NUM-MONTH
+             WHEN 2
+               IF WS-SEED-STAMP-LEAP = 'Y'
+                   MOVE 29 TO WS-SEED-STAMP-MAX-DAY
+               ELSE
+                   MOVE 28 TO WS-SEED-STAMP-MAX-DAY
+               END-IF
+             WHEN 4
+             WHEN 6
+             WHEN 9
+             WHEN 11
+               MOVE 30 TO WS-SEED-STAMP-MAX-DAY
+             WHEN OTHER
+               MOVE 31 TO WS-SEED-STAMP-MAX-DAY
+           END-EVALUATE
+           IF WS-SEED-NUM-DAY < 1
+               OR WS-SEED-NUM-DAY > WS-SEED-STAMP-MAX-DAY
+               MOVE 'the day is outside the length of the month'
+                   TO WS-SEED-STAMP-REASON
+               MOVE 'N' TO WS-SEED-STAMP-OK
            END-IF.
       *
       * Sets WS-SEED-LEN to the position of the last character of
@@ -2857,12 +3105,11 @@
       *
       * Holds the comparison CHECK-RETURN-CODE makes to one it can
       * fail. The fixture image carries a value in the CA-RETURN-CODE
-      * window before the chain runs, and a case that expects the chain
-      * to write a code equal to that value would pass whether the chain
-      * wrote it or not, so the expected code and the fixture value are
-      * required to differ. 'NONE' compares no code and the fixture
-      * value is what such a case asserts, so this check does not apply
-      * to it.
+      * window before the chain runs, and the expected code and that
+      * value are required to differ: an equal pair is reported as a
+      * failed value check and ends the run with status 6. 'NONE'
+      * compares no code and the fixture value is what such a case
+      * asserts, so this check does not apply to it.
        CHECK-RETURN-CODE-ORACLE.
            IF WS-WANT-RETURN-CODE NOT = 'NONE'
                IF WS-FIXTURE-RETURN-CODE = WS-WANT-RETURN-CODE(1:2)

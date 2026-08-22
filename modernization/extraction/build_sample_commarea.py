@@ -218,8 +218,7 @@ HOW IT FAILS
     requires no TTY. ``--help`` prints the full help and exits with status 0. On success
     it writes one summary line to stdout.
 
-Decision rationale for this component belongs to modernization/docs/decision-log.md
-(planned deliverable; not present at this milestone).
+Decision rationale for this component belongs to modernization/docs/decision-log.md.
 """
 
 from __future__ import annotations
@@ -3012,11 +3011,12 @@ class _Fill(NamedTuple):
 _FILL_SPACES = _Fill(" ")
 _FILL_ZEROS = _Fill("0")
 
-# The literal the field map seeds the CA-RETURN-CODE window with, held here so the
-# matrix compares the emitted record against a value of its own rather than against the
-# document under test. It stands outside the return_codes domain the field map declares
-# for that item, so a run that reports one of those codes reports a value the chain
-# wrote.
+# The literal the field map seeds the CA-RETURN-CODE window with, held by this matrix
+# independently of that document: the fixture cases compare the emitted record against
+# this literal, and the self-test compares the seed the field map declares against it.
+# It stands outside the return_codes domain the field map declares for that item, so a
+# code inside that domain on an executed record is one the chain wrote. See
+# modernization/docs/decision-log.md.
 _CHAIN_RETURN_CODE_SEED = "55"
 
 # Content every chain-populated window carries on the emitted record, before the chain
@@ -3219,7 +3219,7 @@ _EXTRA_RECORD_CHARACTER = "0"
 # The field map's product premium nullability claim, held here as literals: the builder
 # cases it may name for the record bytes, the statements it withholds, the dbt test that
 # carries the transformed column-level assertion and the cases it requires of that test.
-# That test is not authored at this milestone and no case in this matrix runs it; the
+# That test stands in the tree at this milestone and no case in this matrix runs it; the
 # literals below compare the claim's metadata and read no warehouse column.
 _NULLABILITY_CLAIMED_CASES = frozenset(
     {"commercial_inactive_overlay_filled", "motor_inactive_overlay_spaces"}
@@ -5449,7 +5449,7 @@ def _case_nullability_claim(field_map: dict[str, Any], names: Iterable[str]) -> 
     builder cases of ``_NULLABILITY_CLAIMED_CASES``, each of them run by this matrix,
     and must withhold exactly the statements of ``_NULLABILITY_WITHHELD``.
     ``transformed_assertion_carried_by`` must name the test
-    ``_NULLABILITY_TRANSFORMED_TEST`` and the same test as ``planned_enforcement``,
+    ``_NULLABILITY_TRANSFORMED_TEST`` and the same test as ``enforcement``,
     and must
     require exactly the ``_NULLABILITY_REQUIRED_CASES`` objects: one for every policy
     type whose allocation populates a product premium, each carrying its literal
@@ -5503,11 +5503,11 @@ def _case_nullability_claim(field_map: dict[str, Any], names: Iterable[str]) -> 
             f"{_display(carried.get('test'))}, expected "
             f"{_display(_NULLABILITY_TRANSFORMED_TEST)}"
         )
-    if carried.get("test") != contract.get("planned_enforcement"):
+    if carried.get("test") != contract.get("enforcement"):
         raise _SelfTestFailure(
             f"transformed_assertion_carried_by names test "
-            f"{_display(carried.get('test'))} while planned_enforcement names "
-            f"{_display(contract.get('planned_enforcement'))}"
+            f"{_display(carried.get('test'))} while enforcement names "
+            f"{_display(contract.get('enforcement'))}"
         )
     required = carried.get("required_cases")
     if not isinstance(required, list) or not required:
@@ -7167,8 +7167,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
             "Every failure writes one control-free line to stderr and returns 2 for a "
             "rejected sample definition, 3 for an inconsistent field map, or 4 for an "
             "unreadable input, a refused output or a usage error.\n"
-            "Decision rationale: modernization/docs/decision-log.md "
-            "(planned deliverable; not present at this milestone)"
+            "Decision rationale: modernization/docs/decision-log.md"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )

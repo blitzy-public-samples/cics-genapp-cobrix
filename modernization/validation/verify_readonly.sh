@@ -3,12 +3,14 @@
 # verify_readonly.sh - read-only scope gate for the modernization bridge.
 #
 # Checks that the five authorized GenApp source artifacts are byte-identical to
-# the baseline embedded in this script, and that no pre-existing tracked
-# repository file has been modified.
+# the baseline embedded in this script, and that no tracked repository file
+# other than the generated evidence files the exempt inventory names has been
+# modified.
 #
-# Milestone status: this script runs standalone at this milestone. The
-# modernization/Makefile that will invoke it and the decision log referenced
-# below are planned deliverables, not present at this milestone.
+# Milestone status: this script runs standalone and is invoked by
+# modernization/harness/run_harness.sh at four points of a harness run. The
+# modernization/Makefile that will also invoke it and the decision log
+# referenced below are planned deliverables, not present at this milestone.
 #
 # Stages, in execution order:
 #   preflight  "git", "sha256sum", "wc", "date", "mkdir", "stat" and "flock"
@@ -27,16 +29,20 @@
 #              still reports that inode and device after both measurements, and
 #              each measurement equals the embedded baseline value.
 #   gate B     "git status --porcelain -- base/" produces no output.
-#   gate C     "git diff --name-only HEAD", after paths under the new-work
-#              prefix "modernization/" are filtered out, lists no remaining
-#              path. The block records exactly that filtered list - the tracked
-#              paths outside "modernization/", one escaped line each, or one
-#              marker line when there are none - beside one fixed statement
-#              that paths under "modernization/" are outside this gate and are
-#              not recorded. A path under that prefix therefore reaches neither
-#              the decision nor the evidence log, and one stage of two runs
-#              over one unchanged pre-existing tracked state records the same
-#              bytes however this work's own tracked files stand.
+#   gate C     "git diff --name-only HEAD" reports no tracked path other than
+#              the generated evidence files the exempt inventory names. Every
+#              reported path is evaluated, wherever in the repository it lies. A
+#              path that equals one entry of that inventory - twelve exact paths
+#              under "modernization/validation/artifacts/", each one a file
+#              modernization/harness/run_harness.sh republishes on every run -
+#              is recorded as exempt and is not counted; every other reported
+#              path, an authored path under "modernization/" included, is named
+#              in the block, counted and fails the gate. The block records the
+#              exempt inventory in full, then the exempt paths this run found
+#              modified, then the tracked modifications it counted, each list
+#              holding one escaped line per path or one marker line when it is
+#              empty. The bytes of the block follow the tracked state the run
+#              read.
 #
 # Evidence log location rules, all applied before anything is written:
 #   - a supplied path is not empty, and an empty --log value never falls back to
@@ -107,9 +113,8 @@
 #     validated", with exit 1 and no measurement taken;
 #   - a path substituted for a FIFO inside that window blocks that open: the run
 #     stops there and reports nothing further.
-# Decisions taken about the open sequence will be recorded in
-# modernization/docs/decision-log.md (planned deliverable; not present at this
-# milestone).
+# Decisions taken about the open sequence are recorded in
+# modernization/docs/decision-log.md.
 #
 # Externally supplied text - the --stage label, the requested and resolved log
 # paths, the repository root and every git output line - is emitted with
@@ -124,7 +129,10 @@
 # any checkout. Neither mode records the absolute path of a checkout: the
 # default block names the root relative to itself. Nothing else changes: the
 # same gates run, the same records are written, and the same exit codes are
-# returned.
+# returned. In either mode the gate C records name the tracked state the run
+# read: two runs of one stage record the same gate C bytes while that state is
+# unchanged, and a run whose checkout carries a tracked modification records
+# that path.
 #
 # Exit codes:
 #   0  every gate passed
@@ -132,7 +140,7 @@
 #      source file, or a source whose type changed between its checks and its
 #      open, or a source whose inode changed while it was measured
 #   2  the base/ working tree is not clean
-#   3  a pre-existing tracked file outside modernization/ has been modified
+#   3  a tracked file the exempt inventory does not name has been modified
 #   4  environment or usage error, including a rejected evidence log location, a
 #      log whose type changed between its checks and its open, an exclusive lock
 #      on the evidence log that is not taken within the bounded wait, and a
@@ -266,13 +274,18 @@
 # open, a source whose name becomes a symbolic link and a source whose name
 # becomes a FIFO between its open and the status read that follows it, a source
 # replaced while it is measured through its descriptor, an unclean base/
-# working tree, a modified tracked file outside modernization/, a modified
-# tracked file under modernization/ beside the clean tree of the same work
-# tree, one missing required tool per case, a failing status read of a held
-# descriptor, an injected --stage label, clean positive runs, and the declared
-# case count. The case that modifies a tracked file under modernization/
-# compares the gate C records of its two runs line by line and reads its log
-# back for two identical blocks. The substitution cases and the
+# working tree, a modified tracked file outside modernization/ beside a
+# modified tracked authored file under it, a modified tracked authored file
+# under modernization/ over two runs of one stage, every exempt generated
+# evidence path modified at once, two modified tracked paths under the published
+# evidence directory that the exempt inventory does not name, one missing
+# required tool per case, a failing status read of a held descriptor, an
+# injected --stage label, clean positive runs, and the declared case count. The
+# case that modifies a tracked authored file under modernization/ compares the
+# gate C records of its two runs line by line and reads its log back for two
+# identical blocks, and the case that modifies every exempt generated evidence
+# path reads its log back for two lines per exempt path: the inventory line and
+# the line that records it as modified. The substitution cases and the
 # descriptor-status case drive their fault through a "stat" shim placed ahead
 # of PATH that otherwise forwards every call to the real tool. The two
 # evidence-directory cases drive theirs through a "mkdir" shim placed ahead of
@@ -303,7 +316,7 @@
 # The harness topology this script belongs to is drawn in
 # Figure 5 — Validation Harness Control Flow in modernization/docs/architecture.md.
 # Decisions taken for this script will be recorded in
-# modernization/docs/decision-log.md (planned deliverable; not present at this milestone).
+# modernization/docs/decision-log.md.
 
 set -euo pipefail
 IFS=$'\n\t'
@@ -326,21 +339,40 @@ readonly BASELINE=(
   "base/src/lgpolicy.cpy|107|717c8f5c50738a2ef4d432e4b397e21bdc0423a9fc789246eb3360aa3f99eaa5"
 )
 
-# Repository-relative prefix holding this work. Gate C ignores paths under it:
-# the bridge is authored there and its published evidence set is replaced there
-# by every harness run, so a modification under it is this work rather than a
-# pre-existing file. A path outside it is what gate C reports.
-readonly NEW_WORK_PREFIX="modernization/"
+# Repository-relative paths gate C exempts, one exact path each, in the order
+# modernization/harness/run_harness.sh publishes them: its five stage files
+# (PUBLISHED_STAGE_ARTIFACTS), the manifest of the run
+# (EVIDENCE_MANIFEST_NAME), and the driver log, the capture file and the
+# post-chain record of each of its two success cases (SUCCESS_CASES). Every run
+# of that script replaces these twelve tracked files. A reported path is exempt
+# only when it equals one of these strings: no prefix, no directory and no
+# pattern is exempt, so every other tracked path under
+# modernization/validation/artifacts/ - runtime-versions.txt, which no harness
+# run writes, included - is evaluated by gate C like any other tracked path.
+readonly GENERATED_EVIDENCE_EXEMPT=(
+  "modernization/validation/artifacts/translate.log"
+  "modernization/validation/artifacts/compile.log"
+  "modernization/validation/artifacts/translation-report.json"
+  "modernization/validation/artifacts/source-baseline.sha256"
+  "modernization/validation/artifacts/readonly-check.log"
+  "modernization/validation/artifacts/evidence-manifest.sha256"
+  "modernization/validation/artifacts/driver_01amot.log"
+  "modernization/validation/artifacts/captures_01amot.txt"
+  "modernization/validation/artifacts/commarea_post_01amot.dat"
+  "modernization/validation/artifacts/driver_01acom.log"
+  "modernization/validation/artifacts/captures_01acom.txt"
+  "modernization/validation/artifacts/commarea_post_01acom.dat"
+)
 
 # The only directory an evidence log may live in, relative to the repository
 # root. No sub-directory of it is accepted. It is a generated directory covered
 # by the ignore rules of modernization/.gitignore, so a run of this script
-# leaves no tracked file changed and gate C checks a working tree this script
-# did not write into. The harness publishes an immutable copy of the log it
-# collects under modernization/validation/artifacts, as part of the evidence set
-# it replaces in one step once every gate has passed.
-# See planned decision-log row: read-only gate writes its evidence log into the
-# generated build tree.
+# changes no tracked file. The harness publishes the log it collects under
+# modernization/validation/artifacts/readonly-check.log, one entry of the
+# evidence set it replaces in one step once every gate has passed.
+# Decisions taken for this script are recorded in
+# modernization/docs/decision-log.md (planned deliverable; not present at this
+# milestone).
 readonly LOG_DIR_REL="modernization/harness/build/logs"
 
 # Evidence log used when --log is not supplied, relative to the repository root.
@@ -348,13 +380,12 @@ readonly DEFAULT_LOG_REL="${LOG_DIR_REL}/readonly-check.log"
 
 # Value the "repository_root" record of an evidence block carries. Every path a
 # block names - the baseline entries, the evidence log and the paths git
-# reports - is repository-relative, so the root is recorded as the "." those
-# paths are relative to rather than as the absolute path of one checkout, and
-# two checkouts of the same commit produce the same block. The absolute path
-# still reaches the operator: a diagnostic that rejects a path names the root it
-# resolved.
-# See planned decision-log row: evidence paths recorded relative to the
-# repository root.
+# reports - is repository-relative, and this record names the "." those paths
+# are relative to; no block records the absolute path of a checkout. A
+# diagnostic that rejects a path names the root it resolved.
+# Decisions taken for this script are recorded in
+# modernization/docs/decision-log.md (planned deliverable; not present at this
+# milestone).
 readonly REPO_ROOT_DISPLAY=". (every path of this block is relative to the repository root)"
 
 # Longest a run waits for the exclusive lock on the evidence log, in seconds. A
@@ -445,8 +476,8 @@ usage() {
 Usage: verify_readonly.sh [options]
 
 Checks that the five authorized GenApp source artifacts match the baseline
-embedded in this script and that no pre-existing tracked repository file has
-been modified.
+embedded in this script and that no tracked repository file other than the
+generated evidence files the exempt inventory names has been modified.
 
 Options:
   --stage NAME      Label recorded with this run, such as translate, compile,
@@ -485,7 +516,9 @@ Options:
                     every exit code are unchanged. Without it, the block records
                     the UTC time of the run; the root is recorded relative to
                     itself in both modes, so neither carries the absolute path
-                    of one checkout.
+                    of one checkout. In either mode the gate C records name the
+                    tracked state the run read, so a run whose checkout carries
+                    a tracked modification records that path.
   --baseline-only   Print the embedded baseline and exit 0. Runs no gate,
                     invokes no external tool and writes no log.
   --quiet           Suppress stdout. The evidence log is still written.
@@ -511,14 +544,19 @@ Stages, in execution order:
              reports that inode and device afterwards, and each measurement
              equals the embedded baseline value.
   gate B     "git status --porcelain -- base/" produces no output.
-  gate C     "git diff --name-only HEAD", after paths under modernization/ are
-             filtered out, lists no remaining path. The block records that
-             filtered list alone - the tracked paths outside modernization/,
-             one escaped line each, or one marker line when there are none -
-             beside one fixed statement that paths under modernization/ are
-             outside this gate and are not recorded, so two runs of one stage
-             over one unchanged pre-existing tracked state record the same
-             bytes however this work's own tracked files stand.
+  gate C     "git diff --name-only HEAD" reports no tracked path other than the
+             generated evidence files the exempt inventory names. Every reported
+             path is evaluated, wherever in the repository it lies. A path that
+             equals one entry of that inventory - twelve exact paths under
+             modernization/validation/artifacts/, each one a file
+             modernization/harness/run_harness.sh republishes on every run - is
+             recorded as exempt and is not counted; every other reported path,
+             an authored path under modernization/ included, is named in the
+             block, counted and fails the gate. The block records the exempt
+             inventory in full, then the exempt paths this run found modified,
+             then the tracked modifications it counted, each list holding one
+             escaped line per path or one marker line when it is empty. The
+             bytes of the block follow the tracked state the run read.
 
 Substitution of a path between its check and its open:
   A path that is a symbolic link, that exists as something other than a regular
@@ -544,7 +582,7 @@ Exit codes:
      source file, or a source whose type changed between its checks and its
      open, or a source whose inode changed while it was measured
   2  the base/ working tree is not clean
-  3  a pre-existing tracked file outside modernization/ has been modified
+  3  a tracked file the exempt inventory does not name has been modified
   4  environment or usage error, including a rejected evidence log location, a
      log whose type changed between its checks and its open, an exclusive lock
      on the evidence log that is not taken within the bounded wait, and a failed
@@ -1305,28 +1343,49 @@ gate_b() {
   return 1
 }
 
-# Gate C: no tracked path outside the new-work prefix differs from HEAD.
-#
-# The whole reported list of "git diff --name-only HEAD" is read, and a path
-# under NEW_WORK_PREFIX is dropped from it before anything is recorded: the
-# block names the tracked paths outside that prefix, one sanitized line each, or
-# one marker line when there are none, under one fixed statement that paths
-# inside the prefix are neither evaluated nor recorded. The recorded lines
-# therefore hold the same bytes whether or not this work's own tracked files -
-# the authored bridge and the evidence set a harness run replaces - differ from
-# HEAD while the gate runs, so one stage of two runs over one unchanged
-# pre-existing tracked state appends byte-identical blocks. The decision, its
-# count line, its stderr summary and its exit code read the same list as
-# before: a path outside the prefix is counted, named in the record and returned
-# as EXIT_TRACKED.
-# See planned decision-log row: gate C records only the tracked paths it
-# evaluates, in modernization/docs/decision-log.md (planned deliverable; not
-# present at this milestone).
-gate_c() {
-  local output="" line="" entry="" count=0
-  local remaining=()
+# Reports whether the supplied path, exactly as "git diff --name-only HEAD"
+# printed it, equals one entry of GENERATED_EVIDENCE_EXEMPT. The comparison is
+# string equality over the whole path: no prefix, no directory and no pattern
+# matches, and a path git printed in any other form than one of those strings
+# does not match. Returns 0 for an exempt path and 1 for every other path.
+evidence_exempt_path() {
+  local candidate="$1" entry=""
 
-  emit "gate C no pre-existing tracked modification:"
+  for entry in "${GENERATED_EVIDENCE_EXEMPT[@]}"; do
+    if [[ "$candidate" == "$entry" ]]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+# Gate C: no tracked path differs from HEAD except the generated evidence files
+# GENERATED_EVIDENCE_EXEMPT names by exact path.
+#
+# Every path "git diff --name-only HEAD" reports is evaluated, wherever in the
+# repository it lies: a tracked path whose content differs from HEAD, staged or
+# not, and a removed tracked path alike. A reported path that equals an exempt
+# entry is recorded as exempt and is not counted; every other reported path - an
+# authored path under modernization/, a path outside it, and a path under
+# modernization/validation/artifacts/ the inventory does not name alike - is
+# recorded, counted and fails the gate. The block records the exempt inventory
+# in full, then the exempt paths this run found modified, then the tracked
+# modifications it counted, each list holding one sanitized line per path or one
+# marker line when it is empty: a reported path the gate does not count is named
+# in the exempt list of the block. The two count lines report the size of each
+# list, and a non-zero count of tracked modifications emits the count on stderr
+# and returns the gate as EXIT_TRACKED. The bytes of these records follow
+# the tracked state the run read: two runs of one stage record the same records
+# while that state is unchanged, and a run whose checkout carries a tracked
+# modification records that path.
+# Decisions taken for this gate are recorded in
+# modernization/docs/decision-log.md (planned deliverable; not present at this
+# milestone).
+gate_c() {
+  local output="" line="" entry="" count=0 exempt_count=0
+  local exempted=() named=()
+
+  emit "gate C no tracked modification outside the generated evidence set:"
   if ! output="$(git diff --name-only HEAD 2>&1)"; then
     fail_env "git diff --name-only HEAD did not complete: $(sanitize "$output")"
   fi
@@ -1334,25 +1393,44 @@ gate_c() {
   if [[ -n "$output" ]]; then
     while IFS= read -r line; do
       [[ -n "$line" ]] || continue
-      case "$line" in
-        "${NEW_WORK_PREFIX}"*) : ;;
-        *) remaining+=("$(sanitize "$line")") ;;
-      esac
+      if evidence_exempt_path "$line"; then
+        exempted+=("$(sanitize "$line")")
+      else
+        named+=("$(sanitize "$line")")
+      fi
     done <<<"$output"
   fi
-  count="${#remaining[@]}"
+  exempt_count="${#exempted[@]}"
+  count="${#named[@]}"
 
-  emit "  paths under ${NEW_WORK_PREFIX} are outside gate C's scope and are not recorded"
-  emit "  git diff --name-only HEAD, tracked paths outside ${NEW_WORK_PREFIX}:"
-  if ((count == 0)); then
-    emit "    (no tracked modification outside ${NEW_WORK_PREFIX})"
+  printf -v line '  exempt generated evidence paths, matched by exact path (%d):' \
+    "${#GENERATED_EVIDENCE_EXEMPT[@]}"
+  emit "$line"
+  for entry in "${GENERATED_EVIDENCE_EXEMPT[@]}"; do
+    emit "    ${entry}"
+  done
+
+  emit "  git diff --name-only HEAD, exempt paths modified:"
+  if ((exempt_count == 0)); then
+    emit "    (no exempt generated evidence path modified)"
   else
-    for entry in "${remaining[@]}"; do
+    for entry in "${exempted[@]}"; do
       emit "    ${entry}"
     done
   fi
 
-  printf -v line '  tracked paths outside %s: %d' "$NEW_WORK_PREFIX" "$count"
+  emit "  git diff --name-only HEAD, tracked modifications:"
+  if ((count == 0)); then
+    emit "    (no tracked modification)"
+  else
+    for entry in "${named[@]}"; do
+      emit "    ${entry}"
+    done
+  fi
+
+  printf -v line '  exempt generated evidence paths modified: %d' "$exempt_count"
+  emit "$line"
+  printf -v line '  tracked modifications: %d' "$count"
   emit "$line"
 
   if ((count == 0)); then
@@ -1361,8 +1439,8 @@ gate_c() {
   fi
 
   emit "gate C result: FAIL"
-  printf '%s: error: gate C %d pre-existing tracked file(s) outside %s modified\n' \
-    "$PROG" "$count" "$NEW_WORK_PREFIX" >&2
+  printf '%s: error: gate C %d tracked file(s) modified outside the generated evidence set, named in the evidence block\n' \
+    "$PROG" "$count" >&2
   return 1
 }
 
@@ -1386,7 +1464,7 @@ readonly SELF_TEST_EXPECTED_TOOLS=(git sha256sum wc date mkdir stat flock)
 
 # Number of case lines --self-test reports, including the case that checks this
 # number. A case that is added or removed changes it.
-readonly SELF_TEST_CASE_COUNT=50
+readonly SELF_TEST_CASE_COUNT=52
 
 # Seconds the "flock" shim of the held-lock case hands the real tool in place of
 # the bounded wait the run under test asks for. It applies to that one shim
@@ -2069,7 +2147,7 @@ st_gate_c_block() {
 
   while IFS= read -r line; do
     case "$line" in
-      "gate C no pre-existing tracked modification:")
+      "gate C no tracked modification outside the generated evidence set:")
         reading=1
         printf '%s\n' "$line"
         ;;
@@ -2921,15 +2999,14 @@ st_case_base_dirty() {
   st_end "exit 2 at gate B on a modified tracked and an untracked base/ path, gate C not reached"
 }
 
-# Modifies one tracked path outside the new-work prefix and one tracked path
-# under it. Gate C names and counts the path outside the prefix and fails on it,
-# and the path under the prefix reaches no line of the run: the record holds the
-# paths the gate evaluates and nothing else.
+# Modifies one tracked path outside modernization/ and one tracked authored path
+# under it, and nothing else. Gate C names and counts both, records no exempt
+# path as modified, fails and exits EXIT_TRACKED.
 st_case_tracked_outside() {
   local outside_rel="NOTES.txt"
   st_begin "tracked-outside"
   printf 'self-test tracked note\n' >"${ST_REPO}/${outside_rel}"
-  st_commit "self-test tracked file outside the new-work prefix"
+  st_commit "self-test tracked file outside modernization/"
   printf 'self-test tracked note, modified\n' >"${ST_REPO}/${outside_rel}"
   printf '%s\njsonschema==4.26.0\n' "$SELF_TEST_MANIFEST_BODY" \
     >"${ST_REPO}/${SELF_TEST_MANIFEST_REL}"
@@ -2937,34 +3014,26 @@ st_case_tracked_outside() {
   st_expect_exit "$EXIT_TRACKED"
   st_expect_output "gate A result: PASS (5 of 5 baseline entries matched)"
   st_expect_output "gate B result: PASS"
-  st_expect_no_output "${SELF_TEST_MANIFEST_REL}"
   st_expect_output "    ${outside_rel}"
-  st_expect_output "  tracked paths outside ${NEW_WORK_PREFIX}: 1"
+  st_expect_output "    ${SELF_TEST_MANIFEST_REL}"
+  st_expect_output "    (no exempt generated evidence path modified)"
+  st_expect_output "  exempt generated evidence paths modified: 0"
+  st_expect_output "  tracked modifications: 2"
   st_expect_output "gate C result: FAIL"
-  st_expect_output "verdict: FAIL-PREEXISTING-TRACKED-MODIFICATION"
-  st_end "exit 3 at gate C on one tracked path outside ${NEW_WORK_PREFIX}, the prefix change unrecorded"
+  st_expect_output "verdict: FAIL-TRACKED-MODIFICATION"
+  st_end "exit 3 at gate C on one modified tracked path outside modernization/ and one authored path under it, both named"
 }
 
-# Runs one stage twice over one work tree, into one log and with --reproducible:
-# once with every tracked path at HEAD, then with one tracked path under the
-# new-work prefix modified and nothing else. The second run records the gate C
-# header, the scope statement, the marker line for an empty list, the count and
-# the result exactly as the first did, names no path, still counts no path
-# outside the prefix and still exits 0, and the two blocks the log holds are
-# identical, so a block of published evidence carries no state of this work's
-# own tracked files.
-st_case_new_work_modified() {
-  local log_rel="${LOG_DIR_REL}/new-work.log"
-  local log_abs="" clean_block="" dirty_block="" reported=""
-  st_begin "new-work-modified"
+# Modifies one tracked authored path under modernization/ and nothing else, then
+# runs one stage twice over that state into one log with --reproducible. Each
+# run names and counts that path, records no exempt path as modified, fails gate
+# C and exits EXIT_TRACKED; the gate C records of the two runs hold the same
+# lines in the same order, and the log holds two identical blocks.
+st_case_tracked_authored() {
+  local log_rel="${LOG_DIR_REL}/authored.log"
+  local log_abs="" first_block="" second_block="" reported=""
+  st_begin "tracked-authored"
   log_abs="${ST_REPO}/${log_rel}"
-
-  st_run --stage fixed-stage --log "$log_rel" --reproducible
-  st_expect_exit "$EXIT_OK"
-  st_expect_output "  tracked paths outside ${NEW_WORK_PREFIX}: 0"
-  st_expect_output "gate C result: PASS"
-  clean_block="$(st_gate_c_block)"
-  [[ -n "$clean_block" ]] || st_note "the run over the clean tree recorded no gate C block"
 
   printf '%s\njsonschema==4.26.0\n' "$SELF_TEST_MANIFEST_BODY" \
     >"${ST_REPO}/${SELF_TEST_MANIFEST_REL}"
@@ -2973,20 +3042,104 @@ st_case_new_work_modified() {
     st_note "the work tree reports '${reported}' where only ${SELF_TEST_MANIFEST_REL} was modified"
 
   st_run --stage fixed-stage --log "$log_rel" --reproducible
-  st_expect_exit "$EXIT_OK"
-  st_expect_output "  paths under ${NEW_WORK_PREFIX} are outside gate C's scope and are not recorded"
-  st_expect_output "    (no tracked modification outside ${NEW_WORK_PREFIX})"
-  st_expect_output "  tracked paths outside ${NEW_WORK_PREFIX}: 0"
-  st_expect_output "gate C result: PASS"
-  st_expect_output "verdict: PASS"
-  st_expect_no_output "${SELF_TEST_MANIFEST_REL}"
-  dirty_block="$(st_gate_c_block)"
-  [[ "$dirty_block" == "$clean_block" ]] ||
-    st_note "the gate C block changed while a tracked path under ${NEW_WORK_PREFIX} was modified"
+  st_expect_exit "$EXIT_TRACKED"
+  st_expect_output "gate A result: PASS (5 of 5 baseline entries matched)"
+  st_expect_output "gate B result: PASS"
+  st_expect_output "    ${SELF_TEST_MANIFEST_REL}"
+  st_expect_output "    (no exempt generated evidence path modified)"
+  st_expect_output "  exempt generated evidence paths modified: 0"
+  st_expect_output "  tracked modifications: 1"
+  st_expect_output "gate C result: FAIL"
+  st_expect_output "verdict: FAIL-TRACKED-MODIFICATION"
+  first_block="$(st_gate_c_block)"
+  [[ -n "$first_block" ]] || st_note "the first run recorded no gate C block"
+
+  st_run --stage fixed-stage --log "$log_rel" --reproducible
+  st_expect_exit "$EXIT_TRACKED"
+  st_expect_output "  tracked modifications: 1"
+  second_block="$(st_gate_c_block)"
+  [[ "$second_block" == "$first_block" ]] ||
+    st_note "the two runs over one tracked state recorded different gate C records"
 
   st_expect_identical_blocks "$log_abs" 2
-  st_expect_exact_count "$log_abs" "verdict: PASS" 2
-  st_end "exit 0 and one gate C block for a clean tree and a modified tracked ${NEW_WORK_PREFIX} path"
+  st_expect_exact_count "$log_abs" "verdict: FAIL-TRACKED-MODIFICATION" 2
+  st_expect_exact_count "$log_abs" "    ${SELF_TEST_MANIFEST_REL}" 2
+  st_end "exit 3 at gate C on one modified tracked authored path, named and counted in two identical blocks"
+}
+
+# Commits every path of the exempt inventory, modifies all of them and nothing
+# else, and runs the gate. Each path is recorded twice in the log - once in the
+# inventory and once in the list of exempt paths this run found modified - the
+# exempt count reads the size of the inventory, no tracked modification is
+# counted, and the run passes.
+st_case_evidence_exempt() {
+  local log_rel="${LOG_DIR_REL}/exempt.log"
+  local log_abs="" path="" reported=""
+  st_begin "evidence-exempt"
+  log_abs="${ST_REPO}/${log_rel}"
+
+  for path in "${GENERATED_EVIDENCE_EXEMPT[@]}"; do
+    if ! mkdir -p -- "${ST_REPO}/${path%/*}"; then
+      fail_env "--self-test could not create the directory of ${path} for ${ST_CASE}"
+    fi
+    printf 'self-test published evidence\n' >"${ST_REPO}/${path}"
+  done
+  st_commit "self-test published evidence set"
+  for path in "${GENERATED_EVIDENCE_EXEMPT[@]}"; do
+    printf 'self-test republished evidence\n' >"${ST_REPO}/${path}"
+  done
+  reported="$(cd "$ST_REPO" && git diff --name-only HEAD | wc -l)"
+  ((reported == ${#GENERATED_EVIDENCE_EXEMPT[@]})) ||
+    st_note "the work tree reports ${reported} modified path(s), expected ${#GENERATED_EVIDENCE_EXEMPT[@]}"
+
+  st_run --stage self-test --log "$log_rel"
+  st_expect_exit "$EXIT_OK"
+  st_expect_output "gate A result: PASS (5 of 5 baseline entries matched)"
+  st_expect_output "gate B result: PASS"
+  st_expect_no_output "    (no exempt generated evidence path modified)"
+  st_expect_output "    (no tracked modification)"
+  st_expect_output "  exempt generated evidence paths modified: ${#GENERATED_EVIDENCE_EXEMPT[@]}"
+  st_expect_output "  tracked modifications: 0"
+  st_expect_output "gate C result: PASS"
+  st_expect_output "verdict: PASS"
+  for path in "${GENERATED_EVIDENCE_EXEMPT[@]}"; do
+    st_expect_exact_count "$log_abs" "    ${path}" 2
+  done
+  st_end "exit 0 with all ${#GENERATED_EVIDENCE_EXEMPT[@]} exempt generated evidence paths modified, each recorded as exempt and none counted"
+}
+
+# Commits two tracked paths in the published evidence directory that the exempt
+# inventory does not name - the environment record no harness run writes, and a
+# name below a subdirectory of that directory - modifies both and nothing else,
+# and runs the gate. Both are named and counted, no exempt path is recorded as
+# modified, and the run fails: the exemption holds for the twelve exact paths of
+# the inventory and for no other path of that directory.
+st_case_evidence_not_exempt() {
+  local versions_rel="modernization/validation/artifacts/runtime-versions.txt"
+  local nested_rel="modernization/validation/artifacts/nested/compile.log"
+  st_begin "evidence-not-exempt"
+
+  if ! mkdir -p -- "${ST_REPO}/${nested_rel%/*}"; then
+    fail_env "--self-test could not create the directory of ${nested_rel} for ${ST_CASE}"
+  fi
+  printf 'self-test environment record\n' >"${ST_REPO}/${versions_rel}"
+  printf 'self-test nested evidence name\n' >"${ST_REPO}/${nested_rel}"
+  st_commit "self-test evidence directory paths outside the exempt inventory"
+  printf 'self-test environment record, modified\n' >"${ST_REPO}/${versions_rel}"
+  printf 'self-test nested evidence name, modified\n' >"${ST_REPO}/${nested_rel}"
+
+  st_run --stage self-test
+  st_expect_exit "$EXIT_TRACKED"
+  st_expect_output "gate A result: PASS (5 of 5 baseline entries matched)"
+  st_expect_output "gate B result: PASS"
+  st_expect_output "    ${versions_rel}"
+  st_expect_output "    ${nested_rel}"
+  st_expect_output "    (no exempt generated evidence path modified)"
+  st_expect_output "  exempt generated evidence paths modified: 0"
+  st_expect_output "  tracked modifications: 2"
+  st_expect_output "gate C result: FAIL"
+  st_expect_output "verdict: FAIL-TRACKED-MODIFICATION"
+  st_end "exit 3 at gate C on runtime-versions.txt and one nested name in the evidence directory, both named"
 }
 
 st_case_tool_list() {
@@ -3070,6 +3223,10 @@ st_case_positive_control() {
   done
   st_expect_output "gate A result: PASS (5 of 5 baseline entries matched)"
   st_expect_output "gate B result: PASS"
+  st_expect_output "    (no exempt generated evidence path modified)"
+  st_expect_output "    (no tracked modification)"
+  st_expect_output "  exempt generated evidence paths modified: 0"
+  st_expect_output "  tracked modifications: 0"
   st_expect_output "gate C result: PASS"
   st_expect_output "verdict: PASS"
   st_expect_exact_count "$log_abs" "BEGIN readonly-check" 1
@@ -3157,7 +3314,9 @@ run_self_test() {
   st_case_source_swapped_measure
   st_case_base_dirty
   st_case_tracked_outside
-  st_case_new_work_modified
+  st_case_tracked_authored
+  st_case_evidence_exempt
+  st_case_evidence_not_exempt
   st_case_tool_list
   for tool in "${SELF_TEST_EXPECTED_TOOLS[@]}"; do
     st_case_missing_tool "$tool"
@@ -3230,7 +3389,7 @@ main() {
 
   gate_a || finish "$EXIT_SOURCE" "FAIL-SOURCE-INTEGRITY"
   gate_b || finish "$EXIT_BASE_DIRTY" "FAIL-BASE-WORKTREE-DIRTY"
-  gate_c || finish "$EXIT_TRACKED" "FAIL-PREEXISTING-TRACKED-MODIFICATION"
+  gate_c || finish "$EXIT_TRACKED" "FAIL-TRACKED-MODIFICATION"
 
   finish "$EXIT_OK" "PASS"
 }

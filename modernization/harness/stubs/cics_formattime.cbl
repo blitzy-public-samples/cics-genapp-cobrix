@@ -60,8 +60,7 @@
       * modernization/validation/diff_harness_vs_warehouse.py,
       * modernization/docs/decision-log.md and
       * modernization/docs/traceability-matrix.md are planned artifacts
-      * and are not present in the tree; a statement below about one of
-      * those four is the planned contract.
+      * and are not present in the tree.
       *
       * modernization/harness/run_harness.sh compiles this file as a
       * callable module with cobc -m -std=ibm -fbinary-truncate
@@ -83,32 +82,32 @@
       * The date rendered into LK-MMDDYYYY is the date LK-ABSTIME
       * names. modernization/harness/stubs/cics_asktime.cbl carries the
       * harness abstime surrogate as the eight digits YYYYMMDD of the
-      * instant it reports, so this module moves the received value
-      * into an eight-digit item, reads its year, month and day halves
-      * and lays them out as MM/DD/YYYY. The harness abstime 20260819
-      * therefore renders '08/19/2026', and an abstime naming another
-      * date renders that date: the ASKTIME site of the calling
-      * paragraph decides what this module reports.
+      * instant it reports. This module moves the received value into
+      * an eight-digit item, reads its year, month and day halves and
+      * lays them out as MM/DD/YYYY. The harness abstime 20260819
+      * renders '08/19/2026', and an abstime naming another date
+      * renders that date: the ASKTIME site of the calling paragraph
+      * supplies the value this module reports.
       *
       * A received value that cannot name a date is rendered as the
-      * documented fallback date '08/19/2026' instead, and the run log
-      * receives a report of the value and of the substitution, so the
-      * fallback is never silent. That covers the +0 that
-      * base/src/lgapol01.cbl:36, base/src/lgapdb01.cbl:36 and
+      * documented fallback date '08/19/2026', and the run log receives
+      * a report of the value and of the substitution. That covers the
+      * +0 that base/src/lgapol01.cbl:36, base/src/lgapdb01.cbl:36 and
       * base/src/lgapvs01.cbl:54 declare, a negative value, a month
       * outside 01 through 12 and a day outside 01 through 31. The
-      * range test is deliberately that wide: this module reports the
-      * date its caller's abstime names and judges no calendar beyond
-      * what the MM/DD/YYYY layout can hold.
+      * range test reaches no further than the MM/DD/YYYY layout: a
+      * month of 01 through 12 carrying a day of 01 through 31 is
+      * rendered as received, so an abstime naming 20260231 renders
+      * '02/31/2026' rather than the fallback date.
       *
       * The time of day rendered into LK-TIME is fixed at '12:00:00'.
-      * The abstime surrogate carries a date and no time component, so
-      * no time of day can be derived from it, and the two stubs are
-      * seeded with the same instant independently: the surrogate
-      * 20260819 in modernization/harness/stubs/cics_asktime.cbl and
-      * the time of day here.
-      * modernization/harness/stubs/sql_insert_policy.cbl reports that
-      * same instant as the LASTCHANGED timestamp
+      * The abstime surrogate carries a date and no time component, and
+      * no parameter of this module supplies a time of day. The two
+      * stubs carry the same instant in seeds of their own: the
+      * surrogate 20260819 in
+      * modernization/harness/stubs/cics_asktime.cbl and the time of
+      * day here. modernization/harness/stubs/sql_insert_policy.cbl
+      * reports that same instant as the LASTCHANGED timestamp
       * 2026-08-19-12.00.00.000000.
       *
       * No clock, calendar, environment variable or system service is
@@ -128,22 +127,17 @@
       *
       * The shared capture group copied below declares no time-service
       * item. This module records nothing in that group and leaves every
-      * field to its owner. It carries no prerequisite ordinal, and the
-      * absence is deliberate rather than an omission: the read-only
-      * source reaches the FORMATTIME sites from the zero-length
-      * COMMAREA check ahead of every other statement of its program as
-      * readily as from a failed insert or a failed write, so no
-      * capture has to precede one. HC-ORDER-VIOLATION and
-      * HC-ORDER-VIOLATION-STMT are neither read nor written here.
+      * field to its owner. It carries no prerequisite ordinal.
+      * HC-ORDER-VIOLATION and HC-ORDER-VIOLATION-STMT are neither read
+      * nor written here.
       *
       * Harness topology: Figure 5 — Validation Harness Control Flow
       * in modernization/docs/architecture.md.
       *
-      * See modernization/docs/decision-log.md (planned deliverable; not
-      * present at this milestone): "deterministic harness time data",
-      * "FORMATTIME rendered from the ASKTIME surrogate", "uniform
-      * stub-side capture-order guard" and "unexercised diagnostic
-      * paths".
+      * See modernization/docs/decision-log.md: "deterministic harness
+      * time data", "FORMATTIME rendered from the ASKTIME surrogate",
+      * "uniform stub-side capture-order guard" and "unexercised
+      * diagnostic paths".
       *
       ******************************************************************
        IDENTIFICATION DIVISION.
@@ -177,8 +171,8 @@
       * HARNESS-TIME - fixed time of day rendered by this module.      *
       *----------------------------------------------------------------*
       * The TIME form of that same instant, eight characters wide. The
-      * abstime surrogate carries no time component, so this value is
-      * seeded here and derived from no parameter.
+      * abstime surrogate carries no time component; this value is
+      * seeded here and is derived from no parameter.
       * Shape follows the receiving items TIME1
       * [base/src/lgapol01.cbl:37], TIME1 [base/src/lgapdb01.cbl:37]
       * and WS-TIME [base/src/lgapvs01.cbl:55].
@@ -302,8 +296,7 @@
       * Reached for an abstime of zero or below and for one whose month
       * or day falls outside the MM/DD/YYYY layout. The value received
       * is left as the caller holds it and the fallback is named in the
-      * report, so a substituted date is visible in the log of the
-      * case rather than silent.
+      * report, so a substituted date stands in the log of the case.
        REPORT-UNRENDERABLE-ABSTIME.
            MOVE HARNESS-FALLBACK-DATE TO WS-RENDERED-DATE
            DISPLAY 'CICS-FORMATTIME: ABSTIME ' LK-ABSTIME

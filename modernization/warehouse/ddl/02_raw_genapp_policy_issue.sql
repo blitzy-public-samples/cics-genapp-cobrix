@@ -2,15 +2,19 @@
 -- Warehouse bootstrap, step 2 of 2, for the GenApp Policy-Issue cloud-warehouse bridge.
 -- Creates raw.genapp_policy_issue, the landing relation holding one landed GenApp
 -- Policy-Issue record per row, and the sole dbt source of the bridge.
--- Run order: 01_schemas.sql first, then this file.
+-- Run order: 01_schemas.sql first, which creates schema raw, then this file. Both
+-- files are present and both are applied together by
+-- modernization/landing/load_local.py.
 -- Column names, column order and VARCHAR lengths match the 17 keys of
 -- modernization/landing/landing-schema.json, ordered by the landing.field_order block
 -- of modernization/extraction/copybook_field_map.yml.
 -- Every column is VARCHAR and accepts null. Typing is performed by the dbt models.
 -- Natural key used by the loaders: (source_system_key, policy_number).
 -- Idempotent and re-runnable.
--- Runs unchanged on Amazon Redshift and DuckDB.
--- Diagram reference: Figure 4, dbt Transformation DAG and Field Allocation,
+-- Authored to run unchanged on Amazon Redshift and DuckDB. Applied on DuckDB by
+-- modernization/landing/load_local.py; never applied to a real Amazon Redshift
+-- target, which no branch of this bridge has reached.
+-- Diagram reference: Figure 4 — dbt Transformation DAG and Field Allocation
 -- in modernization/docs/architecture.md.
 -- Rationale for every choice in this file: modernization/docs/decision-log.md
 
@@ -22,7 +26,9 @@ CREATE TABLE IF NOT EXISTS raw.genapp_policy_issue (
     -- CA-POLICY-NUM PIC 9(10), base/src/lgcmarea.cpy:35.
     -- Recovered at base/src/lgapdb01.cbl:307-311.
     policy_number           VARCHAR(10),
-    -- Product discriminator E, H, M or C.
+    -- Product discriminator E, H, M or C, and null on a row whose request id the
+    -- routing at base/src/lgapdb01.cbl:184-207 does not route, which is the row the
+    -- chain answers with return code 99 at base/src/lgapdb01.cbl:204.
     -- DB2-POLICYTYPE PIC X, base/src/lgpolicy.cpy:43.
     -- Derived from CA-REQUEST-ID routing at base/src/lgapdb01.cbl:184-207.
     policy_type             VARCHAR(1),

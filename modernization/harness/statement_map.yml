@@ -31,7 +31,10 @@
 # decide the constraint. `capture_ordinals` resolves a dml id to the ordinal
 # item that carries when that block ran, and names the shared sequence item
 # that every ordinal is stamped from. Both sections name items declared by
-# modernization/harness/copybooks/hcapture.cpy.
+# modernization/harness/copybooks/hcapture.cpy, and translate.py is required
+# to fail when either section disagrees with that copybook, with the capturing
+# stub an entry names, or with the order table modernization/harness/driver.cbl
+# walks.
 #
 # Scope: SQL-block-to-harness-construct mapping only. Warehouse column
 # mapping, runtime status, COMMAREA offsets and the landing record are held in
@@ -39,9 +42,8 @@
 #
 # The two interpretation choices encoded by this file - the single-superset
 # SQL-INSERT-ENDOWMENT call standing for both source branches, and one map
-# covering INCLUDE and DML blocks alike - are to be recorded as rows in
-# modernization/docs/decision-log.md (planned deliverable; not present at
-# this milestone).
+# covering INCLUDE and DML blocks alike - are recorded as rows in
+# modernization/docs/decision-log.md.
 # Harness topology: Figure 5 — Validation Harness Control Flow in
 # modernization/docs/architecture.md.
 # ---------------------------------------------------------------------------
@@ -602,9 +604,42 @@ dml:
 # Every entry below is enforced at run time by the capturing stub named in its
 # `enforced_by` field, which reads its prerequisite ordinal after stamping its
 # own and reports a prerequisite still at zero in HC-ORDER-VIOLATION and
-# HC-ORDER-VIOLATION-STMT. modernization/harness/driver.cbl evaluates the same
+# HC-ORDER-VIOLATION-STMT. The one entry carrying `predecessor: 'none'` has no
+# prerequisite ordinal to read: its stub reports its own ordinal in those same
+# two items when that ordinal is not the first value the shared sequence issues.
+# modernization/harness/driver.cbl evaluates the same
 # order independently by walking the ordinals it reads out of the capture
 # state, so a constraint is observed twice by construction.
+#
+# modernization/harness/translate.py validates both order sections before it
+# generates anything and fails the translation on any disagreement: the
+# required members and their types, unique constraint ids, a `predecessor` and
+# `successor` naming a declared dml id or the sentinel documented above, a
+# `reason_kind` from the closed set with the `host` of a data dependency
+# declared by the successor's `using` list, an `enforced_by` naming the
+# existing stub file that captures that successor and whose code names every
+# ordinal item of the constraint and both order-guard items, witness ordinal
+# items equal to the ones capture_ordinals gives the two sides, assertions
+# drawn from the operators above over items the witness carries and literals
+# inside the declared ordinal picture, the ordering and stamped assertions the
+# shape of each constraint requires, and one constraint per distinct ordinal
+# item reconciled with checks.order_constraint_count.
+# Every entry below is also reconciled at build time by
+# modernization/harness/translate.py, which fails the run when an ordinal item
+# named here is not declared by modernization/harness/copybooks/hcapture.cpy,
+# when the `enforced_by` member does not stamp the successor ordinal or does
+# not read exactly the declared prerequisite ordinals in its order guard, when
+# the prerequisite table of that copybook disagrees with an entry, when a
+# declared predecessor or successor id does not resolve through
+# `capture_ordinals` to the ordinal item the entry names, or when the
+# assertions of an entry do not compare the pair the entry declares.
+#
+# Each `predecessor` names the immediate predecessor of its successor: the
+# statement that stands directly ahead of it on the one path the source takes
+# to it. A constraint on an earlier statement is carried transitively by the
+# chain of entries, so insert_policy standing ahead of select_lastchanged is
+# asserted by policy_before_identity and identity_before_lastchanged rather
+# than repeated by each product entry.
 execution_order:
   - id: 'policy_first_captured'
     predecessor: 'none'
@@ -679,83 +714,93 @@ execution_order:
           operator: 'less_than'
           right_item: 'HC-LCHG-SEQ'
 
-  - id: 'policy_before_motor'
-    predecessor: 'insert_policy'
+  - id: 'lastchanged_before_motor'
+    predecessor: 'select_lastchanged'
     successor: 'insert_motor'
-    reason_kind: 'data_dependency'
-    host: 'DB2-POLICYNUM-INT'
+    reason_kind: 'control_flow'
     enforced_by: 'modernization/harness/stubs/sql_insert_motor.cbl'
     note: >-
-      The MOTOR insert at base/src/lgapdb01.cbl:440-470 carries the recovered
-      identity as its POLICYNUMBER, and the routing that reaches it at
-      base/src/lgapdb01.cbl:223-241 runs after PERFORM INSERT-POLICY at
-      base/src/lgapdb01.cbl:219.
+      The SELECT LASTCHANGED read-back at base/src/lgapdb01.cbl:316-321 is the
+      last EXEC SQL block of paragraph INSERT-POLICY, performed at
+      base/src/lgapdb01.cbl:219, and the product routing that reaches the MOTOR
+      insert at base/src/lgapdb01.cbl:449-471 follows that PERFORM at
+      base/src/lgapdb01.cbl:223-241, so the read-back is the statement standing
+      directly ahead of this insert. HC-LCHG-SEQ therefore also carries the
+      identity recovery at base/src/lgapdb01.cbl:307-311, which supplies the
+      POLICYNUMBER of this insert, and the POLICY insert ahead of it.
     witness:
       copybook: 'modernization/harness/copybooks/hcapture.cpy'
-      predecessor_ordinal_item: 'HC-POL-SEQ'
+      predecessor_ordinal_item: 'HC-LCHG-SEQ'
       successor_ordinal_item: 'HC-MOT-SEQ'
       assertions:
-        - left_item: 'HC-POL-SEQ'
+        - left_item: 'HC-LCHG-SEQ'
           operator: 'greater_than'
           right_literal: 0
         - left_item: 'HC-MOT-SEQ'
           operator: 'greater_than'
           right_literal: 0
-        - left_item: 'HC-POL-SEQ'
+        - left_item: 'HC-LCHG-SEQ'
           operator: 'less_than'
           right_item: 'HC-MOT-SEQ'
 
-  - id: 'policy_before_house'
-    predecessor: 'insert_policy'
+  - id: 'lastchanged_before_house'
+    predecessor: 'select_lastchanged'
     successor: 'insert_house'
-    reason_kind: 'data_dependency'
-    host: 'DB2-POLICYNUM-INT'
+    reason_kind: 'control_flow'
     enforced_by: 'modernization/harness/stubs/sql_insert_house.cbl'
     note: >-
-      The HOUSE insert at base/src/lgapdb01.cbl:402-424 carries the recovered
-      identity as its POLICYNUMBER, and the routing that reaches it at
-      base/src/lgapdb01.cbl:223-241 runs after PERFORM INSERT-POLICY at
-      base/src/lgapdb01.cbl:219.
+      The SELECT LASTCHANGED read-back at base/src/lgapdb01.cbl:316-321 is the
+      last EXEC SQL block of paragraph INSERT-POLICY, performed at
+      base/src/lgapdb01.cbl:219, and the product routing that reaches the HOUSE
+      insert at base/src/lgapdb01.cbl:409-425 follows that PERFORM at
+      base/src/lgapdb01.cbl:223-241, so the read-back is the statement standing
+      directly ahead of this insert. HC-LCHG-SEQ therefore also carries the
+      identity recovery at base/src/lgapdb01.cbl:307-311, which supplies the
+      POLICYNUMBER of this insert, and the POLICY insert ahead of it.
     witness:
       copybook: 'modernization/harness/copybooks/hcapture.cpy'
-      predecessor_ordinal_item: 'HC-POL-SEQ'
+      predecessor_ordinal_item: 'HC-LCHG-SEQ'
       successor_ordinal_item: 'HC-HOU-SEQ'
       assertions:
-        - left_item: 'HC-POL-SEQ'
+        - left_item: 'HC-LCHG-SEQ'
           operator: 'greater_than'
           right_literal: 0
         - left_item: 'HC-HOU-SEQ'
           operator: 'greater_than'
           right_literal: 0
-        - left_item: 'HC-POL-SEQ'
+        - left_item: 'HC-LCHG-SEQ'
           operator: 'less_than'
           right_item: 'HC-HOU-SEQ'
 
-  - id: 'policy_before_endowment'
-    predecessor: 'insert_policy'
+  - id: 'lastchanged_before_endowment'
+    predecessor: 'select_lastchanged'
     successor: 'insert_endowment_varchar'
-    reason_kind: 'data_dependency'
-    host: 'DB2-POLICYNUM-INT'
+    reason_kind: 'control_flow'
     enforced_by: 'modernization/harness/stubs/sql_insert_endowment.cbl'
     note: >-
-      Both ENDOWMENT inserts at base/src/lgapdb01.cbl:327-386 carry the
-      recovered identity as their POLICYNUMBER, and the routing that reaches
-      them at base/src/lgapdb01.cbl:223-241 runs after PERFORM INSERT-POLICY at
-      base/src/lgapdb01.cbl:219. This entry covers insert_endowment_novarchar
-      on the same terms: both ids resolve to the ENDOWMENT capture group, to
-      HC-END-SEQ and to the one recording stub.
+      The SELECT LASTCHANGED read-back at base/src/lgapdb01.cbl:316-321 is the
+      last EXEC SQL block of paragraph INSERT-POLICY, performed at
+      base/src/lgapdb01.cbl:219, and the product routing that reaches both
+      ENDOWMENT inserts at base/src/lgapdb01.cbl:346-386 follows that PERFORM
+      at base/src/lgapdb01.cbl:223-241, so the read-back is the statement
+      standing directly ahead of whichever arm runs. HC-LCHG-SEQ therefore also
+      carries the identity recovery at base/src/lgapdb01.cbl:307-311, which
+      supplies the POLICYNUMBER of both inserts, and the POLICY insert ahead of
+      it. This entry covers insert_endowment_novarchar on the same terms: both
+      ids resolve to the ENDOWMENT capture group, to HC-END-SEQ and to the one
+      recording stub.
     witness:
       copybook: 'modernization/harness/copybooks/hcapture.cpy'
-      predecessor_ordinal_item: 'HC-POL-SEQ'
+      predecessor_ordinal_item: 'HC-LCHG-SEQ'
       successor_ordinal_item: 'HC-END-SEQ'
       assertions:
-        - left_item: 'HC-POL-SEQ'
+        - left_item: 'HC-LCHG-SEQ'
           operator: 'greater_than'
           right_literal: 0
         - left_item: 'HC-END-SEQ'
           operator: 'greater_than'
           right_literal: 0
-        - left_item: 'HC-POL-SEQ'
+        - left_item: 'HC-LCHG-SEQ'
           operator: 'less_than'
           right_item: 'HC-END-SEQ'
 
@@ -805,8 +850,8 @@ execution_order:
               operator: 'greater_than'
               right_literal: 0
 
-  - id: 'policy_before_commercial'
-    predecessor: 'insert_policy'
+  - id: 'lastchanged_before_commercial'
+    predecessor: 'select_lastchanged'
     successor: 'insert_commercial'
     reason_kind: 'data_dependency'
     host: 'CA-LASTCHANGED'
@@ -814,15 +859,18 @@ execution_order:
     note: >-
       CA-LASTCHANGED is supplied to the COMMERCIAL column RequestDate at
       base/src/lgapdb01.cbl:525 and is populated only by the SELECT LASTCHANGED
-      read-back at base/src/lgapdb01.cbl:316-321, which reads the row written
-      by the INSERT INTO POLICY block at base/src/lgapdb01.cbl:268-288.
+      read-back at base/src/lgapdb01.cbl:316-321, the last EXEC SQL block of
+      paragraph INSERT-POLICY, which reads the row written by the INSERT INTO
+      POLICY block at base/src/lgapdb01.cbl:268-288. The product routing that
+      reaches the COMMERCIAL insert at base/src/lgapdb01.cbl:499-545 follows
+      that PERFORM at base/src/lgapdb01.cbl:223-241.
     witness:
       copybook: 'modernization/harness/copybooks/hcapture.cpy'
-      predecessor_ordinal_item: 'HC-POL-SEQ'
+      predecessor_ordinal_item: 'HC-LCHG-SEQ'
       successor_ordinal_item: 'HC-COM-SEQ'
       assertions:
         # The predecessor was captured.
-        - left_item: 'HC-POL-SEQ'
+        - left_item: 'HC-LCHG-SEQ'
           operator: 'greater_than'
           right_literal: 0
         # The successor was captured.
@@ -830,7 +878,7 @@ execution_order:
           operator: 'greater_than'
           right_literal: 0
         # The predecessor was captured earlier than the successor.
-        - left_item: 'HC-POL-SEQ'
+        - left_item: 'HC-LCHG-SEQ'
           operator: 'less_than'
           right_item: 'HC-COM-SEQ'
 
@@ -842,6 +890,15 @@ execution_order:
 # `by_dml_id` carries one entry per dml id above, spelled as that entry
 # spells it; both ENDOWMENT ids resolve to the single ENDOWMENT capture group
 # and name the same ordinal item.
+#
+# This block is the one resolution from an event id to an ordinal item:
+# modernization/harness/translate.py resolves the `predecessor` and
+# `successor` of every execution_order entry through `by_dml_id` and
+# `vsam_write_event_id`, and fails the run when the ordinal an entry declares
+# is not the one that resolution returns. Every item named here, the sequence
+# item and the items under `non_statement_ordinal_items` together account for
+# every ordinal item the copybook declares; a declared item accounted for
+# nowhere here also fails the run.
 capture_ordinals:
   copybook: 'modernization/harness/copybooks/hcapture.cpy'
   sequence_item: 'HC-EVENT-SEQ'
@@ -858,20 +915,31 @@ capture_ordinals:
     insert_commercial: 'HC-COM-SEQ'
   # The KSDSPOLY write at base/src/lgapvs01.cbl:135-141 is not an EXEC SQL
   # block of this map. Its ordinal is stamped from the same sequence item and
-  # is named here beside the SQL ordinals.
+  # is named here beside the SQL ordinals, under the event id the
+  # execution_order entry of the write uses as its successor.
+  vsam_write_event_id: 'cics_write'
   vsam_write_ordinal_item: 'HC-VSAM-SEQ'
   # The seven distinct values of by_dml_id plus vsam_write_ordinal_item.
   distinct_ordinal_items: 8
+  # Ordinal items stamped from the same sequence item that carry no statement
+  # of this map and stand in no execution_order entry. HC-ABEND-SEQ records
+  # where an abend site of the three translated programs stood in the capture
+  # order of its case.
+  non_statement_ordinal_items:
+    - 'HC-ABEND-SEQ'
 
 # Counts asserted by modernization/harness/translate.py after loading
 # this file. using_counts is keyed by call target: the call_program value with
 # the SQL- prefix removed, lower-cased, hyphens replaced by underscores. The
 # two ENDOWMENT blocks share the insert_endowment key; both name the same stub
-# and the same 9-item signature.
+# and the same 9-item signature. order_constraint_count is the number of
+# execution_order entries, which is also the number of distinct ordinal items
+# capture_ordinals names: one constraint stands on each.
 checks:
   include_count: 3
   dml_count: 8
   total_blocks: 11
+  order_constraint_count: 8
   using_counts:
     insert_policy: 7
     set_identity: 1

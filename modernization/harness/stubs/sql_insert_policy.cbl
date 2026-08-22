@@ -50,10 +50,39 @@
       * higher value reports that something was: this module then
       * moves 'Y' into HC-ORDER-VIOLATION and its own key into
       * HC-ORDER-VIOLATION-STMT. An ordinal of 1 leaves both items as
-      * modernization/harness/driver.cbl set them. insert_policy is
-      * also the predecessor of policy_before_commercial, the one
-      * constraint the execution_order block of
-      * modernization/harness/statement_map.yml declares.
+      * modernization/harness/driver.cbl set them. This is the
+      * constraint the execution_order entry policy_first_captured of
+      * modernization/harness/statement_map.yml declares, which names
+      * no predecessor and requires the ordinal 1. insert_policy is
+      * also the predecessor of the entry policy_before_identity, and
+      * through the chain of entries of every statement that follows
+      * it. modernization/harness/translate.py reconciles this guard
+      * with those entries on every run.
+      *
+      * The execution_order block of
+      * modernization/harness/statement_map.yml declares eight ordering
+      * constraints, and each names in its enforced_by field the one
+      * stub that tests it at run time. This module is the enforced_by
+      * module of policy_first_captured: predecessor none, successor
+      * insert_policy, reason_kind control_flow, witness ordinal
+      * HC-POL-SEQ, and its single assertion is that the ordinal is
+      * equal_to 1. No prerequisite ordinal is read here, because that
+      * constraint declares predecessor none.
+      *
+      * insert_policy is the declared predecessor of two further
+      * constraints and is the enforced_by module of neither.
+      * policy_before_identity pairs it with successor set_identity,
+      * reason_kind data_dependency on DB2-POLICYNUM-INT, and
+      * modernization/harness/stubs/sql_set_identity.cbl reads the
+      * HC-POL-SEQ stamped here. policy_and_product_before_vsam_write
+      * pairs it with the KSDSPOLY write at
+      * [base/src/lgapvs01.cbl:135-141], and
+      * modernization/harness/stubs/cics_write.cbl enforces it by
+      * reading HC-POL-SEQ together with one of HC-MOT-SEQ, HC-COM-SEQ,
+      * HC-END-SEQ and HC-HOU-SEQ. The remaining five constraints,
+      * identity_before_lastchanged and the four lastchanged_before
+      * entries of the product inserts, name neither insert_policy nor
+      * HC-POL-SEQ.
       *
       * SQLCODE of the shared SQLCA reports HC-INJECT-POL-SQLCODE on
       * every call. The translated LGAPDB01 evaluates it at
@@ -117,8 +146,7 @@
       * Rationale for the deterministic seeding of the identity and
       * timestamp, for the reported SQLCODE, for the chain witness, for
       * the order guard and for the arity of seven belongs to
-      * modernization/docs/decision-log.md (planned deliverable; not
-      * present at this milestone), rows: deterministic failure
+      * modernization/docs/decision-log.md, rows: deterministic failure
       * injection through shared harness state; chain traversal
       * witnessed through the emulated services; uniform stub-side
       * capture-order guard.

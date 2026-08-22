@@ -75,23 +75,54 @@
       * HC-COM-SEQ, and HC-ORDER-LAST-STMT receives this statement's
       * key insert_commercial.
       *
-      * insert_commercial is the successor of the one ordering
-      * constraint declared by the execution_order block of
-      * modernization/harness/statement_map.yml,
-      * policy_before_commercial, whose predecessor ordinal is
-      * HC-POL-SEQ. This module reads that ordinal after stamping its
-      * own. An HC-POL-SEQ still at zero
-      * reports the constraint as violated in HC-ORDER-VIOLATION and
-      * HC-ORDER-VIOLATION-STMT; a non-zero HC-POL-SEQ leaves both
-      * items as the driver set them. Each of the seven other members
-      * of modernization/harness/stubs/ that carries an ordering
-      * constraint of the read-only source tests it in this same shape
-      * and writes the same two items: sql_insert_policy.cbl,
-      * sql_set_identity.cbl, sql_select_lastchanged.cbl,
-      * sql_insert_motor.cbl, sql_insert_endowment.cbl,
-      * sql_insert_house.cbl and cics_write.cbl. Where more than one
-      * of them reports, HC-ORDER-VIOLATION-STMT names the one that
-      * reported last and HC-ORDER-VIOLATION stays at 'Y'.
+      * insert_commercial is the successor of the execution_order entry
+      * lastchanged_before_commercial of
+      * modernization/harness/statement_map.yml, whose predecessor
+      * ordinal is HC-LCHG-SEQ: the read-back that ordinal stamps is
+      * the only statement that populates the CA-LASTCHANGED of
+      * position 2 and is the last EXEC SQL block of paragraph
+      * INSERT-POLICY, performed at [base/src/lgapdb01.cbl:219] ahead
+      * of INSERT-COMMERCIAL at [base/src/lgapdb01.cbl:235]. A non-zero
+      * HC-LCHG-SEQ therefore also stands for the identity recovery at
+      * [base/src/lgapdb01.cbl:307-311] and for the POLICY insert at
+      * [base/src/lgapdb01.cbl:268-288] ahead of both. This module
+      * reads that ordinal after stamping its own. An HC-LCHG-SEQ still
+      * at zero reports the constraint as violated in
+      * HC-ORDER-VIOLATION and HC-ORDER-VIOLATION-STMT; a non-zero
+      * HC-LCHG-SEQ leaves both items as the driver set them. Each of
+      * the seven other members of modernization/harness/stubs/ that
+      * carries an ordering constraint of the read-only source tests it
+      * in this same shape and writes the same two items:
+      * sql_insert_policy.cbl, sql_set_identity.cbl,
+      * sql_select_lastchanged.cbl, sql_insert_motor.cbl,
+      * sql_insert_endowment.cbl, sql_insert_house.cbl and
+      * cics_write.cbl. Where more than one of them reports,
+      * HC-ORDER-VIOLATION-STMT names the one that reported last and
+      * HC-ORDER-VIOLATION stays at 'Y'.
+      * modernization/harness/translate.py reconciles every one of
+      * those guards with the entry the map declares for it on every
+      * run.
+      *
+      * The execution_order block of
+      * modernization/harness/statement_map.yml declares eight ordering
+      * constraints, and each names in its enforced_by field the one
+      * stub that tests it at run time. This module is the enforced_by
+      * module of lastchanged_before_commercial, the constraint the
+      * guard above tests: predecessor select_lastchanged, successor
+      * insert_commercial, reason_kind data_dependency on
+      * CA-LASTCHANGED, witness ordinals HC-LCHG-SEQ and HC-COM-SEQ.
+      *
+      * The ordinal stamped here is read by one further constraint that
+      * this module does not enforce,
+      * policy_and_product_before_vsam_write: HC-COM-SEQ is one of the
+      * four alternative product predecessors its
+      * predecessor_ordinal_items_any names, beside HC-MOT-SEQ,
+      * HC-END-SEQ and HC-HOU-SEQ, its predecessor_ordinal_item is
+      * HC-POL-SEQ, its successor is the KSDSPOLY write at
+      * [base/src/lgapvs01.cbl:135-141], and
+      * modernization/harness/stubs/cics_write.cbl is its enforced_by
+      * module. The other six constraints name neither insert_commercial
+      * nor HC-COM-SEQ.
       *
       * SQLCODE of the shared SQLCA reports HC-INJECT-SUB-SQLCODE on
       * every call. The translated LGAPDB01 tests it with IF SQLCODE
@@ -115,8 +146,7 @@
       * premiums as passed, for excluding the peril codes from the
       * canonical schema, for the amount comparison tolerance, for the
       * order guard and for the arity of twenty belongs to
-      * modernization/docs/decision-log.md (planned deliverable; not
-      * present at this milestone), rows: deterministic failure
+      * modernization/docs/decision-log.md, rows: deterministic failure
       * injection through shared harness state; uniform stub-side
       * capture-order guard.
       *
@@ -369,16 +399,17 @@
       *
       *----------------------------------------------------------------*
       * Tests the predecessor ordinal of the declared constraint       *
-      * policy_before_commercial, read after this block stamped its    *
-      * own ordinal. HC-POL-SEQ at zero reports that INSERT-POLICY was *
-      * not captured before this block, which leaves CA-LASTCHANGED    *
-      * unpopulated at [base/src/lgapdb01.cbl:525]. A non-zero         *
-      * HC-POL-SEQ leaves both order items as the driver set them.     *
+      * lastchanged_before_commercial, read after this block stamped   *
+      * its own ordinal. HC-LCHG-SEQ at zero reports that the SELECT   *
+      * LASTCHANGED read-back at [base/src/lgapdb01.cbl:316-321] was   *
+      * not captured before this block, so the CA-LASTCHANGED of       *
+      * [base/src/lgapdb01.cbl:525] is unpopulated. A non-zero         *
+      * HC-LCHG-SEQ leaves both order items as the driver set them.    *
       * The seven other stubs that carry a source-derived predecessor  *
       * test theirs in this same shape.                                *
       *----------------------------------------------------------------*
        CHECK-CAPTURE-ORDER.
-           IF HC-POL-SEQ = ZERO
+           IF HC-LCHG-SEQ = ZERO
                MOVE 'Y' TO HC-ORDER-VIOLATION
                MOVE 'insert_commercial' TO HC-ORDER-VIOLATION-STMT
            END-IF.

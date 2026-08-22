@@ -21,9 +21,30 @@ Behaviour
   ``KSDSPOLY``, length 64 and key length 21, and all six of its operands reach
   the capture module.
 * Reads only inside its own checkout: ``--source-dir``, ``--copybook-dir`` and
-  ``--statement-map`` each have exactly one accepted location, and a value
-  naming anything else, or a symbolic link standing at the statement map, is
-  refused before the file is opened.
+  ``--statement-map`` each have exactly one accepted location, compared
+  lexically so a value reaching it through a link is not accepted as it.  Every
+  read then walks from the repository root one component at a time with
+  ``O_NOFOLLOW``, inspects the entry through the descriptor of its own
+  directory and reads the descriptor it opened after confirming its device,
+  inode, file type and size, so neither a link at a parent nor a replacement
+  between the check and the read can move a read.  The capturing stubs the
+  statement map names in its ordering metadata are read from
+  ``modernization/harness/stubs/`` of the same checkout and from nowhere else.
+* Validates the ordering metadata of ``statement_map.yml`` before generating
+  anything: every ``execution_order`` entry is held to its two sides, its
+  reason kind and host, the ordinal items ``hcapture.cpy`` declares, the
+  assertions its shape requires and the capturing stub it names as its
+  enforcer, and ``capture_ordinals`` is held to the declared dml ids and to
+  ``checks.order_constraint_count``.  The validated contract is published in
+  the JSON report.
+* Reconciles the same ordering metadata with ``hcapture.cpy``, with the
+  capture stubs its entries name and with ``driver.cbl``: every ordinal item is
+  declared and accounted for, the prerequisite table of the copybook agrees
+  with the entry covering each member, each member stamps the successor ordinal
+  and guards on exactly the prerequisite ordinals its entry declares, and the
+  order table the driver walks reads the same ordinal for every event and
+  covers every ordinal the map resolves.  Any disagreement fails the run before
+  generation.
 * Holds the census ``statement_map.yml`` declares for the program it describes
   to the file name, program id and expected block counts of that source, and
   then to the line total, EXEC CICS and EXEC SQL block counts and longest line
@@ -53,9 +74,8 @@ non-zero, with a precise message on standard error, on any failure.
 Rule-to-construct coverage is carried by the JSON report and its per-rule
 totals, which account for every rewritten construct and for every source line
 carried through unchanged.  The reasoning behind the translation strategy
-belongs to ``modernization/docs/decision-log.md`` (planned deliverable; not
-present at this milestone); this module states only what it does.  Harness
-topology is Figure 5 — Validation Harness Control Flow in
+belongs to ``modernization/docs/decision-log.md``; this module states only what
+it does.  Harness topology is Figure 5 — Validation Harness Control Flow in
 ``modernization/docs/architecture.md``.
 """
 
@@ -114,6 +134,23 @@ EXPECTED_STATEMENT_MAP = (
     REPO_ROOT / "modernization" / "harness" / "statement_map.yml"
 )
 
+# The capture stubs the map's execution_order entries name in enforced_by.
+# Their order guards are read - never written - while the ordering metadata is
+# reconciled, and a declared path outside this directory is refused.
+EXPECTED_STUB_DIR = REPO_ROOT / "modernization" / "harness" / "stubs"
+
+# The driver whose own order evaluation is reconciled with the map.  It walks
+# the ordinals of the capture state and asserts they rise, which is the second
+# reading of the order the stubs guard.
+EXPECTED_DRIVER_SOURCE = (
+    REPO_ROOT / "modernization" / "harness" / "driver.cbl"
+)
+
+# The copybook that declares the shared capture state, including every ordinal
+# item the ordering metadata names, and the prerequisite table reconciled with
+# that metadata.
+CAPTURE_COPYBOOK = "hcapture.cpy"
+
 # SHA-256 of each authorized source as this translator was written against it.
 # The bytes read are compared with these values before any generation, so the
 # content cannot certify itself: a source that differs by a single byte is
@@ -138,6 +175,11 @@ AUTHORIZED_SOURCE_DIGESTS = {
 MAX_STATEMENT_MAP_BYTES = 1_048_576
 MAX_MAP_DEPTH = 32
 MAX_MAP_NODES = 200_000
+
+# Largest authorized source, harness copybook or capture stub this translator
+# reads through one descriptor, in bytes.  The bound is checked on the open
+# descriptor before the read and again while reading it.
+MAX_READ_FILE_BYTES = 1_048_576
 
 # --------------------------------------------------------------------------
 # Write-path guard
@@ -169,6 +211,13 @@ NOFOLLOW_FILE_FLAGS = (
 # than wait, and has no effect on a regular file.
 NOFOLLOW_EXISTING_FILE_FLAGS = (
     os.O_WRONLY | os.O_NOFOLLOW | os.O_NONBLOCK | getattr(os, "O_CLOEXEC", 0)
+)
+# Every file this translator reads is opened read-only, creating nothing, with
+# O_NOFOLLOW refusing a symbolic link at the name itself; O_NONBLOCK makes the
+# open of a special file fail rather than wait, and has no effect on a regular
+# file.  The bytes are then read from that descriptor.
+NOFOLLOW_READ_FILE_FLAGS = (
+    os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | getattr(os, "O_CLOEXEC", 0)
 )
 BUILD_DIR_MODE = 0o755
 BUILD_FILE_MODE = 0o644
@@ -294,6 +343,121 @@ DECLARED_SOURCE_PROGRAM_KEYS = (
     "max_line_length",
 )
 
+# The heading of the prerequisite table hcapture.cpy carries, the rows of which
+# are reconciled with the execution_order entries.  A row names the capturing
+# member, the ordinal item(s) it reads, and - where the entry declares no
+# predecessor - the ordinal value the member requires instead.
+CAPTURE_TABLE_HEADING = "The prerequisite each member reads:"
+CAPTURE_TABLE_MEMBER_RE = re.compile(r"^([A-Za-z0-9_]+\.cbl)\b(.*)$")
+CAPTURE_ORDINAL_ITEM_RE = re.compile(r"\bHC-[A-Z0-9]+(?:-[A-Z0-9]+)*-SEQ\b")
+CAPTURE_TABLE_EQUAL_TO_RE = re.compile(r"\bequal to (\d+)\b")
+
+# The declaration of an ordinal item inside hcapture.cpy: a level number, the
+# item name and the PIC clause capture_ordinals declares for every ordinal.
+CAPTURE_ORDINAL_DECLARATION_RE = re.compile(
+    r"^\s*\d\d\s+(?P<name>HC-[A-Z0-9-]+-SEQ)\s+PIC\s+(?P<pic>\S+?)\s*\.\s*$",
+    re.IGNORECASE,
+)
+
+# The two writes and the one read that make a capture stub the enforcing member
+# of its entry: it stamps its own ordinal from the shared sequence item, names
+# itself in HC-ORDER-LAST-STMT, and reports a violation under that same name.
+STUB_ORDINAL_STAMP_RE = re.compile(
+    r"\bMOVE\s+(?P<sequence>HC-[A-Z0-9-]+)\s+TO\s+(?P<ordinal>HC-[A-Z0-9-]+-SEQ)\b",
+    re.IGNORECASE,
+)
+STUB_LAST_STMT_RE = re.compile(
+    r"\bMOVE\s+(?P<operand>'[^']*'|[A-Z0-9-]+)\s+TO\s+HC-ORDER-LAST-STMT\b",
+    re.IGNORECASE,
+)
+STUB_VIOLATION_STMT_RE = re.compile(
+    r"\bMOVE\s+(?P<operand>'[^']*'|[A-Z0-9-]+)\s+TO\s+HC-ORDER-VIOLATION-STMT\b",
+    re.IGNORECASE,
+)
+STUB_VIOLATION_FLAG_RE = re.compile(
+    r"\bMOVE\s+'Y'\s+TO\s+HC-ORDER-VIOLATION(?!-)", re.IGNORECASE
+)
+STUB_GUARD_START_RE = re.compile(r"^IF\b", re.IGNORECASE)
+
+# --------------------------------------------------------------------------
+# Order metadata of statement_map.yml (execution_order and capture_ordinals)
+# --------------------------------------------------------------------------
+# One constraint per capture ordinal: the eight ordinal items of hcapture.cpy
+# each stand as the successor of exactly one execution_order entry, and
+# checks.order_constraint_count carries the same figure.
+EXPECTED_MAP_ORDER_CONSTRAINT_COUNT = 8
+
+# The capturing stubs named by the enforced_by member of an execution_order
+# entry are read from this directory, the stubs directory of the checkout this
+# module belongs to, and from nowhere else.  A declared path outside it, or a
+# symbolic link standing at one, is refused before the file is opened.
+EXPECTED_STUBS_DIR = REPO_ROOT / "modernization" / "harness" / "stubs"
+MAX_STUB_BYTES = 262_144
+
+# The copybook that declares the capture state, and therefore every ordinal
+# item an execution_order witness may name.  Both order sections of the map
+# declare this path and are held to it.
+ORDER_WITNESS_COPYBOOK = "hcapture.cpy"
+
+# Sentinel values of the order metadata.  `predecessor: 'none'` marks a
+# constraint on the first captured event rather than on a pair, and
+# `successor: 'cics_write'` names the recording stub of the KSDSPOLY write,
+# which is not an EXEC SQL block of the map.
+ORDER_NO_PREDECESSOR = "none"
+ORDER_VSAM_SUCCESSOR = "cics_write"
+
+# Closed vocabularies of the order metadata.
+ORDER_REASON_KINDS = frozenset({"control_flow", "data_dependency"})
+ORDER_ASSERTION_OPERATORS = frozenset({"greater_than", "less_than", "equal_to"})
+
+# Required members of one execution_order entry, of its witness block and of
+# the capture_ordinals block.
+EXECUTION_ORDER_KEYS = (
+    "id",
+    "predecessor",
+    "successor",
+    "reason_kind",
+    "enforced_by",
+    "note",
+    "witness",
+)
+ORDER_WITNESS_KEYS = (
+    "copybook",
+    "predecessor_ordinal_item",
+    "successor_ordinal_item",
+    "assertions",
+)
+CAPTURE_ORDINALS_KEYS = (
+    "copybook",
+    "sequence_item",
+    "ordinal_pic",
+    "unstamped_value",
+    "by_dml_id",
+    "vsam_write_ordinal_item",
+    "distinct_ordinal_items",
+)
+
+# The value an ordinal item holds while the block it belongs to has not been
+# captured, and the PICTURE every ordinal item and the shared sequence item
+# are declared with.  The stub-side guard reads an ordinal still at this value
+# as a prerequisite that has not run, and the driver reads it the same way.
+EXPECTED_UNSTAMPED_ORDINAL = 0
+ORDINAL_PIC_RE = re.compile(r"^9\((?P<digits>\d{1,4})\)$")
+
+# The two items every capturing stub named by an enforced_by member moves its
+# verdict into when a prerequisite ordinal is still unstamped.
+ORDER_GUARD_ITEMS = ("HC-ORDER-VIOLATION", "HC-ORDER-VIOLATION-STMT")
+
+# One data description entry of a harness copybook or stub, and the PICTURE
+# clause inside it.  Entries are split on the periods that end them before
+# either pattern is applied.
+COPYBOOK_ENTRY_RE = re.compile(
+    r"^(?P<level>\d{1,2})\s+(?P<name>[A-Za-z0-9][A-Za-z0-9\-]*)(?P<rest>\s.*|)$"
+)
+PICTURE_CLAUSE_RE = re.compile(
+    r"\bPIC(?:TURE)?\s+(?:IS\s+)?(?P<picture>\S+)", re.IGNORECASE
+)
+
 # --------------------------------------------------------------------------
 # Generated harness declarations (R4) and stub program names
 # --------------------------------------------------------------------------
@@ -339,9 +503,9 @@ WRITE_FILE_NAME_LENGTH = 8
 WRITE_RECORD_LENGTH = 64
 WRITE_KEY_LENGTH = 21
 # The two lengths travel as zero-padded alphanumeric literals of this width,
-# read by PIC 9(5) receivers in the capture module.  That choice belongs to
-# modernization/docs/decision-log.md (planned deliverable; not present at this
-# milestone), row: WRITE length operands as 5-digit literals.
+# read by PIC 9(5) receivers in the capture module.  See
+# modernization/docs/decision-log.md, row: WRITE length operands as 5-digit
+# literals.
 WRITE_LENGTH_LITERAL_DIGITS = 5
 
 
@@ -555,48 +719,227 @@ def sha256_of_bytes(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
+def lexical_repo_components(supplied: Path, option: str) -> tuple:
+    """Return the components of ``supplied`` below the repository root.
+
+    A relative value is made absolute against the repository root, ``.`` is
+    dropped and ``..`` cancels the component before it, none of which asks the
+    filesystem anything: resolving the value here would follow the very
+    symbolic links the descriptor walk has to refuse, and would then compare a
+    path this translator never opens.  A value that leaves the repository root,
+    and a value naming the root itself, are refused.  ``option`` names the
+    command-line option or map member the value came from.
+    """
+    candidate = Path(supplied).expanduser()
+    if not candidate.is_absolute():
+        candidate = REPO_ROOT / candidate
+    stack = []
+    for part in candidate.parts:
+        if part == ".":
+            continue
+        if part == "..":
+            if len(stack) <= 1:
+                raise TranslationError(
+                    f"{option} names {supplied}, which climbs above the "
+                    f"filesystem root"
+                )
+            stack.pop()
+            continue
+        stack.append(part)
+    normalised = Path(*stack)
+    try:
+        relative = normalised.relative_to(REPO_ROOT)
+    except ValueError as error:
+        raise TranslationError(
+            f"{option} names {normalised}; this translator reads only inside "
+            f"{REPO_ROOT}, the checkout holding {Path(__file__).resolve()}"
+        ) from error
+    if not relative.parts:
+        raise TranslationError(
+            f"{option} names {REPO_ROOT}, the repository root itself; a "
+            f"directory or file below it is required"
+        )
+    return relative.parts
+
+
+def open_nofollow_directory(parent_fd: int, name: str, display: Path) -> int:
+    """Open the directory ``name`` below ``parent_fd``, following no link.
+
+    An absent directory is reported as absent; anything that exists and is not
+    a directory this run may open without following a link - a symbolic link
+    included - is reported with the reason the open gave.
+    """
+    try:
+        return os.open(name, NOFOLLOW_DIR_FLAGS, dir_fd=parent_fd)
+    except FileNotFoundError as error:
+        raise TranslationError(
+            f"cannot descend into {display}: it does not exist"
+        ) from error
+    except OSError as error:
+        raise TranslationError(
+            f"refusing to descend into {display}: it is not a directory this "
+            f"run may open without following a link ({error})"
+        ) from error
+
+
+def open_repo_directory_fd(components) -> int:
+    """Open a directory below the repository root, following no link.
+
+    ``REPO_ROOT`` is a fully resolved path, so its own components carry no
+    symbolic link, and it is the one path opened by name.  Every component
+    below it is opened from the descriptor of its parent with ``O_NOFOLLOW``,
+    so a link standing at any of them - a parent directory as much as the
+    entry itself - is refused instead of traversed.  The caller closes the
+    descriptor this returns.
+    """
+    try:
+        current = os.open(str(REPO_ROOT), NOFOLLOW_DIR_FLAGS)
+    except OSError as error:
+        raise TranslationError(
+            f"cannot open the repository root {REPO_ROOT} as a directory: "
+            f"{error}"
+        ) from error
+    walked = REPO_ROOT
+    try:
+        for name in components:
+            walked = walked / name
+            child = open_nofollow_directory(current, name, walked)
+            os.close(current)
+            current = child
+    except BaseException:
+        os.close(current)
+        raise
+    return current
+
+
+def _read_open_descriptor(handle: int, max_bytes: int, display: Path) -> bytes:
+    """Read ``handle`` to end of file, refusing more than ``max_bytes``."""
+    chunks = []
+    total = 0
+    while True:
+        try:
+            chunk = os.read(handle, 65536)
+        except OSError as error:
+            raise TranslationError(f"cannot read {display}: {error}") from error
+        if not chunk:
+            return b"".join(chunks)
+        total += len(chunk)
+        if total > max_bytes:
+            raise TranslationError(
+                f"{display} holds more than {max_bytes} bytes; a larger file "
+                f"is not read"
+            )
+        chunks.append(chunk)
+
+
+def read_repo_file(components, option: str, max_bytes: int) -> bytes:
+    """Read one file below the repository root through a no-follow descriptor.
+
+    The directories above the file are walked descriptor by descriptor, the
+    entry is inspected with a no-follow ``stat`` through the descriptor of its
+    own directory, and the file is then opened from that same descriptor with
+    ``O_NOFOLLOW``.  The open descriptor must carry the device and inode the
+    inspection reported, must be a regular file and must hold no more than
+    ``max_bytes``, and the bytes are read from it: the entry inspected, the
+    entry opened and the entry read are one file, whatever the name reaches
+    afterwards.  ``option`` names the option or map member that asked for it.
+    """
+    display = REPO_ROOT.joinpath(*components)
+    name = components[-1]
+    dir_fd = open_repo_directory_fd(components[:-1])
+    try:
+        try:
+            inspected = os.stat(name, dir_fd=dir_fd, follow_symlinks=False)
+        except FileNotFoundError as error:
+            raise TranslationError(
+                f"{option} names {display}, which does not exist"
+            ) from error
+        except OSError as error:
+            raise TranslationError(
+                f"cannot inspect {display} before reading it: {error}"
+            ) from error
+        if stat.S_ISLNK(inspected.st_mode):
+            raise TranslationError(
+                f"refusing to read {display}: it is a symbolic link, and this "
+                f"translator reads the files of its own checkout only as "
+                f"regular files"
+            )
+        try:
+            handle = os.open(name, NOFOLLOW_READ_FILE_FLAGS, dir_fd=dir_fd)
+        except OSError as error:
+            raise TranslationError(
+                f"refusing to read {display}: it cannot be opened without "
+                f"following a link ({error})"
+            ) from error
+        try:
+            opened = os.fstat(handle)
+            if not stat.S_ISREG(opened.st_mode):
+                raise TranslationError(
+                    f"refusing to read {display}: it is not a regular file"
+                )
+            if (opened.st_dev, opened.st_ino) != (
+                inspected.st_dev, inspected.st_ino
+            ):
+                raise TranslationError(
+                    f"refusing to read {display}: the entry inspected as "
+                    f"device {inspected.st_dev} inode {inspected.st_ino} "
+                    f"opened as device {opened.st_dev} inode {opened.st_ino}, "
+                    f"so the name was replaced between the two"
+                )
+            if opened.st_size > max_bytes:
+                raise TranslationError(
+                    f"{display} holds {opened.st_size} bytes; at most "
+                    f"{max_bytes} are read"
+                )
+            return _read_open_descriptor(handle, max_bytes, display)
+        finally:
+            os.close(handle)
+    finally:
+        os.close(dir_fd)
+
+
 def require_expected_read_directory(supplied: Path, expected: Path,
-                                    option: str) -> None:
-    """Require ``supplied`` to resolve to exactly ``expected``.
+                                    option: str) -> tuple:
+    """Require ``supplied`` to name exactly ``expected``, and open it.
 
     ``option`` names the command-line option the value came from.  The
-    comparison is made on the resolved paths, so a relative value, a value
-    carrying ``..`` and a value reached through a symbolic link are all
-    reduced to the directory they name before it is compared.
+    comparison is lexical, so a value that reaches the expected path through a
+    symbolic link is not accepted as that path, and the directory is then
+    opened component by component from the repository root with
+    ``O_NOFOLLOW``, which refuses a link standing anywhere along it and
+    anything that is not a directory.  Returns the components of the directory
+    below the repository root.
     """
-    resolved = supplied.resolve()
-    if resolved != expected.resolve():
+    components = lexical_repo_components(supplied, option)
+    if components != lexical_repo_components(expected, option):
         raise TranslationError(
-            f"{option} names {resolved}; this translator reads only "
-            f"{expected}, the directory of the checkout holding "
-            f"{Path(__file__).resolve()}"
+            f"{option} names {REPO_ROOT.joinpath(*components)}; this "
+            f"translator reads only {expected}, the directory of the checkout "
+            f"holding {Path(__file__).resolve()}"
         )
+    os.close(open_repo_directory_fd(components))
+    return components
 
 
 def require_expected_read_file(supplied: Path, expected: Path,
-                               option: str) -> None:
-    """Require ``supplied`` to resolve to exactly ``expected``, and be no link.
+                               option: str) -> tuple:
+    """Require ``supplied`` to name exactly ``expected``.
 
     ``option`` names the command-line option the value came from.  The
-    comparison is made on the resolved paths, so a relative value, a value
-    carrying ``..`` and a value reached through a symbolic link are all
-    reduced to the file they name before it is compared; a symbolic link
-    standing at either path is then refused instead of being read through.
+    comparison is lexical for the reason ``lexical_repo_components`` states;
+    the read itself then walks the directories above the file and opens it
+    with ``O_NOFOLLOW``, so a link standing at the file or at any directory
+    above it is refused rather than read through.  Returns the components of
+    the file below the repository root.
     """
-    resolved = supplied.resolve()
-    if resolved != expected.resolve():
+    components = lexical_repo_components(supplied, option)
+    if components != lexical_repo_components(expected, option):
         raise TranslationError(
-            f"{option} names {resolved}; this translator reads only "
-            f"{expected}, the file of the checkout holding "
-            f"{Path(__file__).resolve()}"
+            f"{option} names {REPO_ROOT.joinpath(*components)}; this "
+            f"translator reads only {expected}, the file of the checkout "
+            f"holding {Path(__file__).resolve()}"
         )
-    for candidate in (supplied, expected):
-        if candidate.is_symlink():
-            raise TranslationError(
-                f"{option} names {candidate}, a symbolic link reaching "
-                f"{resolved}; this translator reads that path of its own "
-                f"checkout only as a regular file"
-            )
+    return components
 
 
 def require_authorized_source_digest(name: str, data: bytes) -> None:
@@ -615,10 +958,11 @@ def require_authorized_source_digest(name: str, data: bytes) -> None:
 def read_authorized_source(source_dir: Path, name: str) -> bytes:
     """Read one allow-listed source file in binary mode.
 
-    Refuses any name outside SOURCE_ALLOW_LIST, any name carrying a path
-    separator, and any path that resolves outside ``source_dir``.  The bytes
-    read are compared with the pinned digest of that name before they are
-    returned.
+    Refuses any name outside SOURCE_ALLOW_LIST and any name carrying a path
+    separator, so the components read are exactly the pinned source directory
+    plus that one name.  The file is read through a no-follow descriptor, and
+    the bytes read are compared with the pinned digest of that name before
+    they are returned.
     """
     if name not in SOURCE_ALLOW_LIST:
         raise TranslationError(
@@ -629,31 +973,201 @@ def read_authorized_source(source_dir: Path, name: str) -> bytes:
         raise TranslationError(
             f"refusing to read {name!r}: names must be bare file names"
         )
-    path = source_dir / name
-    if not path.is_file():
-        raise TranslationError(f"authorized source not found: {path}")
-    resolved = path.resolve()
-    if resolved.parent != source_dir.resolve():
-        raise TranslationError(
-            f"refusing to read {path}: resolves outside the source directory "
-            f"({resolved})"
-        )
-    with resolved.open("rb") as handle:
-        data = handle.read()
+    components = lexical_repo_components(source_dir, "--source-dir") + (name,)
+    data = read_repo_file(
+        components, f"the authorized source {name}", MAX_READ_FILE_BYTES
+    )
     require_authorized_source_digest(name, data)
     return data
 
 
 def read_harness_copybook(copybook_dir: Path, name: str) -> bytes:
-    """Read one harness copybook from --copybook-dir in binary mode."""
-    path = copybook_dir / name
+    """Read one harness copybook from --copybook-dir in binary mode.
+
+    The name must be one of the four harness copybooks and must carry no path
+    separator; the file is read through a no-follow descriptor.
+    """
+    if name not in HARNESS_COPYBOOKS:
+        raise TranslationError(
+            f"refusing to read {name!r}: only the harness copybooks "
+            f"{list(HARNESS_COPYBOOKS)} are read from --copybook-dir"
+        )
+    if Path(name).name != name:
+        raise TranslationError(
+            f"refusing to read {name!r}: names must be bare file names"
+        )
+    components = lexical_repo_components(copybook_dir, "--copybook-dir") + (name,)
+    return read_repo_file(
+        components, f"the harness copybook {name}", MAX_READ_FILE_BYTES
+    )
+
+
+def read_declared_capture_stub(declared_path: str, label: str) -> bytes:
+    """Read the capture stub a statement-map entry names, in binary mode.
+
+    ``declared_path`` is the repository-relative ``enforced_by`` value of an
+    ``execution_order`` entry and ``label`` names that member.  The value must
+    name a bare file below ``EXPECTED_STUB_DIR``, so an entry cannot move the
+    read surface to another tree, and the file is read through a no-follow
+    descriptor.
+    """
+    text = _require_text(declared_path, label).strip()
+    components = lexical_repo_components(Path(text), label)
+    expected = lexical_repo_components(EXPECTED_STUB_DIR, label)
+    if components[:-1] != expected:
+        raise TranslationError(
+            f"{label} names {REPO_ROOT.joinpath(*components)}; every capture "
+            f"stub of this map lives directly in {EXPECTED_STUB_DIR}"
+        )
+    return read_repo_file(components, label, MAX_READ_FILE_BYTES)
+
+
+def read_driver_source() -> bytes:
+    """Read the harness driver in binary mode, through a no-follow descriptor.
+
+    The driver is read for one purpose: reconciling the order table it builds
+    with the ordering metadata of the statement map.  The path is fixed at
+    ``EXPECTED_DRIVER_SOURCE`` and comes from no map member, so no map entry can
+    move this read.
+    """
+    components = lexical_repo_components(
+        EXPECTED_DRIVER_SOURCE, "the harness driver"
+    )
+    return read_repo_file(components, "the harness driver", MAX_READ_FILE_BYTES)
+
+
+def read_harness_stub(declared_path: str, label: str) -> bytes:
+    """Read one capturing stub named by the statement map, in binary mode.
+
+    ``declared_path`` is the repository-relative path an ``enforced_by`` member
+    carries and ``label`` names that member.  The path must lie directly inside
+    ``EXPECTED_STUBS_DIR``, carry no path component of its own beyond that
+    directory, stand as a regular file rather than a symbolic link, and hold at
+    most ``MAX_STUB_BYTES``; the bytes are read only after all four hold.
+    """
+    candidate = Path(declared_path.strip())
+    if candidate.is_absolute():
+        raise TranslationError(
+            f"{label} names the absolute path {declared_path!r}; a path relative "
+            f"to the repository root {REPO_ROOT} is required"
+        )
+    expected_parent = EXPECTED_STUBS_DIR.relative_to(REPO_ROOT).as_posix()
+    if candidate.parent.as_posix() != expected_parent:
+        raise TranslationError(
+            f"{label} names {candidate.as_posix()!r}; a capturing stub is read "
+            f"only from {expected_parent}/"
+        )
+    path = REPO_ROOT / candidate
+    if path.is_symlink():
+        raise TranslationError(
+            f"{label} names {candidate.as_posix()}, a symbolic link; a capturing "
+            f"stub is read only as a regular file"
+        )
     if not path.is_file():
         raise TranslationError(
-            f"harness copybook not found: {path} "
-            f"(expected all of {list(HARNESS_COPYBOOKS)})"
+            f"{label} names {candidate.as_posix()}, which is not a regular file "
+            f"of this checkout"
+        )
+    if path.resolve().parent != EXPECTED_STUBS_DIR.resolve():
+        raise TranslationError(
+            f"{label} names {candidate.as_posix()}, which resolves to "
+            f"{path.resolve()}, outside {EXPECTED_STUBS_DIR}"
+        )
+    size = path.stat().st_size
+    if size > MAX_STUB_BYTES:
+        raise TranslationError(
+            f"{label} names {candidate.as_posix()}, holding {size} bytes; at "
+            f"most {MAX_STUB_BYTES} are read"
         )
     with path.open("rb") as handle:
-        return handle.read()
+        return handle.read(MAX_STUB_BYTES)
+
+
+def split_data_entries(text: str) -> list:
+    """Split one code-area stream into the entries its periods end.
+
+    A period inside a quoted literal does not end an entry, so a ``VALUE``
+    clause carrying a timestamp literal stays inside the entry that declares
+    it.  Empty fragments are dropped.
+    """
+    entries = []
+    current = []
+    quote = ""
+    for character in text:
+        if quote:
+            current.append(character)
+            if character == quote:
+                quote = ""
+            continue
+        if character in "'\"":
+            quote = character
+            current.append(character)
+            continue
+        if character == ".":
+            fragment = "".join(current).strip()
+            if fragment:
+                entries.append(fragment)
+            current = []
+            continue
+        current.append(character)
+    fragment = "".join(current).strip()
+    if fragment:
+        entries.append(fragment)
+    return entries
+
+
+def code_area_text(name: str, data: bytes) -> str:
+    """Return the code area (columns 8-72) of a COBOL file as one string.
+
+    Comment lines are dropped and every remaining line contributes its code
+    area only, so a name found in the returned text stands in executable or
+    declarative code rather than in prose.  Harness copybooks and stubs are
+    UTF-8; only their comment prose uses characters outside ASCII.
+    """
+    try:
+        text = data.decode("utf-8")
+    except UnicodeDecodeError as error:
+        raise TranslationError(f"{name} is not valid UTF-8: {error}") from error
+    fragments = []
+    for line in text.split("\n"):
+        if is_comment_line(line):
+            continue
+        fragment = line[CODE_START:MAX_LINE_LENGTH].strip()
+        if fragment:
+            fragments.append(fragment)
+    return " ".join(fragments)
+
+
+def declared_copybook_items(name: str, data: bytes) -> dict:
+    """Return the data items a harness copybook declares.
+
+    Maps every declared name, upper-cased, onto the PICTURE character-string
+    of its entry, or onto ``None`` for a group item, a condition name and any
+    other entry that declares no PICTURE.
+    """
+    items = {}
+    for entry in split_data_entries(code_area_text(name, data)):
+        match = COPYBOOK_ENTRY_RE.match(entry)
+        if match is None:
+            continue
+        picture = PICTURE_CLAUSE_RE.search(match.group("rest"))
+        items[match.group("name").upper()] = (
+            picture.group("picture").upper() if picture is not None else None
+        )
+    return items
+
+
+def code_references_item(code: str, item: str) -> bool:
+    """True when ``code`` names the COBOL data item ``item``.
+
+    The name is matched whole: a hyphen, a letter or a digit standing beside it
+    makes the occurrence a different name, so ``HC-ORDER-VIOLATION`` is not
+    found inside ``HC-ORDER-VIOLATION-STMT``.
+    """
+    pattern = re.compile(
+        rf"(?<![A-Za-z0-9\-]){re.escape(item)}(?![A-Za-z0-9\-])", re.IGNORECASE
+    )
+    return pattern.search(code) is not None
 
 
 # --------------------------------------------------------------------------
@@ -719,13 +1233,13 @@ class BuildTree:
 
     # -- descriptor-relative primitives -----------------------------------
     def _open_root_fd(self) -> int:
-        """Open the build root itself as a no-follow directory descriptor."""
-        try:
-            return os.open(str(self.root), NOFOLLOW_DIR_FLAGS)
-        except OSError as error:
-            raise TranslationError(
-                f"cannot open the build tree {self.root} as a directory: {error}"
-            ) from error
+        """Open the build root as a no-follow directory descriptor.
+
+        The walk starts at the repository root and opens one component at a
+        time, so the descriptor stands for the build tree of this checkout
+        even when a directory above it has been replaced by a link.
+        """
+        return open_repo_directory_fd(self.root.relative_to(REPO_ROOT).parts)
 
     def _mkdir_if_absent(self, parent_fd: int, name: str, display: Path) -> bool:
         """Create the directory ``name`` below ``parent_fd``.
@@ -754,13 +1268,7 @@ class BuildTree:
         """
         if create:
             self._mkdir_if_absent(parent_fd, name, display)
-        try:
-            return os.open(name, NOFOLLOW_DIR_FLAGS, dir_fd=parent_fd)
-        except OSError as error:
-            raise TranslationError(
-                f"refusing to descend into {display}: it is not a directory this "
-                f"run may open without following a link ({error})"
-            ) from error
+        return open_nofollow_directory(parent_fd, name, display)
 
     def _open_directory_fd(self, parts, *, create: bool) -> int:
         """Open the directory named by ``parts`` relative to the build root."""
@@ -895,14 +1403,14 @@ class BuildTree:
             os.close(root_fd)
 
     def _ensure_root(self) -> None:
-        """Create the build root below its parent without following links."""
+        """Create the build root below its parent without following links.
+
+        The parent is reached by walking down from the repository root one
+        component at a time, so no directory above the build tree can be
+        substituted by a link between this run's checks and its writes.
+        """
         parent = self.root.parent
-        try:
-            parent_fd = os.open(str(parent), NOFOLLOW_DIR_FLAGS)
-        except OSError as error:
-            raise TranslationError(
-                f"cannot open {parent}, the parent of the build tree: {error}"
-            ) from error
+        parent_fd = open_repo_directory_fd(parent.relative_to(REPO_ROOT).parts)
         try:
             self._mkdir_if_absent(parent_fd, self.root.name, self.root)
             info = os.stat(self.root.name, dir_fd=parent_fd, follow_symlinks=False)
@@ -1113,6 +1621,29 @@ class BuildTree:
             )
         return target
 
+    def holds_regular_file(self, relative: str) -> bool:
+        """True when ``relative`` stands for a regular file inside the tree.
+
+        The directories above the entry are opened descriptor by descriptor
+        without following a link and the entry itself is inspected with a
+        no-follow stat, so a link planted inside the tree answers False rather
+        than reporting whatever it points at.
+        """
+        self.path_for(relative)
+        parts = self._lexical_parts(relative)
+        dir_fd = self._open_directory_fd(parts[:-1], create=False)
+        try:
+            info = os.stat(parts[-1], dir_fd=dir_fd, follow_symlinks=False)
+        except FileNotFoundError:
+            return False
+        except OSError as error:
+            raise TranslationError(
+                f"cannot inspect {self.root.joinpath(*parts)}: {error}"
+            ) from error
+        finally:
+            os.close(dir_fd)
+        return stat.S_ISREG(info.st_mode)
+
 
 
 # --------------------------------------------------------------------------
@@ -1126,9 +1657,8 @@ HOST_DIRECTIONS = frozenset({"in", "out"})
 # ``present_in_source_block`` lists the ``<start>-<end>`` source ranges a host
 # is referenced by.  A host whose list omits the range of the entry carrying it
 # is not referenced by that source block and reaches the stub as a superset
-# argument.  That choice belongs to modernization/docs/decision-log.md
-# (planned deliverable; not present at this milestone), row: single-superset
-# SQL-INSERT-ENDOWMENT call.
+# argument.  That choice belongs to modernization/docs/decision-log.md, row:
+# single-superset SQL-INSERT-ENDOWMENT call.
 SOURCE_BLOCK_RANGE_RE = re.compile(r"^\s*(\d+)\s*-\s*(\d+)\s*$")
 
 SQL_ENVELOPE_RE = re.compile(
@@ -2125,7 +2655,8 @@ def _validate_map_scalar_types(data: dict, label: str) -> None:
     """
     checks = data.get("checks")
     if isinstance(checks, dict):
-        for key in ("include_count", "dml_count", "total_blocks"):
+        for key in ("include_count", "dml_count", "total_blocks",
+                    "order_constraint_count"):
             if key in checks:
                 _require_integer(checks[key], f"{label}: checks.{key}")
         programs = checks.get("call_programs")
@@ -2173,6 +2704,423 @@ def _validate_map_scalar_types(data: dict, label: str) -> None:
                                 )
                     else:
                         _require_text(host, f"{where}.using[{position}]")
+    capture_ordinals = data.get("capture_ordinals")
+    if isinstance(capture_ordinals, dict):
+        for key in ("copybook", "sequence_item", "ordinal_pic",
+                    "vsam_write_event_id", "vsam_write_ordinal_item"):
+            if key in capture_ordinals:
+                _require_text(
+                    capture_ordinals[key], f"{label}: capture_ordinals.{key}"
+                )
+        for key in ("unstamped_value", "distinct_ordinal_items"):
+            if key in capture_ordinals:
+                _require_integer(
+                    capture_ordinals[key], f"{label}: capture_ordinals.{key}"
+                )
+    entries = data.get("execution_order")
+    if isinstance(entries, list):
+        for index, entry in enumerate(entries):
+            if not isinstance(entry, dict):
+                continue
+            where = f"{label}: execution_order[{index}]"
+            for key in ("id", "predecessor", "successor", "reason_kind",
+                        "enforced_by", "note", "host"):
+                if key in entry:
+                    _require_text(entry[key], f"{where}.{key}")
+            witness = entry.get("witness")
+            if isinstance(witness, dict):
+                for key in ("copybook", "predecessor_ordinal_item",
+                            "successor_ordinal_item"):
+                    if key in witness:
+                        _require_text(witness[key], f"{where}.witness.{key}")
+
+
+def _validate_capture_ordinals(capture_ordinals: dict, dml_ids, label: str) -> dict:
+    """Type- and shape-check ``capture_ordinals`` and resolve its event ids.
+
+    Every member is required and typed: the copybook it names, the shared
+    sequence item, the ordinal PIC, the unstamped value, one ordinal item per
+    dml id, the VSAM write event id and its ordinal item, the count of distinct
+    statement ordinals and the ordinal items that carry no statement of this
+    map.  ``by_dml_id`` must name exactly the dml ids of the map, no ordinal
+    item may be spelled twice across the roles it fills, and
+    ``distinct_ordinal_items`` must equal the number of distinct statement
+    ordinals the block resolves to.  Returns the event-id-to-ordinal-item
+    resolution, which is the one such resolution this translator uses.
+    """
+    _require_keys(
+        capture_ordinals,
+        ("copybook", "sequence_item", "ordinal_pic", "unstamped_value",
+         "by_dml_id", "vsam_write_event_id", "vsam_write_ordinal_item",
+         "distinct_ordinal_items", "non_statement_ordinal_items"),
+        label,
+    )
+    declared_copybook = _require_text(
+        capture_ordinals["copybook"], f"{label}.copybook"
+    ).strip()
+    expected_copybook = (
+        EXPECTED_COPYBOOK_DIR.relative_to(REPO_ROOT) / CAPTURE_COPYBOOK
+    ).as_posix()
+    if Path(declared_copybook).as_posix() != expected_copybook:
+        raise TranslationError(
+            f"{label}.copybook is {declared_copybook!r}, expected "
+            f"{expected_copybook!r}"
+        )
+    _require_text(capture_ordinals["sequence_item"], f"{label}.sequence_item")
+    _require_text(capture_ordinals["ordinal_pic"], f"{label}.ordinal_pic")
+    unstamped = _require_integer(
+        capture_ordinals["unstamped_value"], f"{label}.unstamped_value"
+    )
+    if unstamped != 0:
+        raise TranslationError(
+            f"{label}.unstamped_value is {unstamped}; an unstamped ordinal of "
+            f"this copybook holds 0"
+        )
+    by_dml_id = _require_mapping(capture_ordinals["by_dml_id"], f"{label}.by_dml_id")
+    resolution = {}
+    for event_id, item in by_dml_id.items():
+        _require_text(event_id, f"{label}.by_dml_id key")
+        resolution[event_id] = _require_text(
+            item, f"{label}.by_dml_id[{event_id}]"
+        ).strip().upper()
+    if set(by_dml_id) != set(dml_ids):
+        raise TranslationError(
+            f"{label}.by_dml_id names {sorted(by_dml_id)}; the dml entries of "
+            f"this map are {sorted(dml_ids)}"
+        )
+    vsam_event = _require_text(
+        capture_ordinals["vsam_write_event_id"], f"{label}.vsam_write_event_id"
+    ).strip()
+    if vsam_event in resolution:
+        raise TranslationError(
+            f"{label}.vsam_write_event_id is {vsam_event!r}, which is already a "
+            f"dml id of this map"
+        )
+    vsam_item = _require_text(
+        capture_ordinals["vsam_write_ordinal_item"],
+        f"{label}.vsam_write_ordinal_item",
+    ).strip().upper()
+    if vsam_item in set(resolution.values()):
+        raise TranslationError(
+            f"{label}.vsam_write_ordinal_item is {vsam_item!r}, which a dml id "
+            f"of this map already names"
+        )
+    resolution[vsam_event] = vsam_item
+    distinct = _require_integer(
+        capture_ordinals["distinct_ordinal_items"],
+        f"{label}.distinct_ordinal_items",
+    )
+    if distinct != len(set(resolution.values())):
+        raise TranslationError(
+            f"{label}.distinct_ordinal_items is {distinct}; the block resolves "
+            f"{len(set(resolution.values()))} distinct ordinal item(s)"
+        )
+    non_statement = _require_sequence(
+        capture_ordinals["non_statement_ordinal_items"],
+        f"{label}.non_statement_ordinal_items",
+    )
+    seen_non_statement = set()
+    for index, item in enumerate(non_statement):
+        name = _require_text(
+            item, f"{label}.non_statement_ordinal_items[{index}]"
+        ).strip().upper()
+        if name in set(resolution.values()):
+            raise TranslationError(
+                f"{label}.non_statement_ordinal_items names {name!r}, which an "
+                f"event id of this map already resolves to"
+            )
+        if name in seen_non_statement:
+            raise TranslationError(
+                f"{label}.non_statement_ordinal_items repeats {name!r}"
+            )
+        seen_non_statement.add(name)
+    return resolution
+
+
+def _assertion_pairs(entry: dict, label: str) -> tuple:
+    """Return the ordinal items and comparisons the assertions of one entry make.
+
+    Every assertion is typed and shape-checked: a plain assertion names a
+    ``left_item`` and compares it with a ``right_item`` or a ``right_literal``
+    under a supported ``operator``, and an ``any_of`` assertion holds a
+    non-empty list of plain assertions.  Returns the set of ordinal items the
+    assertions name, the list of ``(left, operator, right)`` comparisons made
+    outside any ``any_of``, and the list of items each ``any_of`` group tests
+    for having been captured.  ``label`` names the entry every message reports.
+    """
+    witness = _require_mapping(entry["witness"], f"{label}.witness")
+    assertions = _require_sequence(
+        witness["assertions"], f"{label}.witness.assertions"
+    )
+    if not assertions:
+        raise TranslationError(
+            f"{label}.witness.assertions declares no assertion"
+        )
+    named = set()
+    comparisons = []
+    any_groups = []
+
+    def read_plain(raw, where: str) -> tuple:
+        assertion = _require_mapping(raw, where)
+        _require_keys(assertion, ("left_item", "operator"), where)
+        left = _require_text(assertion["left_item"], f"{where}.left_item")
+        left = left.strip().upper()
+        operator = _require_text(assertion["operator"], f"{where}.operator").strip()
+        if operator not in ORDER_ASSERTION_OPERATORS:
+            raise TranslationError(
+                f"{where}.operator is {operator!r}; the supported operators are "
+                f"{sorted(ORDER_ASSERTION_OPERATORS)}"
+            )
+        has_item = "right_item" in assertion
+        has_literal = "right_literal" in assertion
+        if has_item == has_literal:
+            raise TranslationError(
+                f"{where} must compare left_item with exactly one of "
+                f"right_item and right_literal"
+            )
+        named.add(left)
+        if has_item:
+            right = _require_text(
+                assertion["right_item"], f"{where}.right_item"
+            ).strip().upper()
+            named.add(right)
+            return left, operator, right
+        literal = _require_integer(
+            assertion["right_literal"], f"{where}.right_literal"
+        )
+        return left, operator, literal
+
+    for position, raw in enumerate(assertions):
+        where = f"{label}.witness.assertions[{position}]"
+        if isinstance(raw, dict) and "any_of" in raw:
+            if set(raw) != {"any_of"}:
+                raise TranslationError(
+                    f"{where} carries {sorted(raw)}; an any_of assertion holds "
+                    f"that one member"
+                )
+            members = _require_sequence(raw["any_of"], f"{where}.any_of")
+            if not members:
+                raise TranslationError(f"{where}.any_of declares no assertion")
+            group = []
+            for member_index, member in enumerate(members):
+                left, operator, right = read_plain(
+                    member, f"{where}.any_of[{member_index}]"
+                )
+                if (operator, right) != ("greater_than", 0):
+                    raise TranslationError(
+                        f"{where}.any_of[{member_index}] compares {left} "
+                        f"{operator} {right!r}; an alternative predecessor is "
+                        f"tested for having been captured at all"
+                    )
+                group.append(left)
+            any_groups.append(group)
+            continue
+        comparisons.append(read_plain(raw, where))
+    return named, comparisons, any_groups
+
+
+def _validate_execution_order(execution_order: list, resolution: dict,
+                              first_ordinal: int, label: str) -> list:
+    """Type- and shape-check ``execution_order`` and resolve each entry.
+
+    Every entry is required to carry a unique id, a predecessor and successor
+    that resolve through ``capture_ordinals``, the reason kind and the host it
+    names where the reason is a data dependency, the capture stub that enforces
+    it, a note and a witness whose ordinal items are the ones that resolution
+    returns.  The assertions of an entry must compare exactly the pair it
+    declares: a first-captured entry compares its own ordinal with
+    ``first_ordinal``, the first value the shared sequence item issues, and
+    every other entry states that both ordinals were stamped and that the
+    predecessor was stamped first.  Returns one resolved record per entry.
+    """
+    resolved = []
+    seen_ids = set()
+    for index, raw_entry in enumerate(execution_order):
+        where = f"{label}[{index}]"
+        entry = _require_mapping(raw_entry, where)
+        _require_keys(
+            entry,
+            ("id", "predecessor", "successor", "reason_kind", "enforced_by",
+             "note", "witness"),
+            where,
+        )
+        entry_id = _require_text(entry["id"], f"{where}.id").strip()
+        if entry_id in seen_ids:
+            raise TranslationError(f"duplicate execution_order id {entry_id!r}")
+        seen_ids.add(entry_id)
+        where = f"{label}[{entry_id}]"
+        predecessor = _require_text(
+            entry["predecessor"], f"{where}.predecessor"
+        ).strip()
+        successor = _require_text(entry["successor"], f"{where}.successor").strip()
+        reason = _require_text(entry["reason_kind"], f"{where}.reason_kind").strip()
+        if reason not in ORDER_REASON_KINDS:
+            raise TranslationError(
+                f"{where}.reason_kind is {reason!r}; the supported kinds are "
+                f"{sorted(ORDER_REASON_KINDS)}"
+            )
+        if reason == "data_dependency":
+            _require_keys(entry, ("host",), where)
+            _require_text(entry["host"], f"{where}.host")
+        elif "host" in entry:
+            raise TranslationError(
+                f"{where} declares host {entry['host']!r} with reason_kind "
+                f"{reason!r}; only a data dependency names the host that "
+                f"carries it"
+            )
+        _require_text(entry["note"], f"{where}.note")
+        stub = _require_text(entry["enforced_by"], f"{where}.enforced_by").strip()
+        if successor not in resolution:
+            raise TranslationError(
+                f"{where}.successor is {successor!r}, which is neither a dml id "
+                f"nor the VSAM write event id of capture_ordinals "
+                f"{sorted(resolution)}"
+            )
+        if predecessor != ORDER_NO_PREDECESSOR and predecessor not in resolution:
+            raise TranslationError(
+                f"{where}.predecessor is {predecessor!r}, which is neither "
+                f"{ORDER_NO_PREDECESSOR!r} nor an event id of capture_ordinals "
+                f"{sorted(resolution)}"
+            )
+        witness = _require_mapping(entry["witness"], f"{where}.witness")
+        _require_keys(
+            witness,
+            ("copybook", "predecessor_ordinal_item", "successor_ordinal_item",
+             "assertions"),
+            f"{where}.witness",
+        )
+        declared_copybook = _require_text(
+            witness["copybook"], f"{where}.witness.copybook"
+        ).strip()
+        expected_copybook = (
+            EXPECTED_COPYBOOK_DIR.relative_to(REPO_ROOT) / CAPTURE_COPYBOOK
+        ).as_posix()
+        if Path(declared_copybook).as_posix() != expected_copybook:
+            raise TranslationError(
+                f"{where}.witness.copybook is {declared_copybook!r}, expected "
+                f"{expected_copybook!r}"
+            )
+        successor_item = _require_text(
+            witness["successor_ordinal_item"],
+            f"{where}.witness.successor_ordinal_item",
+        ).strip().upper()
+        if successor_item != resolution[successor]:
+            raise TranslationError(
+                f"{where}.witness.successor_ordinal_item is "
+                f"{successor_item!r}; capture_ordinals resolves the event "
+                f"{successor!r} to {resolution[successor]!r}"
+            )
+        declared_predecessor_item = _require_text(
+            witness["predecessor_ordinal_item"],
+            f"{where}.witness.predecessor_ordinal_item",
+        ).strip()
+        if predecessor == ORDER_NO_PREDECESSOR:
+            if declared_predecessor_item.lower() != ORDER_NO_PREDECESSOR:
+                raise TranslationError(
+                    f"{where} declares predecessor {ORDER_NO_PREDECESSOR!r} but "
+                    f"names the predecessor ordinal item "
+                    f"{declared_predecessor_item!r}"
+                )
+            predecessor_item = None
+        else:
+            predecessor_item = declared_predecessor_item.upper()
+            if predecessor_item != resolution[predecessor]:
+                raise TranslationError(
+                    f"{where}.witness.predecessor_ordinal_item is "
+                    f"{predecessor_item!r}; capture_ordinals resolves the event "
+                    f"{predecessor!r} to {resolution[predecessor]!r}"
+                )
+        alternatives = []
+        if "predecessor_ordinal_items_any" in witness:
+            raw_alternatives = _require_sequence(
+                witness["predecessor_ordinal_items_any"],
+                f"{where}.witness.predecessor_ordinal_items_any",
+            )
+            if len(raw_alternatives) < 2:
+                raise TranslationError(
+                    f"{where}.witness.predecessor_ordinal_items_any holds "
+                    f"{len(raw_alternatives)} item(s); a set of alternative "
+                    f"predecessors holds at least two"
+                )
+            resolved_items = set(resolution.values())
+            for position, item in enumerate(raw_alternatives):
+                name = _require_text(
+                    item,
+                    f"{where}.witness.predecessor_ordinal_items_any[{position}]",
+                ).strip().upper()
+                if name not in resolved_items:
+                    raise TranslationError(
+                        f"{where}.witness.predecessor_ordinal_items_any names "
+                        f"{name!r}, which no event id of capture_ordinals "
+                        f"resolves to"
+                    )
+                if name in alternatives:
+                    raise TranslationError(
+                        f"{where}.witness.predecessor_ordinal_items_any repeats "
+                        f"{name!r}"
+                    )
+                alternatives.append(name)
+        named, comparisons, any_groups = _assertion_pairs(entry, where)
+        declared_items = set(alternatives)
+        declared_items.add(successor_item)
+        if predecessor_item is not None:
+            declared_items.add(predecessor_item)
+        stray = sorted(named - declared_items)
+        if stray:
+            raise TranslationError(
+                f"{where}.witness.assertions name ordinal item(s) {stray} that "
+                f"the entry does not declare as predecessor, successor or "
+                f"alternative predecessor"
+            )
+        if predecessor_item is None:
+            expected_comparisons = [(successor_item, "equal_to", first_ordinal)]
+        else:
+            expected_comparisons = [
+                (predecessor_item, "greater_than", 0),
+                (successor_item, "greater_than", 0),
+                (predecessor_item, "less_than", successor_item),
+            ]
+        if comparisons != expected_comparisons:
+            raise TranslationError(
+                f"{where}.witness.assertions compare {comparisons}; the pair "
+                f"this entry declares requires exactly {expected_comparisons}"
+            )
+        if alternatives:
+            if len(any_groups) != 1 or set(any_groups[0]) != set(alternatives):
+                raise TranslationError(
+                    f"{where}.witness.assertions test the alternative "
+                    f"predecessors {any_groups}; the entry declares one group "
+                    f"holding {sorted(alternatives)}"
+                )
+        elif any_groups:
+            raise TranslationError(
+                f"{where}.witness.assertions carry an any_of group but the "
+                f"entry declares no alternative predecessor"
+            )
+        resolved.append(
+            {
+                "id": entry_id,
+                "predecessor": predecessor,
+                "successor": successor,
+                "reason_kind": reason,
+                "enforced_by": stub,
+                "predecessor_ordinal_item": predecessor_item,
+                "predecessor_ordinal_items_any": tuple(alternatives),
+                "successor_ordinal_item": successor_item,
+                "first_captured_ordinal": (
+                    expected_comparisons[0][2] if predecessor_item is None else None
+                ),
+            }
+        )
+    covered = {record["successor_ordinal_item"] for record in resolved}
+    missing = sorted(set(resolution.values()) - covered)
+    if missing:
+        raise TranslationError(
+            f"{label} carries no entry whose successor stamps {missing}; every "
+            f"ordinal item capture_ordinals resolves to is the successor of one "
+            f"entry"
+        )
+    return resolved
 
 
 def _validate_declared_source_program(source_program: dict, label: str) -> str:
@@ -2224,31 +3172,666 @@ def _validate_declared_source_program(source_program: dict, label: str) -> str:
     return name
 
 
-def load_statement_map(path: Path) -> dict:
+def _pinned_witness_copybook() -> str:
+    """Return the repository-relative path of the capture-state copybook."""
+    return (
+        EXPECTED_COPYBOOK_DIR.relative_to(REPO_ROOT) / ORDER_WITNESS_COPYBOOK
+    ).as_posix()
+
+
+def _require_witness_copybook(value, label: str) -> None:
+    """Require a declared witness copybook to be the pinned capture copybook."""
+    declared = _require_text(value, label).strip()
+    expected = _pinned_witness_copybook()
+    if Path(declared).as_posix() != expected:
+        raise TranslationError(
+            f"{label} names {declared!r}; every ordinal item of the order "
+            f"metadata is declared by {expected}"
+        )
+
+
+def _require_declared_ordinal_item(
+    value, label: str, declared_items: dict, ordinal_pic: str
+) -> str:
+    """Return the ordinal item ``value`` names, checked against the copybook.
+
+    The name must be declared by the pinned capture copybook and must carry the
+    PICTURE the order metadata declares for an ordinal, so an item that was
+    renamed, removed or re-shaped in that copybook is reported here instead of
+    reaching a generated program or a stub-side guard.
+    """
+    name = _require_text(value, label).strip().upper()
+    if name not in declared_items:
+        raise TranslationError(
+            f"{label} names {name!r}, which {_pinned_witness_copybook()} does "
+            f"not declare"
+        )
+    picture = declared_items[name]
+    if picture != ordinal_pic:
+        raise TranslationError(
+            f"{label} names {name!r}, declared by {_pinned_witness_copybook()} "
+            f"with PICTURE {picture!r}; the order metadata declares ordinal_pic "
+            f"{ordinal_pic!r}"
+        )
+    return name
+
+
+def _validate_ordinal_table(
+    capture: dict, dml: list, declared_items: dict, label: str
+) -> dict:
+    """Check ``capture_ordinals`` against the dml entries and the copybook.
+
+    Returns the resolved ordinal table: the item each dml id stamps, the item
+    of the KSDSPOLY write, the shared sequence item, the value an unstamped
+    ordinal holds and the highest value an ordinal can carry.  Every member is
+    type-checked, every ordinal item is required to be declared by the pinned
+    capture copybook with the declared ordinal PICTURE, the keys are required
+    to be exactly the declared dml ids, two ids sharing one ordinal are
+    required to share one stub, and ``distinct_ordinal_items`` is required to
+    equal the number of distinct items the table names.
+    """
+    _require_keys(capture, CAPTURE_ORDINALS_KEYS, label)
+    _require_witness_copybook(capture["copybook"], f"{label}.copybook")
+    ordinal_pic = (
+        _require_text(capture["ordinal_pic"], f"{label}.ordinal_pic").strip().upper()
+    )
+    pic_match = ORDINAL_PIC_RE.match(ordinal_pic)
+    if pic_match is None:
+        raise TranslationError(
+            f"{label}.ordinal_pic is {ordinal_pic!r}; an unsigned display "
+            f"picture of the form 9(n) is required"
+        )
+    max_ordinal = 10 ** int(pic_match.group("digits")) - 1
+    unstamped = _require_integer(
+        capture["unstamped_value"], f"{label}.unstamped_value"
+    )
+    if unstamped != EXPECTED_UNSTAMPED_ORDINAL:
+        raise TranslationError(
+            f"{label}.unstamped_value is {unstamped}; an ordinal that was never "
+            f"stamped holds {EXPECTED_UNSTAMPED_ORDINAL}, the value the driver "
+            f"clears the capture state to"
+        )
+    sequence_item = _require_declared_ordinal_item(
+        capture["sequence_item"], f"{label}.sequence_item", declared_items,
+        ordinal_pic,
+    )
+
+    call_program_by_id = {}
+    for index, entry in enumerate(dml):
+        call_program_by_id[str(entry["id"])] = str(entry["call_program"])
+    by_dml_id = _require_mapping(capture["by_dml_id"], f"{label}.by_dml_id")
+    if sorted(by_dml_id) != sorted(call_program_by_id):
+        raise TranslationError(
+            f"{label}.by_dml_id names {sorted(by_dml_id)}; the declared dml ids "
+            f"are {sorted(call_program_by_id)}"
+        )
+    ordinal_by_id = {}
+    first_id_of_item = {}
+    for dml_id in sorted(call_program_by_id):
+        item = _require_declared_ordinal_item(
+            by_dml_id[dml_id], f"{label}.by_dml_id[{dml_id}]", declared_items,
+            ordinal_pic,
+        )
+        if item == sequence_item:
+            raise TranslationError(
+                f"{label}.by_dml_id[{dml_id}] names the shared sequence item "
+                f"{item!r}; an ordinal item is stamped from it and is not it"
+            )
+        ordinal_by_id[dml_id] = item
+        owner = first_id_of_item.setdefault(item, dml_id)
+        if call_program_by_id[owner] != call_program_by_id[dml_id]:
+            raise TranslationError(
+                f"{label}.by_dml_id gives dml ids {owner!r} and {dml_id!r} the "
+                f"one ordinal item {item!r}, but they call "
+                f"{call_program_by_id[owner]!r} and "
+                f"{call_program_by_id[dml_id]!r}; ids sharing an ordinal share "
+                f"the stub that stamps it"
+            )
+    vsam_item = _require_declared_ordinal_item(
+        capture["vsam_write_ordinal_item"], f"{label}.vsam_write_ordinal_item",
+        declared_items, ordinal_pic,
+    )
+    if vsam_item == sequence_item:
+        raise TranslationError(
+            f"{label}.vsam_write_ordinal_item names the shared sequence item "
+            f"{vsam_item!r}; an ordinal item is stamped from it and is not it"
+        )
+    if vsam_item in set(ordinal_by_id.values()):
+        raise TranslationError(
+            f"{label}.vsam_write_ordinal_item names {vsam_item!r}, already "
+            f"stamped by dml id {first_id_of_item[vsam_item]!r}; the KSDSPOLY "
+            f"write is not an EXEC SQL block of this map"
+        )
+    distinct = set(ordinal_by_id.values()) | {vsam_item}
+    declared_distinct = _require_integer(
+        capture["distinct_ordinal_items"], f"{label}.distinct_ordinal_items"
+    )
+    if declared_distinct != len(distinct):
+        raise TranslationError(
+            f"{label}.distinct_ordinal_items is {declared_distinct}; the table "
+            f"names {len(distinct)} distinct ordinal items "
+            f"{sorted(distinct)}"
+        )
+    return {
+        "ordinal_by_id": ordinal_by_id,
+        "vsam_item": vsam_item,
+        "sequence_item": sequence_item,
+        "items": distinct,
+        "unstamped": unstamped,
+        "max_ordinal": max_ordinal,
+        "ordinal_pic": ordinal_pic,
+    }
+
+
+def _describe_assertion(assertion: tuple) -> str:
+    """Render one normalised assertion as the text a diagnostic reads.
+
+    An item on the right prints as its name and a literal as its digits, so
+    ``HC-POL-SEQ less_than HC-HOU-SEQ`` and ``HC-HOU-SEQ greater_than 0`` read
+    the way the witness of the constraint spells them.
+    """
+    left, operator, (_kind, right) = assertion
+    return f"{left} {operator} {right}"
+
+
+def _normalise_order_assertion(
+    raw, label: str, witness_items: set, ordinals: dict
+) -> tuple:
+    """Return one simple assertion as ``(left, operator, (kind, right))``.
+
+    ``left_item`` and ``right_item`` must name an ordinal item this entry's
+    witness carries, ``operator`` must be one of the closed set, and exactly
+    one of ``right_item`` and ``right_literal`` must be present.  A literal must
+    be an integer inside the range the declared ordinal PICTURE can hold.
+    """
+    assertion = _require_mapping(raw, label)
+    unknown = sorted(
+        set(assertion) - {"left_item", "operator", "right_item", "right_literal"}
+    )
+    if unknown:
+        raise TranslationError(
+            f"{label} carries the unknown member(s) {unknown}; an assertion "
+            f"carries left_item, operator and one of right_item or right_literal"
+        )
+    _require_keys(assertion, ("left_item", "operator"), label)
+    left = _require_text(assertion["left_item"], f"{label}.left_item").strip().upper()
+    if left not in witness_items:
+        raise TranslationError(
+            f"{label}.left_item names {left!r}, which the witness of this entry "
+            f"does not carry; the witness names {sorted(witness_items)}"
+        )
+    operator = _require_text(assertion["operator"], f"{label}.operator").strip()
+    if operator not in ORDER_ASSERTION_OPERATORS:
+        raise TranslationError(
+            f"{label}.operator is {operator!r}; the accepted operators are "
+            f"{sorted(ORDER_ASSERTION_OPERATORS)}"
+        )
+    has_item = "right_item" in assertion
+    has_literal = "right_literal" in assertion
+    if has_item == has_literal:
+        declared = (
+            "both right_item and right_literal"
+            if has_item
+            else "neither right_item nor right_literal"
+        )
+        raise TranslationError(
+            f"{label} declares {declared}; exactly one of them stands on the "
+            f"right of an assertion"
+        )
+    if has_item:
+        right = _require_text(
+            assertion["right_item"], f"{label}.right_item"
+        ).strip().upper()
+        if right not in witness_items:
+            raise TranslationError(
+                f"{label}.right_item names {right!r}, which the witness of this "
+                f"entry does not carry; the witness names {sorted(witness_items)}"
+            )
+        if right == left:
+            raise TranslationError(
+                f"{label} compares {left!r} with itself"
+            )
+        return (left, operator, ("item", right))
+    literal = _require_integer(
+        assertion["right_literal"], f"{label}.right_literal"
+    )
+    if literal < 0 or literal > ordinals["max_ordinal"]:
+        raise TranslationError(
+            f"{label}.right_literal is {literal}; an ordinal declared "
+            f"PIC {ordinals['ordinal_pic']} holds 0 through "
+            f"{ordinals['max_ordinal']}"
+        )
+    return (left, operator, ("literal", literal))
+
+
+def _validate_order_assertions(
+    entry: dict, label: str, witness_items: set, required: set, required_any: set,
+    ordinals: dict,
+) -> int:
+    """Check the assertions of one execution_order entry.
+
+    Every assertion is normalised, so each one names ordinal items and an
+    operator this translator can resolve, and the set the entry declares must
+    contain the forms the constraint's own shape requires: the ordering pair and
+    both stamped tests for a pair constraint, the first-ordinal equality for the
+    constraint on the first captured event, and, where the witness names
+    alternative predecessors, one ``any_of`` group holding exactly one stamped
+    test per alternative.  Returns the number of assertions validated.
+    """
+    assertions = _require_sequence(entry["assertions"], f"{label}.assertions")
+    if not assertions:
+        raise TranslationError(f"{label}.assertions declares no assertion")
+    simple = set()
+    any_groups = []
+    counted = 0
+    for position, raw in enumerate(assertions):
+        where = f"{label}.assertions[{position}]"
+        assertion = _require_mapping(raw, where)
+        if "any_of" in assertion:
+            if len(assertion) != 1:
+                raise TranslationError(
+                    f"{where} carries any_of beside "
+                    f"{sorted(set(assertion) - {'any_of'})}; an any_of group "
+                    f"holds nothing else"
+                )
+            members = _require_sequence(assertion["any_of"], f"{where}.any_of")
+            if len(members) < 2:
+                raise TranslationError(
+                    f"{where}.any_of holds {len(members)} member(s); a group of "
+                    f"alternatives holds at least two"
+                )
+            group = set()
+            for member_position, member in enumerate(members):
+                group.add(
+                    _normalise_order_assertion(
+                        member, f"{where}.any_of[{member_position}]",
+                        witness_items, ordinals,
+                    )
+                )
+                counted += 1
+            any_groups.append(group)
+            continue
+        simple.add(
+            _normalise_order_assertion(raw, where, witness_items, ordinals)
+        )
+        counted += 1
+    missing = sorted(
+        _describe_assertion(assertion) for assertion in required - simple
+    )
+    if missing:
+        raise TranslationError(
+            f"{label}.assertions does not assert {missing}; the shape of this "
+            f"constraint requires those assertion(s)"
+        )
+    if required_any and required_any not in any_groups:
+        raise TranslationError(
+            f"{label}.assertions carries no any_of group asserting "
+            f"{sorted(_describe_assertion(item) for item in required_any)}, one "
+            f"stamped test for each alternative predecessor the witness names"
+        )
+    if any_groups and not required_any:
+        raise TranslationError(
+            f"{label}.assertions carries an any_of group, but the witness of "
+            f"this entry names no alternative predecessor"
+        )
+    return counted
+
+
+def _validate_order_constraints(
+    entries: list, dml: list, ordinals: dict, declared_items: dict, label: str,
+) -> list:
+    """Check ``execution_order`` against the dml entries, the ordinals and the
+    capturing stubs, and return one summary record per constraint.
+
+    Each entry is required to name a declared dml id, or the documented
+    sentinel, on both sides; to carry a reason kind from the closed set, with
+    the host of a data dependency declared by the successor block; to name the
+    capturing stub that stands in for its successor as the file that enforces
+    it, and that file must name the ordinal items of the constraint and both
+    order-guard items in its code; and to carry a witness whose ordinal items
+    are the ones ``capture_ordinals`` gives its two sides.  Every ordinal item
+    of the capture state must stand as the successor of exactly one entry, so a
+    captured statement without an ordering constraint, or a constraint on an
+    ordinal that no longer exists, is reported here.
+    """
+    dml_by_id = {}
+    for entry in dml:
+        dml_by_id[str(entry["id"])] = entry
+    stub_code = {}
+    summaries = []
+    seen_ids = set()
+    successor_items = {}
+    for index, raw_entry in enumerate(entries):
+        where = f"{label}[{index}]"
+        entry = _require_mapping(raw_entry, where)
+        _require_keys(entry, EXECUTION_ORDER_KEYS, where)
+        constraint_id = _require_text(entry["id"], f"{where}.id").strip()
+        if constraint_id in seen_ids:
+            raise TranslationError(
+                f"{label} repeats the constraint id {constraint_id!r}"
+            )
+        seen_ids.add(constraint_id)
+        where = f"{label}[{constraint_id}]"
+        _require_text(entry["note"], f"{where}.note")
+
+        reason_kind = _require_text(
+            entry["reason_kind"], f"{where}.reason_kind"
+        ).strip()
+        if reason_kind not in ORDER_REASON_KINDS:
+            raise TranslationError(
+                f"{where}.reason_kind is {reason_kind!r}; the accepted kinds are "
+                f"{sorted(ORDER_REASON_KINDS)}"
+            )
+
+        successor = _require_text(entry["successor"], f"{where}.successor").strip()
+        if successor == ORDER_VSAM_SUCCESSOR:
+            successor_item = ordinals["vsam_item"]
+            successor_stub = f"{ORDER_VSAM_SUCCESSOR}.cbl"
+        elif successor in dml_by_id:
+            successor_item = ordinals["ordinal_by_id"][successor]
+            successor_stub = (
+                str(dml_by_id[successor]["call_program"]).strip().lower().replace(
+                    "-", "_"
+                )
+                + ".cbl"
+            )
+        else:
+            raise TranslationError(
+                f"{where}.successor is {successor!r}; a successor names a "
+                f"declared dml id {sorted(dml_by_id)} or the sentinel "
+                f"{ORDER_VSAM_SUCCESSOR!r}"
+            )
+
+        predecessor = _require_text(
+            entry["predecessor"], f"{where}.predecessor"
+        ).strip()
+        if predecessor == ORDER_NO_PREDECESSOR:
+            predecessor_item = None
+        elif predecessor in dml_by_id:
+            predecessor_item = ordinals["ordinal_by_id"][predecessor]
+        else:
+            raise TranslationError(
+                f"{where}.predecessor is {predecessor!r}; a predecessor names a "
+                f"declared dml id {sorted(dml_by_id)} or the sentinel "
+                f"{ORDER_NO_PREDECESSOR!r}"
+            )
+        if predecessor_item is not None and predecessor_item == successor_item:
+            raise TranslationError(
+                f"{where} orders {predecessor!r} against {successor!r}, which "
+                f"both stamp the one ordinal item {successor_item!r}"
+            )
+
+        host = entry.get("host")
+        if reason_kind == "data_dependency":
+            if host is None:
+                raise TranslationError(
+                    f"{where} declares reason_kind {reason_kind!r} and must name "
+                    f"the host the successor takes from the predecessor"
+                )
+            host_name = _require_text(host, f"{where}.host").strip().upper()
+            if successor not in dml_by_id:
+                raise TranslationError(
+                    f"{where} declares reason_kind {reason_kind!r} with host "
+                    f"{host_name!r}, but its successor {successor!r} declares no "
+                    f"host list"
+                )
+            declared_hosts = {
+                str(item["host"]).strip().upper()
+                for item in dml_by_id[successor]["using"]
+            }
+            if host_name not in declared_hosts:
+                raise TranslationError(
+                    f"{where}.host is {host_name!r}, which dml[{successor}] does "
+                    f"not declare; that entry declares {sorted(declared_hosts)}"
+                )
+        elif host is not None:
+            raise TranslationError(
+                f"{where} declares host {host!r} with reason_kind "
+                f"{reason_kind!r}; only a data dependency names a host"
+            )
+
+        enforced_by = _require_text(
+            entry["enforced_by"], f"{where}.enforced_by"
+        ).strip()
+        if Path(enforced_by).name != successor_stub:
+            raise TranslationError(
+                f"{where}.enforced_by names {enforced_by!r}; the successor "
+                f"{successor!r} is captured by {successor_stub}, which is the "
+                f"file that enforces this constraint"
+            )
+        if enforced_by not in stub_code:
+            stub_code[enforced_by] = code_area_text(
+                enforced_by,
+                read_harness_stub(enforced_by, f"{where}.enforced_by"),
+            )
+
+        witness = _require_mapping(entry["witness"], f"{where}.witness")
+        _require_keys(witness, ORDER_WITNESS_KEYS, f"{where}.witness")
+        _require_witness_copybook(
+            witness["copybook"], f"{where}.witness.copybook"
+        )
+        declared_successor_item = _require_declared_ordinal_item(
+            witness["successor_ordinal_item"],
+            f"{where}.witness.successor_ordinal_item", declared_items,
+            ordinals["ordinal_pic"],
+        )
+        if declared_successor_item != successor_item:
+            raise TranslationError(
+                f"{where}.witness.successor_ordinal_item names "
+                f"{declared_successor_item!r}; capture_ordinals gives successor "
+                f"{successor!r} the ordinal item {successor_item!r}"
+            )
+        declared_predecessor = _require_text(
+            witness["predecessor_ordinal_item"],
+            f"{where}.witness.predecessor_ordinal_item",
+        ).strip()
+        if predecessor_item is None:
+            if declared_predecessor != ORDER_NO_PREDECESSOR:
+                raise TranslationError(
+                    f"{where}.witness.predecessor_ordinal_item names "
+                    f"{declared_predecessor!r}; this constraint declares "
+                    f"predecessor {ORDER_NO_PREDECESSOR!r} and its witness "
+                    f"carries the same sentinel"
+                )
+        else:
+            declared_predecessor = _require_declared_ordinal_item(
+                declared_predecessor,
+                f"{where}.witness.predecessor_ordinal_item", declared_items,
+                ordinals["ordinal_pic"],
+            )
+            if declared_predecessor != predecessor_item:
+                raise TranslationError(
+                    f"{where}.witness.predecessor_ordinal_item names "
+                    f"{declared_predecessor!r}; capture_ordinals gives "
+                    f"predecessor {predecessor!r} the ordinal item "
+                    f"{predecessor_item!r}"
+                )
+
+        witness_items = {successor_item}
+        if predecessor_item is not None:
+            witness_items.add(predecessor_item)
+        alternatives = []
+        if "predecessor_ordinal_items_any" in witness:
+            raw_alternatives = _require_sequence(
+                witness["predecessor_ordinal_items_any"],
+                f"{where}.witness.predecessor_ordinal_items_any",
+            )
+            if len(raw_alternatives) < 2:
+                raise TranslationError(
+                    f"{where}.witness.predecessor_ordinal_items_any holds "
+                    f"{len(raw_alternatives)} item(s); a set of alternative "
+                    f"predecessors holds at least two"
+                )
+            for position, value in enumerate(raw_alternatives):
+                item = _require_declared_ordinal_item(
+                    value,
+                    f"{where}.witness.predecessor_ordinal_items_any[{position}]",
+                    declared_items, ordinals["ordinal_pic"],
+                )
+                if item in alternatives:
+                    raise TranslationError(
+                        f"{where}.witness.predecessor_ordinal_items_any repeats "
+                        f"{item!r}"
+                    )
+                if item in (successor_item, predecessor_item):
+                    raise TranslationError(
+                        f"{where}.witness.predecessor_ordinal_items_any names "
+                        f"{item!r}, already named as the successor or the "
+                        f"predecessor of this constraint"
+                    )
+                alternatives.append(item)
+            witness_items.update(alternatives)
+
+        if predecessor_item is None:
+            required = {
+                (
+                    successor_item, "equal_to",
+                    ("literal", ordinals["unstamped"] + 1),
+                )
+            }
+        else:
+            required = {
+                (predecessor_item, "greater_than",
+                 ("literal", ordinals["unstamped"])),
+                (successor_item, "greater_than",
+                 ("literal", ordinals["unstamped"])),
+                (predecessor_item, "less_than", ("item", successor_item)),
+            }
+        required_any = {
+            (item, "greater_than", ("literal", ordinals["unstamped"]))
+            for item in alternatives
+        }
+        assertion_count = _validate_order_assertions(
+            witness, f"{where}.witness", witness_items, required, required_any,
+            ordinals,
+        )
+
+        for item in sorted(witness_items) + list(ORDER_GUARD_ITEMS):
+            if not code_references_item(stub_code[enforced_by], item):
+                raise TranslationError(
+                    f"{where} is enforced by {enforced_by}, whose code does not "
+                    f"name {item!r}; the enforcing stub stamps its own ordinal, "
+                    f"reads the ordinal of every prerequisite and reports a "
+                    f"violation in {list(ORDER_GUARD_ITEMS)}"
+                )
+
+        if successor_item in successor_items:
+            raise TranslationError(
+                f"{where} and {label}[{successor_items[successor_item]}] both "
+                f"stand as the constraint on ordinal item {successor_item!r}; "
+                f"each captured statement carries one"
+            )
+        successor_items[successor_item] = constraint_id
+        summaries.append(
+            {
+                "id": constraint_id,
+                "predecessor": predecessor,
+                "successor": successor,
+                "reason_kind": reason_kind,
+                "predecessor_ordinal_item": predecessor_item or ORDER_NO_PREDECESSOR,
+                "successor_ordinal_item": successor_item,
+                "alternative_predecessor_ordinal_items": alternatives,
+                "enforced_by": enforced_by,
+                "assertions": assertion_count,
+            }
+        )
+
+    uncovered = sorted(ordinals["items"] - set(successor_items))
+    if uncovered:
+        raise TranslationError(
+            f"{label} declares no constraint on the ordinal item(s) "
+            f"{uncovered}; every captured statement of capture_ordinals carries "
+            f"one"
+        )
+    return summaries
+
+
+def _validate_order_metadata(
+    data: dict, dml: list, checks: dict, copybook_dir: Path, label: str
+) -> dict:
+    """Validate the order metadata of the map and return its report record.
+
+    Reads the pinned capture copybook for the item names and pictures the
+    metadata is held to, checks ``capture_ordinals`` against the dml entries,
+    checks every ``execution_order`` entry against the ordinals it names, the
+    host list of its successor and the capturing stub it names as its enforcer,
+    and reconciles ``checks.order_constraint_count`` with the expected figure
+    and with the number of entries.  ``distinct_ordinal_items`` is reconciled
+    with the ordinal table itself, and the one-constraint-per-ordinal relation
+    between the two sections is carried by the constraint validation: no two
+    entries stand on one ordinal item and no ordinal item is left without an
+    entry.
+    """
+    _require_keys(data, ("execution_order", "capture_ordinals"), label)
+    entries = _require_sequence(data["execution_order"], f"{label}: execution_order")
+    capture = _require_mapping(
+        data["capture_ordinals"], f"{label}: capture_ordinals"
+    )
+    declared_items = declared_copybook_items(
+        _pinned_witness_copybook(),
+        read_harness_copybook(copybook_dir, ORDER_WITNESS_COPYBOOK),
+    )
+    for item in ORDER_GUARD_ITEMS:
+        if item not in declared_items:
+            raise TranslationError(
+                f"{_pinned_witness_copybook()} does not declare the order-guard "
+                f"item {item!r} the capturing stubs report a violation in"
+            )
+    ordinals = _validate_ordinal_table(
+        capture, dml, declared_items, f"{label}: capture_ordinals"
+    )
+    declared_count = _require_integer(
+        checks["order_constraint_count"], f"{label}: checks.order_constraint_count"
+    )
+    if declared_count != EXPECTED_MAP_ORDER_CONSTRAINT_COUNT:
+        raise TranslationError(
+            f"checks.order_constraint_count is {declared_count}, expected "
+            f"{EXPECTED_MAP_ORDER_CONSTRAINT_COUNT}"
+        )
+    if len(entries) != declared_count:
+        raise TranslationError(
+            f"execution_order holds {len(entries)} entries but "
+            f"checks.order_constraint_count is {declared_count}"
+        )
+    summaries = _validate_order_constraints(
+        entries, dml, ordinals, declared_items, f"{label}: execution_order"
+    )
+    return {
+        "declared_constraints": declared_count,
+        "validated_constraints": len(summaries),
+        "witness_copybook": _pinned_witness_copybook(),
+        "sequence_item": ordinals["sequence_item"],
+        "unstamped_value": ordinals["unstamped"],
+        "ordinal_pic": ordinals["ordinal_pic"],
+        "ordinal_by_dml_id": dict(sorted(ordinals["ordinal_by_id"].items())),
+        "vsam_write_ordinal_item": ordinals["vsam_item"],
+        "constraints": summaries,
+    }
+
+
+def load_statement_map(path: Path, copybook_dir: Path) -> dict:
     """Load and validate ``statement_map.yml`` before any generation happens.
 
     The document is read under a byte bound, composed with aliases, merge keys
     and duplicate keys refused, bounded again by nesting depth and value count,
     and then type-checked member by member.  The ``checks`` block is compared
     with the expected census (3 includes, 8 dml entries, 11 blocks in total,
-    one ``using_counts`` entry per stub and seven ``call_programs``) and every
-    entry is checked for internal consistency.  The ``source_program`` block is
-    compared member by member with the authorized source it names.
+    one ``using_counts`` entry per stub, seven ``call_programs`` and 8 order
+    constraints) and every entry is checked for internal consistency.  The
+    ``source_program`` block is compared member by member with the authorized
+    source it names.  The ``execution_order`` and ``capture_ordinals`` blocks
+    are checked against the dml entries, against the ordinal items
+    ``copybook_dir/hcapture.cpy`` declares and against the capturing stub each
+    constraint names as its enforcer.
     """
-    if not path.is_file():
-        raise TranslationError(f"statement map not found: {path}")
-    size = path.stat().st_size
-    if size > MAX_STATEMENT_MAP_BYTES:
+    components = lexical_repo_components(path, "--statement-map")
+    raw = read_repo_file(components, "--statement-map", MAX_STATEMENT_MAP_BYTES)
+    try:
+        text = raw.decode("utf-8")
+    except UnicodeDecodeError as error:
         raise TranslationError(
-            f"statement map {path} holds {size} bytes; at most "
-            f"{MAX_STATEMENT_MAP_BYTES} are read"
-        )
-    with path.open("r", encoding="utf-8") as handle:
-        text = handle.read(MAX_STATEMENT_MAP_BYTES + 1)
-    if len(text.encode("utf-8")) > MAX_STATEMENT_MAP_BYTES:
-        raise TranslationError(
-            f"statement map {path} exceeds {MAX_STATEMENT_MAP_BYTES} bytes"
-        )
+            f"statement map {path} is not valid UTF-8: {error}"
+        ) from error
     loader = _StrictMapLoader(text)
     try:
         data = loader.get_single_data()
@@ -2258,15 +3841,25 @@ def load_statement_map(path: Path) -> dict:
     data = _require_mapping(data, f"{path}")
     _validate_map_scalar_types(data, f"statement map {path}")
 
-    _require_keys(data, ("includes", "dml", "checks", "source_program"), f"{path}")
+    _require_keys(
+        data,
+        ("includes", "dml", "checks", "source_program", "execution_order",
+         "capture_ordinals"),
+        f"{path}",
+    )
     includes = _require_sequence(data["includes"], "includes")
     dml = _require_sequence(data["dml"], "dml")
     checks = _require_mapping(data["checks"], "checks")
     source_program = _require_mapping(data["source_program"], "source_program")
+    execution_order = _require_sequence(data["execution_order"], "execution_order")
+    capture_ordinals = _require_mapping(
+        data["capture_ordinals"], "capture_ordinals"
+    )
 
     _require_keys(
         checks,
-        ("include_count", "dml_count", "total_blocks", "using_counts", "call_programs"),
+        ("include_count", "dml_count", "total_blocks", "using_counts",
+         "call_programs", "order_constraint_count"),
         "checks",
     )
     if checks["include_count"] != EXPECTED_MAP_INCLUDE_COUNT:
@@ -2478,6 +4071,19 @@ def load_statement_map(path: Path) -> dict:
             f"{sorted(call_programs)}"
         )
     _validate_shared_call_signatures(dml)
+    order_metadata = _validate_order_metadata(
+        data, dml, checks, copybook_dir, f"statement map {path}"
+    )
+
+    ordinal_resolution = _validate_capture_ordinals(
+        capture_ordinals, seen_dml_ids, "capture_ordinals"
+    )
+    # The first ordinal any member can hold is one past the unstamped value
+    # this map declares; a first-captured entry asserts exactly that value.
+    first_ordinal = int(capture_ordinals["unstamped_value"]) + 1
+    order_records = _validate_execution_order(
+        execution_order, ordinal_resolution, first_ordinal, "execution_order"
+    )
     return {
         "path": path,
         "source_program": source_program,
@@ -2485,6 +4091,11 @@ def load_statement_map(path: Path) -> dict:
         "includes": includes,
         "dml": dml,
         "checks": checks,
+        "order_metadata": order_metadata,
+        "execution_order": execution_order,
+        "capture_ordinals": capture_ordinals,
+        "ordinal_resolution": ordinal_resolution,
+        "order_records": order_records,
     }
 
 
@@ -3139,10 +4750,8 @@ class ProgramTranslator:
             locator=block.locator,
             source_text=block.source_text,
             generated=generated,
-            notes="control returns to the caller at this point; the choice "
-            "belongs to modernization/docs/decision-log.md (planned "
-            "deliverable; not present at this milestone), row: no called "
-            "RETURN stub",
+            notes="control returns to the caller at this point; see "
+            "modernization/docs/decision-log.md, row: no called RETURN stub",
             consumed_lines=len(block.source_lines),
         )
 
@@ -3531,6 +5140,480 @@ class ProgramTranslator:
 
 
 # --------------------------------------------------------------------------
+# Capture-order contract: statement map, capture copybook and capture stubs
+# --------------------------------------------------------------------------
+def _decode_harness_text(data: bytes, display: str) -> str:
+    """Decode an authored harness artifact, reporting an undecodable byte."""
+    try:
+        return data.decode("utf-8")
+    except UnicodeDecodeError as error:
+        raise TranslationError(
+            f"{display} is not valid UTF-8: {error}"
+        ) from error
+
+
+def _code_lines_of(text: str) -> list:
+    """Return the (line number, code area) pair of every non-comment line."""
+    pairs = []
+    for number, line in enumerate(text.split("\n"), start=1):
+        if not line.strip() or is_comment_line(line):
+            continue
+        code = code_of(line).rstrip()
+        if code.strip():
+            pairs.append((number, code.strip()))
+    return pairs
+
+
+def _comment_lines_of(text: str) -> list:
+    """Return the (line number, comment text) pair of every comment line."""
+    pairs = []
+    for number, line in enumerate(text.split("\n"), start=1):
+        if is_comment_line(line):
+            pairs.append((number, code_of(line).rstrip()))
+    return pairs
+
+
+DRIVER_ORDER_PLACEMENT_RE = re.compile(
+    r"MOVE\s+'(?P<event>[A-Za-z0-9_]+)'\s+TO\s+WS-ORDER-NAME\("
+    r"WS-ORDER-COUNT\)\s+MOVE\s+(?P<ordinal>HC-[A-Z0-9-]+)\s+TO\s+"
+    r"WS-ORDER-SEQ\(WS-ORDER-COUNT\)"
+)
+DRIVER_ORDER_VERDICT_RE = re.compile(r"IF\s+HC-ORDER-VIOLATION\b")
+
+
+def verify_driver_order_agreement(text: str, display: str, resolution: dict) -> dict:
+    """Reconcile the driver's own order evaluation with the map's metadata.
+
+    The driver names each captured statement and reads its ordinal into the
+    order table it walks, and it reads the guard verdict the capture stubs
+    write.  Both readings must describe the same events as the map: a placement
+    whose ordinal item differs from the one ``capture_ordinals`` resolves for
+    that event, an event the map resolves no ordinal for, an ordinal item the
+    map resolves that the driver never places, a placement repeated under one
+    event name, and a driver that never reads the guard verdict are each a hard
+    failure.  An event whose map ids carry a branch suffix, such as the two
+    endowment insert branches sharing one ordinal, is matched on the ordinal the
+    branches resolve to.  Returns the reconciliation for the report.
+    """
+    placements = {}
+    for match in DRIVER_ORDER_PLACEMENT_RE.finditer(
+        " ".join(code for _, code in _code_lines_of(text))
+    ):
+        event = match.group("event")
+        ordinal = match.group("ordinal").upper()
+        if event in placements:
+            raise TranslationError(
+                f"{display} places the event {event!r} in its order table more "
+                f"than once, as {placements[event]!r} and {ordinal!r}"
+            )
+        placements[event] = ordinal
+    if not placements:
+        raise TranslationError(
+            f"{display} builds no order table this translator can read: no "
+            f"WS-ORDER-NAME and WS-ORDER-SEQ pair was found"
+        )
+    for event, ordinal in sorted(placements.items()):
+        declared = resolution.get(event)
+        if declared is None:
+            branches = sorted(
+                item
+                for name, item in resolution.items()
+                if name.startswith(f"{event}_")
+            )
+            if not branches:
+                raise TranslationError(
+                    f"{display} places the event {event!r}, which the "
+                    f"capture_ordinals block of the statement map resolves no "
+                    f"ordinal item for"
+                )
+            if set(branches) != {ordinal}:
+                raise TranslationError(
+                    f"{display} reads {ordinal!r} for the event {event!r}, "
+                    f"while the statement map resolves its branches to "
+                    f"{branches}"
+                )
+            continue
+        if declared != ordinal:
+            raise TranslationError(
+                f"{display} reads {ordinal!r} for the event {event!r}, while "
+                f"the capture_ordinals block of the statement map resolves that "
+                f"event to {declared!r}"
+            )
+    unplaced = sorted(set(resolution.values()) - set(placements.values()))
+    if unplaced:
+        raise TranslationError(
+            f"the statement map resolves the ordinal item(s) {unplaced}, which "
+            f"{display} never places in its order table, so its evaluation of "
+            f"the order does not cover them"
+        )
+    if not DRIVER_ORDER_VERDICT_RE.search(
+        " ".join(code for _, code in _code_lines_of(text))
+    ):
+        raise TranslationError(
+            f"{display} never reads HC-ORDER-VIOLATION, so the verdict the "
+            f"capture stubs write is not evaluated by the driver"
+        )
+    return {
+        "driver": display,
+        "order_table_events": {
+            event: ordinal for event, ordinal in sorted(placements.items())
+        },
+        "reads_order_violation": True,
+    }
+
+
+def _declared_ordinal_items(text: str, expected_pic: str, display: str) -> dict:
+    """Return every ordinal item the capture copybook declares, with its line.
+
+    An ordinal declared with a PIC other than the one ``capture_ordinals``
+    declares is refused: the map's ``unstamped_value`` and the driver's
+    comparisons read every ordinal at one width.
+    """
+    declared = {}
+    for number, code in _code_lines_of(text):
+        match = CAPTURE_ORDINAL_DECLARATION_RE.match(code)
+        if match is None:
+            continue
+        name = match.group("name").upper()
+        pic = match.group("pic")
+        if name in declared:
+            raise TranslationError(
+                f"{display}:{number} declares the ordinal item {name} a second "
+                f"time; it is already declared at line {declared[name]['line']}"
+            )
+        if pic.upper() != expected_pic.upper():
+            raise TranslationError(
+                f"{display}:{number} declares {name} as PIC {pic}; "
+                f"capture_ordinals.ordinal_pic declares every ordinal item as "
+                f"PIC {expected_pic}"
+            )
+        declared[name] = {"line": number, "pic": pic}
+    return declared
+
+
+def _declared_prerequisite_table(text: str, display: str) -> dict:
+    """Return the prerequisite table the capture copybook carries.
+
+    The table follows ``CAPTURE_TABLE_HEADING`` and ends at the first blank
+    comment line after it.  A row names one capturing member and the ordinal
+    item or items that member reads; a continuation line carries the rest of
+    the row.  ``equal_to`` holds the ordinal value a row requires of a member
+    that reads no predecessor.
+    """
+    lines = _comment_lines_of(text)
+    heading = None
+    for index, (number, comment) in enumerate(lines):
+        if CAPTURE_TABLE_HEADING in comment:
+            if heading is not None:
+                raise TranslationError(
+                    f"{display}:{number} repeats the prerequisite table heading "
+                    f"{CAPTURE_TABLE_HEADING!r}, already at line "
+                    f"{lines[heading][0]}"
+                )
+            heading = index
+    if heading is None:
+        raise TranslationError(
+            f"{display} carries no prerequisite table: no comment line holds "
+            f"{CAPTURE_TABLE_HEADING!r}"
+        )
+    table = {}
+    current = None
+    for number, comment in lines[heading + 1:]:
+        body = comment.lstrip("*").strip()
+        if not body:
+            break
+        match = CAPTURE_TABLE_MEMBER_RE.match(body)
+        if match is not None:
+            member = match.group(1)
+            if member in table:
+                raise TranslationError(
+                    f"{display}:{number} names the member {member} a second "
+                    f"time in the prerequisite table; it is already named at "
+                    f"line {table[member]['line']}"
+                )
+            current = {"line": number, "items": [], "equal_to": None}
+            table[member] = current
+            body = match.group(2)
+        if current is None:
+            raise TranslationError(
+                f"{display}:{number} stands in the prerequisite table before "
+                f"any member is named"
+            )
+        for item in CAPTURE_ORDINAL_ITEM_RE.findall(body):
+            if item not in current["items"]:
+                current["items"].append(item)
+        equal_to = CAPTURE_TABLE_EQUAL_TO_RE.search(body)
+        if equal_to is not None:
+            current["equal_to"] = int(equal_to.group(1))
+    if not table:
+        raise TranslationError(
+            f"{display} carries a prerequisite table heading with no member row "
+            f"below it"
+        )
+    return table
+
+
+def _stub_order_guard(text: str, display: str) -> dict:
+    """Return the order guard one capture stub carries.
+
+    ``sequence_item`` and ``ordinal_item`` name the item the stub reads the
+    shared sequence value from and the ordinal it stamps with it; ``condition``
+    is the text of the guard that reports a violation, taken from its ``IF``
+    through to the report itself; ``items`` are the ordinal items that
+    condition names; ``read`` are the ordinal items the whole stub names;
+    ``last_statement`` and ``violation_statement`` are the operands the stub
+    moves into HC-ORDER-LAST-STMT and HC-ORDER-VIOLATION-STMT.  Code lines
+    only are read, so a comment naming one of these items is not a write.  A
+    stub carries exactly one stamp, one violation report, one move into
+    HC-ORDER-LAST-STMT and one move into HC-ORDER-VIOLATION-STMT; any other
+    count fails the run.
+    """
+    code = _code_lines_of(text)
+    joined = "\n".join(line for _, line in code)
+    stamps = STUB_ORDINAL_STAMP_RE.findall(joined)
+    if len(stamps) != 1:
+        raise TranslationError(
+            f"{display} moves the shared sequence value into "
+            f"{len(stamps)} ordinal item(s); a capture stub stamps exactly one"
+        )
+    sequence_item, ordinal_item = stamps[0]
+    flag_positions = [
+        index for index, (_, line) in enumerate(code)
+        if STUB_VIOLATION_FLAG_RE.search(line)
+    ]
+    if len(flag_positions) != 1:
+        raise TranslationError(
+            f"{display} reports an order violation at {len(flag_positions)} "
+            f"site(s); a capture stub carries exactly one order guard"
+        )
+    flag_index = flag_positions[0]
+    start = None
+    for index in range(flag_index - 1, -1, -1):
+        if STUB_GUARD_START_RE.match(code[index][1]):
+            start = index
+            break
+    if start is None:
+        raise TranslationError(
+            f"{display}:{code[flag_index][0]} reports an order violation "
+            f"outside any IF; the guard tests its prerequisite ordinal before "
+            f"it reports"
+        )
+    condition = " ".join(line for _, line in code[start:flag_index])
+    last_statements = STUB_LAST_STMT_RE.findall(joined)
+    if len(last_statements) != 1:
+        raise TranslationError(
+            f"{display} moves {len(last_statements)} operand(s) into "
+            f"HC-ORDER-LAST-STMT; a capture stub names itself there exactly "
+            f"once, as it records its event"
+        )
+    violation_statements = STUB_VIOLATION_STMT_RE.findall(joined)
+    if len(violation_statements) != 1:
+        raise TranslationError(
+            f"{display} moves {len(violation_statements)} operand(s) into "
+            f"HC-ORDER-VIOLATION-STMT; a capture stub names itself there "
+            f"exactly once, when its prerequisite is missing"
+        )
+    return {
+        "sequence_item": sequence_item.upper(),
+        "ordinal_item": ordinal_item.upper(),
+        "guard_line": code[start][0],
+        "condition": condition,
+        "items": sorted(set(CAPTURE_ORDINAL_ITEM_RE.findall(condition))),
+        "read": sorted(set(CAPTURE_ORDINAL_ITEM_RE.findall(joined))),
+        "last_statement": last_statements[0].upper(),
+        "violation_statement": violation_statements[0].upper(),
+    }
+
+
+def _verify_stub_enforces(record: dict, guard: dict, expected_items: set,
+                          sequence_item: str, display: str) -> None:
+    """Assert one stub's guard enforces exactly the entry that names it."""
+    if guard["ordinal_item"] != record["successor_ordinal_item"]:
+        raise TranslationError(
+            f"{display} stamps {guard['ordinal_item']}; execution_order entry "
+            f"{record['id']} names it as the member that stamps "
+            f"{record['successor_ordinal_item']}"
+        )
+    if guard["sequence_item"] != sequence_item.upper():
+        raise TranslationError(
+            f"{display} stamps its ordinal from {guard['sequence_item']}; "
+            f"capture_ordinals.sequence_item is {sequence_item}"
+        )
+    if set(guard["items"]) != expected_items:
+        raise TranslationError(
+            f"{display}:{guard['guard_line']} guards on "
+            f"{sorted(guard['items'])}; execution_order entry {record['id']} "
+            f"declares the prerequisite ordinal(s) {sorted(expected_items)}"
+        )
+    literal = record["first_captured_ordinal"]
+    for item in sorted(expected_items):
+        if literal is None:
+            pattern = re.compile(rf"\b{re.escape(item)}\s*=\s*ZERO\b", re.IGNORECASE)
+            requirement = f"{item} = ZERO"
+        else:
+            pattern = re.compile(
+                rf"\b{re.escape(item)}\s+NOT\s*=\s*{literal}\b", re.IGNORECASE
+            )
+            requirement = f"{item} NOT = {literal}"
+        if pattern.search(guard["condition"]) is None:
+            raise TranslationError(
+                f"{display}:{guard['guard_line']} does not test {requirement}; "
+                f"execution_order entry {record['id']} requires that test"
+            )
+    allowed = expected_items | {
+        record["successor_ordinal_item"], sequence_item.upper()
+    }
+    stray = sorted(set(guard["read"]) - allowed)
+    if stray:
+        raise TranslationError(
+            f"{display} names the ordinal item(s) {stray}; the entry "
+            f"{record['id']} allows this member only {sorted(allowed)}"
+        )
+    if guard["violation_statement"] != guard["last_statement"]:
+        raise TranslationError(
+            f"{display} reports the violation under "
+            f"{guard['violation_statement']} but records its event under "
+            f"{guard['last_statement']}; a capture stub reports under the one "
+            f"name it records"
+        )
+
+
+def verify_capture_order_contract(statement_map: dict, copybook_bytes: bytes,
+                                  copybook_dir: Path) -> dict:
+    """Reconcile the map's ordering metadata with the copybook, the stubs and
+    the driver.
+
+    Fails the run when an ordinal item the map names is not declared by
+    ``hcapture.cpy`` or is declared there and accounted for nowhere in the map,
+    when the prerequisite table of that copybook disagrees with the entry
+    covering a member, when the ``enforced_by`` member of an entry does not
+    stamp the successor ordinal from the shared sequence item, does not read
+    exactly the prerequisite ordinals the entry declares, reads an ordinal the
+    entry does not allow it, or reports a violation under a name other than the
+    one it records its event under.  It then reconciles the order table
+    modernization/harness/driver.cbl builds with the same metadata through
+    ``verify_driver_order_agreement``, so the second, independent reading of the
+    order is held to the map as well.  Returns the reconciliation for the
+    report.
+    """
+    capture = statement_map["capture_ordinals"]
+    resolution = statement_map["ordinal_resolution"]
+    records = statement_map["order_records"]
+    display = repo_relative(copybook_dir / CAPTURE_COPYBOOK)
+    text = _decode_harness_text(copybook_bytes, display)
+
+    sequence_item = str(capture["sequence_item"]).strip().upper()
+    non_statement = tuple(
+        str(item).strip().upper()
+        for item in capture["non_statement_ordinal_items"]
+    )
+    declared = _declared_ordinal_items(
+        text, str(capture["ordinal_pic"]).strip(), display
+    )
+    accounted = {sequence_item, *resolution.values(), *non_statement}
+    undeclared = sorted(accounted - set(declared))
+    if undeclared:
+        raise TranslationError(
+            f"the statement map names the ordinal item(s) {undeclared}, which "
+            f"{display} does not declare"
+        )
+    unaccounted = sorted(set(declared) - accounted)
+    if unaccounted:
+        raise TranslationError(
+            f"{display} declares the ordinal item(s) {unaccounted}, which the "
+            f"statement map accounts for neither as a statement ordinal, the "
+            f"shared sequence item nor a non-statement ordinal"
+        )
+
+    table = _declared_prerequisite_table(text, display)
+    by_member = {}
+    for record in records:
+        member = Path(record["enforced_by"]).name
+        if member in by_member:
+            raise TranslationError(
+                f"execution_order entries {by_member[member]['id']} and "
+                f"{record['id']} both name {member} as the member that enforces "
+                f"them; one member enforces one constraint"
+            )
+        by_member[member] = record
+    missing_rows = sorted(set(by_member) - set(table))
+    if missing_rows:
+        raise TranslationError(
+            f"the prerequisite table of {display} carries no row for "
+            f"{missing_rows}, which the statement map names in enforced_by"
+        )
+    extra_rows = sorted(set(table) - set(by_member))
+    if extra_rows:
+        raise TranslationError(
+            f"the prerequisite table of {display} carries a row for "
+            f"{extra_rows}, which no execution_order entry names in enforced_by"
+        )
+
+    reconciled = []
+    for member, record in sorted(by_member.items()):
+        if record["predecessor_ordinal_item"] is None:
+            expected_items = {record["successor_ordinal_item"]}
+        else:
+            expected_items = {
+                record["predecessor_ordinal_item"],
+                *record["predecessor_ordinal_items_any"],
+            }
+        row = table[member]
+        if set(row["items"]) != expected_items:
+            raise TranslationError(
+                f"{display}:{row['line']} states that {member} reads "
+                f"{sorted(row['items'])}; execution_order entry {record['id']} "
+                f"declares the prerequisite ordinal(s) {sorted(expected_items)}"
+            )
+        if row["equal_to"] != record["first_captured_ordinal"]:
+            raise TranslationError(
+                f"{display}:{row['line']} states the ordinal value "
+                f"{row['equal_to']!r} for {member}; execution_order entry "
+                f"{record['id']} requires {record['first_captured_ordinal']!r}"
+            )
+        stub_display = repo_relative(EXPECTED_STUB_DIR / member)
+        stub_text = _decode_harness_text(
+            read_declared_capture_stub(
+                record["enforced_by"],
+                f"execution_order[{record['id']}].enforced_by",
+            ),
+            stub_display,
+        )
+        guard = _stub_order_guard(stub_text, stub_display)
+        _verify_stub_enforces(
+            record, guard, expected_items, sequence_item, stub_display
+        )
+        reconciled.append(
+            {
+                "entry": record["id"],
+                "predecessor": record["predecessor"],
+                "successor": record["successor"],
+                "enforced_by": record["enforced_by"],
+                "prerequisite_ordinal_items": sorted(expected_items),
+                "successor_ordinal_item": record["successor_ordinal_item"],
+                "first_captured_ordinal": record["first_captured_ordinal"],
+                "guard_line": guard["guard_line"],
+            }
+        )
+    driver_display = repo_relative(EXPECTED_DRIVER_SOURCE)
+    driver_text = _decode_harness_text(read_driver_source(), driver_display)
+    driver = verify_driver_order_agreement(
+        driver_text, driver_display, resolution
+    )
+    return {
+        "copybook": display,
+        "sequence_item": sequence_item,
+        "ordinal_items_declared": sorted(declared),
+        "non_statement_ordinal_items": sorted(non_statement),
+        "event_ordinals": {
+            event: item for event, item in sorted(resolution.items())
+        },
+        "entries": reconciled,
+        "driver_agreement": driver,
+    }
+
+
+# --------------------------------------------------------------------------
 # Post-generation verification
 # --------------------------------------------------------------------------
 def verify_generated_lines(name: str, lines: list) -> None:
@@ -3660,8 +5743,9 @@ def verify_copy_resolution(generated: dict, build_tree: BuildTree) -> list:
             if match is None:
                 continue
             member = match.group(1)
-            candidate = build_tree.path_for(f"src/{member.lower()}.cpy")
-            if not candidate.is_file():
+            relative = f"src/{member.lower()}.cpy"
+            candidate = build_tree.path_for(relative)
+            if not build_tree.holds_regular_file(relative):
                 raise TranslationError(
                     f"{name}:{number} copies {member!r} but {candidate} does not "
                     f"exist; a single -I on the build source directory would not "
@@ -3909,15 +5993,26 @@ def build_report(
     git_check: dict,
     commented_tokens: dict,
     chain_link_contract: dict,
+    order_metadata: dict,
+    capture_order_contract: dict,
 ) -> dict:
     """Assemble the translation report.
 
     The per-program application lists and the per-rule totals account for
     every rewritten construct and for every source line carried through
-    unchanged, which is the coverage
-    ``modernization/docs/traceability-matrix.md`` consumes.
+    unchanged. That coverage is what the planned
+    ``modernization/docs/traceability-matrix.md``, not present at this
+    milestone, will consume once it is created.
     ``chain_link_contract`` publishes the nested link events - target program,
     COMMAREA operand and length per site - for the runner to cross-check.
+    ``order_metadata`` publishes the validated ordering contract of the
+    statement map: the ordinal item of every captured statement and, per
+    constraint, its two sides, its enforcing stub and how many assertions it
+    carries.  ``capture_order_contract`` publishes the same ordering metadata
+    as reconciled with the capture copybook, the capture stubs and the driver:
+    one record per execution_order entry, naming the member that enforces it,
+    the prerequisite ordinals its guard reads and the line that guard stands
+    on.
     """
     programs = []
     for result in results:
@@ -3990,6 +6085,8 @@ def build_report(
         },
         "resolved_copies": resolved_copies,
         "chain_link_contract": chain_link_contract,
+        "execution_order_contract": order_metadata,
+        "capture_order_contract": capture_order_contract,
         "response_condition_item": dfhresp_item,
         "commented_source_tokens": {
             program: occurrences
@@ -4053,7 +6150,7 @@ def translate_all(
             )
 
     build_tree = BuildTree(build_dir)
-    statement_map = load_statement_map(statement_map_path)
+    statement_map = load_statement_map(statement_map_path, copybook_dir)
     map_index = index_statement_map(statement_map)
 
     source_bytes = {
@@ -4070,6 +6167,9 @@ def translate_all(
         name: sha256_of_bytes(data) for name, data in copybook_bytes.items()
     }
     dfhresp_item = discover_level_01_item("dfhresp.cpy", copybook_bytes["dfhresp.cpy"])
+    capture_order_contract = verify_capture_order_contract(
+        statement_map, copybook_bytes[CAPTURE_COPYBOOK], copybook_dir
+    )
 
     build_tree.prepare()
     baseline_path = build_tree.write_text(
@@ -4151,6 +6251,8 @@ def translate_all(
         git_check=git_check,
         commented_tokens=commented_tokens,
         chain_link_contract=chain_link_contract,
+        order_metadata=statement_map["order_metadata"],
+        capture_order_contract=capture_order_contract,
     )
     if report_path is None:
         report_relative = REPORT_RELATIVE

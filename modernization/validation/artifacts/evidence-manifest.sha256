@@ -1,0 +1,23 @@
+# run_harness.sh evidence manifest: one run, one published set
+# run identifier:      20260822T072709Z-1657588
+# written (UTC):       2026-08-22T07:27:23Z
+# case selection:      01AMOT, 01ACOM, 01AMOT-RC70, 01AMOT-RC90, 01AMOT-LGSQ, 01ACOM-LGSQ, 01AMOT-RC80, 01AMOT-RC98, 01AMOT-LGCA, 01AXXX-RC99, 01AHOU-ROUTE, 01AHOU-LGSQ
+# success captures:    01AMOT, 01ACOM
+# policy number seed:  1000001
+# timestamp seed:      2026-08-19-12.00.00.000000
+# cobc:                3.2.0 (pinned 3.1.2.0, DEVIATION)
+# python:              3.12.14
+# source guard:        PASS at 4 of 4 points
+# files in this set:   12, this manifest included
+# outside this set:    runtime-versions.txt, the environment record of the checkout
+1bd07e4a63f2fe965d634914e8a68cd2d8b80bcb68825c96623089582fa3aa81  translate.log
+e1fbd140b6d5cb862e43255c115461cba65a5527d38f33912939fca282d0a33d  compile.log
+6b1a77456e9f761140ef12cdc056241453e4af1f36ebd0558a750c15cc500c8e  translation-report.json
+df074c7b828b778ffd68cc0ea9e32c52151f7fea0bc5e03f2fdd5f5d5ea4486f  source-baseline.sha256
+e249df5d2ac2031ce858b79db0d7a0602938e7df668005ff8b242a0e20f6c1a6  readonly-check.log
+be202cbd414d16228f2a5a13aed48d3dc6a0459b9e68522a8ee6b64553b40578  driver_01amot.log
+235f2ef6c4b90e0ace6da8885c8142cd7d9b5650852f241d7fe45bbea27f553d  captures_01amot.txt
+0beb0508ef2b207078136e728b7de7c5abe1dcb0748e5d28f4fd365b1da3700b  commarea_post_01amot.dat
+8b257f6fe37d6e3fbaad6b27a3de8ea9c57714704e3a5604df17ca1e534ebb19  driver_01acom.log
+a7f4ec6ac83764bc7fd6df28c463ae82f89531492ef35560631940ee35aff940  captures_01acom.txt
+4ff67bdb47727892c2c313e15a07b4b6b7794c4d02f82a9a6f0dc1118057ea85  commarea_post_01acom.dat

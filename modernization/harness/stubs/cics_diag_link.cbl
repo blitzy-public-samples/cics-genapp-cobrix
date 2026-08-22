@@ -56,9 +56,7 @@
       * modernization/validation/diff_harness_vs_warehouse.py,
       * modernization/docs/decision-log.md and
       * modernization/docs/traceability-matrix.md are planned
-      * artifacts and are not present in the tree; a statement below
-      * about one of those four, the diff tool among them, is the
-      * planned contract.
+      * artifacts and are not present in the tree.
       *
       * modernization/harness/run_harness.sh compiles this file as a
       * callable module with cobc -m -std=ibm -fbinary-truncate
@@ -86,27 +84,21 @@
       * never calls it, leaving the counter at the value
       * modernization/harness/driver.cbl set.
       *
-      * Order guard: this module carries no prerequisite, and the
-      * absence is deliberate rather than an omission. The nine sites
-      * belong to the diagnostic paragraph of each program, which the
-      * read-only source reaches from the zero-length COMMAREA check
-      * ahead of every other statement of its program as readily as
-      * from a failed insert or a failed write, so no capture has to
-      * precede a diagnostic link. The counter this module keeps
-      * carries no ordering, and neither HC-ORDER-VIOLATION nor
-      * HC-ORDER-VIOLATION-STMT is read or written here: the order
-      * verdict of the case stays exactly as the capturing stubs left
-      * it. The eight stubs whose sites do carry an ordering
-      * constraint of that source test it themselves.
+      * Order guard: this module carries no prerequisite. The nine
+      * sites belong to the diagnostic paragraph of each program. The
+      * counter this module keeps carries no ordering, and neither
+      * HC-ORDER-VIOLATION nor HC-ORDER-VIOLATION-STMT is read or
+      * written here: the order verdict of the case stays exactly as
+      * the capturing stubs left it. The eight stubs whose sites carry
+      * an ordering constraint of that source test it themselves.
       *
       * Harness topology: Figure 5 — Validation Harness Control Flow
       * in modernization/docs/architecture.md.
       *
-      * See modernization/docs/decision-log.md (planned deliverable;
-      * not present at this milestone), rows: diagnostic-link stub in
-      * place of the linked program; diagnostic area bound without
-      * reference; uniform stub-side capture-order guard; unexercised
-      * diagnostic paths.
+      * See modernization/docs/decision-log.md, rows: diagnostic-link
+      * stub in place of the linked program; diagnostic area bound
+      * without reference; uniform stub-side capture-order guard;
+      * unexercised diagnostic paths.
       *
       ******************************************************************
        IDENTIFICATION DIVISION.

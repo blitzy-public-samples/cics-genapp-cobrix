@@ -46,8 +46,7 @@
       * modernization/validation/diff_harness_vs_warehouse.py,
       * modernization/docs/decision-log.md and
       * modernization/docs/traceability-matrix.md are planned
-      * artifacts and are not present in the tree; a statement below
-      * about one of those four is the planned contract.
+      * artifacts and are not present in the tree.
       *
       * modernization/harness/run_harness.sh compiles this file as a
       * callable module with cobc -m -std=ibm -fbinary-truncate
@@ -69,28 +68,21 @@
       * Surrogate shape: the value is the eight digits YYYYMMDD of the
       * instant this module reports, and it carries no time of day.
       * modernization/harness/stubs/cics_formattime.cbl decomposes
-      * those eight digits into the date it renders, which is why a
-      * replacement of this module changes the rendered date, and
-      * seeds the time of day it renders independently, which is why
-      * the same replacement cannot change the rendered time.
+      * those eight digits into the date it renders and seeds the time
+      * of day it renders independently of this module.
       *
       * The parameter is the whole interface. The shared capture group
       * copied below declares no time-service item. This module
       * records nothing in that group and leaves every field to its
-      * owner. It carries no prerequisite ordinal, and the absence is
-      * deliberate rather than an omission: the read-only source
-      * reaches the ASKTIME sites from the zero-length COMMAREA check
-      * ahead of every other statement of its program as readily as
-      * from a failed insert or a failed write, so no capture has to
-      * precede one. HC-ORDER-VIOLATION and HC-ORDER-VIOLATION-STMT
-      * are neither read nor written here.
+      * owner. It carries no prerequisite ordinal.
+      * HC-ORDER-VIOLATION and HC-ORDER-VIOLATION-STMT are neither
+      * read nor written here.
       *
       * Harness topology: Figure 5 — Validation Harness Control Flow
       * in modernization/docs/architecture.md.
       *
-      * See modernization/docs/decision-log.md (planned deliverable;
-      * not present at this milestone): "deterministic harness time
-      * data", "FORMATTIME rendered from the ASKTIME surrogate",
+      * See modernization/docs/decision-log.md: "deterministic harness
+      * time data", "FORMATTIME rendered from the ASKTIME surrogate",
       * "uniform stub-side capture-order guard" and "unexercised
       * diagnostic paths".
       *

@@ -3,100 +3,241 @@
 
 WHAT THIS TOOL DOES
     Downloads the single S3 object modernization/landing/land_to_s3.py wrote,
-    confirms it still carries the landing contract, and writes it as one row of
-    raw.genapp_policy_issue in a DuckDB database. The values written are the
-    values the object carries: every one is bound as text or as SQL NULL exactly
-    as landed, and no value is computed, scaled, rounded, padded, zero-filled,
-    trimmed, defaulted or backfilled. The six amount values pass through
+    confirms it still carries the landing contract - the complete
+    modernization/landing/landing-schema.json document, its date format, a real
+    last_changed moment, unique member names and a key equal to the one the
+    object's own source-system key rebuilds - and writes it as one row of
+    raw.genapp_policy_issue in a DuckDB database. The object is bound to its own
+    immutable metadata before it is read: a head request records its ETag, its
+    version id where the bucket keeps versions and its byte count, the download
+    then requires that same ETag and version, and the bytes that arrive are
+    confirmed against the recorded byte count and digest before they are parsed.
+    The landing schema is applied in full to the bytes that were downloaded, not
+    only to the object that was headed, so an object replaced between the two
+    requests fails the load instead of reaching the relation. Every one of those
+    checks happens before the database is opened, so a rejected object never
+    reaches it. The values written are the values the object carries: every one
+    is bound as text or as SQL NULL exactly as landed, and no value is computed,
+    scaled, rounded, padded, zero-filled, trimmed, defaulted or backfilled. The
+    six amount values pass through
     untouched. Each of them reaches the landed object through one MOVE, at
     base/src/lgapdb01.cbl:265, 445, 489, 491, 493 and 495, and the three named
     programs carry no COMPUTE, MULTIPLY or DIVIDE statement and no COMP-3 item,
     so a loaded amount is the digit string the chain moved and nothing else.
     Typing is applied by the dbt models downstream, never here.
 
+WHICH BYTES IT ACCEPTS AS AN OBJECT
+    The downloaded body is checked to be the canonical landed form before the row
+    is written: the ASCII-escaped JSON serialisation of the parsed object
+    followed by one line feed, holding the landed keys in the order the landing
+    schema fixes. One comparison against that form refuses a pretty-printed or
+    multi-line object, leading, surrounding or repeated whitespace, a carriage
+    return, an absent or repeated terminal line feed, and a re-ordered key, and
+    the diagnostic names the byte counts and the first differing offset. A
+    repeated member name is refused by name while the object is parsed, so no
+    member is resolved to a last-wins value. These are the same checks
+    modernization/landing/land_to_s3.py applies before the upload. Each of these
+    is a rejected object, reported as such, and nothing is written to the
+    database.
+
 WHICH TARGET IT ADDRESSES
-    The local branch of the bridge. On the real branch the same object and the
-    same 17-column row shape reach the raw relation through
-    modernization/landing/load_redshift.sql. This tool addresses a DuckDB
-    database file and no warehouse service. Nothing it does depends on the local
-    branch being in use:
-    --endpoint-url, or the S3_ENDPOINT_URL environment variable, directs the
-    download at a local S3-compatible endpoint, and with neither present the
-    download addresses AWS S3. Access is established from resolved credentials
-    and a resolved region; the presence of an environment variable whose name
-    begins with AWS is never read as evidence of access, and no variable is
-    matched on that prefix. Results this tool produces are local-substitute
-    results and establish nothing about a real-target run.
+    The local branch of the bridge, and only that branch. The run mode, taken
+    from --run-mode or the DBT_TARGET environment variable and defaulting to
+    RUN_MODE_LOCAL, is the same selector modernization/landing/land_to_s3.py
+    consumes and the target key of
+    modernization/dbt/genapp_rqi/profiles.example.yml resolves. This tool runs
+    only in RUN_MODE_LOCAL: in RUN_MODE_REAL the same object and the same
+    17-column row shape reach the raw relation through
+    modernization/landing/load_redshift.sql instead, and this tool refuses to run
+    rather than write the local DuckDB database while the rest of the run
+    addresses the real target.
+
+    RUN_MODE_LOCAL requires a resolved S3 endpoint, so a run that resolved none
+    is refused before the download and before the database is opened. An endpoint
+    override is accepted only for a loopback address: http or https, a host of
+    127.0.0.0/8, ::1 or localhost, an explicit port of 1024 or above, no user
+    information, no query, no fragment and no path beyond "/", and only when the
+    resolved credentials came from the environment. Any other endpoint is
+    refused, and no endpoint value reaches stdout, stderr or a diagnostic. Access
+    is established from resolved credentials and a resolved region; the presence
+    of an environment variable whose name begins with AWS is never read as
+    evidence of access, and no variable is matched on that prefix. Results this
+    tool produces are local-substitute results and establish nothing about a
+    real-target run.
+
+    A supplied endpoint is accepted only as a local substitute: it must be an
+    http or https URL whose host is a loopback literal (127.0.0.0/8 or ::1) or
+    exactly localhost, carrying an explicit port, no userinfo, no path beyond
+    '/', no query and no fragment. Every other endpoint is refused by name
+    before a client exists, so no credential is signed and no request is sent to
+    it: a remote host, a name that merely resolves to loopback, a host that only
+    looks like a loopback literal, an embedded credential, a path, a query, a
+    fragment, a missing port and any scheme other than http or https are all
+    refused. With no endpoint supplied the client resolves the real AWS endpoint
+    and every endpoint the environment or a configuration profile carries is
+    ignored, so an AWS_ENDPOINT_URL or AWS_ENDPOINT_URL_S3 variable cannot
+    redirect a credentialed request.
+
+WHICH MODES IT RUNS
+    load            the default: download one object and write it as one row.
+    --self-test     run the built-in case matrix and exit; it downloads nothing
+                    from any network endpoint, opens only DuckDB databases
+                    inside one private temporary directory it creates and
+                    removes, and touches no database of the caller's.
 
 WHICH INPUTS IT ACCEPTS
+    --run-mode      branch of the bridge to address, RUN_MODE_LOCAL or
+                    RUN_MODE_REAL, defaulting to the DBT_TARGET environment
+                    variable and then to DEFAULT_RUN_MODE. Only RUN_MODE_LOCAL
+                    runs this tool.
     --bucket        bucket holding the landed object, defaulting to the
                     S3_BUCKET environment variable. There is no built-in bucket
                     name.
-    --key           exact object key, or the s3:// URI land_to_s3.py printed.
-                    Omitted, the key is rebuilt from --source-system-key,
-                    --entity and --extract-date.
+    --key           exact object key, or the s3:// URI land_to_s3.py printed. It
+                    must equal the key --source-system-key, the fixed entity
+                    literal and --extract-date rebuild, so it confirms the
+                    object to load rather than selecting another one. Omitted,
+                    that rebuilt key is used.
     --source-system-key
                     source-system element of the landing prefix, defaulting to
                     the SOURCE_SYSTEM_KEY environment variable and then to
                     DEFAULT_SOURCE_SYSTEM_KEY. It must equal the object's own
                     source_system_key value.
-    --entity        entity element of the landing prefix, defaulting to
-                    DEFAULT_ENTITY.
+    --entity        entity element of the landing prefix, which is the fixed
+                    literal LANDING_ENTITY. Supplying any other value is
+                    refused rather than loading an object outside the canonical
+                    prefix.
     --extract-date  extract-date element of the landing prefix as YYYY-MM-DD,
                     defaulting to the current UTC date.
-    --endpoint-url  S3 endpoint to address, defaulting to the S3_ENDPOINT_URL
-                    environment variable. Absent on both, the download
-                    addresses AWS S3.
+    --endpoint-url  loopback S3 endpoint to address, defaulting to the
+                    S3_ENDPOINT_URL environment variable. It is required, since
+                    this tool runs on the local branch alone.
     --region        region to address, defaulting to the AWS_REGION and then the
                     AWS_DEFAULT_REGION environment variable.
     --database      DuckDB database file, defaulting to the LOCAL_DUCKDB_PATH
                     and then the DUCKDB_DATABASE environment variable, and then
-                    to modernization/validation/local.duckdb. A path inside this
-                    tool's own directory is refused.
-    --ddl           SQL scripts applied before the row is written, in the order
-                    given, defaulting to every *.sql file in
-                    modernization/warehouse/ddl sorted by name. --no-ddl applies
-                    none.
+                    to modernization/validation/local.duckdb. Every component of
+                    the requested path is canonicalised first, so a symbolic
+                    link, a /proc/self/cwd alias and a relative path all resolve
+                    to the file they name. The resolved path must sit inside
+                    modernization/validation/, must not be a symbolic link or an
+                    existing non-regular file, and must not name one of the
+                    authored files that directory carries.
+    --no-ddl        apply none of the shared warehouse scripts, for a database
+                    whose relation is already present. There is no option
+                    naming a script: the scripts applied are the fixed
+                    allowlist DDL_SCRIPT_NAMES holds, read from
+                    modernization/warehouse/ddl in that order, and no other SQL
+                    file is read or executed.
+    --show-identifiers
+                    carry record values in diagnostics and the natural-key
+                    values and object URI in the report, which are redacted by
+                    default. Also enabled by the GENAPP_SHOW_IDENTIFIERS
+                    environment variable.
+    --self-test     run the built-in case matrix and exit.
+    --quiet         with --self-test, print only the failing case lines and the
+                    summary.
+
+    A setting supplied through an environment variable that holds the empty
+    string or whitespace alone counts as unset, so the documented default
+    applies; that is the empty-value resolution every command-line tool of this
+    bridge applies.
+
+HOW IT VALIDATES THE LANDED OBJECT
+    The object is parsed with duplicate member names refused, so a document
+    carrying the same key twice is rejected rather than silently collapsed to its
+    last occurrence. The parsed document is then checked against
+    modernization/landing/landing-schema.json as a Draft 2020-12 document with
+    format assertion enabled - the same schema, the same dialect and the same
+    assertions modernization/landing/land_to_s3.py applies - so enums, patterns,
+    lengths and the calendar semantics of every date are all enforced here as
+    well, and each timestamp is parsed against the exact written form the
+    contract fixes. All of it happens before the database is opened.
+
+    A schema violation is reported by the JSON Pointer of the offending value,
+    the constraint it breached and the value's JSON type and size. The value
+    itself is reported only under --show-identifiers: these objects carry policy,
+    customer and broker identifiers, and this output is retained in run
+    evidence.
+
+WHAT --self-test CHECKS
+    Schema loading and every way it can fail, the landed column names and their
+    order, record validation against the schema in both directions, rejection of
+    a repeated JSON member at every nesting level of the object and of the
+    schema, the endpoint policy over accepted and refused forms, the download
+    failures botocore reports, an object replaced between the head request and
+    the download, a digest that does not match the recorded one, the database
+    path policy over accepted and refused paths, SQL statement splitting, the
+    physical shape of raw.genapp_policy_issue as the catalog reports it, one
+    load, a repeated load of the same record, a load of a second record, a
+    failure mid-transaction with the rollback that follows it, the row counts the
+    tool reports against the relation, redaction of business identifiers in both
+    modes, and that every documented exit status is reachable. Collaborators are
+    the pinned boto3 and botocore clients, driven through moto and through
+    botocore's own stubber, and the pinned DuckDB, so a call this matrix makes is
+    a call the pinned distribution models.
 
 WHERE IT WRITES
     One relation, raw.genapp_policy_issue, whose column names, column order and
-    VARCHAR widths are defined by modernization/warehouse/ddl and whose 17
-    column names and order this tool reads from
-    modernization/landing/landing-schema.json. Within one transaction it removes
-    any row already carrying the natural key (source_system_key, policy_number)
-    of the object just downloaded and then writes that object as one row, so a
-    repeated run leaves one row rather than two. No statement removes a row
+    VARCHAR widths are defined by the two allowlisted scripts in
+    modernization/warehouse/ddl and whose 17 column names and order this tool
+    reads from modernization/landing/landing-schema.json. One transaction covers
+    the whole load: the two allowlisted scripts are applied inside it, any row
+    already carrying the natural key (source_system_key, policy_number) of the
+    object just downloaded is removed, and that object is written as one row, so
+    a repeated run leaves one row rather than two. No statement removes a row
     carrying any other natural key, so a row loaded from an earlier object
-    survives every later run. On any failure the transaction is rolled back and
-    the database is left as it was found.
+    survives every later run.
 
-    stdout carries exactly one line, naming the relation written, the natural
-    key, and the rows removed and written. Every other message reaches stderr.
-    No credential, token, session value or environment listing is ever printed,
-    on any path.
+    On any failure the transaction is rolled back, which withdraws every change
+    it made: the row written, the row removed, and any schema or relation the
+    allowlisted scripts created inside it. DuckDB holds data and catalogue
+    changes in the same transaction, so a failed load leaves the database exactly
+    as it was found; a database file the connection created because it was absent
+    stays on disk, holding no schema and no row.
+
+    stdout carries exactly one line, naming the relation written, the rows
+    removed and written and the digest of the object loaded. Every other message
+    reaches stderr. No credential, token, session value or environment listing is
+    ever printed, on any path.
+
+    Business identifiers are redacted by default: the natural-key values on
+    stdout and the object URI on stderr are replaced by a fixed marker, and no
+    policy number, customer number, broker identifier or broker reference is
+    printed. --show-identifiers restores them for a run whose output is not
+    retained. The rows removed and written, the byte count, the digest and the
+    relation name are printed in both modes.
 
 HOW IT FAILS
     Every failure writes one control-free line to stderr and returns a non-zero
     status: 2 for a landed object that breaches the landing contract, 3 for a
     rejected command line or an unresolved setting, 4 for an S3 endpoint, bucket
     or object operation that did not succeed, 5 for a database or SQL operation
-    that did not succeed. A missing setting is named in the diagnostic. A SQL
-    statement that the database refused is reported as written, with its script
-    and its position in that script. The tool never prompts and requires no TTY.
+    that did not succeed or a failed self-test case, 130 for an interrupt. A
+    missing setting is named in the diagnostic. A SQL statement that the database
+    refused is reported as written, with its script and its position in that
+    script. A record value never reaches a diagnostic unless --show-identifiers
+    is given: without it a rejected value is reported by its JSON pointer, the
+    constraint it breached and its JSON type and size. The tool never prompts and
+    requires no TTY.
 
 WHAT IT NEVER DOES
     It creates no bucket, cluster, workgroup, role, policy, network or key, and
     provisions nothing; a bucket that does not answer is reported, never
     created. It defines no relation of its own and restates no column type: the
-    scripts named by --ddl are applied exactly as they are written and this tool
-    adds no statement to them. It writes no relation but the one named above, no
-    18th column, no load timestamp, no batch identifier and no audit column. It
-    reads nothing under base/ and writes nothing under
-    modernization/landing/.
+    two allowlisted scripts are applied exactly as they are written, this tool
+    adds no statement to them beyond the transaction it wraps them in, a script
+    carrying its own transaction control is refused rather than applied, and no
+    other SQL file can be named or run. It writes no relation but the one named
+    above, no 18th column, no load timestamp, no batch identifier and no audit
+    column. It reads nothing under base/, writes nothing under
+    modernization/landing/, and opens or creates a database only as a regular
+    file directly inside modernization/validation, the one directory a database
+    file may sit in, re-examining that file after it is opened.
 
 WHERE THIS STEP SITS
-    Figure 2 - AFTER (BUILT): Canonical Warehouse Bridge, and Figure 5 -
-    Validation Harness Control Flow, both in
+    Figure 2 — AFTER (BUILT): Canonical Warehouse Bridge, and
+    Figure 5 — Validation Harness Control Flow, both in
     modernization/docs/architecture.md.
 
 Decision rationale: see modernization/docs/decision-log.md.
@@ -105,17 +246,26 @@ Decision rationale: see modernization/docs/decision-log.md.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import datetime
+import hashlib
+import io
+import ipaddress
 import json
 import os
 import re
+import shutil
+import stat
 import sys
-from collections.abc import Mapping, Sequence
+import tempfile
+import urllib.parse
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from pathlib import Path
 from typing import Any, NamedTuple, NoReturn
 
 import boto3.session
 import duckdb
+import jsonschema.exceptions
 from botocore.config import Config
 from botocore.exceptions import (
     BotoCoreError,
@@ -125,6 +275,7 @@ from botocore.exceptions import (
     NoRegionError,
     PartialCredentialsError,
 )
+from jsonschema.validators import Draft202012Validator
 
 _PROGRAM = "load_local"
 
@@ -133,12 +284,30 @@ _PROGRAM = "load_local"
 # same default database.
 _THIS_DIR = Path(__file__).resolve().parent
 _MODERNIZATION_DIR = _THIS_DIR.parent
+_REPOSITORY_DIR = _MODERNIZATION_DIR.parent
 DEFAULT_SCHEMA = _THIS_DIR / "landing-schema.json"
-DEFAULT_DDL_DIRECTORY = _MODERNIZATION_DIR / "warehouse" / "ddl"
-DEFAULT_DATABASE = _MODERNIZATION_DIR / "validation" / "local.duckdb"
+DDL_DIRECTORY = _MODERNIZATION_DIR / "warehouse" / "ddl"
 
-# Pattern selecting the default DDL scripts, applied in sorted name order.
-DDL_GLOB = "*.sql"
+# The one directory a database file may sit in, and the database file the bridge keeps
+# there. Every --database value resolves to a name directly inside this directory or is
+# refused, so no run creates or opens a file anywhere else.
+ALLOWED_DATABASE_ROOT = _MODERNIZATION_DIR / "validation"
+DATABASE_DIRECTORY = ALLOWED_DATABASE_ROOT
+DEFAULT_DATABASE = ALLOWED_DATABASE_ROOT / "local.duckdb"
+
+# The SQL scripts this tool applies, in apply order. The list is fixed: the two shared
+# scripts creating the schemas and the raw relation are the only SQL files this tool
+# reads, and no option names another. A file added to DDL_DIRECTORY later is not read,
+# and no statement outside these two scripts is ever executed.
+DDL_SCRIPT_NAMES = ("01_schemas.sql", "02_raw_genapp_policy_issue.sql")
+
+# Names in DATABASE_DIRECTORY that a database path may never resolve to: the authored
+# files of that directory, which this tool must not open as a database or overwrite.
+RESERVED_DATABASE_NAMES = (
+    "diff_harness_vs_warehouse.py",
+    "validation-evidence.md",
+    "verify_readonly.sh",
+)
 
 # Environment variables consulted when the matching option is omitted. No value
 # read from any of them is ever printed.
@@ -147,6 +316,20 @@ ENDPOINT_URL_VARIABLE = "S3_ENDPOINT_URL"
 SOURCE_SYSTEM_KEY_VARIABLE = "SOURCE_SYSTEM_KEY"
 REGION_VARIABLES = ("AWS_REGION", "AWS_DEFAULT_REGION")
 DATABASE_VARIABLES = ("LOCAL_DUCKDB_PATH", "DUCKDB_DATABASE")
+RUN_MODE_VARIABLE = "DBT_TARGET"
+
+# Run modes, which are the output names of
+# modernization/dbt/genapp_rqi/profiles.example.yml. RUN_MODE_LOCAL addresses the
+# local substitute - a loopback S3 endpoint and this DuckDB database - and
+# RUN_MODE_REAL addresses AWS S3 and Redshift, where
+# modernization/landing/load_redshift.sql is the loader instead of this tool. The
+# same two names select the branch in modernization/landing/land_to_s3.py and in
+# the dbt profile.
+RUN_MODE_LOCAL = "local_substitute"
+RUN_MODE_REAL = "redshift"
+RUN_MODES = (RUN_MODE_LOCAL, RUN_MODE_REAL)
+DEFAULT_RUN_MODE = RUN_MODE_LOCAL
+REAL_MODE_LOADER = "modernization/landing/load_redshift.sql"
 
 # Environment variables naming the credentials a boto3 session resolves for
 # itself. They are named in diagnostics and are never read by this module.
@@ -159,13 +342,23 @@ PARTITION_FIELDS = ("source_system_key", "entity", "extract_date")
 OBJECT_NAME = "part-0000.json"
 KEY_SEPARATOR = "/"
 
-# Values used when the matching option and environment variable are both absent.
+# Value used when the matching option and environment variable are both absent.
 DEFAULT_SOURCE_SYSTEM_KEY = "GENAPP_CLASS_EXEMPLAR"
-DEFAULT_ENTITY = "policy_issue"
+
+# Entity element of the landing prefix. One entity is landed by this bridge, so the
+# value is fixed: --entity is accepted only when it repeats this literal.
+LANDING_ENTITY = "policy_issue"
 
 # Service addressed, and the URI form --key also accepts.
 SERVICE_NAME = "s3"
 URI_SCHEME_SEPARATOR = "://"
+
+# Semantic formats the landing schema asserts, and the exact representation the
+# genapp-timestamp checker parses. Both match modernization/landing/land_to_s3.py, so
+# the two tools reach the same verdict for the same bytes.
+DATE_FORMAT_NAME = "date"
+TIMESTAMP_FORMAT_NAME = "genapp-timestamp"
+TIMESTAMP_FORMAT = "%Y-%m-%dT%H:%M:%S.%f"
 
 # Relation written, and the fields whose values identify one row of it. Both
 # names are confirmed against _IDENTIFIER_SHAPE before they reach any statement.
@@ -178,20 +371,109 @@ NATURAL_KEY_FIELDS = ("source_system_key", "policy_number")
 # reading is confirmed against.
 EXPECTED_COLUMN_COUNT = 17
 
+# Object keys carrying a calendar date, and the key carrying the normalised
+# last-changed timestamp. Each is parsed before the database is opened, so a value
+# of the right shape that names no day or no moment is refused here rather than at
+# the DATE or TIMESTAMP cast of the downstream dbt models. The date keys also carry
+# the landing schema's "date" format, which build_format_checker asserts.
+DATE_FIELDS = ("issue_date", "expiry_date")
+TIMESTAMP_FIELD = "last_changed"
+
+# Forms the date and timestamp values are written in. The timestamp form carries no
+# UTC offset, so it is not an RFC 3339 date-time and is parsed with this exact
+# pattern rather than by a schema format.
+DATE_FORM = "YYYY-MM-DD"
+TIMESTAMP_FORM = "YYYY-MM-DDTHH:MM:SS.ffffff"
+TIMESTAMP_PATTERN = "%Y-%m-%dT%H:%M:%S.%f"
+TIMESTAMP_OUTPUT_SEPARATOR = "T"
+TIMESTAMP_OUTPUT_PRECISION = "microseconds"
+
 # Accepted shapes. A partition segment value becomes one path segment, so it
-# carries no separator, no whitespace and no equals sign. A bucket name becomes
-# the authority of a reported URI under the same restriction. An identifier
-# becomes SQL text and so is confirmed rather than bound.
+# carries no separator, no whitespace and no equals sign. An identifier becomes
+# SQL text and so is confirmed rather than bound.
 _SEGMENT_SHAPE = re.compile(r"\A[A-Za-z0-9_.\-]+\Z")
-_BUCKET_SHAPE = re.compile(r"\A[A-Za-z0-9_.\-]+\Z")
 _IDENTIFIER_SHAPE = re.compile(r"\A[a-z][a-z0-9_]*\Z")
 MAX_SEGMENT_CHARACTERS = 64
+MAX_IDENTIFIER_CHARACTERS = 63
+
+# General-purpose bucket naming rules, which a bucket name must satisfy to be
+# addressable at all: 3 to 63 characters drawn from lowercase letters, digits,
+# dot and hyphen, beginning and ending with a letter or a digit, carrying no two
+# adjacent dots, not written as an IPv4 address, and carrying none of the
+# prefixes or suffixes the service reserves for its own name spaces. These are
+# the rules modernization/landing/land_to_s3.py applies to the same setting, so a
+# name that landed the object can address it here.
+_BUCKET_SHAPE = re.compile(r"\A[a-z0-9][a-z0-9.\-]{1,61}[a-z0-9]\Z")
+_BUCKET_ADJACENT_DOTS = ".."
+_BUCKET_IPV4_SHAPE = re.compile(r"\A[0-9]{1,3}(\.[0-9]{1,3}){3}\Z")
+BUCKET_RESERVED_PREFIXES = (
+    "xn--",
+    "sthree-",
+    "amzn-s3-demo-",
+)
+BUCKET_RESERVED_SUFFIXES = (
+    "-s3alias",
+    "--ol-s3",
+    ".mrap",
+    "--x-s3",
+    "--table-s3",
+)
 MIN_BUCKET_CHARACTERS = 3
 MAX_BUCKET_CHARACTERS = 63
-MAX_IDENTIFIER_CHARACTERS = 63
+
+# Credential resolution methods accepted while a custom endpoint is addressed.
+# The method is the name botocore records on the credentials it resolved: 'env'
+# for the AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY variables and 'explicit'
+# for values passed to the session directly. Any other method - a shared
+# credentials file, a configured profile, single sign-on, an assumed role,
+# container or instance metadata - names credentials that belong to a real
+# account, and those are never signed against a local endpoint.
+LOCAL_CREDENTIAL_METHODS = ("env", "explicit")
+
+# Endpoint overrides accepted. An override sends signed requests wherever it names,
+# so only a local S3-compatible endpoint is accepted: one of these schemes, a
+# loopback host, an explicit port at or above ENDPOINT_PORT_FLOOR, no user
+# information, no query, no fragment and no path beyond a single separator, within
+# MAX_ENDPOINT_CHARACTERS characters. Every port from that floor up is accepted, so
+# concurrent local endpoints on different ports are all reachable, while no override can
+# address a privileged loopback service. With no override the SDK resolves the AWS
+# endpoint itself.
+ACCEPTED_ENDPOINT_SCHEMES = ("http", "https")
+LOOPBACK_HOST_NAME = "localhost"
+ACCEPTED_ENDPOINT_PATHS = ("", KEY_SEPARATOR)
+ENDPOINT_PORT_FLOOR = 1024
+MAX_ENDPOINT_CHARACTERS = 256
+
+# Text a redacted endpoint value is replaced by, and the URLs redacted out of a
+# diagnostic. A library diagnostic can quote the endpoint it addressed, so every
+# http and https URL is replaced before the text reaches stderr.
+REDACTED_ENDPOINT = "<endpoint>"
+_URL_IN_TEXT = re.compile(r"(?i)https?://[^\s\"'<>,]*")
 
 # Extract date form accepted on the command line and emitted into the key.
 EXTRACT_DATE_FORM = "YYYY-MM-DD"
+
+# SQL keywords that open, close or abandon a transaction. The load runs as one
+# transaction, so a supplied script carrying any of them would commit or discard
+# part of it; such a script is refused rather than applied.
+TRANSACTION_CONTROL_KEYWORDS = (
+    "begin",
+    "start",
+    "commit",
+    "end",
+    "rollback",
+    "abort",
+)
+
+# In-memory database name a DuckDB connection accepts, which this tool refuses:
+# the following step reads the database as a file.
+IN_MEMORY_DATABASE = ":memory:"
+
+# Value recorded as the object version when the bucket keeps no versions, and the
+# marker printed in place of a business identifier unless --show-identifiers is
+# given.
+NOT_VERSIONED = "not-versioned"
+REDACTED_TEXT = "<redacted>"
 
 # Bytes one read takes from the landed object and from the schema before
 # anything parses them, and the bytes one read asks for at a time.
@@ -205,7 +487,9 @@ READ_CHUNK_BYTES = 65536
 EXPECTED_INSERTED_ROWS = 1
 
 # Connection behaviour applied to every request, bounding the time a failing
-# endpoint can hold up the caller.
+# endpoint can hold up the caller. MAX_ATTEMPTS is the number of calls one request
+# makes in total, the first included, and is applied through the client's
+# total_max_attempts setting.
 CONNECT_TIMEOUT_SECONDS = 10
 READ_TIMEOUT_SECONDS = 30
 MAX_ATTEMPTS = 3
@@ -216,15 +500,36 @@ EXIT_OBJECT_REJECTED = 2
 EXIT_CONFIGURATION_REJECTED = 3
 EXIT_S3_UNAVAILABLE = 4
 EXIT_WAREHOUSE_UNAVAILABLE = 5
+# A failed self-test case returns the same status as a warehouse failure, since a
+# case that did not hold is a load that would not have succeeded.
+EXIT_SELF_TEST_FAILED = EXIT_WAREHOUSE_UNAVAILABLE
 EXIT_INTERRUPTED = 130
 
 # Characters of untrusted text one diagnostic fragment carries before
-# truncation, and the keys one diagnostic names.
+# truncation, the keys one diagnostic names, and the schema violations one
+# diagnostic reports.
 MAX_DIAGNOSTIC_CHARACTERS = 64
 MAX_DIAGNOSTIC_PATH_CHARACTERS = 160
 MAX_DIAGNOSTIC_MESSAGE_CHARACTERS = 200
 MAX_DIAGNOSTIC_STATEMENT_CHARACTERS = 400
 MAX_REPORTED_KEYS = 8
+MAX_REPORTED_SCHEMA_ERRORS = 5
+
+# Opt-in carrying record values into diagnostics and the policy number into the
+# report, the environment variable consulted when the option is omitted, and the
+# values that variable may carry to enable it. Without the opt-in a rejected
+# value is reported by its JSON pointer, the constraint it breached and its size,
+# and a business identifier by its digest.
+SHOW_IDENTIFIERS_OPTION = "--show-identifiers"
+SHOW_IDENTIFIERS_VARIABLE = "GENAPP_SHOW_IDENTIFIERS"
+SHOW_IDENTIFIERS_ENABLING = ("1", "true", "yes", "on")
+IDENTIFIER_DIGEST_CHARACTERS = 12
+IDENTIFIER_DIGEST_PREFIX = "sha256-"
+
+# Fields of NATURAL_KEY_FIELDS reported as a digest rather than as their value.
+# The source-system key is a configured discriminator that also forms the landing
+# prefix; the policy number is a business identifier.
+DIGESTED_KEY_FIELDS = ("policy_number",)
 
 # Characters escaped out of a diagnostic.
 _CONTROL_CHARACTERS = re.compile(r"[\x00-\x1f\x7f-\x9f]")
@@ -241,6 +546,12 @@ _CODES_WRONG_REGION = frozenset(
 _CODES_CREDENTIALS_REJECTED = frozenset(
     {"InvalidAccessKeyId", "SignatureDoesNotMatch", "InvalidClientTokenId"}
 )
+_CODES_PRECONDITION_FAILED = frozenset({"412", "PreconditionFailed"})
+
+# Shape of the entity tag a single-part upload carries, which is the hex MD5 of
+# the object body. A tag carrying a part count after a hyphen is a multipart tag
+# and stands for a digest of digests rather than of the body.
+_SINGLE_PART_ETAG_SHAPE = re.compile(r"\A[0-9a-fA-F]{32}\Z")
 
 
 class LoadError(Exception):
@@ -285,9 +596,55 @@ class WarehouseError(LoadError):
     exit_status = EXIT_WAREHOUSE_UNAVAILABLE
 
 
+class DuplicateMemberError(ValueError):
+    """A JSON object carries the same member name twice.
+
+    ``name`` is the member that repeated. The error is raised out of the parser,
+    from the nesting level that carried the repetition, before the document is
+    returned.
+    """
+
+    def __init__(self, name: str) -> None:
+        super().__init__(f"the JSON object carries the member {name!r} more than once")
+        self.name = name
+
+
 # ---------------------------------------------------------------------------
 # Diagnostics
 # ---------------------------------------------------------------------------
+
+
+# Whether a diagnostic and the report may carry record values. Set once from the
+# command line and the environment before any object is downloaded.
+_show_identifiers = False
+
+
+def set_show_identifiers(enabled: bool) -> None:
+    """Record whether a diagnostic and the report may carry record values."""
+    global _show_identifiers
+    _show_identifiers = bool(enabled)
+
+
+def show_identifiers_enabled() -> bool:
+    """Return True when a diagnostic and the report may carry record values."""
+    return _show_identifiers
+
+
+def resolve_show_identifiers(supplied: bool) -> bool:
+    """Return whether record values are shown, from the option then the environment.
+
+    ``supplied`` is the ``--show-identifiers`` flag, which enables display on its own.
+    With the flag absent the ``SHOW_IDENTIFIERS_VARIABLE`` environment variable
+    enables display when it carries one of ``SHOW_IDENTIFIERS_ENABLING``, in any case
+    and ignoring surrounding spaces; every other value, including an empty one
+    and an absent variable, leaves record values withheld.
+    """
+    if supplied:
+        return True
+    carried = os.environ.get(SHOW_IDENTIFIERS_VARIABLE)
+    if carried is None:
+        return False
+    return carried.strip().lower() in SHOW_IDENTIFIERS_ENABLING
 
 
 def _type_name(value: Any) -> str:
@@ -347,10 +704,65 @@ def _display(value: Any) -> str:
     return f"a {_type_name(value)}"
 
 
+def _redacted(text: str) -> str:
+    """Return ``text`` with every http and https URL replaced by ``REDACTED_ENDPOINT``.
+
+    A client-library diagnostic can quote the endpoint it addressed, and the
+    endpoint is a setting this tool never discloses, so the URL is removed rather
+    than truncated.
+    """
+    return _URL_IN_TEXT.sub(REDACTED_ENDPOINT, text)
+def _withheld(length: int) -> str:
+    """Return the fragment standing for a withheld value of ``length`` characters."""
+    return f"<redacted {length} chars>"
+
+
+def _value_display(value: Any) -> str:
+    """Return any landed value for a diagnostic, withholding its content.
+
+    Text is reported by its character count, a number and a boolean by their JSON
+    type, and null as null, so a diagnostic names the shape a value had without
+    naming the value. With display enabled the value itself is rendered.
+    """
+    if show_identifiers_enabled():
+        return _display(value)
+    if isinstance(value, str):
+        return _withheld(len(value))
+    if value is None:
+        return "None"
+    if isinstance(value, bool):
+        return "a boolean"
+    if isinstance(value, (int, float)):
+        return f"a {_type_name(value)}"
+    return f"a {_type_name(value)}"
+
+
+def _digest(value: str) -> str:
+    """Return a stable short digest of ``value``, standing in for the value itself.
+
+    The digest is the leading ``IDENTIFIER_DIGEST_CHARACTERS`` hexadecimal
+    characters of the SHA-256 of the UTF-8 encoding of ``value``, so two runs
+    carrying the same identifier report the same fragment.
+    """
+    encoded = hashlib.sha256(value.encode("utf-8")).hexdigest()
+    return IDENTIFIER_DIGEST_PREFIX + encoded[:IDENTIFIER_DIGEST_CHARACTERS]
+
+
+def _identifier(value: str) -> str:
+    """Return one business identifier for output: the value, or its digest."""
+    if show_identifiers_enabled():
+        return value
+    return _digest(value)
+
+
 def _reason(error: BaseException) -> str:
-    """Return the reason text of ``error`` as one bounded diagnostic fragment."""
+    """Return the reason text of ``error`` as one bounded diagnostic fragment.
+
+    Any endpoint URL the error text quotes is redacted before the fragment is
+    bounded.
+    """
     text = str(error) or _type_name(error)
-    return _escaped(text, MAX_DIAGNOSTIC_MESSAGE_CHARACTERS)
+    return _escaped(_redacted(text), MAX_DIAGNOSTIC_MESSAGE_CHARACTERS)
 
 
 def _listed(names: Sequence[str]) -> str:
@@ -366,6 +778,55 @@ def _listed(names: Sequence[str]) -> str:
     return ", ".join(kept)
 
 
+def _quote_all(names: Iterable[Any]) -> str:
+    """Return ``names`` quoted, escaped and joined by a comma, in the order given."""
+    return ", ".join(_shown(str(name)) for name in names)
+
+
+def _counted(count: int, noun: str) -> str:
+    """Return ``count`` and ``noun``, with the noun pluralised by an 's' when needed."""
+    return f"{count} {noun}" if count == 1 else f"{count} {noun}s"
+
+
+def _json_shape(value: Any) -> str:
+    """Return the JSON type of ``value``, and its length where that carries no content.
+
+    A string is described by its type and character count, an array and an object
+    by their element and member counts, and every other value by its JSON type
+    alone. No character of a string, no element of an array and no member name of
+    an object is rendered, so the description of a value never carries the value.
+    A landed object carries policy, customer and broker identifiers, and this
+    output is retained in run evidence.
+    """
+    if isinstance(value, str):
+        return f"a string of {_counted(len(value), 'character')}"
+    if isinstance(value, bool):
+        return "a boolean"
+    if value is None:
+        return "null"
+    if isinstance(value, (int, float)):
+        return "a number"
+    if isinstance(value, Mapping):
+        return f"an object of {_counted(len(value), 'member')}"
+    if isinstance(value, Sequence):
+        return f"an array of {_counted(len(value), 'element')}"
+    return f"a {_type_name(value)}"
+
+
+def _reported_uri(uri: str, show_identifiers: bool) -> str:
+    """Return the object URI as a progress line carries it.
+
+    With ``show_identifiers`` false, which is the default, the bucket, the
+    landing prefix and the object name are replaced by ``REDACTED_TEXT``: the
+    prefix carries the source-system key, so a captured run log holds no
+    identifier of the source system or of the record. With it true the URI is
+    carried as it is.
+    """
+    if show_identifiers:
+        return uri
+    return f"{SERVICE_NAME}{URI_SCHEME_SEPARATOR}{REDACTED_TEXT}"
+
+
 def _warn(message: str) -> None:
     """Write one control-free warning line to stderr."""
     print(f"{_PROGRAM}: warning: {_one_line(message)}", file=sys.stderr)
@@ -374,6 +835,38 @@ def _warn(message: str) -> None:
 def _note(message: str) -> None:
     """Write one control-free progress line to stderr."""
     print(f"{_PROGRAM}: {_one_line(message)}", file=sys.stderr)
+
+
+# ---------------------------------------------------------------------------
+# JSON parsing
+# ---------------------------------------------------------------------------
+
+
+def _distinct_members(pairs: Sequence[tuple[str, Any]]) -> dict[str, Any]:
+    """Return the members of one JSON object, refusing a name that repeats.
+
+    This is the object hook every JSON document this tool reads is parsed with,
+    so a repeated member is refused at every nesting level of the document
+    rather than silently resolved to the last occurrence.
+
+    Raises ``DuplicateMemberError`` naming the first member that repeats.
+    """
+    members: dict[str, Any] = {}
+    for name, value in pairs:
+        if name in members:
+            raise DuplicateMemberError(name)
+        members[name] = value
+    return members
+
+
+def parse_json_document(text: str) -> Any:
+    """Return the JSON value ``text`` carries, refusing a repeated member.
+
+    Raises ``json.JSONDecodeError`` when ``text`` is not one well-formed JSON
+    document, and ``DuplicateMemberError`` when any object in it carries a
+    member name twice.
+    """
+    return json.loads(text, object_pairs_hook=_distinct_members)
 
 
 # ---------------------------------------------------------------------------
@@ -419,16 +912,25 @@ def _read_bounded_bytes(path: Path, limit: int, what: str) -> bytes:
 def load_schema(path: Path = DEFAULT_SCHEMA) -> Mapping[str, Any]:
     """Return the landing schema document read from ``path``.
 
+    The document is returned as parsed; no constraint of it is restated in this
+    module. A member name that repeats at any nesting level of the schema is
+    refused and named.
+
     Raises ``SchemaError`` when the file is missing, empty, larger than
-    ``MAX_SCHEMA_BYTES``, not valid UTF-8, not well-formed JSON, or not a JSON
-    object.
+    ``MAX_SCHEMA_BYTES``, not valid UTF-8, not well-formed JSON, carries a
+    repeated member name, or is not a JSON object.
     """
     try:
         raw = _read_bounded_bytes(path, MAX_SCHEMA_BYTES, "landing schema")
     except ConfigurationError as error:
         raise SchemaError(str(error)) from error
     try:
-        document = json.loads(raw.decode("utf-8"))
+        document = parse_json_document(raw.decode("utf-8"))
+    except DuplicateMemberError as error:
+        raise SchemaError(
+            f"the landing schema carries the member {_shown(error.name)} more than "
+            f"once: {_path_shown(path)}; one value per member is required"
+        ) from error
     except (UnicodeDecodeError, json.JSONDecodeError) as error:
         raise SchemaError(
             f"the landing schema is not readable JSON: {_path_shown(path)}: "
@@ -440,6 +942,173 @@ def load_schema(path: Path = DEFAULT_SCHEMA) -> Mapping[str, Any]:
             f"{_path_shown(path)}; a JSON object is required"
         )
     return document
+
+
+def build_format_checker() -> jsonschema.FormatChecker:
+    """Return the checker applying the landing schema's semantic format assertions.
+
+    The checker carries the dialect's own ``date`` checker, which accepts a
+    calendar date and rejects a value such as 2026-99-99 that a date pattern
+    alone admits, and a ``genapp-timestamp`` checker parsing the exact
+    ``TIMESTAMP_FORMAT`` representation the landing contract carries. A
+    non-string instance passes both, as a format assertion applies to strings
+    only. The construction matches modernization/landing/land_to_s3.py, so the
+    landing tool and this loader reach the same verdict for the same bytes.
+
+    Raises ``SchemaError`` when the installed library publishes no ``date``
+    checker, since the schema's date assertions would otherwise be annotations
+    that assert nothing.
+    """
+    if DATE_FORMAT_NAME not in jsonschema.FormatChecker.checkers:
+        raise SchemaError(
+            f"the installed jsonschema library publishes no {_shown(DATE_FORMAT_NAME)} "
+            "format checker, so the landing schema's date assertions cannot be applied"
+        )
+    checker = jsonschema.FormatChecker(formats=(DATE_FORMAT_NAME,))
+
+    @checker.checks(TIMESTAMP_FORMAT_NAME, raises=ValueError)
+    def _conforms(instance: Any) -> bool:
+        """Return True when ``instance`` is a timestamp written TIMESTAMP_FORMAT."""
+        if not isinstance(instance, str):
+            return True
+        datetime.datetime.strptime(instance, TIMESTAMP_FORMAT)
+        return True
+
+    return checker
+
+
+def build_validator(
+    schema: Mapping[str, Any], path: Path = DEFAULT_SCHEMA
+) -> Draft202012Validator:
+    """Return a validator for ``schema``, confirming its declared dialect first.
+
+    ``schema`` must declare the 2020-12 dialect in ``$schema``, which is the
+    dialect the returned validator applies, and must itself satisfy that
+    dialect's meta-schema. ``path`` names the schema in any diagnostic. The
+    validator carries the checker ``build_format_checker`` returns, so every
+    ``format`` the schema declares is asserted rather than annotated.
+
+    Raises ``SchemaError`` when the declared dialect is absent or differs from
+    the one applied, when the document is not a valid schema, or when the format
+    checker cannot be built.
+    """
+    applied = Draft202012Validator.META_SCHEMA["$id"]
+    declared = schema.get("$schema")
+    if declared is None:
+        raise SchemaError(
+            f"the landing schema declares no '$schema' dialect: {_path_shown(path)}; "
+            f"{_shown(applied)} is required"
+        )
+    if declared != applied:
+        raise SchemaError(
+            f"the landing schema declares dialect {_display(declared)}: "
+            f"{_path_shown(path)}; this tool applies {_shown(applied)}"
+        )
+    try:
+        Draft202012Validator.check_schema(schema)
+    except jsonschema.exceptions.SchemaError as error:
+        raise SchemaError(
+            f"the landing schema is not a valid 2020-12 schema: {_path_shown(path)}: "
+            f"at {_json_pointer(error.absolute_schema_path)}: "
+            f"{_escaped(error.message, MAX_DIAGNOSTIC_MESSAGE_CHARACTERS)}"
+        ) from error
+    return Draft202012Validator(schema, format_checker=build_format_checker())
+
+
+def _json_pointer(path: Iterable[Any]) -> str:
+    """Return the RFC 6901 JSON Pointer for ``path``, rendering the root as ``/``.
+
+    Each element is escaped as RFC 6901 requires, with ``~`` written ``~0`` and
+    ``/`` written ``~1``.
+    """
+    parts = [
+        str(element).replace("~", "~0").replace(KEY_SEPARATOR, "~1")
+        for element in path
+    ]
+    if not parts:
+        return KEY_SEPARATOR
+    return KEY_SEPARATOR + KEY_SEPARATOR.join(parts)
+
+
+def _declared_shown(validator_value: Any) -> str:
+    """Return the schema value one keyword declares, as one bounded JSON fragment.
+
+    The fragment is schema text rather than record content, so it is reported
+    whether or not record values are shown.
+    """
+    try:
+        rendered = json.dumps(validator_value, ensure_ascii=True, sort_keys=True)
+    except (TypeError, ValueError):
+        rendered = str(validator_value)
+    return _escaped(rendered, MAX_DIAGNOSTIC_MESSAGE_CHARACTERS)
+
+
+def _rejected_shape(instance: Any) -> str:
+    """Return the JSON type and size of a rejected value, carrying no part of it."""
+    if isinstance(instance, str):
+        return f"a string of {len(instance)} characters"
+    if instance is None:
+        return "null"
+    if isinstance(instance, bool):
+        return "a boolean"
+    if isinstance(instance, (int, float)):
+        return f"a {_type_name(instance)}"
+    if isinstance(instance, Mapping):
+        return f"an object of {len(instance)} members"
+    if isinstance(instance, (list, tuple)):
+        return f"an array of {len(instance)} elements"
+    return f"a {_type_name(instance)}"
+
+
+def _offending_names(error: jsonschema.exceptions.ValidationError) -> str:
+    """Return the property names the breached keyword is about, or an empty fragment.
+
+    A ``required`` violation names the properties the object omits and an
+    ``additionalProperties`` violation names the properties the schema does not
+    declare. Both are member names, which are part of the landing contract rather
+    than landed values. Every other keyword yields an empty fragment.
+    """
+    instance = error.instance
+    if not isinstance(instance, Mapping):
+        return ""
+    if error.validator == "required" and isinstance(error.validator_value, list):
+        return _listed(
+            [str(name) for name in error.validator_value if name not in instance]
+        )
+    if error.validator == "additionalProperties":
+        declared = (
+            error.schema.get("properties", {})
+            if isinstance(error.schema, Mapping)
+            else {}
+        )
+        return _listed(sorted(str(name) for name in instance if name not in declared))
+    return ""
+
+
+def _violation(error: jsonschema.exceptions.ValidationError) -> str:
+    """Return one schema violation as a pointer, the breached constraint and a shape.
+
+    The fragment names the JSON Pointer of the rejected value, the schema keyword
+    that rejected it, the value the schema declares for that keyword, the
+    property names the keyword is about where it has any, and the JSON type and
+    size of the rejected value. The library's own message is used only when record
+    values are shown, since it embeds the value it rejected.
+    """
+    pointer = _json_pointer(error.absolute_path)
+    if show_identifiers_enabled():
+        return (
+            f"at {pointer}: "
+            f"{_escaped(error.message, MAX_DIAGNOSTIC_MESSAGE_CHARACTERS)}"
+        )
+    fragments = [
+        f"the {_shown(str(error.validator))} constraint is not satisfied",
+        f"the schema declares {_declared_shown(error.validator_value)}",
+    ]
+    names = _offending_names(error)
+    if names:
+        fragments.append(f"the properties at issue are {names}")
+    fragments.append(f"the rejected value is {_rejected_shape(error.instance)}")
+    return f"at {pointer}: " + "; ".join(fragments)
 
 
 def _confirmed_identifier(name: str, what: str) -> str:
@@ -523,14 +1192,31 @@ def read_column_names(
     return names
 
 
-def landed_column_names(path: Path = DEFAULT_SCHEMA) -> tuple[str, ...]:
-    """Return the landed column names read from the landing schema at ``path``.
+class LandingContract(NamedTuple):
+    """The landing contract one run validates its object against.
 
-    Raises ``SchemaError`` when the schema cannot be read or does not declare
-    the landed columns.
+    ``columns`` are the landed column names in the order the schema declares them,
+    which is the order of the row written, and ``validator`` applies every constraint
+    of the same schema document.
     """
-    return read_column_names(load_schema(path), path)
 
+    columns: tuple[str, ...]
+    validator: Draft202012Validator
+
+
+def landing_contract(path: Path = DEFAULT_SCHEMA) -> LandingContract:
+    """Return the landed column names and the validator of the schema at ``path``.
+
+    The schema is read once, so the columns the row is written from and the
+    constraints the object is validated against come from the same document.
+
+    Raises ``SchemaError`` when the schema cannot be read, does not declare the
+    landed columns, or is not a usable 2020-12 schema.
+    """
+    schema = load_schema(path)
+    return LandingContract(
+        read_column_names(schema, path), build_validator(schema, path)
+    )
 
 # ---------------------------------------------------------------------------
 # Settings
@@ -538,15 +1224,22 @@ def landed_column_names(path: Path = DEFAULT_SCHEMA) -> tuple[str, ...]:
 
 
 def _from_environment(names: Sequence[str]) -> tuple[str | None, str | None]:
-    """Return the first non-empty value among ``names`` and the name that carried it.
+    """Return the first value among ``names`` that carries content, and its name.
 
-    A variable that is set to the empty string is passed over. Returns
-    ``(None, None)`` when no name carries a value. Only the name is ever quoted
-    in a diagnostic.
+    A variable that is set to the empty string or to whitespace alone counts as
+    unset and is passed over, so the next name is consulted and then the
+    documented default applies; that is the empty-value resolution every
+    command-line tool of this bridge applies, and the local output of
+    modernization/dbt/genapp_rqi/profiles.example.yml resolves
+    ``DATABASE_VARIABLES`` the same way. The value carried is returned exactly as
+    the environment holds it: nothing is trimmed, so a setting that would be
+    invalid with surrounding whitespace is reported rather than silently
+    repaired. Returns ``(None, None)`` when no name carries content. Only the name
+    is ever quoted in a diagnostic.
     """
     for name in names:
         value = os.environ.get(name)
-        if value:
+        if value is not None and value.strip():
             return value, name
     return None, None
 
@@ -597,9 +1290,16 @@ def _require_segment(value: str, what: str, origin: str) -> str:
 def _require_bucket(value: str, origin: str) -> str:
     """Return ``value`` confirmed usable as a bucket name and URI authority.
 
-    Raises ``ConfigurationError`` when the value is shorter than
-    ``MIN_BUCKET_CHARACTERS``, longer than ``MAX_BUCKET_CHARACTERS`` or carries a
-    character that could not appear in a reported URI.
+    The name is held to the general-purpose bucket naming rules, which every
+    addressable bucket satisfies whichever endpoint serves it:
+    ``MIN_BUCKET_CHARACTERS`` to ``MAX_BUCKET_CHARACTERS`` characters drawn from
+    lowercase letters, digits, dot and hyphen, beginning and ending with a letter
+    or a digit, carrying no two adjacent dots, not written as an IPv4 address,
+    and carrying none of the prefixes or suffixes the service reserves. A name
+    outside those rules names no bucket that could be addressed, so it is refused
+    before a client exists rather than reported as a failed request.
+
+    Raises ``ConfigurationError`` when the name breaches any of those rules.
     """
     if not (MIN_BUCKET_CHARACTERS <= len(value) <= MAX_BUCKET_CHARACTERS):
         raise ConfigurationError(
@@ -609,9 +1309,32 @@ def _require_bucket(value: str, origin: str) -> str:
         )
     if not _BUCKET_SHAPE.fullmatch(value):
         raise ConfigurationError(
-            f"the bucket name from {origin} carries a character outside ASCII "
-            f"letters, digits, underscore, dot and hyphen: {_shown(value)}"
+            f"the bucket name from {origin} is not a general-purpose bucket name: "
+            f"{_shown(value)}; it carries lowercase letters, digits, dot and "
+            "hyphen only, and begins and ends with a letter or a digit"
         )
+    if _BUCKET_ADJACENT_DOTS in value:
+        raise ConfigurationError(
+            f"the bucket name from {origin} carries two adjacent dots: "
+            f"{_shown(value)}; a general-purpose bucket name does not"
+        )
+    if _BUCKET_IPV4_SHAPE.fullmatch(value):
+        raise ConfigurationError(
+            f"the bucket name from {origin} is written as an IPv4 address: "
+            f"{_shown(value)}; a general-purpose bucket name is not"
+        )
+    for prefix in BUCKET_RESERVED_PREFIXES:
+        if value.startswith(prefix):
+            raise ConfigurationError(
+                f"the bucket name from {origin} begins with the reserved prefix "
+                f"{_shown(prefix)}: {_shown(value)}"
+            )
+    for suffix in BUCKET_RESERVED_SUFFIXES:
+        if value.endswith(suffix):
+            raise ConfigurationError(
+                f"the bucket name from {origin} ends with the reserved suffix "
+                f"{_shown(suffix)}: {_shown(value)}"
+            )
     return value
 
 
@@ -653,17 +1376,21 @@ def resolve_source_system_key(supplied: str | None) -> str:
 
 
 def resolve_entity(supplied: str | None) -> str:
-    """Return the entity element of the landing prefix.
+    """Return the entity element of the landing prefix, which is ``LANDING_ENTITY``.
 
-    ``supplied`` is the ``--entity`` value and ``DEFAULT_ENTITY`` applies when
-    it is absent.
+    ``supplied`` is the ``--entity`` value. Omitted, the literal applies;
+    supplied, it must repeat that literal, so this loader can only address the
+    canonical policy-issue prefix land_to_s3.py writes to.
 
-    Raises ``ConfigurationError`` when the resolved value cannot form one path
-    segment.
+    Raises ``ConfigurationError`` when ``supplied`` carries any other value.
     """
-    if supplied is None:
-        return _require_segment(DEFAULT_ENTITY, "entity", "the built-in default")
-    return _require_segment(supplied, "entity", "--entity")
+    if supplied is not None and supplied != LANDING_ENTITY:
+        raise ConfigurationError(
+            f"the entity from --entity is {_shown(supplied)}: this bridge lands one "
+            f"entity and the landing prefix carries {_shown(LANDING_ENTITY)}; omit "
+            "--entity or repeat that literal"
+        )
+    return _require_segment(LANDING_ENTITY, "entity", "the landing contract")
 
 
 def resolve_extract_date(supplied: str | None) -> datetime.date:
@@ -695,31 +1422,113 @@ def resolve_extract_date(supplied: str | None) -> datetime.date:
     return parsed
 
 
-def resolve_endpoint_url(supplied: str | None) -> str | None:
-    """Return the S3 endpoint to address, or None to address AWS S3.
+def _is_loopback_host(host: str) -> bool:
+    """Return whether ``host`` is a loopback literal or exactly the loopback name.
+
+    A host is accepted for the literal it is: an IPv4 address in 127.0.0.0/8,
+    the IPv6 address ::1 or any other loopback IPv6 literal, or
+    ``LOOPBACK_HOST_NAME`` compared without case. No name is resolved, so a name
+    that resolves to a loopback address is not a loopback host under this test,
+    and an alternative spelling that is not itself a valid address literal, such
+    as a bare integer, is refused.
+    """
+    if host.casefold() == LOOPBACK_HOST_NAME:
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
+
+
+def _refuse_endpoint(origin: str, fault: str) -> NoReturn:
+    """Raise ``ConfigurationError`` reporting ``fault`` without echoing the endpoint.
+
+    The endpoint is a setting this tool never discloses, so the diagnostic names
+    where the value came from and what is accepted, never the value itself.
+    """
+    raise ConfigurationError(
+        f"the endpoint from {origin} is not accepted: {fault}. A local endpoint is "
+        f"{' or '.join(ACCEPTED_ENDPOINT_SCHEMES)} on a loopback host "
+        f"(127.0.0.0/8, ::1 or {LOOPBACK_HOST_NAME}) with an explicit port of "
+        f"{ENDPOINT_PORT_FLOOR} or above, no embedded credentials, no query, no "
+        "fragment and no path; leave the setting unset to address AWS S3. The value "
+        "is not echoed"
+    )
+
+
+def require_loopback_endpoint(value: str, origin: str) -> str:
+    """Return ``value`` confirmed to be a local-substitute S3 endpoint.
+
+    An accepted endpoint carries at most ``MAX_ENDPOINT_CHARACTERS`` characters, no
+    control character, a scheme from ``ACCEPTED_ENDPOINT_SCHEMES``, a host that
+    ``_is_loopback_host`` accepts, an explicit port at or above
+    ``ENDPOINT_PORT_FLOOR``, no embedded credentials, a path in
+    ``ACCEPTED_ENDPOINT_PATHS``, no query and no fragment. Every check runs before
+    any client, credential or request exists, and every port from that floor up is
+    accepted, so several local endpoints can run side by side while no override
+    reaches a privileged loopback service.
+
+    Raises ``ConfigurationError`` naming the rejected element, and never the value,
+    for every other endpoint.
+    """
+    if len(value) > MAX_ENDPOINT_CHARACTERS:
+        _refuse_endpoint(
+            origin,
+            f"it holds {len(value)} characters, and at most "
+            f"{MAX_ENDPOINT_CHARACTERS} are accepted",
+        )
+    if _CONTROL_CHARACTERS.search(value):
+        _refuse_endpoint(origin, "it carries a control character")
+    if any(character.isspace() for character in value):
+        _refuse_endpoint(origin, "it carries whitespace")
+    try:
+        parts = urllib.parse.urlsplit(value)
+    except ValueError:
+        _refuse_endpoint(origin, "it cannot be parsed as a URL")
+    if parts.scheme not in ACCEPTED_ENDPOINT_SCHEMES:
+        _refuse_endpoint(origin, "its scheme is not accepted")
+    if "@" in parts.netloc:
+        _refuse_endpoint(origin, "it carries embedded credentials before the host")
+    if parts.query:
+        _refuse_endpoint(origin, "it carries a query")
+    if parts.fragment:
+        _refuse_endpoint(origin, "it carries a fragment")
+    if parts.path not in ACCEPTED_ENDPOINT_PATHS:
+        _refuse_endpoint(origin, "it carries a path")
+    try:
+        host = parts.hostname
+        port = parts.port
+    except ValueError:
+        _refuse_endpoint(origin, "its port is not a number")
+    if not host:
+        _refuse_endpoint(origin, "it names no host")
+    if not _is_loopback_host(host):
+        _refuse_endpoint(origin, "its host is not a loopback address")
+    if port is None:
+        _refuse_endpoint(origin, "it names no port")
+    if port < ENDPOINT_PORT_FLOOR:
+        _refuse_endpoint(origin, f"its port is below {ENDPOINT_PORT_FLOOR}")
+    return value
+
+
+def resolve_endpoint_url(supplied: str | None) -> tuple[str | None, str]:
+    """Return the S3 endpoint to address and the origin it came from.
 
     ``supplied`` is the ``--endpoint-url`` value and the ``S3_ENDPOINT_URL``
     environment variable is consulted when it is absent. A returned value
-    directs the client at that endpoint; None leaves the client addressing AWS
-    S3.
+    directs the client at that endpoint and is a local substitute confirmed by
+    ``require_loopback_endpoint``; None means no endpoint was resolved, which
+    ``confirm_run_mode`` then refuses, since this tool runs on the local branch
+    alone. The origin names where the value came from, so a refusal can name the
+    setting that carried it without echoing the endpoint.
 
-    Raises ``ConfigurationError`` when the resolved value carries no scheme
-    separator or carries whitespace.
+    Raises ``ConfigurationError``, carrying no endpoint value, when the resolved
+    value is not an accepted local-substitute endpoint.
     """
     value, origin = _resolved(supplied, "--endpoint-url", (ENDPOINT_URL_VARIABLE,))
     if value is None:
-        return None
-    scheme, separator, _ = value.partition(URI_SCHEME_SEPARATOR)
-    if not separator or not scheme:
-        raise ConfigurationError(
-            f"the endpoint from {origin} is not an absolute URL: {_shown(value)}; a "
-            "scheme such as http or https is required"
-        )
-    if any(character.isspace() for character in value):
-        raise ConfigurationError(
-            f"the endpoint from {origin} carries whitespace: {_shown(value)}"
-        )
-    return value
+        return None, origin
+    return require_loopback_endpoint(value, origin), origin
 
 
 def resolve_region(supplied: str | None) -> str | None:
@@ -742,77 +1551,191 @@ def resolve_region(supplied: str | None) -> str | None:
     return value
 
 
+def resolve_run_mode(supplied: str | None) -> tuple[str, str]:
+    """Return the run mode this run addresses and the origin it came from.
+
+    ``supplied`` is the ``--run-mode`` value, which wins whenever it is present,
+    and the ``DBT_TARGET`` environment variable is consulted when it is absent;
+    ``DEFAULT_RUN_MODE`` applies when neither carries a value. The accepted values
+    are ``RUN_MODES``, which are the output names of
+    modernization/dbt/genapp_rqi/profiles.example.yml, so the one setting that
+    selects the dbt output also selects the branch this tool and
+    modernization/landing/land_to_s3.py address.
+
+    Raises ``ConfigurationError`` when the resolved value is not one of
+    ``RUN_MODES``. A value outside that set is never mapped onto the nearest one: a
+    misspelled setting would otherwise decide silently whether this run writes the
+    local database.
+    """
+    value, origin = _resolved(supplied, "--run-mode", (RUN_MODE_VARIABLE,))
+    if value is None:
+        return DEFAULT_RUN_MODE, "the built-in default"
+    if value not in RUN_MODES:
+        raise ConfigurationError(
+            f"the run mode from {origin} is {_shown(value)}: "
+            f"{_quote_all(RUN_MODES)} are accepted; {_shown(RUN_MODE_LOCAL)} runs "
+            f"this loader and {_shown(RUN_MODE_REAL)} loads the raw relation "
+            f"through {REAL_MODE_LOADER} instead"
+        )
+    return value, origin
+
+
+def confirm_run_mode(
+    run_mode: str, run_mode_origin: str, endpoint_url: str | None, endpoint_origin: str
+) -> None:
+    """Confirm this tool is the loader the resolved run mode calls for.
+
+    This tool writes the DuckDB database of the local substitute, so it runs in
+    ``RUN_MODE_LOCAL`` alone: in ``RUN_MODE_REAL`` the raw relation is loaded by
+    ``REAL_MODE_LOADER`` against Redshift, and running this tool there would leave
+    a local row that no step of that run reads while the real relation stayed
+    empty. ``RUN_MODE_LOCAL`` also requires a resolved endpoint, since the object
+    to load sits at the local substitute. Returns None when the run mode and the
+    endpoint agree with each other and with this tool.
+
+    This is checked before a session, a client or a credential exists and before
+    the database is opened, so a conflicting pair is reported without a request
+    being signed and without a database file being created.
+
+    Raises ``ConfigurationError`` naming both settings and where each came from
+    when they do not agree.
+    """
+    if run_mode == RUN_MODE_REAL:
+        raise ConfigurationError(
+            f"run mode {_shown(run_mode)} from {run_mode_origin} addresses the real "
+            f"target, whose raw relation is loaded by {REAL_MODE_LOADER}, not by "
+            f"this tool; select run mode {_shown(RUN_MODE_LOCAL)} to load the local "
+            "DuckDB database"
+        )
+    if endpoint_url is None:
+        raise ConfigurationError(
+            f"run mode {_shown(run_mode)} from {run_mode_origin} loads the object "
+            "from the local substitute, but no endpoint is set: supply "
+            f"--endpoint-url or set the {ENDPOINT_URL_VARIABLE} environment "
+            "variable to the loopback endpoint serving it"
+        )
+
+
+
+
+
+
 def resolve_database_path(supplied: str | None) -> Path:
-    """Return the DuckDB database file to open.
+    """Return the DuckDB database file to open, contained under the validation area.
 
     ``supplied`` is the ``--database`` value; ``LOCAL_DUCKDB_PATH`` and then
     ``DUCKDB_DATABASE`` are consulted when it is absent, and ``DEFAULT_DATABASE``
-    when none carries a value. A path inside this tool's own directory is
-    refused, and an in-memory database is refused, so a load always reaches a
-    file a later step can read.
+    when none carries a value. An in-memory database is refused, so a load always
+    reaches a file a later step can read.
 
-    Raises ``ConfigurationError`` when the resolved value is empty, names this
-    tool's own directory, or names an in-memory database.
+    The resolved path is the one this tool creates parent directories for and
+    writes, so it is contained rather than merely inspected: the candidate and its
+    parent are resolved through every symbolic link, and the result must sit inside
+    ``DATABASE_DIRECTORY``, which keeps a destination out of ``base/``, out of the
+    authored source tree and out of any directory a link points at. The path itself
+    may not be a symbolic link, may not name an existing entry that is not a regular
+    file, and may not name one of ``RESERVED_DATABASE_NAMES``. The returned path is
+    absolute.
+
+    Raises ``ConfigurationError`` when the resolved value is empty, names an
+    in-memory database, resolves outside ``DATABASE_DIRECTORY``, is a symbolic link,
+    names an existing non-regular entry, or names an authored file of that
+    directory.
     """
     value, origin = _resolved(supplied, "--database", DATABASE_VARIABLES)
     if value is None:
-        return DEFAULT_DATABASE
+        value, origin = str(DEFAULT_DATABASE), "the built-in default"
     if not value.strip():
         raise ConfigurationError(f"the database path from {origin} is empty")
-    if value == ":memory:":
+    if value == IN_MEMORY_DATABASE:
         raise ConfigurationError(
             f"the database path from {origin} names an in-memory database: "
             f"{_shown(value)}; a file the following step can read is required"
         )
     candidate = Path(value).expanduser()
-    resolved = candidate if candidate.is_absolute() else Path.cwd() / candidate
-    if _THIS_DIR == resolved.parent or _THIS_DIR in resolved.parents:
+    if not candidate.is_absolute():
+        candidate = Path.cwd() / candidate
+    if candidate.is_symlink():
         raise ConfigurationError(
-            f"the database path from {origin} is inside {_path_shown(_THIS_DIR)}: "
-            f"{_path_shown(value)}; {_path_shown(DEFAULT_DATABASE)} is the path "
-            "this bridge keeps its local database at"
+            f"the database path from {origin} is a symbolic link: "
+            f"{_path_shown(value)}; the database is written to a regular file inside "
+            f"{_path_shown(DATABASE_DIRECTORY)}"
         )
-    return candidate
+    if not candidate.name:
+        raise ConfigurationError(
+            f"the database path from {origin} names a directory rather than a file: "
+            f"{_path_shown(value)}"
+        )
+    contained_root = Path(os.path.realpath(DATABASE_DIRECTORY))
+    parent = Path(os.path.realpath(candidate.parent))
+    if parent != contained_root and contained_root not in parent.parents:
+        raise ConfigurationError(
+            f"the database path from {origin} resolves outside "
+            f"{_path_shown(contained_root)}: {_path_shown(value)}; this tool writes "
+            f"its database inside that directory only, and "
+            f"{_path_shown(DEFAULT_DATABASE)} is the path this bridge keeps it at"
+        )
+    resolved = parent / candidate.name
+    if resolved.name in RESERVED_DATABASE_NAMES:
+        raise ConfigurationError(
+            f"the database path from {origin} names {_shown(resolved.name)}: "
+            f"{_path_shown(value)}; that is an authored file of "
+            f"{_path_shown(contained_root)} and is never opened as a database"
+        )
+    if resolved.is_symlink():
+        raise ConfigurationError(
+            f"the database path from {origin} resolves to a symbolic link: "
+            f"{_path_shown(value)}; the database is written to a regular file"
+        )
+    if resolved.exists() and not resolved.is_file():
+        raise ConfigurationError(
+            f"the database path from {origin} names an entry that is not a regular "
+            f"file: {_path_shown(value)}"
+        )
+    return resolved
 
 
-def resolve_ddl_paths(
-    supplied: Sequence[str] | None, apply_ddl: bool
-) -> tuple[Path, ...]:
+def resolve_ddl_paths(apply_ddl: bool) -> tuple[Path, ...]:
     """Return the SQL scripts to apply before the row is written, in apply order.
 
-    ``supplied`` names the scripts in the order given. With ``supplied`` empty or
-    None, every ``DDL_GLOB`` match in ``DEFAULT_DDL_DIRECTORY`` is returned in
-    sorted name order. With ``apply_ddl`` false, no script is returned and none
-    is read.
+    The scripts are exactly ``DDL_SCRIPT_NAMES``, read from ``DDL_DIRECTORY`` in
+    that order: the shared script creating the schemas and the shared script
+    creating the raw relation. The list is fixed in this module, so no caller and no
+    file added to that directory can introduce another script, and no SQL beyond
+    those two files is ever executed. With ``apply_ddl`` false no script is returned
+    and none is read.
 
-    Raises ``ConfigurationError`` when a named script is absent or is not a
-    file, or when the default directory holds no match.
+    Raises ``ConfigurationError`` when one of the two scripts is absent, is a
+    symbolic link, is not a regular file, or does not resolve inside
+    ``DDL_DIRECTORY``.
     """
     if not apply_ddl:
         return ()
-    if supplied:
-        paths = tuple(Path(name).expanduser() for name in supplied)
-        for path in paths:
-            if not path.is_file():
-                raise ConfigurationError(
-                    f"the SQL script named by --ddl is not a readable file: "
-                    f"{_path_shown(path)}"
-                )
-        return paths
-    if not DEFAULT_DDL_DIRECTORY.is_dir():
-        raise ConfigurationError(
-            f"the default SQL script directory is absent: "
-            f"{_path_shown(DEFAULT_DDL_DIRECTORY)}; supply --ddl with the scripts "
-            "defining the raw relation, or --no-ddl to apply none"
-        )
-    found = tuple(sorted(DEFAULT_DDL_DIRECTORY.glob(DDL_GLOB)))
-    if not found:
-        raise ConfigurationError(
-            f"the default SQL script directory holds no {DDL_GLOB} file: "
-            f"{_path_shown(DEFAULT_DDL_DIRECTORY)}; supply --ddl with the scripts "
-            "defining the raw relation, or --no-ddl to apply none"
-        )
-    return found
+    directory = Path(os.path.realpath(DDL_DIRECTORY))
+    paths: list[Path] = []
+    for name in DDL_SCRIPT_NAMES:
+        path = DDL_DIRECTORY / name
+        if path.is_symlink():
+            raise ConfigurationError(
+                f"the shared SQL script {_shown(name)} is a symbolic link: "
+                f"{_path_shown(path)}; the two scripts this tool applies are regular "
+                f"files of {_path_shown(DDL_DIRECTORY)}"
+            )
+        if not path.is_file():
+            raise ConfigurationError(
+                f"the shared SQL script {_shown(name)} is absent or is not a regular "
+                f"file: {_path_shown(path)}; this tool applies "
+                f"{_listed(list(DDL_SCRIPT_NAMES))} from "
+                f"{_path_shown(DDL_DIRECTORY)}, or --no-ddl to apply none"
+            )
+        resolved = Path(os.path.realpath(path))
+        if resolved.parent != directory:
+            raise ConfigurationError(
+                f"the shared SQL script {_shown(name)} resolves outside "
+                f"{_path_shown(directory)}: {_path_shown(resolved)}"
+            )
+        paths.append(resolved)
+    return tuple(paths)
 
 
 # ---------------------------------------------------------------------------
@@ -829,11 +1752,18 @@ def build_landing_key(
     per entry of ``PARTITION_FIELDS`` in that order, then ``OBJECT_NAME``, with
     no leading separator, no empty segment and no percent-encoding of the equals
     sign. The date is written as ``EXTRACT_DATE_FORM``. This is the key
-    land_to_s3.py writes for the same three values.
+    land_to_s3.py writes for the same three values. ``entity`` must be
+    ``LANDING_ENTITY``, so every key this function returns addresses the canonical
+    policy-issue prefix.
 
     Raises ``ConfigurationError`` when a supplied value cannot form one path
-    segment.
+    segment or when ``entity`` is not ``LANDING_ENTITY``.
     """
+    if entity != LANDING_ENTITY:
+        raise ConfigurationError(
+            f"the entity element of the landing key is {_shown(entity)}; the landing "
+            f"prefix carries {_shown(LANDING_ENTITY)}"
+        )
     values = {
         "source_system_key": _require_segment(
             source_system_key, "source-system key", "the caller"
@@ -859,7 +1789,9 @@ def parse_object_reference(supplied: str, bucket: str) -> str:
     land_to_s3.py prints, so the line that step wrote can be passed straight in.
     A URI's authority must equal ``bucket``. A leading separator is refused
     rather than trimmed, and so is a key carrying an empty segment, whitespace or
-    a control character, so the key requested is the key the caller wrote.
+    a control character, so the key requested is the key the caller wrote. The
+    key's own segments are reconciled with the resolved settings separately, by
+    ``confirm_landing_key``.
 
     Raises ``ConfigurationError`` when ``supplied`` is empty, names another
     bucket, carries another URI scheme, or is not a usable object key.
@@ -911,6 +1843,87 @@ def parse_object_reference(supplied: str, bucket: str) -> str:
     return text
 
 
+def confirm_landing_key(
+    key: str,
+    source_system_key: str,
+    entity: str,
+    extract_date: datetime.date,
+    origin: str,
+) -> str:
+    """Confirm ``key`` is the landing key the resolved settings describe, and return it.
+
+    The key is split on ``KEY_SEPARATOR`` and matched against the landing template
+    segment by segment: ``LANDING_KEY_ROOT``, one ``field=value`` segment per entry
+    of ``PARTITION_FIELDS`` in that order, and ``OBJECT_NAME``. Each field name
+    must be the expected one and each value must equal the resolved
+    ``source_system_key``, ``entity`` or ``extract_date``. The key therefore
+    confirms the settings rather than replacing them: a key naming another
+    source system, another entity or another day is refused, so a row can never be
+    loaded from an object the run's own source-system key, entity and date do not
+    describe, and the prefix the row came from is always the prefix the run
+    resolved.
+
+    Returns the key unchanged when every segment matches.
+
+    Raises ``ConfigurationError`` naming the segment that differs, the value it
+    carries and the resolved value it was compared with, so the caller can see
+    which setting to supply.
+    """
+    expected = {
+        "source_system_key": source_system_key,
+        "entity": entity,
+        "extract_date": extract_date.isoformat(),
+    }
+    template = build_landing_key(source_system_key, entity, extract_date)
+    segments = key.split(KEY_SEPARATOR)
+    wanted = len(PARTITION_FIELDS) + 2
+    if len(segments) != wanted:
+        raise ConfigurationError(
+            f"the object from {origin} carries {len(segments)} key segments: "
+            f"{_shown(key, MAX_DIAGNOSTIC_PATH_CHARACTERS)}; the landing key carries "
+            f"{wanted}, as {_shown(template, MAX_DIAGNOSTIC_PATH_CHARACTERS)}"
+        )
+    if segments[0] != LANDING_KEY_ROOT:
+        raise ConfigurationError(
+            f"the object from {origin} begins with {_shown(segments[0])} rather than "
+            f"{_shown(LANDING_KEY_ROOT)}: "
+            f"{_shown(key, MAX_DIAGNOSTIC_PATH_CHARACTERS)}"
+        )
+    for position, field in enumerate(PARTITION_FIELDS, start=1):
+        segment = segments[position]
+        name, separator, carried = segment.partition("=")
+        if not separator:
+            raise ConfigurationError(
+                f"the object from {origin} carries {_shown(segment)} where the "
+                f"landing key carries {_shown(f'{field}={expected[field]}')}: "
+                f"{_shown(key, MAX_DIAGNOSTIC_PATH_CHARACTERS)}; each partition "
+                "segment is written field=value"
+            )
+        if name != field:
+            raise ConfigurationError(
+                f"the object from {origin} carries partition field {_shown(name)} "
+                f"where the landing key carries {_shown(field)}: "
+                f"{_shown(key, MAX_DIAGNOSTIC_PATH_CHARACTERS)}; the fields are "
+                f"{_quote_all(PARTITION_FIELDS)}, in that order"
+            )
+        if carried != expected[field]:
+            raise ConfigurationError(
+                f"the object from {origin} carries {_shown(name)} "
+                f"{_shown(carried)} while the resolved value is "
+                f"{_shown(expected[field])}: the two must agree, so supply the "
+                f"matching --{field.replace('_', '-')} or omit {origin} to build "
+                "the key from the resolved settings"
+            )
+    if segments[-1] != OBJECT_NAME:
+        raise ConfigurationError(
+            f"the object from {origin} is named {_shown(segments[-1])} rather than "
+            f"{_shown(OBJECT_NAME)}: "
+            f"{_shown(key, MAX_DIAGNOSTIC_PATH_CHARACTERS)}; one landing object is "
+            "written per prefix"
+        )
+    return key
+
+
 def resolve_object_key(
     supplied: str | None,
     bucket: str,
@@ -920,17 +1933,32 @@ def resolve_object_key(
 ) -> str:
     """Return the key of the object to download.
 
-    ``supplied`` is the ``--key`` value, accepted as a bare key or as the
-    ``s3://`` URI land_to_s3.py printed. With ``supplied`` absent the key is
-    rebuilt from ``source_system_key``, ``entity`` and ``extract_date``, giving
-    the same key that step wrote for those three values.
+    The key is always the one ``build_landing_key`` rebuilds from
+    ``source_system_key``, ``entity`` and ``extract_date``, which is the key
+    land_to_s3.py wrote for those three values. ``supplied`` is the ``--key``
+    value, accepted as a bare key or as the ``s3://`` URI that step printed, and it
+    must equal that rebuilt key: it confirms which object is being loaded rather
+    than selecting a different one, so no stale object, sibling object or object of
+    another entity can be loaded under this run's settings.
 
     Raises ``ConfigurationError`` when ``supplied`` is not a usable object
-    reference or when a rebuilt segment is not usable.
+    reference, when it does not equal the rebuilt key, or when a rebuilt segment is
+    not usable.
     """
-    if supplied is not None:
-        return parse_object_reference(supplied, bucket)
-    return build_landing_key(source_system_key, entity, extract_date)
+    rebuilt = build_landing_key(source_system_key, entity, extract_date)
+    if supplied is None:
+        return rebuilt
+    requested = parse_object_reference(supplied, bucket)
+    if requested != rebuilt:
+        raise ConfigurationError(
+            "the object from --key is not the object this run's settings name: "
+            f"--key asks for {_shown(requested, MAX_DIAGNOSTIC_PATH_CHARACTERS)} and "
+            f"the landing prefix for this run is "
+            f"{_shown(rebuilt, MAX_DIAGNOSTIC_PATH_CHARACTERS)}; supply the "
+            "--source-system-key, --extract-date and bucket the object was landed "
+            "with, or omit --key"
+        )
+    return rebuilt
 
 
 # ---------------------------------------------------------------------------
@@ -942,14 +1970,20 @@ def _client_config() -> Config:
     """Return the connection behaviour applied to every request.
 
     A failing endpoint is abandoned after ``CONNECT_TIMEOUT_SECONDS`` and a
-    stalled response after ``READ_TIMEOUT_SECONDS``, with at most
-    ``MAX_ATTEMPTS`` attempts, so an unreachable target cannot hold the caller
-    open indefinitely.
+    stalled response after ``READ_TIMEOUT_SECONDS``. ``total_max_attempts`` bounds
+    the calls one request makes at ``MAX_ATTEMPTS`` including the first, which is the
+    bound ``max_attempts`` would have exceeded by one, so an unreachable target
+    cannot hold the caller open indefinitely and the bound the code states is the
+    bound the client applies. Every endpoint configured in the environment or in a
+    profile, including AWS_ENDPOINT_URL and AWS_ENDPOINT_URL_S3, is ignored: the
+    only endpoint that can apply is the one ``resolve_endpoint_url`` accepted and
+    this module passes to the client explicitly.
     """
     return Config(
         connect_timeout=CONNECT_TIMEOUT_SECONDS,
         read_timeout=READ_TIMEOUT_SECONDS,
-        retries={"max_attempts": MAX_ATTEMPTS, "mode": RETRY_MODE},
+        retries={"total_max_attempts": MAX_ATTEMPTS, "mode": RETRY_MODE},
+        ignore_configured_endpoint_urls=True,
     )
 
 
@@ -988,7 +2022,9 @@ def _failure_for(error: BaseException, bucket: str, action: str) -> LoadError:
 
     A credential problem becomes a ``ConfigurationError`` naming the settings to
     supply; every other failure becomes an ``AccessError``. The returned
-    diagnostic carries no credential, token or endpoint value.
+    diagnostic carries no credential or token value; a reason text the endpoint
+    library supplied may name the endpoint it addressed, which is the setting the
+    reader has to correct.
     """
     if isinstance(error, NoCredentialsError):
         return ConfigurationError(f"cannot {action}: {_missing_credentials_message()}")
@@ -1072,14 +2108,15 @@ def resolve_session_region(session: boto3.session.Session) -> str:
     return region
 
 
-def confirm_credentials(session: boto3.session.Session) -> None:
-    """Confirm ``session`` resolves a usable set of credentials.
+def confirm_credentials(session: boto3.session.Session) -> Any:
+    """Confirm ``session`` resolves a usable set of credentials, and return them.
 
     The session's own providers do the resolving, so a variable whose name
     merely begins with AWS is never taken for a credential. An incomplete set
-    surfaces as ``PartialCredentialsError`` from that resolution. Returns None
-    once a credential set is resolved; no credential value is read beyond
-    confirming one is present, and none is ever printed.
+    surfaces as ``PartialCredentialsError`` from that resolution. The resolved
+    credentials are returned so their provenance can be confirmed before a request
+    is signed; no credential value is read beyond confirming one is present, and
+    none is ever printed.
 
     Raises ``ConfigurationError`` naming the settings to supply when no complete
     set is resolved.
@@ -1099,6 +2136,46 @@ def confirm_credentials(session: boto3.session.Session) -> None:
         ) from error
     if credentials is None or not credentials.access_key:
         raise ConfigurationError(_missing_credentials_message())
+    return credentials
+
+
+def confirm_credential_provenance(credentials: Any, endpoint_url: str | None) -> None:
+    """Confirm the resolved credentials may be signed against the endpoint addressed.
+
+    With no endpoint addressed the request goes to AWS S3, where every credential
+    provider is appropriate, and this returns None. With a custom endpoint
+    addressed the request goes to the loopback host serving the local substitute,
+    and only credentials that came from the environment or were passed to the
+    session directly are signed against it: those are the throwaway values a local
+    endpoint is driven with. A credential resolved from a shared credentials file,
+    a configured profile, single sign-on, an assumed role, container metadata or
+    instance metadata belongs to a real account, and sending a request signed with
+    it to a process listening on a local port would disclose that account's
+    signature to whatever holds the port. Such a run is refused rather than
+    downgraded. The method name is read from the credentials botocore resolved; no
+    credential value is read or printed.
+
+    Raises ``ConfigurationError`` naming the resolution method when the credentials
+    did not come from an accepted provider.
+    """
+    if endpoint_url is None:
+        return
+    method = getattr(credentials, "method", None)
+    if not isinstance(method, str) or not method:
+        raise ConfigurationError(
+            "the resolved credentials record no resolution method, so they cannot "
+            "be confirmed as local-substitute credentials while a custom endpoint "
+            f"is addressed: set {' and '.join(CREDENTIAL_VARIABLES)} in the "
+            "environment for the local endpoint"
+        )
+    if method not in LOCAL_CREDENTIAL_METHODS:
+        raise ConfigurationError(
+            f"the resolved credentials came from {_shown(method)} while a custom "
+            "endpoint is addressed: those credentials belong to a real account and "
+            "are never signed against a local endpoint. Set "
+            f"{' and '.join(CREDENTIAL_VARIABLES)} in the environment for the local "
+            f"endpoint, which resolves as {_quote_all(LOCAL_CREDENTIAL_METHODS)}"
+        )
 
 
 def build_s3_client(
@@ -1132,20 +2209,24 @@ def resolve_s3_access(
 ) -> Any:
     """Return an S3 client able to address ``bucket``, refusing to guess a setting.
 
-    A session is created, its region is confirmed, its credentials are
-    confirmed, and a client is built against ``endpoint_url`` when one was
-    supplied. Nothing is requested from the service here and nothing is created.
-    The resolved region is noted on stderr; neither the endpoint nor any
-    credential value is printed.
+    A session is created, its region is confirmed, its credentials are confirmed,
+    their provenance is confirmed against the endpoint being addressed, and a
+    client is built against ``endpoint_url`` when one was supplied. Nothing is
+    requested from the service here and nothing is created, so a credential that
+    may not be signed against the endpoint is refused before any request exists.
+    The resolved region is noted on stderr; neither the endpoint nor any credential
+    value is printed.
 
     Raises ``ConfigurationError`` naming the setting to supply when the region,
-    the credentials or the client cannot be resolved.
+    the credentials or the client cannot be resolved, or when the resolved
+    credentials may not be signed against the endpoint being addressed.
     """
     session = build_session(region)
     resolved_region = resolve_session_region(session)
-    confirm_credentials(session)
+    credentials = confirm_credentials(session)
+    confirm_credential_provenance(credentials, endpoint_url)
     client = build_s3_client(session, endpoint_url)
-    target = "a supplied endpoint" if endpoint_url is not None else "AWS S3"
+    target = "a loopback endpoint" if endpoint_url is not None else "AWS S3"
     _note(
         f"reading bucket {_shown(bucket)} in region {_shown(resolved_region)} "
         f"through {target}"
@@ -1153,23 +2234,139 @@ def resolve_s3_access(
     return client
 
 
-def fetch_object_bytes(client: Any, bucket: str, key: str) -> bytes:
-    """Return the body of the object ``key`` in ``bucket``, as stored.
+class ObjectIdentity(NamedTuple):
+    """The immutable identity a head request recorded for one landed object.
 
-    One byte past ``MAX_OBJECT_BYTES`` is requested, so an oversized object is
-    reported without being held in memory in full. The bytes are returned
-    unchanged; nothing re-encodes or reformats them. Nothing is written to the
-    bucket and nothing else in it is read.
+    ``etag`` is the entity tag the store reported, with any surrounding double
+    quotes removed, ``version_id`` the version the store assigned or
+    ``NOT_VERSIONED`` on a bucket that keeps none, and ``content_length`` the
+    byte count the store reported.
+    """
 
-    Raises ``AccessError`` when the object or the bucket did not answer,
-    ``ConfigurationError`` when a credential or region setting is missing, and
-    ``ObjectError`` when the object is empty or larger than
-    ``MAX_OBJECT_BYTES``.
+    etag: str
+    version_id: str
+    content_length: int
+
+
+class DownloadedObject(NamedTuple):
+    """The bytes of one landed object and the identity they were confirmed against.
+
+    ``body`` is the object body exactly as stored, ``identity`` is what the head
+    request recorded before the download, and ``sha256`` is the digest of
+    ``body`` as computed after it arrived.
+    """
+
+    body: bytes
+    identity: ObjectIdentity
+    sha256: str
+
+
+def _reported_etag(value: Any) -> str:
+    """Return the entity tag ``value`` carries, without its surrounding quotes.
+
+    Raises ``AccessError`` when the store reported no usable entity tag, since
+    the download is conditioned on it.
+    """
+    if not isinstance(value, str) or not value.strip().strip('"'):
+        raise AccessError(
+            f"the endpoint reported {_display(value)} as the entity tag of the "
+            "landed object; an entity tag is required to bind the download to the "
+            "object that was checked"
+        )
+    return value.strip().strip('"')
+
+
+def _reported_content_length(value: Any) -> int:
+    """Return the byte count ``value`` carries.
+
+    Raises ``AccessError`` when the store reported no usable byte count, since
+    the bytes that arrive are confirmed against it.
+    """
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise AccessError(
+            f"the endpoint reported {_display(value)} as the byte count of the "
+            "landed object; a whole number is required to bind the download to the "
+            "object that was checked"
+        )
+    return value
+
+
+def head_object_identity(client: Any, bucket: str, key: str) -> ObjectIdentity:
+    """Return the immutable identity of the object ``key`` in ``bucket``.
+
+    One head request records the entity tag, the version the store assigned
+    where the bucket keeps versions, and the byte count. Nothing is written to
+    the bucket, no body is transferred and nothing else in it is read. The
+    download that follows requires this same identity, so the bytes that are
+    parsed are the bytes this request described.
+
+    Raises ``AccessError`` when the object or the bucket did not answer or
+    reported no usable identity, and ``ConfigurationError`` when a credential or
+    region setting is missing.
     """
     shown_key = _shown(key, MAX_DIAGNOSTIC_PATH_CHARACTERS)
     try:
-        response = client.get_object(Bucket=bucket, Key=key)
+        response = client.head_object(Bucket=bucket, Key=key)
     except (ClientError, BotoCoreError) as error:
+        raise _failure_for(
+            error, bucket, f"read the identity of the landed object {shown_key}"
+        ) from error
+    if not isinstance(response, Mapping):
+        raise AccessError(
+            f"the endpoint returned {_display(response)} for the identity of the "
+            f"landed object {shown_key}; a response object is required"
+        )
+    version = response.get("VersionId")
+    return ObjectIdentity(
+        etag=_reported_etag(response.get("ETag")),
+        version_id=version if isinstance(version, str) and version else NOT_VERSIONED,
+        content_length=_reported_content_length(response.get("ContentLength")),
+    )
+
+
+def fetch_object_bytes(
+    client: Any, bucket: str, key: str, identity: ObjectIdentity
+) -> DownloadedObject:
+    """Return the body of the object ``key`` in ``bucket``, bound to ``identity``.
+
+    The download requires the entity tag ``identity`` recorded, and the version
+    it recorded when the bucket keeps versions, so an object replaced between
+    the head request and this one fails rather than being read. The bytes that
+    arrive are confirmed against the recorded byte count and their digest is
+    computed and returned; the entity tag of a single-part upload is the MD5 of
+    the body, so where the store reported one it is recomputed and compared as
+    well. One byte past ``MAX_OBJECT_BYTES`` is requested, so an oversized
+    object is reported without being held in memory in full. The bytes are
+    returned unchanged; nothing re-encodes or reformats them. Nothing is written
+    to the bucket and nothing else in it is read.
+
+    Raises ``AccessError`` when the object or the bucket did not answer or was
+    replaced between the two requests, ``ConfigurationError`` when a credential
+    or region setting is missing, and ``ObjectError`` when the object is empty,
+    larger than ``MAX_OBJECT_BYTES``, or does not carry the recorded byte count
+    or digest.
+    """
+    shown_key = _shown(key, MAX_DIAGNOSTIC_PATH_CHARACTERS)
+    arguments: dict[str, Any] = {
+        "Bucket": bucket,
+        "Key": key,
+        "IfMatch": identity.etag,
+    }
+    if identity.version_id != NOT_VERSIONED:
+        arguments["VersionId"] = identity.version_id
+    try:
+        response = client.get_object(**arguments)
+    except ClientError as error:
+        if _client_error_code(error) in _CODES_PRECONDITION_FAILED:
+            raise AccessError(
+                f"the landed object {shown_key} in bucket {_shown(bucket)} was "
+                "replaced between the identity check and the download; the load is "
+                "abandoned rather than reading an object that was not checked"
+            ) from error
+        raise _failure_for(
+            error, bucket, f"read the landed object {shown_key}"
+        ) from error
+    except BotoCoreError as error:
         raise _failure_for(
             error, bucket, f"read the landed object {shown_key}"
         ) from error
@@ -1197,7 +2394,7 @@ def fetch_object_bytes(client: Any, bucket: str, key: str) -> bytes:
                 )
     if not isinstance(content, bytes):
         raise AccessError(
-            f"the endpoint returned {_display(content)} as the body of the landed "
+            f"the endpoint returned {_json_shape(content)} as the body of the landed "
             f"object {shown_key}; bytes are required"
         )
     if not content:
@@ -1207,7 +2404,43 @@ def fetch_object_bytes(client: Any, bucket: str, key: str) -> bytes:
             f"the landed object {shown_key} holds more than the accepted "
             f"{MAX_OBJECT_BYTES} bytes"
         )
-    return content
+    if len(content) != identity.content_length:
+        raise ObjectError(
+            f"the landed object {shown_key} arrived as {len(content)} bytes while its "
+            f"identity records {identity.content_length}; the object changed between "
+            "the identity check and the download"
+        )
+    _confirm_single_part_etag(content, identity, shown_key)
+    return DownloadedObject(
+        body=content,
+        identity=identity,
+        sha256=hashlib.sha256(content).hexdigest(),
+    )
+
+
+def _confirm_single_part_etag(
+    content: bytes, identity: ObjectIdentity, shown_key: str
+) -> None:
+    """Confirm ``content`` carries the digest the recorded entity tag stands for.
+
+    A single-part upload carries the hex MD5 of the body as its entity tag, so
+    where the recorded tag is of that form it is recomputed from the bytes that
+    arrived and compared. A multipart tag, which carries a part count after a
+    hyphen, stands for a digest of digests rather than of the body, so the byte
+    count and the version already checked are what bind such an object.
+
+    Raises ``ObjectError`` when a single-part tag and the bytes disagree.
+    """
+    if not _SINGLE_PART_ETAG_SHAPE.fullmatch(identity.etag):
+        return
+    computed = hashlib.md5(content, usedforsecurity=False).hexdigest()
+    if computed != identity.etag.casefold():
+        raise ObjectError(
+            f"the landed object {shown_key} arrived with the digest "
+            f"{_shown(computed)} while its identity records the entity tag "
+            f"{_shown(identity.etag)}; the bytes that arrived are not the bytes that "
+            "were checked"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -1215,15 +2448,132 @@ def fetch_object_bytes(client: Any, bucket: str, key: str) -> bytes:
 # ---------------------------------------------------------------------------
 
 
+def _rendered_byte(value: int) -> str:
+    """Return one printable 7-bit ASCII rendering of the byte ``value``."""
+    if 0x20 <= value <= 0x7E:
+        return chr(value)
+    return f"\\x{value:02x}"
+
+
+def _byte_difference(actual: bytes, expected: bytes) -> str:
+    """Return one bounded description of the first difference between two byte strings.
+
+    The description names the byte counts when they differ, the offset of the
+    first differing byte, and that byte and its canonical counterpart, each
+    rendered as one printable 7-bit ASCII fragment. No object content beyond the
+    differing byte is reported. An empty string is returned when the two are
+    equal.
+    """
+    if actual == expected:
+        return ""
+    shared = min(len(actual), len(expected))
+    offset = next(
+        (index for index in range(shared) if actual[index] != expected[index]), shared
+    )
+    parts: list[str] = []
+    if len(actual) != len(expected):
+        parts.append(
+            f"it holds {len(actual)} bytes where the canonical form holds "
+            f"{len(expected)}"
+        )
+    if offset < shared:
+        parts.append(
+            f"at offset {offset} it holds {_shown(_rendered_byte(actual[offset]))} "
+            f"where the canonical form holds "
+            f"{_shown(_rendered_byte(expected[offset]))}"
+        )
+    elif offset < len(actual):
+        parts.append(
+            f"the canonical form ends at offset {offset}, where it holds "
+            f"{_shown(_rendered_byte(actual[offset]))}"
+        )
+    else:
+        parts.append(
+            f"it ends at offset {offset}, where the canonical form holds "
+            f"{_shown(_rendered_byte(expected[offset]))}"
+        )
+    return "; ".join(parts)
+
+
+def confirm_key_order(
+    record: Mapping[str, Any], columns: Sequence[str], key: str
+) -> None:
+    """Confirm ``record`` carries its keys in ``columns`` order, and return None.
+
+    ``columns`` is the landed key order read from the landing schema, which
+    ``read_column_names`` has already confirmed to equal that schema's
+    ``required`` list. ``key`` names the object in any diagnostic. The count is
+    compared first, then the position of every key.
+
+    Raises ``ObjectError`` naming the first position that differs, or the counts
+    when they differ.
+    """
+    shown_key = _shown(key, MAX_DIAGNOSTIC_PATH_CHARACTERS)
+    carried = tuple(record)
+    if len(carried) != len(columns):
+        raise ObjectError(
+            f"the landed object {shown_key} carries {len(carried)} keys where the "
+            f"landing contract fixes {len(columns)}"
+        )
+    for position, (found, wanted) in enumerate(zip(carried, columns, strict=True)):
+        if found != wanted:
+            raise ObjectError(
+                f"the landed object {shown_key} carries its keys out of the order "
+                f"the landing contract fixes: at position {position} it carries "
+                f"{_shown(found)} where {_shown(wanted)} is required"
+            )
+
+
+def canonical_record_bytes(record: Mapping[str, Any]) -> bytes:
+    """Return the canonical landed bytes of ``record``.
+
+    The canonical form is the ASCII-escaped JSON serialisation of ``record``,
+    with the keys in the order ``record`` carries them and the separators
+    ``json.dumps`` applies, followed by one line feed. This is the form
+    modernization/extraction/extract_commarea.py writes and
+    modernization/landing/land_to_s3.py uploads.
+    """
+    return (json.dumps(dict(record), ensure_ascii=True) + "\n").encode("ascii")
+
+
+def confirm_canonical_bytes(
+    raw: bytes, record: Mapping[str, Any], key: str
+) -> None:
+    """Confirm ``raw`` is the canonical landed form of ``record``, and return None.
+
+    ``raw`` is the body downloaded from the landed object and ``record`` is the
+    object parsed from it. One comparison against ``canonical_record_bytes``
+    covers the whole byte contract: one line, no pretty-printing, no surrounding
+    or repeated whitespace, no carriage return, exactly one terminal line feed,
+    the separators the extractor emits and the landed key order. ``key`` names
+    the object in any diagnostic.
+
+    Raises ``ObjectError`` describing the first difference when ``raw`` is not
+    that form.
+    """
+    expected = canonical_record_bytes(record)
+    if raw == expected:
+        return
+    raise ObjectError(
+        f"the landed object {_shown(key, MAX_DIAGNOSTIC_PATH_CHARACTERS)} is not the "
+        f"canonical one-line form the landing contract fixes: "
+        f"{_byte_difference(raw, expected)}"
+    )
+
+
 def parse_record(raw: bytes, key: str) -> Mapping[str, Any]:
     """Return the single JSON object ``raw`` carries, decoded as UTF-8.
 
     ``raw`` is the body of the landed object, one JSON object on a single line
-    terminated by one line feed. ``key`` names the object in any diagnostic.
+    terminated by one line feed. ``key`` names the object in any diagnostic. The
+    members of every object are kept in document order, and a member name that
+    repeats at any nesting level is refused and named, so the 17 keys the landing
+    contract fixes cannot be smuggled past validation by a later duplicate and no
+    document is resolved to its last occurrence.
 
     Raises ``ObjectError`` when ``raw`` is not valid UTF-8, is not one
-    well-formed JSON document, carries a second document, or carries a JSON
-    value that is not an object.
+    well-formed JSON document, carries a repeated member name, carries a second
+    document, or carries a JSON value that is not an object.
     """
     shown_key = _shown(key, MAX_DIAGNOSTIC_PATH_CHARACTERS)
     try:
@@ -1233,7 +2583,12 @@ def parse_record(raw: bytes, key: str) -> Mapping[str, Any]:
             f"the landed object {shown_key} is not valid UTF-8: {_reason(error)}"
         ) from error
     try:
-        document = json.loads(text)
+        document = parse_json_document(text)
+    except DuplicateMemberError as error:
+        raise ObjectError(
+            f"the landed object {shown_key} carries the member "
+            f"{_shown(error.name)} more than once; one value per member is required"
+        ) from error
     except json.JSONDecodeError as error:
         if error.msg.startswith("Extra data"):
             raise ObjectError(
@@ -1248,10 +2603,109 @@ def parse_record(raw: bytes, key: str) -> Mapping[str, Any]:
         ) from error
     if not isinstance(document, dict):
         raise ObjectError(
-            f"the landed object {shown_key} carries {_display(document)} at its top "
-            "level; one JSON object is required"
+            f"the landed object {shown_key} carries {_json_shape(document)} at its "
+            "top level; one JSON object is required"
         )
     return document
+
+
+def validate_record(
+    record: Mapping[str, Any],
+    validator: Draft202012Validator,
+    key: str,
+    limit: int = MAX_REPORTED_SCHEMA_ERRORS,
+) -> None:
+    """Confirm ``record`` satisfies the landing schema, reporting every violation.
+
+    Every constraint of the schema document applies here, not only the key set and
+    the string-or-null rule: the enumerated request ids, policy types and landable
+    return codes, the required non-null values, the digit patterns and lengths of the
+    identifiers and amounts, and the asserted date format. The object is external
+    input, so it is validated in full before the database is opened. Violations are
+    reported in JSON Pointer order, at most ``limit`` of them, with the number
+    withheld recorded when there are more. ``key`` names the object in the
+    diagnostic. Returns None when the record satisfies the schema.
+
+    Raises ``ObjectError`` carrying the violations when it does not.
+    """
+    errors = sorted(
+        validator.iter_errors(record),
+        key=lambda error: (_json_pointer(error.absolute_path), error.message),
+    )
+    if not errors:
+        return
+    reported = "; ".join(_violation(error) for error in errors[:limit])
+    withheld = len(errors) - min(len(errors), limit)
+    if withheld:
+        reported = f"{reported}; (+{withheld} further violations)"
+    raise ObjectError(
+        f"the landed object {_shown(key, MAX_DIAGNOSTIC_PATH_CHARACTERS)} does not "
+        f"satisfy the landing schema: {reported}"
+    )
+
+
+def confirm_calendar_values(record: Mapping[str, Any], key: str) -> None:
+    """Confirm every date and the timestamp of ``record`` name a real day and moment.
+
+    Each key of ``DATE_FIELDS`` that carries a value is parsed with
+    ``datetime.date.fromisoformat`` and must round-trip to the same text, so a value
+    written in another ISO 8601 form is refused along with one that names no day. The
+    ``TIMESTAMP_FIELD`` value is parsed with ``TIMESTAMP_PATTERN`` and must round-trip
+    the same way, which asserts the calendar and clock values the schema's pattern can
+    only shape. A null date is accepted, since the landing contract carries a blank
+    window as null. Returns None when every value names a real day and moment.
+
+    Raises ``ObjectError`` naming the key and the value when one does not, before the
+    database is opened and before any statement runs.
+    """
+    shown_key = _shown(key, MAX_DIAGNOSTIC_PATH_CHARACTERS)
+    for name in DATE_FIELDS:
+        value = record.get(name)
+        if value is None:
+            continue
+        if not isinstance(value, str):
+            raise ObjectError(
+                f"the landed object {shown_key} carries {_display(value)} as "
+                f"{_shown(name)}; a date written {DATE_FORM} or null is required"
+            )
+        try:
+            parsed_date = datetime.date.fromisoformat(value)
+        except ValueError as error:
+            raise ObjectError(
+                f"the landed object {shown_key} carries {_shown(value)} as "
+                f"{_shown(name)}; it is not a calendar date written {DATE_FORM}: "
+                f"{_reason(error)}"
+            ) from error
+        if parsed_date.isoformat() != value:
+            raise ObjectError(
+                f"the landed object {shown_key} carries {_shown(value)} as "
+                f"{_shown(name)}; it is not written {DATE_FORM}, whose form for that "
+                f"date is {_shown(parsed_date.isoformat())}"
+            )
+    carried = record.get(TIMESTAMP_FIELD)
+    if not isinstance(carried, str):
+        raise ObjectError(
+            f"the landed object {shown_key} carries {_display(carried)} as "
+            f"{_shown(TIMESTAMP_FIELD)}; a timestamp written {TIMESTAMP_FORM} is "
+            "required"
+        )
+    try:
+        moment = datetime.datetime.strptime(carried, TIMESTAMP_PATTERN)
+    except ValueError as error:
+        raise ObjectError(
+            f"the landed object {shown_key} carries {_shown(carried)} as "
+            f"{_shown(TIMESTAMP_FIELD)}; it is not a timestamp written "
+            f"{TIMESTAMP_FORM}: {_reason(error)}"
+        ) from error
+    normalised = moment.isoformat(
+        sep=TIMESTAMP_OUTPUT_SEPARATOR, timespec=TIMESTAMP_OUTPUT_PRECISION
+    )
+    if normalised != carried:
+        raise ObjectError(
+            f"the landed object {shown_key} carries {_shown(carried)} as "
+            f"{_shown(TIMESTAMP_FIELD)}; it is not written {TIMESTAMP_FORM}, whose "
+            f"form for that moment is {_shown(normalised)}"
+        )
 
 
 def confirm_record_contract(
@@ -1262,7 +2716,10 @@ def confirm_record_contract(
     The key set must equal ``columns`` exactly: a missing key and an extra key
     are both refused and named. Every value must be a JSON string or JSON null,
     which is what a number, a boolean, an object and an array are refused for.
-    Returns None once the record matches.
+    This is the row shape the INSERT depends on, confirmed against the column
+    names read from the schema's own properties block; the values themselves are
+    held to the schema by ``validate_record``. Returns None once the record
+    matches.
 
     Raises ``ObjectError`` when a key is missing, a key is unexpected, or a value
     is neither text nor null.
@@ -1286,7 +2743,7 @@ def confirm_record_contract(
         value = record[name]
         if value is not None and not isinstance(value, str):
             raise ObjectError(
-                f"the landed object {shown_key} carries {_display(value)} as "
+                f"the landed object {shown_key} carries {_value_display(value)} as "
                 f"{_shown(name)}; the landing contract carries every value as a JSON "
                 "string or null, and typing is applied by the dbt models"
             )
@@ -1307,24 +2764,44 @@ def record_values(
 
 def natural_key_values(
     record: Mapping[str, Any], key: str
-) -> tuple[str, ...]:
+) -> tuple[str | None, ...]:
     """Return the natural-key values of ``record``, in ``NATURAL_KEY_FIELDS`` order.
 
-    Every natural-key value must be present and non-empty, since the row removed
-    before the write is selected by them.
+    A value is returned exactly as the object carries it, as text or as None. Which
+    values the record must carry is decided by the landing schema, which admits only
+    a successful execution and requires every chain-assigned value on it, including
+    the ``policy_number`` recovered after the policy insert at
+    base/src/lgapdb01.cbl:308-311; this function does not restate that rule. The
+    predicate that removes an earlier row matches null to null, so a row is replaced
+    on a repeated run rather than duplicated whatever the values are.
 
-    Raises ``ObjectError`` when a natural-key value is null or empty.
+    Raises ``ObjectError`` when a natural-key field is absent from the record, or
+    carries a value that is neither text nor null, or carries the empty string,
+    which is a value the landing contract never lands.
     """
     shown_key = _shown(key, MAX_DIAGNOSTIC_PATH_CHARACTERS)
-    values: list[str] = []
+    values: list[str | None] = []
     for field in NATURAL_KEY_FIELDS:
-        value = record.get(field)
-        if not isinstance(value, str) or not value:
+        if field not in record:
             raise ObjectError(
-                f"the landed object {shown_key} carries {_display(value)} as "
+                f"the landed object {shown_key} omits {_shown(field)}; it is part of "
+                f"the natural key ({', '.join(NATURAL_KEY_FIELDS)}) of the loaded row"
+            )
+        value = record[field]
+        if value is not None and not isinstance(value, str):
+            raise ObjectError(
+                f"the landed object {shown_key} carries {_json_shape(value)} as "
                 f"{_shown(field)}; it is part of the natural key "
-                f"({', '.join(NATURAL_KEY_FIELDS)}) of the loaded row and must carry "
-                "a value"
+                f"({', '.join(NATURAL_KEY_FIELDS)}) of the loaded row and carries "
+                "text or null"
+            )
+        if value == "":
+            raise ObjectError(
+                f"the landed object {shown_key} carries the empty string as "
+                f"{_shown(field)}; it is part of the natural key "
+                f"({', '.join(NATURAL_KEY_FIELDS)}) of the loaded row, and a value "
+                "the chain never assigned is landed as null rather than as an empty "
+                "string"
             )
         values.append(value)
     return tuple(values)
@@ -1345,8 +2822,40 @@ def confirm_source_system_key(
     if carried != expected:
         raise ObjectError(
             f"the landed object {_shown(key, MAX_DIAGNOSTIC_PATH_CHARACTERS)} carries "
-            f"{_display(carried)} as {_shown(field)} while the resolved source-system "
-            f"key is {_shown(expected)}; the two must agree"
+            f"{_value_display(carried)} as {_shown(field)} while the resolved "
+            f"source-system key is {_shown(expected)}; the two must agree"
+        )
+
+
+def confirm_object_key(
+    record: Mapping[str, Any], key: str, extract_date: datetime.date
+) -> None:
+    """Confirm ``key`` is the key ``record``'s own source-system key rebuilds.
+
+    The key is rebuilt from the value the validated object carries, the fixed
+    ``LANDING_ENTITY`` literal and ``extract_date``, and must equal the key that was
+    downloaded, so the row written comes from the exact object the landing contract
+    names rather than from any other object that answered. Returns None when the two
+    agree.
+
+    Raises ``ObjectError`` when they do not, and ``ConfigurationError`` when the
+    object's own source-system key cannot form a path segment.
+    """
+    field = NATURAL_KEY_FIELDS[0]
+    carried = record.get(field)
+    if not isinstance(carried, str):
+        raise ObjectError(
+            f"the landed object {_shown(key, MAX_DIAGNOSTIC_PATH_CHARACTERS)} carries "
+            f"{_display(carried)} as {_shown(field)}; the landing key is rebuilt from "
+            "it"
+        )
+    rebuilt = build_landing_key(carried, LANDING_ENTITY, extract_date)
+    if rebuilt != key:
+        raise ObjectError(
+            f"the landed object {_shown(key, MAX_DIAGNOSTIC_PATH_CHARACTERS)} is not "
+            "the object its own contents name: the key its "
+            f"{_shown(field)} and the landing contract rebuild is "
+            f"{_shown(rebuilt, MAX_DIAGNOSTIC_PATH_CHARACTERS)}"
         )
 
 
@@ -1485,12 +2994,99 @@ def split_sql_statements(text: str, path: Path) -> tuple[str, ...]:
     return tuple(statements)
 
 
+def _after_leading_comments(statement: str) -> str:
+    """Return ``statement`` from its first character of code, comments removed.
+
+    A statement is returned by ``split_sql_statements`` exactly as the script
+    writes it, so it can open with a ``--`` line comment, with one or more
+    ``/* */`` block comments, including nested ones, and with whitespace between
+    them. Those carry no code, and the caller reads the first word of code, so
+    they are stepped over here rather than mistaken for that word. Scanning stops
+    at the first character that is not whitespace and does not open a comment; a
+    statement that is only comments and whitespace yields the empty string, and so
+    does one whose block comment is unterminated, which ``split_sql_statements``
+    has already refused for any statement it returns.
+    """
+    index = 0
+    length = len(statement)
+    while index < length:
+        if statement[index].isspace():
+            index += 1
+            continue
+        pair = statement[index : index + 2]
+        if pair == "--":
+            end = statement.find("\n", index)
+            if end < 0:
+                return ""
+            index = end + 1
+            continue
+        if pair == "/*":
+            depth = 0
+            while index < length:
+                inner = statement[index : index + 2]
+                if inner == "/*":
+                    depth += 1
+                    index += 2
+                    continue
+                if inner == "*/":
+                    depth -= 1
+                    index += 2
+                    if depth == 0:
+                        break
+                    continue
+                index += 1
+            if depth != 0:
+                return ""
+            continue
+        return statement[index:]
+    return ""
+
+
+def _leading_keyword(statement: str) -> str:
+    """Return the first word of code in ``statement``, lower-cased, or the empty string.
+
+    Leading comments and whitespace are stepped over first, so a statement whose
+    transaction control follows a comment yields that control rather than the
+    comment's first word. An opening parenthesis is treated as a separator, so a
+    statement written with no space after its first word still yields that word.
+    """
+    tokens = _after_leading_comments(statement).replace("(", " ").split()
+    return tokens[0].lower() if tokens else ""
+
+
+def confirm_no_transaction_control(
+    statements: Sequence[str], path: Path
+) -> None:
+    """Confirm no statement of a supplied script opens, ends or abandons a transaction.
+
+    The load runs as one transaction, and a statement carrying its own transaction
+    control inside it would commit part of the load, discard part of it, or fail on
+    a nesting the database does not accept. The scripts of this bridge carry none;
+    a supplied script that does is refused before the transaction opens, so a
+    rejected script never leaves the database half-loaded. Returns None when no
+    statement carries one.
+
+    Raises ``ConfigurationError`` naming the script, the statement's position in it
+    and the keyword found.
+    """
+    for ordinal, statement in enumerate(statements, start=1):
+        keyword = _leading_keyword(statement)
+        if keyword in TRANSACTION_CONTROL_KEYWORDS:
+            raise ConfigurationError(
+                f"statement {ordinal} of {len(statements)} in {_path_shown(path)} "
+                f"begins with {_shown(keyword)}, which opens, ends or abandons a "
+                "transaction: the whole load runs as one transaction, so a script "
+                "applied inside it carries none of "
+                f"{_quote_all(TRANSACTION_CONTROL_KEYWORDS)}"
+            )
+
+
 def read_sql_statements(path: Path) -> tuple[str, ...]:
     """Return the statements of the SQL script at ``path``, in file order.
 
     Raises ``ConfigurationError`` when the script is missing, empty, larger than
-    ``MAX_DDL_BYTES``, not valid UTF-8, or leaves a quoted literal or comment
-    unterminated.
+    ``MAX_DDL_BYTES``, not valid UTF-8, leaves a quoted literal or comment
+    unterminated, or carries its own transaction control.
     """
     raw = _read_bounded_bytes(path, MAX_DDL_BYTES, "SQL script")
     try:
@@ -1505,6 +3101,7 @@ def read_sql_statements(path: Path) -> tuple[str, ...]:
         raise ConfigurationError(
             f"the SQL script carries no statement: {_path_shown(path)}"
         )
+    confirm_no_transaction_control(statements, path)
     return statements
 
 
@@ -1516,7 +3113,9 @@ def apply_sql_script(
     Each statement is executed exactly as the script writes it; none is
     rewritten, reordered, substituted or skipped. The scripts this tool is given
     are written to be re-runnable, so applying them to a database that already
-    holds their objects changes nothing.
+    holds their objects changes nothing. The caller has already opened the
+    transaction the statements run inside, and a script carrying its own
+    transaction control has already been refused by ``read_sql_statements``.
 
     Raises ``ConfigurationError`` when the script cannot be read or split, and
     ``WarehouseError`` naming the script, the statement's position in it and the
@@ -1565,31 +3164,162 @@ def qualified_relation_name() -> str:
     return f"{schema}.{table}"
 
 
+def _open_allowed_root() -> int:
+    """Return a descriptor on ``ALLOWED_DATABASE_ROOT``, creating it when absent.
+
+    The directory is opened without following a symbolic link, and the descriptor
+    the kernel reports is confirmed to be the resolved allowed root, so every
+    later check and creation happens inside the one directory a database may sit
+    in. The caller closes the descriptor.
+
+    Raises ``WarehouseError`` when the directory cannot be created, cannot be
+    opened as a directory, or is not the allowed root.
+    """
+    try:
+        ALLOWED_DATABASE_ROOT.mkdir(parents=True, exist_ok=True)
+    except OSError as error:
+        raise WarehouseError(
+            f"the database directory cannot be created: "
+            f"{_path_shown(ALLOWED_DATABASE_ROOT)}: {_reason(error)}"
+        ) from error
+    try:
+        descriptor = os.open(
+            ALLOWED_DATABASE_ROOT, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+        )
+    except OSError as error:
+        raise WarehouseError(
+            f"the database directory cannot be opened: "
+            f"{_path_shown(ALLOWED_DATABASE_ROOT)}: {_reason(error)}"
+        ) from error
+    expected = os.path.realpath(ALLOWED_DATABASE_ROOT)
+    try:
+        reported = os.readlink(f"/proc/self/fd/{descriptor}")
+    except OSError:
+        reported = None
+    try:
+        if reported is not None and reported != expected:
+            raise WarehouseError(
+                f"the opened database directory is {_path_shown(reported)} rather "
+                f"than {_path_shown(expected)}; only a file directly inside "
+                f"{_path_shown(ALLOWED_DATABASE_ROOT)} is written"
+            )
+        held = os.stat(descriptor)
+        root = os.stat(expected)
+        if (held.st_dev, held.st_ino) != (root.st_dev, root.st_ino):
+            raise WarehouseError(
+                f"the opened database directory is not {_path_shown(expected)}; only "
+                f"a file directly inside {_path_shown(ALLOWED_DATABASE_ROOT)} is "
+                "written"
+            )
+    except OSError as error:
+        os.close(descriptor)
+        raise WarehouseError(
+            f"the database directory cannot be examined: {_path_shown(expected)}: "
+            f"{_reason(error)}"
+        ) from error
+    except WarehouseError:
+        os.close(descriptor)
+        raise
+    return descriptor
+
+
+def _database_entry(name: str, descriptor: int) -> os.stat_result | None:
+    """Return the entry ``name`` inside the held directory, or None when absent.
+
+    The entry is examined relative to ``descriptor`` and without following a
+    symbolic link, so what is examined is the entry inside the directory the
+    caller holds.
+
+    Raises ``WarehouseError`` when the entry cannot be examined, is a symbolic
+    link, or is not a regular file.
+    """
+    try:
+        info = os.stat(name, dir_fd=descriptor, follow_symlinks=False)
+    except FileNotFoundError:
+        return None
+    except OSError as error:
+        raise WarehouseError(
+            f"the database file cannot be examined: "
+            f"{_path_shown(ALLOWED_DATABASE_ROOT / name)}: {_reason(error)}"
+        ) from error
+    if stat.S_ISLNK(info.st_mode):
+        raise WarehouseError(
+            f"the database path is a symbolic link: "
+            f"{_path_shown(ALLOWED_DATABASE_ROOT / name)}; a regular file directly "
+            f"inside {_path_shown(ALLOWED_DATABASE_ROOT)} is required"
+        )
+    if not stat.S_ISREG(info.st_mode):
+        raise WarehouseError(
+            f"the database path exists and is not a regular file: "
+            f"{_path_shown(ALLOWED_DATABASE_ROOT / name)}"
+        )
+    return info
+
+
 def open_database(path: Path) -> duckdb.DuckDBPyConnection:
     """Return a read-write connection to the DuckDB database file at ``path``.
 
-    A missing parent directory is created, so a first run reaches the database
-    the bridge keeps at ``DEFAULT_DATABASE`` without a preparatory step. The
-    file itself is created by the connection when it is absent.
+    ``path`` is the absolute path ``resolve_database_path`` returned, whose parent
+    is ``ALLOWED_DATABASE_ROOT``. That directory is created when absent and is
+    then held open as a descriptor, opened without following a symbolic link and
+    confirmed to be the allowed root, and the database name is examined relative
+    to that descriptor before the connection is made: an existing entry must be a
+    regular file that is not a symbolic link. The connection then creates the file
+    when it is absent, DuckDB writing its own header and refusing an empty file,
+    and the entry is examined once more afterwards: it must be a regular file
+    that is not a symbolic link, and where it existed before, its device and inode
+    numbers must be the ones that were checked. DuckDB opens the file by name, so
+    an entry replaced in the window between the check and that open is detected by
+    the second examination rather than prevented: such a run is refused, the
+    connection is closed and nothing is written through it.
 
-    Raises ``WarehouseError`` when the parent directory cannot be created or the
-    database cannot be opened.
+    Raises ``WarehouseError`` when the parent is not the allowed root, when the
+    name is refused, or when the database cannot be opened or confirmed.
     """
-    parent = path.parent
-    try:
-        if str(parent):
-            parent.mkdir(parents=True, exist_ok=True)
-    except OSError as error:
+    name = path.name
+    parent = os.path.realpath(path.parent)
+    allowed_root = os.path.realpath(ALLOWED_DATABASE_ROOT)
+    if parent != allowed_root:
         raise WarehouseError(
-            f"the database directory cannot be created: {_path_shown(parent)}: "
-            f"{_reason(error)}"
-        ) from error
+            f"the database path resolves to a file in {_path_shown(parent)}: "
+            f"{_path_shown(path)}; only a file directly inside "
+            f"{_path_shown(ALLOWED_DATABASE_ROOT)} is opened"
+        )
+    descriptor = _open_allowed_root()
     try:
-        connection = duckdb.connect(str(path))
-    except (duckdb.Error, OSError) as error:
-        raise WarehouseError(
-            f"the database cannot be opened: {_path_shown(path)}: {_reason(error)}"
-        ) from error
+        before = _database_entry(name, descriptor)
+        try:
+            connection = duckdb.connect(str(path))
+        except (duckdb.Error, OSError) as error:
+            raise WarehouseError(
+                f"the database cannot be opened: {_path_shown(path)}: {_reason(error)}"
+            ) from error
+        try:
+            after = _database_entry(name, descriptor)
+            if after is None:
+                raise WarehouseError(
+                    f"the database file is not present after it was opened: "
+                    f"{_path_shown(path)}"
+                )
+            if before is not None and (after.st_dev, after.st_ino) != (
+                before.st_dev,
+                before.st_ino,
+            ):
+                raise WarehouseError(
+                    f"the database file was replaced while it was being opened: "
+                    f"{_path_shown(path)}"
+                )
+        except WarehouseError:
+            try:
+                connection.close()
+            except duckdb.Error as close_error:
+                _warn(
+                    "the database connection could not be closed after the database "
+                    f"file was refused: {_reason(close_error)}"
+                )
+            raise
+    finally:
+        os.close(descriptor)
     _note(f"opened database {_path_shown(path)}")
     return connection
 
@@ -1617,14 +3347,25 @@ def _affected_rows(result: Any, action: str) -> int:
     return count
 
 
-def build_delete_statement(relation: str) -> str:
+def build_delete_statement(
+    relation: str, key_values: Sequence[str | None]
+) -> str:
     """Return the statement removing the rows carrying one natural key.
 
     The predicate names every field of ``NATURAL_KEY_FIELDS`` and binds each
     value, so a row carrying any other natural key is out of its reach and no
     whole-relation form is ever issued.
+
+    Each field is compared with ``IS NOT DISTINCT FROM`` rather than with ``=``,
+    which matches null to null. A landed failure record carries a null
+    ``policy_number``, since the chain assigns it only after the policy insert
+    succeeds, and ``=`` yields unknown against null: the earlier row would survive
+    and the load would leave two rows where one belongs. Against a value the two
+    operators agree, so a successful row is replaced exactly as before.
     """
-    predicate = " AND ".join(f"{field} = ?" for field in NATURAL_KEY_FIELDS)
+    predicate = " AND ".join(
+        f"{field} IS NOT DISTINCT FROM ?" for field in NATURAL_KEY_FIELDS
+    )
     return f"DELETE FROM {relation} WHERE {predicate}"
 
 
@@ -1644,23 +3385,40 @@ def upsert_record(
     connection: duckdb.DuckDBPyConnection,
     columns: Sequence[str],
     values: Sequence[str | None],
-    key_values: Sequence[str],
+    key_values: Sequence[str | None],
+    ddl_paths: Sequence[Path] = (),
 ) -> tuple[int, int]:
-    """Write one landed record as one row, and return the rows removed and written.
+    """Apply the bootstrap and write one landed record, in one transaction.
 
-    Within one transaction the rows already carrying ``key_values`` as their
-    natural key are removed and ``values`` is written as one row, so a repeated
-    run leaves one row rather than two and a row carrying any other natural key
-    is untouched. Every value is bound rather than joined into statement text,
-    and a None binds as SQL NULL rather than as an empty string or a zero. The
-    transaction is committed once both statements have succeeded; a failure in
-    either rolls it back and leaves the database as it was found.
+    One transaction covers the whole load: the scripts in ``ddl_paths`` are applied
+    inside it, the rows already carrying ``key_values`` as their natural key are
+    removed, and ``values`` is written as one row. A repeated run therefore leaves
+    one row rather than two, and a row carrying any other natural key is untouched.
+    Every value is bound rather than joined into statement text, and a None binds
+    as SQL NULL rather than as an empty string or a zero, matching an earlier null
+    of the same field. The transaction is committed once every statement has
+    succeeded; a failure in any of them rolls it back and leaves the database as it
+    was found.
 
-    Raises ``WarehouseError`` when either statement or the commit did not
-    succeed, or when the write did not report exactly ``EXPECTED_INSERTED_ROWS``
-    rows, and ``SchemaError`` when the relation name is not usable. Whatever the
-    failure, the transaction is rolled back before the diagnostic leaves this
-    function.
+    Starting the transaction is part of the protected work: a database that refuses
+    ``BEGIN TRANSACTION`` is reported as the actionable ``WarehouseError`` naming
+    that step, never as an unhandled database traceback, and no rollback is attempted
+    for a transaction that never started.
+
+    The transaction is committed once every statement has succeeded. Any failure
+    rolls it back, and the rollback withdraws every change the transaction made:
+    the row written, the row removed, and any schema or relation a bootstrap script
+    created inside it, because DuckDB holds catalogue changes and data changes in
+    the same transaction. A database file the connection created because it was
+    absent is not withdrawn by the rollback; it stays on disk holding no schema and
+    no row.
+
+    Raises ``ConfigurationError`` when a bootstrap script cannot be read,
+    ``WarehouseError`` when the transaction cannot be started, when a statement or
+    the commit did not succeed, or when the write did not report exactly
+    ``EXPECTED_INSERTED_ROWS`` rows, and ``SchemaError`` when the relation name is
+    not usable. Whatever the failure, a started transaction is rolled back before
+    the diagnostic leaves this function.
     """
     if len(values) != len(columns):
         raise WarehouseError(
@@ -1668,12 +3426,16 @@ def upsert_record(
             "columns; the two must agree"
         )
     relation = qualified_relation_name()
-    delete_statement = build_delete_statement(relation)
+    delete_statement = build_delete_statement(relation, key_values)
+    delete_bindings = [value for value in key_values if value is not None]
     insert_statement = build_insert_statement(relation, columns)
-    connection.execute("BEGIN TRANSACTION")
+    started = False
     try:
+        connection.execute("BEGIN TRANSACTION")
+        started = True
+        apply_sql_scripts(connection, ddl_paths)
         removed = _affected_rows(
-            connection.execute(delete_statement, list(key_values)).fetchall(),
+            connection.execute(delete_statement, delete_bindings).fetchall(),
             f"removal of any earlier row of {relation}",
         )
         written = _affected_rows(
@@ -1687,15 +3449,22 @@ def upsert_record(
             )
         connection.execute("COMMIT")
     except BaseException as error:
-        try:
-            connection.execute("ROLLBACK")
-        except duckdb.Error as rollback_error:
-            _warn(
-                "the transaction could not be rolled back after the load failed: "
-                f"{_reason(rollback_error)}"
-            )
+        if started:
+            try:
+                connection.execute("ROLLBACK")
+            except duckdb.Error as rollback_error:
+                _warn(
+                    "the transaction could not be rolled back after the load failed: "
+                    f"{_reason(rollback_error)}"
+                )
         if isinstance(error, (LoadError, KeyboardInterrupt, SystemExit)):
             raise
+        if not started:
+            raise WarehouseError(
+                f"the database refused the start of the transaction writing one row "
+                f"of {relation}: {_reason(error)}. The database was left as it was "
+                "found and no statement of this load ran"
+            ) from error
         raise WarehouseError(
             f"the database refused the load of one row of {relation}: "
             f"{_reason(error)}"
@@ -1712,63 +3481,2465 @@ class LoadOutcome(NamedTuple):
     """What one load did: the object read, its natural key and the row counts.
 
     ``uri`` is the object downloaded, ``key_values`` are the values of
-    ``NATURAL_KEY_FIELDS`` the object carried, in that order, ``removed`` is the
-    rows carrying that natural key that the load removed, and ``written`` is the
-    rows it wrote.
+    ``NATURAL_KEY_FIELDS`` the object carried, in that order, each as text or None
+    where the chain assigned nothing, ``removed`` is the rows carrying that natural
+    key that the load removed, ``written`` is the rows it wrote, ``identity`` is the
+    immutable identity the download was bound to, and ``sha256`` is the digest of
+    the bytes that arrived.
     """
 
     uri: str
-    key_values: tuple[str, ...]
+    key_values: tuple[str | None, ...]
     removed: int
     written: int
+    identity: ObjectIdentity
+    sha256: str
 
 
 def load_record(
     bucket: str,
     key: str,
     source_system_key: str,
+    extract_date: datetime.date,
     database_path: Path,
     ddl_paths: Sequence[Path],
     *,
     region: str | None = None,
     endpoint_url: str | None = None,
     schema_path: Path = DEFAULT_SCHEMA,
+    show_identifiers: bool = False,
 ) -> LoadOutcome:
     """Load one landed object as one row, and return what the load did.
 
-    The landed column names and their order are read from the landing schema at
-    ``schema_path``, the object is downloaded and confirmed to carry exactly
-    those keys as text or null, and the scripts in ``ddl_paths`` are applied
-    before the row is written.
+    The landed column names, their order and the constraints the object is held to
+    are read from the landing schema at ``schema_path``, so the columns the row is
+    written from and the contract the object is admitted by come from the same
+    document. The object is bound to its own immutable identity before it is read:
+    a head request records the entity tag, the version where the bucket keeps
+    versions and the byte count, the download requires that same identity, and the
+    bytes that arrive are confirmed against the recorded byte count and digest.
+    Only then is the record parsed and validated in full: unique member names,
+    every constraint of that schema including its asserted date format, a real
+    last_changed moment, exactly the declared keys as text or null and in the order
+    the schema fixes, the canonical one-line bytes of the object it parses to, the
+    run's source-system key, and a key equal to the one its own source-system key
+    and ``extract_date`` rebuild. Every one of those checks runs before the database
+    is opened, so a rejected object reaches neither the database file nor a
+    statement. The two shared scripts in ``ddl_paths`` are then applied inside the
+    same transaction that writes the row.
+
+    With ``show_identifiers`` false, which is the default, the progress lines
+    name no business identifier and no full object URI.
 
     Raises ``ObjectError`` when the landed object breaches the landing contract,
     ``SchemaError`` when the landing schema cannot be used,
     ``ConfigurationError`` when a setting or a script cannot be resolved,
-    ``AccessError`` when the bucket or the object did not answer, and
-    ``WarehouseError`` when the database or a statement did not succeed.
+    ``AccessError`` when the bucket or the object did not answer or was replaced
+    between the identity check and the download, and ``WarehouseError`` when the
+    database or a statement did not succeed.
     """
-    columns = landed_column_names(schema_path)
+    contract = landing_contract(schema_path)
+    columns = contract.columns
     uri = build_object_uri(bucket, key)
     client = resolve_s3_access(bucket, region, endpoint_url)
-    body = fetch_object_bytes(client, bucket, key)
-    record = parse_record(body, key)
+    identity = head_object_identity(client, bucket, key)
+    _note(
+        f"bound the download to {identity.content_length} bytes, etag "
+        f"{identity.etag} and version {identity.version_id} of "
+        f"{_reported_uri(uri, show_identifiers)}"
+    )
+    downloaded = fetch_object_bytes(client, bucket, key, identity)
+    record = parse_record(downloaded.body, key)
+    validate_record(record, contract.validator, key)
+    confirm_calendar_values(record, key)
     confirm_record_contract(record, columns, key)
+    confirm_key_order(record, columns, key)
+    confirm_canonical_bytes(downloaded.body, record, key)
     confirm_source_system_key(record, source_system_key, key)
+    confirm_object_key(record, key, extract_date)
     key_values = natural_key_values(record, key)
     values = record_values(record, columns)
     _note(
-        f"read {len(body)} bytes carrying {len(columns)} landed columns from {uri}"
+        f"read {len(downloaded.body)} bytes carrying {len(columns)} landed columns "
+        f"with sha256 {downloaded.sha256} from "
+        f"{_reported_uri(uri, show_identifiers)}"
     )
     connection = open_database(database_path)
     try:
-        apply_sql_scripts(connection, ddl_paths)
-        removed, written = upsert_record(connection, columns, values, key_values)
+        removed, written = upsert_record(
+            connection, columns, values, key_values, ddl_paths
+        )
     finally:
         try:
             connection.close()
         except duckdb.Error as error:
             _warn(f"the database connection could not be closed: {_reason(error)}")
-    return LoadOutcome(uri, key_values, removed, written)
+    return LoadOutcome(
+        uri, key_values, removed, written, identity, downloaded.sha256
+    )
+
+
+# ---------------------------------------------------------------------------
+# Self-test: fixtures
+# ---------------------------------------------------------------------------
+
+
+class _SelfTestFailure(Exception):
+    """One self-test case did not hold; the message states what was observed."""
+
+
+class _CaseResult(NamedTuple):
+    """The outcome of one self-test case."""
+
+    name: str
+    passed: bool
+    detail: str
+
+
+class _CliResult(NamedTuple):
+    """The status and captured streams of one command line run in this process."""
+
+    status: int
+    stdout: str
+    stderr: str
+
+
+# Members of the motor landing record every case reads, in the landing order, and
+# of the commercial record used wherever a second distinct natural key is needed.
+# Both carry return code 00, the outcome the landing contract carries, and the
+# product-specific null pattern: a motor row carries the motor premium and no
+# commercial premium, and a commercial row carries the four commercial premiums
+# and no motor premium.
+_MOTOR_RECORD_MEMBERS: tuple[tuple[str, Any], ...] = (
+    ("source_system_key", DEFAULT_SOURCE_SYSTEM_KEY),
+    ("policy_number", "1000301"),
+    ("policy_type", "M"),
+    ("customer_number", "1001"),
+    ("request_id", "01AMOT"),
+    ("return_code", "00"),
+    ("issue_date", "2026-08-19"),
+    ("expiry_date", "2027-08-18"),
+    ("last_changed", "2026-08-19T12:00:00.000000"),
+    ("broker_id", "42"),
+    ("brokers_reference", "BRMOT001"),
+    ("payment_amount", "500"),
+    ("motor_premium_amount", "450"),
+    ("fire_premium_amount", None),
+    ("crime_premium_amount", None),
+    ("flood_premium_amount", None),
+    ("weather_premium_amount", None),
+)
+_COMMERCIAL_RECORD_MEMBERS: tuple[tuple[str, Any], ...] = (
+    ("source_system_key", DEFAULT_SOURCE_SYSTEM_KEY),
+    ("policy_number", "1000302"),
+    ("policy_type", "C"),
+    ("customer_number", "1002"),
+    ("request_id", "01ACOM"),
+    ("return_code", "00"),
+    ("issue_date", "2026-08-19"),
+    ("expiry_date", "2027-08-18"),
+    ("last_changed", "2026-08-19T12:00:01.000000"),
+    ("broker_id", "43"),
+    ("brokers_reference", "BRCOM001"),
+    ("payment_amount", "1750"),
+    ("motor_premium_amount", None),
+    ("fire_premium_amount", "13500"),
+    ("crime_premium_amount", "9400"),
+    ("flood_premium_amount", "7200"),
+    ("weather_premium_amount", "5100"),
+)
+
+# Settings every case that resolves a setting or reaches a collaborator uses.
+_SELF_TEST_BUCKET = "genapp-rqi-landing-selftest"
+_SELF_TEST_REGION = "eu-west-2"
+_SELF_TEST_EXTRACT_DATE = datetime.date(2026, 8, 19)
+_SELF_TEST_CREDENTIALS = {
+    "AWS_ACCESS_KEY_ID": "selftest-access-key",
+    "AWS_SECRET_ACCESS_KEY": "selftest-secret-key",
+}
+
+# Address moto's server binds for a command-line case. This tool runs on the local
+# branch alone, so such a case has to name a loopback endpoint; the port is assigned
+# by the operating system and nothing leaves this machine.
+_LOOPBACK_ADDRESS = "127.0.0.1"
+
+# Bucket name no case creates, which is how a run reaches a bucket that does not
+# answer.
+_ABSENT_BUCKET = "genapp-rqi-absent-bucket"
+
+# Every environment variable a case controls. The names after the credentials keep
+# a session from reading a profile, a credentials file or an instance metadata
+# service, and the two endpoint names establish that a configured endpoint cannot
+# redirect a request.
+_CONSULTED_VARIABLES = (
+    BUCKET_VARIABLE,
+    ENDPOINT_URL_VARIABLE,
+    SOURCE_SYSTEM_KEY_VARIABLE,
+    *REGION_VARIABLES,
+    *DATABASE_VARIABLES,
+    "AWS_ACCESS_KEY_ID",
+    "AWS_SECRET_ACCESS_KEY",
+    "AWS_SESSION_TOKEN",
+    "AWS_PROFILE",
+    "AWS_DEFAULT_PROFILE",
+    "AWS_ENDPOINT_URL",
+    "AWS_ENDPOINT_URL_S3",
+    "AWS_CONFIG_FILE",
+    "AWS_SHARED_CREDENTIALS_FILE",
+    "AWS_EC2_METADATA_DISABLED",
+)
+
+# Endpoints the policy accepts, each a loopback literal or the loopback name with
+# an explicit port and nothing else.
+_ACCEPTED_ENDPOINTS = (
+    "http://127.0.0.1:5112",
+    "http://127.0.0.1:5112/",
+    "http://127.9.8.7:1024",
+    "http://localhost:5112",
+    "https://localhost:8443",
+    "http://[::1]:5112",
+    "https://[::1]:5112/",
+)
+
+# Endpoints the policy refuses, each paired with the element the diagnostic names.
+_REFUSED_ENDPOINTS = (
+    ("http://evil.example.com", "host"),
+    ("http://evil.example.com:1080", "host"),
+    ("http://127.0.0.1.attacker.tld:1080", "host"),
+    ("http://localhost.attacker.tld:1080", "host"),
+    ("http://localhost.:5112", "host"),
+    ("http://0177.0.0.1:5112", "host"),
+    ("http://2130706433:5112", "host"),
+    ("http://169.254.169.254:1080", "host"),
+    ("http://user:pass@127.0.0.1:5112", "credentials"),
+    ("file:///tmp", "scheme"),
+    ("ftp://127.0.0.1:21", "scheme"),
+    ("//127.0.0.1:5112", "scheme"),
+    ("http://127.0.0.1:5112/path", "path"),
+    ("http://127.0.0.1:5112/?a=b", "query"),
+    ("http://127.0.0.1:5112/#f", "fragment"),
+    ("http://127.0.0.1", "port"),
+    ("http://localhost", "port"),
+    ("http://[::1]", "port"),
+    ("http://127.0.0.1:port", "port"),
+    ("http://127.0.0.1:80", "port"),
+    ("http://localhost:443", "port"),
+    ("http://[::1]:1023", "port"),
+    ("http://127.0.0.1:5112\n", "control character"),
+    ("http://127.0.0.1 :5112", "whitespace"),
+)
+
+# Business identifiers no default-mode output may carry: the natural-key values,
+# the customer number, the broker id, the broker's reference and the object URI's
+# own prefix.
+_REDACTED_FRAGMENTS = (
+    "1000301",
+    "1001",
+    "42",
+    "BRMOT001",
+    DEFAULT_SOURCE_SYSTEM_KEY,
+)
+
+# Prefix of the private temporary directory one self-test run works inside.
+_SCRATCH_PREFIX = "load-local-selftest-"
+
+
+class _Absent:
+    """Marker naming a record member that a fixture removes."""
+
+
+_ABSENT = _Absent()
+
+
+def _json_object_text(members: Sequence[tuple[str, Any]]) -> str:
+    """Return one JSON object holding ``members`` in the order given, on one line.
+
+    A member name that appears twice in ``members`` appears twice in the text,
+    which is how a duplicate-member document is produced without a parser that
+    would collapse it.
+    """
+    body = ", ".join(
+        f"{json.dumps(name)}: {json.dumps(value)}" for name, value in members
+    )
+    return "{" + body + "}\n"
+
+
+def _record_text(
+    members: Sequence[tuple[str, Any]] = _MOTOR_RECORD_MEMBERS, **changes: Any
+) -> str:
+    """Return one landing record built from ``members``, with ``changes`` applied.
+
+    A change whose value is ``_ABSENT`` removes that member; every other change
+    replaces the value of an existing member or appends a new one.
+    """
+    built: list[tuple[str, Any]] = []
+    remaining = dict(changes)
+    for name, value in members:
+        if name in remaining:
+            replacement = remaining.pop(name)
+            if replacement is _ABSENT:
+                continue
+            built.append((name, replacement))
+            continue
+        built.append((name, value))
+    built.extend(remaining.items())
+    return _json_object_text(built)
+
+
+def _record_bytes(
+    members: Sequence[tuple[str, Any]] = _MOTOR_RECORD_MEMBERS, **changes: Any
+) -> bytes:
+    """Return the bytes of one landing record, as an object body carries them."""
+    return _record_text(members, **changes).encode("utf-8")
+
+
+# ---------------------------------------------------------------------------
+# Self-test: support
+# ---------------------------------------------------------------------------
+
+
+class _Scratch:
+    """One private directory a self-test run reads and writes inside.
+
+    The directory is created below the system temporary directory under
+    ``_SCRATCH_PREFIX``, so two runs in parallel never share a name. ``write``
+    places one document in it and returns the path and ``absent`` names a path in
+    it without creating it. ``database`` names a database directly inside
+    ``DATABASE_DIRECTORY``, because that is the one directory this tool opens a
+    database in, under a name of this run alone, and ``removed`` deletes the
+    directory and every database this run named and reports that they are gone.
+    """
+
+    def __init__(self) -> None:
+        self.path = Path(tempfile.mkdtemp(prefix=_SCRATCH_PREFIX))
+        DATABASE_DIRECTORY.mkdir(parents=True, exist_ok=True)
+        self.database_prefix = f"{_SCRATCH_PREFIX}{self.path.name.rsplit('-', 1)[-1]}"
+        self._databases: list[Path] = []
+
+    def write(self, name: str, content: str | bytes) -> Path:
+        """Return the path of ``name`` inside this directory, holding ``content``."""
+        destination = self.path / name
+        payload = content.encode("utf-8") if isinstance(content, str) else content
+        destination.write_bytes(payload)
+        return destination
+
+    def absent(self, name: str) -> Path:
+        """Return the path of ``name`` inside this directory without creating it."""
+        return self.path / name
+
+    def database(self, name: str) -> Path:
+        """Return a database path this run may open, removing any earlier one.
+
+        Every database a case opens sits directly inside ``DATABASE_DIRECTORY``,
+        which is the one directory ``open_database`` opens a file in, under a name
+        carrying this run's own prefix: no case reaches the database the bridge
+        keeps at ``DEFAULT_DATABASE`` or any other path of the caller's, and
+        ``removed`` deletes every one this run named.
+        """
+        destination = DATABASE_DIRECTORY / f"{self.database_prefix}-{name}"
+        if destination not in self._databases:
+            self._databases.append(destination)
+        for path in (destination, Path(f"{destination}.wal")):
+            if path.exists():
+                path.unlink()
+        return destination
+
+    def removed(self) -> bool:
+        """Remove this directory and every database this run named, and report it."""
+        shutil.rmtree(self.path, ignore_errors=True)
+        remaining = []
+        for database in self._databases:
+            for path in (database, Path(f"{database}.wal")):
+                if path.exists():
+                    try:
+                        path.unlink()
+                    except OSError:
+                        pass
+                if path.exists():
+                    remaining.append(path)
+        return not self.path.exists() and not remaining
+
+
+class _RecordingClient:
+    """One S3 client that records every call it is asked to make and delegates it.
+
+    ``calls`` holds one ``(operation, arguments)`` pair per call, in call order.
+    Every call reaches the wrapped client unchanged, so the operation, its
+    parameters and its response stay those of the pinned boto3 client.
+    """
+
+    def __init__(self, client: Any) -> None:
+        self._client = client
+        self.calls: list[tuple[str, dict[str, Any]]] = []
+
+    def __getattr__(self, name: str) -> Any:
+        """Return the wrapped attribute, wrapping a callable to record its call."""
+        attribute = getattr(self._client, name)
+        if not callable(attribute):
+            return attribute
+
+        def _call(**arguments: Any) -> Any:
+            self.calls.append((name, arguments))
+            return attribute(**arguments)
+
+        return _call
+
+    def operations(self) -> tuple[str, ...]:
+        """Return the operations called so far, in call order."""
+        return tuple(operation for operation, _ in self.calls)
+
+    def arguments(self, operation: str) -> dict[str, Any]:
+        """Return the arguments of the last call to ``operation``.
+
+        Raises ``_SelfTestFailure`` when that operation was never called.
+        """
+        for name, arguments in reversed(self.calls):
+            if name == operation:
+                return arguments
+        raise _SelfTestFailure(f"{operation} was never called")
+
+
+class _ReplacingClient(_RecordingClient):
+    """One S3 client that replaces the object under the key before it is read.
+
+    Every ``get_object`` call first writes ``replacement`` to the key it names,
+    so the object the download asks for is not the object the head request
+    described. This is the race a version-pinned, entity-tag-conditioned read
+    exists to fail on, driven here rather than waited for.
+    """
+
+    def __init__(self, client: Any, replacement: bytes) -> None:
+        super().__init__(client)
+        self._replacement = replacement
+
+    def get_object(self, **arguments: Any) -> Any:
+        """Replace the object named by ``arguments`` and then read it."""
+        self.calls.append(("put_object", dict(arguments)))
+        self._client.put_object(
+            Bucket=arguments["Bucket"],
+            Key=arguments["Key"],
+            Body=self._replacement,
+        )
+        self.calls.append(("get_object", dict(arguments)))
+        return self._client.get_object(**arguments)
+
+
+@contextlib.contextmanager
+def _controlled_environment(scratch: _Scratch, **overrides: str) -> Any:
+    """Run a case with every consulted environment variable set by that case alone.
+
+    Every name in ``_CONSULTED_VARIABLES`` is removed, ``overrides`` are applied,
+    and a profile file, a credentials file and the instance metadata service are
+    pointed at paths inside ``scratch`` that do not exist, so a session resolves
+    only what the case supplied. The previous environment is restored on the way
+    out, whatever happened.
+    """
+    previous = {name: os.environ.get(name) for name in _CONSULTED_VARIABLES}
+    for name in _CONSULTED_VARIABLES:
+        os.environ.pop(name, None)
+    os.environ["AWS_CONFIG_FILE"] = str(scratch.absent("no-such-config"))
+    os.environ["AWS_SHARED_CREDENTIALS_FILE"] = str(
+        scratch.absent("no-such-credentials")
+    )
+    os.environ["AWS_EC2_METADATA_DISABLED"] = "true"
+    os.environ.update(overrides)
+    try:
+        yield
+    finally:
+        for name in _CONSULTED_VARIABLES:
+            os.environ.pop(name, None)
+        for name, value in previous.items():
+            if value is not None:
+                os.environ[name] = value
+
+
+def _run_cli(scratch: _Scratch, argv: list[str], **overrides: str) -> _CliResult:
+    """Run one command line in this process and capture its status and streams.
+
+    The run sees only the environment ``_controlled_environment`` establishes for
+    it.
+    """
+    out = io.StringIO()
+    err = io.StringIO()
+    with _controlled_environment(scratch, **overrides):
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            try:
+                status = main(argv)
+            except SystemExit as request:
+                status = request.code if isinstance(request.code, int) else 1
+    return _CliResult(status=status, stdout=out.getvalue(), stderr=err.getvalue())
+
+
+def _stubbed_client(region: str = _SELF_TEST_REGION) -> Any:
+    """Return an S3 client of the pinned boto3 session, ready for a stubber.
+
+    The client carries this module's own connection behaviour, so a stubbed call
+    is validated against the same client the tool builds for a real run.
+    """
+    session = boto3.session.Session(
+        region_name=region,
+        aws_access_key_id=_SELF_TEST_CREDENTIALS["AWS_ACCESS_KEY_ID"],
+        aws_secret_access_key=_SELF_TEST_CREDENTIALS["AWS_SECRET_ACCESS_KEY"],
+    )
+    return session.client(SERVICE_NAME, config=_client_config())
+
+
+def _test_collaborators() -> tuple[Any, Any, Any]:
+    """Return moto's in-process S3 context, botocore's stubber and its body type.
+
+    All three are test collaborators of the pinned distributions and are imported
+    here, so no mode but ``--self-test`` loads them.
+    """
+    from botocore.response import StreamingBody
+    from botocore.stub import Stubber
+    from moto import mock_aws
+
+    return mock_aws, Stubber, StreamingBody
+
+
+@contextlib.contextmanager
+def _served_bucket(body: bytes | None = None) -> Any:
+    """Serve one bucket over a loopback endpoint, yielding the endpoint URL.
+
+    moto's in-process mock patches the client and answers no HTTP request, so a
+    command line naming a loopback endpoint - which is what the run-mode contract
+    requires of this loader - is served by moto's own server instead. The server
+    listens on 127.0.0.1 on a port the operating system assigns, holds the bucket in
+    memory, and is stopped on the way out whatever happened. ``body`` is written as
+    the landed object when it is given; with None the bucket stays absent, which is
+    the path an unreachable object takes.
+    """
+    from moto.server import ThreadedMotoServer
+
+    server = ThreadedMotoServer(ip_address=_LOOPBACK_ADDRESS, port=0, verbose=False)
+    server.start()
+    try:
+        host, port = server.get_host_and_port()
+        endpoint = f"http://{host}:{port}"
+        if body is not None:
+            client = boto3.session.Session(
+                region_name=_SELF_TEST_REGION,
+                aws_access_key_id=_SELF_TEST_CREDENTIALS["AWS_ACCESS_KEY_ID"],
+                aws_secret_access_key=_SELF_TEST_CREDENTIALS["AWS_SECRET_ACCESS_KEY"],
+            ).client(SERVICE_NAME, endpoint_url=endpoint, config=_client_config())
+            try:
+                client.create_bucket(
+                    Bucket=_SELF_TEST_BUCKET,
+                    CreateBucketConfiguration={
+                        "LocationConstraint": _SELF_TEST_REGION
+                    },
+                )
+            except ClientError as error:
+                code = error.response.get("Error", {}).get("Code")
+                if code not in ("BucketAlreadyOwnedByYou", "BucketAlreadyExists"):
+                    raise
+            client.put_object(
+                Bucket=_SELF_TEST_BUCKET, Key=_selftest_key(), Body=body
+            )
+        yield endpoint
+    finally:
+        server.stop()
+
+
+@contextlib.contextmanager
+def _captured_stderr() -> Any:
+    """Capture the progress and warning lines a direct call writes to stderr."""
+    buffer = io.StringIO()
+    with contextlib.redirect_stderr(buffer):
+        yield buffer
+
+
+def _assert(condition: bool, message: str) -> None:
+    """Raise ``_SelfTestFailure`` carrying ``message`` unless ``condition`` holds."""
+    if not condition:
+        raise _SelfTestFailure(message)
+
+
+def _assert_equal(observed: Any, expected: Any, what: str) -> None:
+    """Raise ``_SelfTestFailure`` unless ``observed`` equals ``expected``."""
+    if observed != expected:
+        raise _SelfTestFailure(f"{what} is {observed!r}, expected {expected!r}")
+
+
+def _assert_in(fragment: str, text: str, what: str) -> None:
+    """Raise ``_SelfTestFailure`` unless ``text`` carries ``fragment``."""
+    if fragment not in text:
+        raise _SelfTestFailure(
+            f"{what} does not carry {fragment!r}: {_escaped(text, 240)}"
+        )
+
+
+def _assert_absent(fragment: str, text: str, what: str) -> None:
+    """Raise ``_SelfTestFailure`` when ``text`` carries ``fragment``."""
+    if fragment in text:
+        raise _SelfTestFailure(
+            f"{what} carries {fragment!r}: {_escaped(text, 240)}"
+        )
+
+
+def _assert_raises(
+    what: str,
+    expected: type[BaseException] | tuple[type[BaseException], ...],
+    fragment: str,
+    body: Callable[[], Any],
+) -> BaseException:
+    """Run ``body``, requiring it to raise ``expected`` carrying ``fragment``.
+
+    Returns the exception raised, so a case can inspect it further.
+    """
+    try:
+        result = body()
+    except expected as error:
+        if fragment and fragment not in str(error):
+            raise _SelfTestFailure(
+                f"{what} was refused with {str(error)!r}, which does not carry "
+                f"{fragment!r}"
+            ) from error
+        return error
+    except _SelfTestFailure:
+        raise
+    except BaseException as error:  # noqa: BLE001 - reported as a failed case
+        raise _SelfTestFailure(
+            f"{what} raised {_type_name(error)}: {error}, expected "
+            f"{getattr(expected, '__name__', expected)}"
+        ) from error
+    raise _SelfTestFailure(f"{what} was accepted, returning {result!r}")
+
+
+def _assert_one_diagnostic(stderr: str) -> str:
+    """Return the last stderr line, requiring one control-free diagnostic naming us."""
+    _assert(bool(stderr), "the run wrote no diagnostic to stderr")
+    lines = [line for line in stderr.splitlines() if line]
+    _assert(bool(lines), "the run wrote only blank lines to stderr")
+    line = lines[-1]
+    _assert(
+        line.startswith(f"{_PROGRAM}: "),
+        f"the diagnostic does not name this tool: {line!r}",
+    )
+    _assert(
+        _one_line(line) == line,
+        f"the diagnostic carries a control character: {line!r}",
+    )
+    return line
+
+
+def _single_part_etag(body: bytes) -> str:
+    """Return the entity tag a single-part upload of ``body`` carries."""
+    return hashlib.md5(body, usedforsecurity=False).hexdigest()
+
+
+def _quoted_etag(body: bytes) -> str:
+    """Return that entity tag as a store reports it, in double quotes."""
+    return f'"{_single_part_etag(body)}"'
+
+
+def _identity_of(body: bytes, version_id: str = NOT_VERSIONED) -> ObjectIdentity:
+    """Return the identity a head request records for an object holding ``body``."""
+    return ObjectIdentity(
+        etag=_single_part_etag(body),
+        version_id=version_id,
+        content_length=len(body),
+    )
+
+
+def _selftest_key(source_system_key: str = DEFAULT_SOURCE_SYSTEM_KEY) -> str:
+    """Return the landing key every case that names an object uses."""
+    return build_landing_key(
+        source_system_key, LANDING_ENTITY, _SELF_TEST_EXTRACT_DATE
+    )
+
+
+@contextlib.contextmanager
+def _seeded_bucket(body: bytes, *, versioned: bool = False) -> Any:
+    """Run a case against an in-process bucket holding one landed object.
+
+    The bucket is created inside moto's in-process S3, so no request leaves this
+    process and no AWS resource is created. ``versioned`` turns on bucket
+    versioning before the object is written, which is how a case reaches the
+    version-pinned read. The client yielded is the pinned boto3 client carrying
+    this module's own connection behaviour.
+    """
+    mock_aws, _, _ = _test_collaborators()
+    with mock_aws():
+        client = _stubbed_client()
+        client.create_bucket(
+            Bucket=_SELF_TEST_BUCKET,
+            CreateBucketConfiguration={"LocationConstraint": _SELF_TEST_REGION},
+        )
+        if versioned:
+            client.put_bucket_versioning(
+                Bucket=_SELF_TEST_BUCKET,
+                VersioningConfiguration={"Status": "Enabled"},
+            )
+        client.put_object(Bucket=_SELF_TEST_BUCKET, Key=_selftest_key(), Body=body)
+        yield client
+
+
+def _relation_shape(
+    connection: duckdb.DuckDBPyConnection,
+) -> tuple[tuple[int, str, str, str], ...]:
+    """Return the physical shape of the raw relation as the catalog reports it.
+
+    Each entry is the ordinal position, the column name, the data type and
+    whether the column accepts null, read from ``information_schema.columns`` in
+    ordinal order. Reading the catalog rather than the script establishes the
+    shape the database actually holds, so an extra column, a missing column, a
+    renamed column and a reordered column are all visible.
+    """
+    rows = connection.execute(
+        "SELECT ordinal_position, column_name, data_type, is_nullable "
+        "FROM information_schema.columns "
+        "WHERE table_schema = ? AND table_name = ? "
+        "ORDER BY ordinal_position",
+        [RAW_SCHEMA_NAME, RAW_TABLE_NAME],
+    ).fetchall()
+    return tuple(
+        (int(position), str(name), str(data_type), str(nullable))
+        for position, name, data_type, nullable in rows
+    )
+
+
+def _row_count(connection: duckdb.DuckDBPyConnection) -> int:
+    """Return the number of rows the raw relation holds."""
+    result = connection.execute(
+        f"SELECT count(*) FROM {qualified_relation_name()}"
+    ).fetchall()
+    return int(result[0][0])
+
+
+def _rows_for_key(
+    connection: duckdb.DuckDBPyConnection,
+    columns: Sequence[str],
+    key_values: Sequence[str],
+) -> tuple[tuple[Any, ...], ...]:
+    """Return every row carrying ``key_values`` as its natural key, in column order."""
+    predicate = " AND ".join(f"{field} = ?" for field in NATURAL_KEY_FIELDS)
+    result = connection.execute(
+        f"SELECT {', '.join(columns)} FROM {qualified_relation_name()} "
+        f"WHERE {predicate}",
+        list(key_values),
+    ).fetchall()
+    return tuple(tuple(row) for row in result)
+
+
+def _load_into(
+    scratch: _Scratch,
+    database: Path,
+    body: bytes,
+    *,
+    show_identifiers: bool = False,
+) -> LoadOutcome:
+    """Load one landed object into ``database`` through the whole load path.
+
+    The object is served by moto's in-process S3, so the head request, the
+    version-pinned conditional read, the digest check, the schema validation and
+    the transactional write are all the ones a real run performs.
+    """
+    ddl_paths = resolve_ddl_paths(True)
+    with _seeded_bucket(body):
+        with _controlled_environment(scratch, **_SELF_TEST_CREDENTIALS):
+            with _captured_stderr():
+                return load_record(
+                    _SELF_TEST_BUCKET,
+                    _selftest_key(),
+                    DEFAULT_SOURCE_SYSTEM_KEY,
+                    _SELF_TEST_EXTRACT_DATE,
+                    database,
+                    ddl_paths,
+                    region=_SELF_TEST_REGION,
+                    show_identifiers=show_identifiers,
+                )
+
+# ---------------------------------------------------------------------------
+# Self-test: cases
+# ---------------------------------------------------------------------------
+
+
+def _case_schema_present() -> str:
+    """The landing schema loads, is a 2020-12 schema, and declares the 17 columns."""
+    schema = load_schema()
+    columns = read_column_names(schema, DEFAULT_SCHEMA)
+    validator = build_validator(schema, DEFAULT_SCHEMA)
+    _assert_equal(len(columns), EXPECTED_COLUMN_COUNT, "landed column count")
+    _assert_equal(
+        columns,
+        tuple(name for name, _ in _MOTOR_RECORD_MEMBERS),
+        "the landed column names and their order",
+    )
+    _assert_equal(
+        columns[: len(NATURAL_KEY_FIELDS)],
+        NATURAL_KEY_FIELDS,
+        "the leading landed columns",
+    )
+    _assert_equal(read_column_names(load_schema()), columns, "the columns read from the schema")
+    _assert(
+        isinstance(validator, Draft202012Validator),
+        "the validator built for the landing schema is not a 2020-12 validator",
+    )
+    return f"{len(columns)} landed columns, first {columns[0]!r}"
+
+
+def _case_schema_failures(scratch: _Scratch) -> str:
+    """Every way the landing schema can be unusable is refused and named."""
+    checks = (
+        ("a missing schema", scratch.absent("no-such-schema.json"), "cannot be read"),
+        ("an empty schema", scratch.write("empty-schema.json", ""), "is empty"),
+        (
+            "an unparseable schema",
+            scratch.write("broken-schema.json", "{"),
+            "not readable JSON",
+        ),
+        (
+            "a schema that is not an object",
+            scratch.write("array-schema.json", "[]"),
+            "at its top level",
+        ),
+        (
+            "a schema carrying a repeated member",
+            scratch.write(
+                "duplicate-schema.json",
+                '{"$schema": "a", "$schema": "b", "properties": {}}',
+            ),
+            "more than once",
+        ),
+    )
+    for what, path, fragment in checks:
+        _assert_raises(what, SchemaError, fragment, lambda path=path: load_schema(path))
+    structural = (
+        (
+            "a schema with no properties block",
+            {"$schema": Draft202012Validator.META_SCHEMA["$id"]},
+            "no properties object",
+        ),
+        (
+            "a schema declaring too few columns",
+            {
+                "$schema": Draft202012Validator.META_SCHEMA["$id"],
+                "properties": {"source_system_key": {}, "policy_number": {}},
+            },
+            f"{EXPECTED_COLUMN_COUNT} landed columns are expected",
+        ),
+        (
+            "a schema declaring a name that is not an identifier",
+            {
+                "$schema": Draft202012Validator.META_SCHEMA["$id"],
+                "properties": {f"Column {index}": {} for index in range(17)},
+            },
+            "not an unquoted SQL identifier",
+        ),
+    )
+    for what, document, fragment in structural:
+        _assert_raises(
+            what,
+            SchemaError,
+            fragment,
+            lambda document=document: read_column_names(document, DEFAULT_SCHEMA),
+        )
+    dialects = (
+        (
+            "a schema declaring no dialect",
+            {"properties": {}},
+            "declares no '$schema' dialect",
+        ),
+        (
+            "a schema declaring another dialect",
+            {"$schema": "https://json-schema.org/draft-07/schema"},
+            "this tool applies",
+        ),
+        (
+            "a document that is not a valid schema",
+            {
+                "$schema": Draft202012Validator.META_SCHEMA["$id"],
+                "properties": {"a": {"type": "not-a-type"}},
+            },
+            "not a valid 2020-12 schema",
+        ),
+    )
+    for what, document, fragment in dialects:
+        _assert_raises(
+            what,
+            SchemaError,
+            fragment,
+            lambda document=document: build_validator(document, DEFAULT_SCHEMA),
+        )
+    real_columns = read_column_names(load_schema(), DEFAULT_SCHEMA)
+    mismatched = {
+        "$schema": Draft202012Validator.META_SCHEMA["$id"],
+        "properties": {name: {} for name in real_columns},
+        "required": list(reversed(real_columns)),
+    }
+    _assert_raises(
+        "a schema whose required list disagrees with its properties",
+        SchemaError,
+        "do not agree",
+        lambda: read_column_names(mismatched, DEFAULT_SCHEMA),
+    )
+    return f"{len(checks) + len(structural) + len(dialects) + 1} schema faults refused"
+
+
+def _case_record_accepted() -> str:
+    """Both landed records parse, satisfy the schema and yield the values as landed."""
+    schema = load_schema()
+    columns = read_column_names(schema, DEFAULT_SCHEMA)
+    validator = build_validator(schema, DEFAULT_SCHEMA)
+    key = _selftest_key()
+    checks = (
+        ("motor", _MOTOR_RECORD_MEMBERS, "1000301", "450", None),
+        ("commercial", _COMMERCIAL_RECORD_MEMBERS, "1000302", None, "13500"),
+    )
+    for what, members, policy_number, motor, fire in checks:
+        record = parse_record(_record_bytes(members), key)
+        validate_record(record, validator, key)
+        confirm_record_contract(record, columns, key)
+        confirm_source_system_key(record, DEFAULT_SOURCE_SYSTEM_KEY, key)
+        _assert_equal(
+            natural_key_values(record, key),
+            (DEFAULT_SOURCE_SYSTEM_KEY, policy_number),
+            f"the natural key of the {what} record",
+        )
+        values = record_values(record, columns)
+        _assert_equal(len(values), EXPECTED_COLUMN_COUNT, f"{what} value count")
+        _assert_equal(
+            values[columns.index("motor_premium_amount")],
+            motor,
+            f"the motor premium of the {what} record",
+        )
+        _assert_equal(
+            values[columns.index("fire_premium_amount")],
+            fire,
+            f"the fire premium of the {what} record",
+        )
+        _assert_equal(
+            values[columns.index("payment_amount")],
+            dict(members)["payment_amount"],
+            f"the payment amount of the {what} record",
+        )
+    return f"{len(checks)} records accepted with values as landed"
+
+
+def _case_record_refusals() -> str:
+    """Every breach of the landed record contract is refused and named."""
+    schema = load_schema()
+    columns = read_column_names(schema, DEFAULT_SCHEMA)
+    validator = build_validator(schema, DEFAULT_SCHEMA)
+    key = _selftest_key()
+    parse_failures = (
+        ("a body that is not UTF-8", b"\xff\xfe{}", "not valid UTF-8"),
+        ("an unparseable body", b"{", "not well-formed JSON"),
+        (
+            "a body carrying two documents",
+            _record_bytes() + _record_bytes(),
+            "more than one JSON document",
+        ),
+        ("a body carrying an array", b"[]\n", "at its top level"),
+    )
+    for what, body, fragment in parse_failures:
+        _assert_raises(
+            what, ObjectError, fragment, lambda body=body: parse_record(body, key)
+        )
+    contract_failures = (
+        (
+            "a record omitting a landed column",
+            _record_text(policy_type=_ABSENT),
+            "omits",
+        ),
+        (
+            "a record carrying an undeclared key",
+            _record_text(extra_column="x"),
+            "does not declare",
+        ),
+        (
+            "a record carrying a number",
+            _record_text(payment_amount=500),
+            "the landing contract carries every value",
+        ),
+        (
+            "a record carrying a boolean",
+            _record_text(payment_amount=True),
+            "the landing contract carries every value",
+        ),
+        (
+            "a record carrying a nested object",
+            _record_text(payment_amount={"amount": "500"}),
+            "the landing contract carries every value",
+        ),
+    )
+    for what, text, fragment in contract_failures:
+        record = parse_record(text.encode("utf-8"), key)
+        _assert_raises(
+            what,
+            ObjectError,
+            fragment,
+            lambda record=record: confirm_record_contract(record, columns, key),
+        )
+    schema_failures = (
+        ("a record carrying an unknown policy type", _record_text(policy_type="X")),
+        ("a record carrying a policy number of zero", _record_text(policy_number="0")),
+        (
+            "a record carrying a truncated timestamp",
+            _record_text(last_changed="2026-08-19T12:00:00"),
+        ),
+        (
+            "a record carrying an unsuccessful return code",
+            _record_text(return_code="99"),
+        ),
+        (
+            "a record carrying a null policy number",
+            _record_text(policy_number=None),
+        ),
+    )
+    for what, text in schema_failures:
+        record = parse_record(text.encode("utf-8"), key)
+        _assert_raises(
+            what,
+            ObjectError,
+            "does not satisfy the landing schema",
+            lambda record=record: validate_record(record, validator, key),
+        )
+    key_failures = (
+        ("a record carrying an empty policy number", _record_text(policy_number="")),
+    )
+    for what, text in key_failures:
+        record = parse_record(text.encode("utf-8"), key)
+        _assert_raises(
+            what,
+            ObjectError,
+            "natural key",
+            lambda record=record: natural_key_values(record, key),
+        )
+    other_key = parse_record(
+        _record_text(source_system_key="OTHER_SYSTEM").encode("utf-8"), key
+    )
+    _assert_raises(
+        "a record carrying another source-system key",
+        ObjectError,
+        "the two must agree",
+        lambda: confirm_source_system_key(other_key, DEFAULT_SOURCE_SYSTEM_KEY, key),
+    )
+    return (
+        f"{len(parse_failures)} parse, {len(contract_failures)} contract, "
+        f"{len(schema_failures)} schema and {len(key_failures) + 1} key faults refused"
+    )
+
+
+def _case_duplicate_members_refused(scratch: _Scratch) -> str:
+    """A repeated member is refused at every nesting level of every document read."""
+    key = _selftest_key()
+    duplicates = (
+        (
+            "a record carrying a repeated landed column",
+            _json_object_text(
+                (*_MOTOR_RECORD_MEMBERS, ("policy_number", "9999999"))
+            ),
+            "policy_number",
+        ),
+        (
+            "a record carrying a repeated member below the top level",
+            '{"source_system_key": {"a": "1", "a": "2"}}\n',
+            "a",
+        ),
+        (
+            "a record carrying a repeated member in a nested array",
+            '{"source_system_key": [{"b": "1", "b": "2"}]}\n',
+            "b",
+        ),
+    )
+    for what, text, member in duplicates:
+        error = _assert_raises(
+            what,
+            ObjectError,
+            "more than once",
+            lambda text=text: parse_record(text.encode("utf-8"), key),
+        )
+        _assert_in(member, str(error), f"the diagnostic for {what}")
+    nested_schema = scratch.write(
+        "nested-duplicate-schema.json",
+        '{"$schema": "x", "properties": {"a": {"type": "string", "type": "null"}}}',
+    )
+    error = _assert_raises(
+        "a schema carrying a repeated member below the top level",
+        SchemaError,
+        "more than once",
+        lambda: load_schema(nested_schema),
+    )
+    _assert_in("type", str(error), "the diagnostic for a nested schema duplicate")
+    _assert_equal(
+        parse_json_document('{"a": "1", "b": {"c": "2"}}'),
+        {"a": "1", "b": {"c": "2"}},
+        "a document carrying no repeated member",
+    )
+    _assert_equal(
+        len(parse_record(_record_bytes(), key)),
+        EXPECTED_COLUMN_COUNT,
+        "the members of the landed record",
+    )
+    return f"{len(duplicates) + 1} repeated members refused, valid documents parsed"
+
+
+def _case_endpoint_accepted() -> str:
+    """Every loopback endpoint form the policy accepts is returned unchanged."""
+    for value in _ACCEPTED_ENDPOINTS:
+        _assert_equal(
+            require_loopback_endpoint(value, "the self-test"),
+            value,
+            f"the accepted endpoint {value!r}",
+        )
+        observed, origin = resolve_endpoint_url(value)
+        _assert_equal(observed, value, f"the endpoint resolved from {value!r}")
+        _assert_equal(
+            origin, "--endpoint-url", f"the origin of the endpoint {value!r}"
+        )
+    return f"{len(_ACCEPTED_ENDPOINTS)} loopback endpoint forms accepted"
+
+
+def _case_endpoint_refused() -> str:
+    """Every non-local endpoint form is refused, naming the element refused."""
+    for value, element in _REFUSED_ENDPOINTS:
+        _assert_raises(
+            f"the endpoint {value!r}",
+            ConfigurationError,
+            element,
+            lambda value=value: require_loopback_endpoint(value, "the self-test"),
+        )
+        _assert_raises(
+            f"the endpoint setting {value!r}",
+            ConfigurationError,
+            element,
+            lambda value=value: resolve_endpoint_url(value),
+        )
+    return f"{len(_REFUSED_ENDPOINTS)} endpoint forms refused by element"
+
+
+def _case_endpoint_resolving_name_refused(scratch: _Scratch) -> str:
+    """A name that resolves to loopback is still refused, and no request is signed."""
+    import socket
+
+    resolving = []
+    for candidate in ("localhost.localdomain", "ip6-localhost", "localhost."):
+        try:
+            resolved = socket.getaddrinfo(candidate, None)
+        except socket.gaierror:
+            continue
+        if any(entry[4][0] in {"127.0.0.1", "::1"} for entry in resolved):
+            resolving.append(candidate)
+    _assert(
+        bool(resolving),
+        "no name resolving to loopback is available to establish the policy",
+    )
+    for name in resolving:
+        _assert_raises(
+            f"the resolving name {name!r}",
+            ConfigurationError,
+            "host",
+            lambda name=name: require_loopback_endpoint(
+                f"http://{name}:5112", "the self-test"
+            ),
+        )
+        _assert(
+            not _is_loopback_host(name),
+            f"the name {name!r} was accepted as a loopback literal",
+        )
+    run = _run_cli(
+        scratch,
+        ["--bucket", _SELF_TEST_BUCKET, "--region", _SELF_TEST_REGION],
+        **{ENDPOINT_URL_VARIABLE: f"http://{resolving[0]}:5112"},
+        **_SELF_TEST_CREDENTIALS,
+    )
+    _assert_equal(run.status, EXIT_CONFIGURATION_REJECTED, "the status of that run")
+    _assert_in("host", _assert_one_diagnostic(run.stderr), "the diagnostic")
+    _assert_equal(run.stdout, "", "stdout of a refused endpoint run")
+    return f"{len(resolving)} resolving names refused before a client existed"
+
+
+def _case_configured_endpoint_ignored(scratch: _Scratch) -> str:
+    """An endpoint configured in the environment cannot redirect a request."""
+    with _controlled_environment(
+        scratch,
+        AWS_ENDPOINT_URL="http://attacker.example.com:9999",
+        AWS_ENDPOINT_URL_S3="http://attacker-s3.example.com:9999",
+        AWS_DEFAULT_REGION=_SELF_TEST_REGION,
+        **_SELF_TEST_CREDENTIALS,
+    ):
+        _assert(
+            resolve_endpoint_url(None)[0] is None,
+            "an AWS endpoint variable was read as this tool's endpoint setting",
+        )
+        session = build_session(_SELF_TEST_REGION)
+        client = build_s3_client(session, None)
+        observed = client.meta.endpoint_url
+        _assert(
+            "attacker" not in observed,
+            f"the client addresses the configured endpoint {observed!r}",
+        )
+        local = build_s3_client(session, _ACCEPTED_ENDPOINTS[0])
+        _assert_equal(
+            local.meta.endpoint_url,
+            _ACCEPTED_ENDPOINTS[0],
+            "the endpoint of a client built for the accepted local endpoint",
+        )
+    return f"configured endpoints ignored, client addressed {observed}"
+
+
+def _case_credentials_and_region_required(scratch: _Scratch) -> str:
+    """A missing credential or region is named before any request is attempted."""
+    with _controlled_environment(scratch, AWS_DEFAULT_REGION=_SELF_TEST_REGION):
+        _assert_raises(
+            "a session with no credentials",
+            ConfigurationError,
+            "no credentials are resolved",
+            lambda: confirm_credentials(build_session(_SELF_TEST_REGION)),
+        )
+    with _controlled_environment(scratch, **_SELF_TEST_CREDENTIALS):
+        _assert_raises(
+            "a session with no region",
+            ConfigurationError,
+            "no region is resolved",
+            lambda: resolve_session_region(build_session(None)),
+        )
+        _assert_equal(
+            resolve_session_region(build_session(_SELF_TEST_REGION)),
+            _SELF_TEST_REGION,
+            "the region of a session pinned to one",
+        )
+    with _controlled_environment(
+        scratch, AWS_REGION=_SELF_TEST_REGION, **_SELF_TEST_CREDENTIALS
+    ):
+        _assert_equal(
+            resolve_region(None), _SELF_TEST_REGION, "the region read from AWS_REGION"
+        )
+    _assert_raises(
+        "a region carrying whitespace",
+        ConfigurationError,
+        "whitespace",
+        lambda: resolve_region("eu west 2"),
+    )
+    return "3 unresolved settings named and 2 resolved ones confirmed"
+
+
+def _case_object_identity_recorded() -> str:
+    """The head request records the entity tag, the byte count and the version."""
+    body = _record_bytes()
+    with _seeded_bucket(body) as raw:
+        client = _RecordingClient(raw)
+        identity = head_object_identity(client, _SELF_TEST_BUCKET, _selftest_key())
+        _assert_equal(client.operations(), ("head_object",), "the operations called")
+        _assert_equal(
+            identity.content_length, len(body), "the recorded byte count"
+        )
+        _assert_equal(identity.etag, _single_part_etag(body), "the recorded entity tag")
+        _assert_equal(identity.version_id, NOT_VERSIONED, "the recorded version")
+    with _seeded_bucket(body, versioned=True) as raw:
+        identity = head_object_identity(raw, _SELF_TEST_BUCKET, _selftest_key())
+        _assert(
+            identity.version_id != NOT_VERSIONED,
+            "a versioned bucket reported no version to bind the download to",
+        )
+    _assert_equal(
+        _reported_etag(_quoted_etag(body)),
+        _single_part_etag(body),
+        "the entity tag read from the quoted form a store reports",
+    )
+    absent = ({}, {"ETag": '""', "ContentLength": 1}, {"ETag": '"a" '})
+    for response in absent:
+        _assert_raises(
+            f"a head response of {response!r}",
+            AccessError,
+            "landed object",
+            lambda response=response: head_object_identity(
+                _FixedResponseClient(response), _SELF_TEST_BUCKET, _selftest_key()
+            ),
+        )
+    return f"identity recorded for both bucket kinds, {len(absent)} faults refused"
+
+
+class _FixedResponseClient:
+    """One client whose ``head_object`` answers with a fixed mapping.
+
+    The mapping stands for a store that reported an identity this tool cannot
+    bind a download to, which no real store returns and which must still be
+    refused rather than assumed.
+    """
+
+    def __init__(self, response: Mapping[str, Any]) -> None:
+        self._response = response
+
+    def head_object(self, **_arguments: Any) -> Mapping[str, Any]:
+        """Return the fixed response this client was built with."""
+        return self._response
+
+
+def _case_download_bound_to_identity() -> str:
+    """The download names the recorded entity tag, and the version where one is kept."""
+    body = _record_bytes()
+    with _seeded_bucket(body) as raw:
+        client = _RecordingClient(raw)
+        identity = head_object_identity(client, _SELF_TEST_BUCKET, _selftest_key())
+        downloaded = fetch_object_bytes(
+            client, _SELF_TEST_BUCKET, _selftest_key(), identity
+        )
+        _assert_equal(
+            client.operations(), ("head_object", "get_object"), "the operations called"
+        )
+        arguments = client.arguments("get_object")
+        _assert_equal(arguments.get("IfMatch"), identity.etag, "the IfMatch condition")
+        _assert(
+            "VersionId" not in arguments,
+            "an unversioned read named a version the store does not keep",
+        )
+        _assert_equal(downloaded.body, body, "the bytes downloaded")
+        _assert_equal(
+            downloaded.sha256, hashlib.sha256(body).hexdigest(), "the digest computed"
+        )
+        _assert_equal(downloaded.identity, identity, "the identity bound to")
+    with _seeded_bucket(body, versioned=True) as raw:
+        client = _RecordingClient(raw)
+        identity = head_object_identity(client, _SELF_TEST_BUCKET, _selftest_key())
+        fetch_object_bytes(client, _SELF_TEST_BUCKET, _selftest_key(), identity)
+        arguments = client.arguments("get_object")
+        _assert_equal(
+            arguments.get("VersionId"), identity.version_id, "the version read"
+        )
+        _assert_equal(arguments.get("IfMatch"), identity.etag, "the IfMatch condition")
+    return "the read named the recorded entity tag, and the version when kept"
+
+
+def _case_replacement_refused() -> str:
+    """An object replaced between the identity check and the download is refused."""
+    body = _record_bytes()
+    replacement = _record_bytes(policy_number="9999999")
+    _assert(
+        len(replacement) == len(body),
+        "the replacement fixture differs in length, so length alone would catch it",
+    )
+    with _seeded_bucket(body) as raw:
+        client = _ReplacingClient(raw, replacement)
+        identity = head_object_identity(client, _SELF_TEST_BUCKET, _selftest_key())
+        error = _assert_raises(
+            "a read of an object replaced after the identity check",
+            AccessError,
+            "was replaced between the identity check and the download",
+            lambda: fetch_object_bytes(
+                client, _SELF_TEST_BUCKET, _selftest_key(), identity
+            ),
+        )
+        _assert_absent("9999999", str(error), "the replacement diagnostic")
+        _assert_equal(
+            client.operations(),
+            ("head_object", "put_object", "get_object"),
+            "the operations called",
+        )
+    with _seeded_bucket(body, versioned=True) as raw:
+        client = _ReplacingClient(raw, replacement)
+        identity = head_object_identity(client, _SELF_TEST_BUCKET, _selftest_key())
+        downloaded = fetch_object_bytes(
+            client, _SELF_TEST_BUCKET, _selftest_key(), identity
+        )
+        _assert_equal(
+            downloaded.body,
+            body,
+            "the bytes a version-pinned read returned after a replacement",
+        )
+    return "a replaced object was refused, and a pinned version still read as landed"
+
+
+def _case_digest_and_length_confirmed() -> str:
+    """Bytes that do not carry the recorded length or digest never reach the record."""
+    _, Stubber, StreamingBody = _test_collaborators()
+    body = _record_bytes()
+    identity = _identity_of(body)
+    faults = (
+        (
+            "a body of another length",
+            _record_bytes(policy_number="1"),
+            "the object changed between the identity check and the download",
+        ),
+        (
+            "a body of the recorded length carrying other bytes",
+            _record_bytes(policy_number="9999999"),
+            "are not the bytes that were checked",
+        ),
+    )
+    for what, served, fragment in faults:
+        client = _stubbed_client()
+        with Stubber(client) as stub:
+            stub.add_response(
+                "get_object",
+                {
+                    "Body": StreamingBody(io.BytesIO(served), len(served)),
+                    "ETag": f'"{identity.etag}"',
+                    "ContentLength": len(served),
+                },
+                {
+                    "Bucket": _SELF_TEST_BUCKET,
+                    "Key": _selftest_key(),
+                    "IfMatch": identity.etag,
+                },
+            )
+            _assert_raises(
+                what,
+                ObjectError,
+                fragment,
+                lambda client=client: fetch_object_bytes(
+                    client, _SELF_TEST_BUCKET, _selftest_key(), identity
+                ),
+            )
+    client = _stubbed_client()
+    with Stubber(client) as stub:
+        stub.add_response(
+            "get_object",
+            {
+                "Body": StreamingBody(io.BytesIO(body), len(body)),
+                "ETag": f'"{identity.etag}"',
+                "ContentLength": len(body),
+            },
+            {
+                "Bucket": _SELF_TEST_BUCKET,
+                "Key": _selftest_key(),
+                "IfMatch": identity.etag,
+            },
+        )
+        downloaded = fetch_object_bytes(
+            client, _SELF_TEST_BUCKET, _selftest_key(), identity
+        )
+    _assert_equal(downloaded.body, body, "the bytes of a matching object")
+    multipart = ObjectIdentity(
+        etag=f"{_single_part_etag(body)}-2",
+        version_id=NOT_VERSIONED,
+        content_length=len(body),
+    )
+    client = _stubbed_client()
+    with Stubber(client) as stub:
+        stub.add_response(
+            "get_object",
+            {
+                "Body": StreamingBody(io.BytesIO(body), len(body)),
+                "ETag": f'"{multipart.etag}"',
+                "ContentLength": len(body),
+            },
+            {
+                "Bucket": _SELF_TEST_BUCKET,
+                "Key": _selftest_key(),
+                "IfMatch": multipart.etag,
+            },
+        )
+        downloaded = fetch_object_bytes(
+            client, _SELF_TEST_BUCKET, _selftest_key(), multipart
+        )
+    _assert_equal(
+        downloaded.identity.etag, multipart.etag, "the multipart tag bound to"
+    )
+    return f"{len(faults)} mismatches refused, matching and multipart objects read"
+
+
+def _case_download_failures_reported() -> str:
+    """Every download failure botocore reports becomes the diagnostic it deserves."""
+    _, Stubber, StreamingBody = _test_collaborators()
+    body = _record_bytes()
+    identity = _identity_of(body)
+    failures = (
+        ("NoSuchKey", 404, AccessError, "no such object"),
+        ("AccessDenied", 403, AccessError, "not permitted"),
+        ("NoSuchBucket", 404, AccessError, "does not"),
+        ("PreconditionFailed", 412, AccessError, "was replaced between"),
+        ("InvalidAccessKeyId", 403, ConfigurationError, "rejected the resolved"),
+        ("PermanentRedirect", 301, AccessError, "not in the region"),
+        ("InternalError", 500, AccessError, "the endpoint answered"),
+    )
+    for code, status, expected, fragment in failures:
+        client = _stubbed_client()
+        with Stubber(client) as stub:
+            stub.add_client_error(
+                "get_object",
+                service_error_code=code,
+                http_status_code=status,
+                expected_params={
+                    "Bucket": _SELF_TEST_BUCKET,
+                    "Key": _selftest_key(),
+                    "IfMatch": identity.etag,
+                },
+            )
+            error = _assert_raises(
+                f"a download answered {code}",
+                expected,
+                fragment,
+                lambda client=client: fetch_object_bytes(
+                    client, _SELF_TEST_BUCKET, _selftest_key(), identity
+                ),
+            )
+        _assert_equal(
+            error.exit_status,
+            EXIT_S3_UNAVAILABLE
+            if expected is AccessError
+            else EXIT_CONFIGURATION_REJECTED,
+            f"the status of a {code} failure",
+        )
+    head_failures = (("NoSuchKey", 404), ("AccessDenied", 403))
+    for code, status in head_failures:
+        client = _stubbed_client()
+        with Stubber(client) as stub:
+            stub.add_client_error(
+                "head_object",
+                service_error_code=code,
+                http_status_code=status,
+                expected_params={"Bucket": _SELF_TEST_BUCKET, "Key": _selftest_key()},
+            )
+            _assert_raises(
+                f"an identity check answered {code}",
+                AccessError,
+                "cannot read the identity",
+                lambda client=client: head_object_identity(
+                    client, _SELF_TEST_BUCKET, _selftest_key()
+                ),
+            )
+    empty = b""
+    client = _stubbed_client()
+    with Stubber(client) as stub:
+        stub.add_response(
+            "get_object",
+            {
+                "Body": StreamingBody(io.BytesIO(empty), 0),
+                "ETag": f'"{_single_part_etag(empty)}"',
+                "ContentLength": 0,
+            },
+            {
+                "Bucket": _SELF_TEST_BUCKET,
+                "Key": _selftest_key(),
+                "IfMatch": _single_part_etag(empty),
+            },
+        )
+        _assert_raises(
+            "an empty object",
+            ObjectError,
+            "is empty",
+            lambda: fetch_object_bytes(
+                client, _SELF_TEST_BUCKET, _selftest_key(), _identity_of(empty)
+            ),
+        )
+    return (
+        f"{len(failures)} download failures, {len(head_failures)} identity failures "
+        "and an empty object reported"
+    )
+
+
+def _case_failure_mapping() -> str:
+    """A credential, region or connection failure names the setting to supply."""
+    mapping = (
+        (NoCredentialsError(), ConfigurationError, "no credentials are resolved"),
+        (
+            PartialCredentialsError(provider="env", cred_var="AWS_SECRET_ACCESS_KEY"),
+            ConfigurationError,
+            "incomplete",
+        ),
+        (NoRegionError(), ConfigurationError, "no region is resolved"),
+        (
+            EndpointConnectionError(endpoint_url="http://127.0.0.1:5112"),
+            AccessError,
+            "refused the connection",
+        ),
+    )
+    for error, expected, fragment in mapping:
+        produced = _failure_for(error, _SELF_TEST_BUCKET, "read the landed object")
+        _assert(
+            isinstance(produced, expected),
+            f"{_type_name(error)} became {_type_name(produced)}",
+        )
+        _assert_in(fragment, str(produced), f"the diagnostic for {_type_name(error)}")
+        _assert_absent(
+            "127.0.0.1", str(produced), f"the diagnostic for {_type_name(error)}"
+        )
+    return f"{len(mapping)} collaborator failures mapped without an endpoint value"
+
+
+def _case_raw_relation_shape(scratch: _Scratch) -> str:
+    """The relation the scripts define carries exactly the 17 landed columns."""
+    database = scratch.database("shape.duckdb")
+    columns = read_column_names(load_schema())
+    with _captured_stderr():
+        connection = open_database(database)
+    try:
+        with _captured_stderr():
+            apply_sql_scripts(connection, resolve_ddl_paths(True))
+        shape = _relation_shape(connection)
+        _assert_equal(
+            tuple(entry[1] for entry in shape),
+            columns,
+            "the column names and their order in the catalog",
+        )
+        _assert_equal(
+            tuple(entry[0] for entry in shape),
+            tuple(range(1, EXPECTED_COLUMN_COUNT + 1)),
+            "the ordinal positions in the catalog",
+        )
+        for position, name, data_type, nullable in shape:
+            _assert_equal(data_type, "VARCHAR", f"the type of column {position} {name}")
+            _assert_equal(nullable, "YES", f"the nullability of column {name}")
+        tables = connection.execute(
+            "SELECT table_name FROM information_schema.tables "
+            "WHERE table_schema = ? ORDER BY table_name",
+            [RAW_SCHEMA_NAME],
+        ).fetchall()
+        _assert_equal(
+            tuple(str(name) for (name,) in tables),
+            (RAW_TABLE_NAME,),
+            f"the relations in schema {RAW_SCHEMA_NAME}",
+        )
+        _assert_equal(_row_count(connection), 0, "the rows a fresh relation holds")
+        with _captured_stderr():
+            apply_sql_scripts(connection, resolve_ddl_paths(True))
+        _assert_equal(
+            _relation_shape(connection), shape, "the shape after a second application"
+        )
+    finally:
+        connection.close()
+    return f"{len(shape)} columns, all VARCHAR and nullable, in landing order"
+
+
+def _case_load_one_row(scratch: _Scratch) -> str:
+    """One landed object becomes exactly one row carrying the values as landed."""
+    database = scratch.database("one-row.duckdb")
+    columns = read_column_names(load_schema())
+    body = _record_bytes()
+    outcome = _load_into(scratch, database, body)
+    _assert_equal(outcome.removed, 0, "the rows a first load removed")
+    _assert_equal(outcome.written, EXPECTED_INSERTED_ROWS, "the rows it wrote")
+    _assert_equal(
+        outcome.key_values,
+        (DEFAULT_SOURCE_SYSTEM_KEY, "1000301"),
+        "the natural key it loaded",
+    )
+    _assert_equal(outcome.identity.content_length, len(body), "the byte count bound")
+    _assert_equal(outcome.sha256, hashlib.sha256(body).hexdigest(), "the digest bound")
+    connection = duckdb.connect(str(database))
+    try:
+        _assert_equal(_row_count(connection), 1, "the rows the relation holds")
+        rows = _rows_for_key(connection, columns, outcome.key_values)
+        _assert_equal(len(rows), 1, "the rows carrying that natural key")
+        expected = tuple(value for _, value in _MOTOR_RECORD_MEMBERS)
+        _assert_equal(rows[0], expected, "the row as stored")
+        nulls = sum(1 for value in rows[0] if value is None)
+        _assert_equal(nulls, 4, "the null values of a motor row")
+    finally:
+        connection.close()
+    return f"1 row written, {nulls} product premiums left null"
+
+
+def _case_repeated_load_idempotent(scratch: _Scratch) -> str:
+    """Loading the same object again leaves one row carrying the same values."""
+    database = scratch.database("idempotent.duckdb")
+    columns = read_column_names(load_schema())
+    body = _record_bytes()
+    first = _load_into(scratch, database, body)
+    connection = duckdb.connect(str(database))
+    try:
+        before = _rows_for_key(connection, columns, first.key_values)
+    finally:
+        connection.close()
+    second = _load_into(scratch, database, body)
+    _assert_equal(second.removed, 1, "the rows the second load removed")
+    _assert_equal(second.written, EXPECTED_INSERTED_ROWS, "the rows it wrote")
+    connection = duckdb.connect(str(database))
+    try:
+        _assert_equal(_row_count(connection), 1, "the rows after a repeated load")
+        after = _rows_for_key(connection, columns, second.key_values)
+        _assert_equal(after, before, "the row after a repeated load")
+    finally:
+        connection.close()
+    third = _load_into(scratch, database, body)
+    connection = duckdb.connect(str(database))
+    try:
+        _assert_equal(_row_count(connection), 1, "the rows after a third load")
+    finally:
+        connection.close()
+    return (
+        f"3 loads of one object left 1 row, removing {second.removed} and writing "
+        f"{third.written} each time after the first"
+    )
+
+
+def _case_second_key_coexists(scratch: _Scratch) -> str:
+    """A second landed object adds its own row and leaves the first one alone."""
+    database = scratch.database("two-rows.duckdb")
+    columns = read_column_names(load_schema())
+    motor = _load_into(scratch, database, _record_bytes())
+    connection = duckdb.connect(str(database))
+    try:
+        motor_row = _rows_for_key(connection, columns, motor.key_values)
+    finally:
+        connection.close()
+    commercial = _load_into(
+        scratch, database, _record_bytes(_COMMERCIAL_RECORD_MEMBERS)
+    )
+    _assert_equal(commercial.removed, 0, "the rows the second object removed")
+    _assert(
+        commercial.key_values != motor.key_values,
+        "the two fixtures carry the same natural key, so nothing distinguishes them",
+    )
+    connection = duckdb.connect(str(database))
+    try:
+        _assert_equal(_row_count(connection), 2, "the rows two objects left")
+        _assert_equal(
+            _rows_for_key(connection, columns, motor.key_values),
+            motor_row,
+            "the first row after the second object was loaded",
+        )
+        commercial_row = _rows_for_key(connection, columns, commercial.key_values)
+        _assert_equal(len(commercial_row), 1, "the rows of the second natural key")
+        _assert_equal(
+            commercial_row[0],
+            tuple(value for _, value in _COMMERCIAL_RECORD_MEMBERS),
+            "the second row as stored",
+        )
+        _assert_equal(
+            commercial_row[0][columns.index("motor_premium_amount")],
+            None,
+            "the motor premium of a commercial row",
+        )
+        _assert_equal(
+            motor_row[0][columns.index("fire_premium_amount")],
+            None,
+            "the fire premium of a motor row",
+        )
+    finally:
+        connection.close()
+    return "2 distinct natural keys coexist with the product-specific null pattern"
+
+
+def _case_rollback_restores_state(scratch: _Scratch) -> str:
+    """A failure between the removal and the write leaves the earlier state intact."""
+    database = scratch.database("rollback.duckdb")
+    columns = read_column_names(load_schema())
+    loaded = _load_into(scratch, database, _record_bytes())
+    values = tuple(value for _, value in _MOTOR_RECORD_MEMBERS)
+    connection = duckdb.connect(str(database))
+    try:
+        before_shape = _relation_shape(connection)
+        before_rows = _rows_for_key(connection, columns, loaded.key_values)
+        before_count = _row_count(connection)
+        _assert_equal(before_count, 1, "the rows before the failing write")
+        with _captured_stderr():
+            error = _assert_raises(
+                "a write naming a column the relation does not carry",
+                WarehouseError,
+                "refused the load",
+                lambda: upsert_record(
+                    connection,
+                    (*columns, "not_a_landed_column"),
+                    (*values, "x"),
+                    loaded.key_values,
+                ),
+            )
+        _assert_equal(
+            error.exit_status, EXIT_WAREHOUSE_UNAVAILABLE, "the status of that failure"
+        )
+        _assert_equal(
+            _row_count(connection), before_count, "the rows after the rollback"
+        )
+        _assert_equal(
+            _rows_for_key(connection, columns, loaded.key_values),
+            before_rows,
+            "the row after the rollback",
+        )
+        _assert_equal(
+            _relation_shape(connection), before_shape, "the shape after the rollback"
+        )
+        _assert_raises(
+            "a write carrying fewer values than columns",
+            WarehouseError,
+            "the two must agree",
+            lambda: upsert_record(
+                connection, columns, values[:-1], loaded.key_values
+            ),
+        )
+        removed, written = upsert_record(
+            connection, columns, values, loaded.key_values
+        )
+        _assert_equal((removed, written), (1, 1), "the counts of a recovered write")
+        _assert_equal(_row_count(connection), 1, "the rows after the recovered write")
+        _assert_equal(
+            _rows_for_key(connection, columns, loaded.key_values),
+            before_rows,
+            "the row after the recovered write",
+        )
+    finally:
+        connection.close()
+    return "a failed write rolled back and the relation was writable afterwards"
+
+
+def _case_row_counts_reported(scratch: _Scratch) -> str:
+    """The counts a load reports are the counts the relation holds."""
+    database = scratch.database("counts.duckdb")
+    columns = read_column_names(load_schema())
+    first = _load_into(scratch, database, _record_bytes())
+    second = _load_into(scratch, database, _record_bytes())
+    third = _load_into(scratch, database, _record_bytes(_COMMERCIAL_RECORD_MEMBERS))
+    connection = duckdb.connect(str(database))
+    try:
+        total = _row_count(connection)
+        _assert_equal(total, 2, "the rows three loads of two objects left")
+        _assert_equal(
+            sum(
+                len(_rows_for_key(connection, columns, outcome.key_values))
+                for outcome in (first, third)
+            ),
+            total,
+            "the rows the two natural keys account for",
+        )
+        _assert_equal(
+            (first.removed, second.removed, third.removed),
+            (0, 1, 0),
+            "the rows each load removed",
+        )
+        _assert_equal(
+            (first.written, second.written, third.written),
+            (1, 1, 1),
+            "the rows each load wrote",
+        )
+    finally:
+        connection.close()
+    _assert_raises(
+        "a row count the database did not report",
+        WarehouseError,
+        "no row count",
+        lambda: _affected_rows([], "self-test action"),
+    )
+    _assert_raises(
+        "a row count that is not a whole number",
+        WarehouseError,
+        "a whole number is required",
+        lambda: _affected_rows([("many",)], "self-test action"),
+    )
+    return "reported counts matched the relation for 3 loads of 2 objects"
+
+
+def _case_database_path_accepted(scratch: _Scratch) -> str:
+    """The declared database and a name inside its own directory are accepted."""
+    _assert_equal(
+        resolve_database_path(None), DEFAULT_DATABASE, "the default database path"
+    )
+    declared = os.path.realpath(DEFAULT_DATABASE)
+    _assert_equal(
+        os.fspath(resolve_database_path(str(DEFAULT_DATABASE))),
+        declared,
+        "the declared database named explicitly",
+    )
+    beside = DATABASE_DIRECTORY / "selftest-beside.duckdb"
+    _assert_equal(
+        os.fspath(resolve_database_path(str(beside))),
+        os.path.realpath(DATABASE_DIRECTORY) + os.sep + beside.name,
+        "a new name inside the database directory",
+    )
+    accepted = scratch.database("accepted.duckdb")
+    _assert_equal(
+        os.fspath(resolve_database_path(str(accepted))),
+        os.path.realpath(DATABASE_DIRECTORY) + os.sep + accepted.name,
+        "a name of this run inside the database directory",
+    )
+    relative = os.path.relpath(accepted, Path.cwd())
+    _assert_equal(
+        os.fspath(resolve_database_path(relative)),
+        os.path.realpath(DATABASE_DIRECTORY) + os.sep + accepted.name,
+        "a relative path reaching the database directory",
+    )
+    _assert(
+        not accepted.exists(),
+        "an accepted path created a file before anything was written",
+    )
+    return "4 accepted database paths resolved inside the database directory"
+
+
+def _case_database_path_refused(scratch: _Scratch) -> str:
+    """Every path outside the database directory is refused, and nothing is written."""
+    authored = _THIS_DIR / "load_local.py"
+    before = authored.read_bytes()
+    refused = (
+        ("this module itself", str(authored)),
+        ("an authored SQL script", str(DDL_DIRECTORY / "01_schemas.sql")),
+        ("the landing schema", str(DEFAULT_SCHEMA)),
+        (
+            "a read-only source file",
+            str(_REPOSITORY_DIR / "base" / "src" / "lgapol01.cbl"),
+        ),
+        ("a new file beside this module", str(_THIS_DIR / "new.duckdb")),
+        ("the repository root itself", str(_REPOSITORY_DIR / "in-tree.duckdb")),
+        ("a path outside the repository", str(scratch.absent("outside.duckdb"))),
+    )
+    for what, value in refused:
+        _assert_raises(
+            what,
+            ConfigurationError,
+            "outside",
+            lambda value=value: resolve_database_path(value),
+        )
+    _assert_equal(
+        authored.read_bytes(), before, "the bytes of this module after the refusals"
+    )
+    for name in RESERVED_DATABASE_NAMES:
+        _assert_raises(
+            f"the authored file {name!r} of the database directory",
+            ConfigurationError,
+            "authored file",
+            lambda name=name: resolve_database_path(str(DATABASE_DIRECTORY / name)),
+        )
+    alias = scratch.absent("alias-to-authored")
+    alias.symlink_to(authored)
+    _assert_raises(
+        "a symbolic link reaching an authored file",
+        ConfigurationError,
+        "symbolic link",
+        lambda: resolve_database_path(str(alias)),
+    )
+    directory_alias = scratch.absent("alias-to-landing")
+    directory_alias.symlink_to(_THIS_DIR)
+    _assert_raises(
+        "a symbolic link reaching an authored directory",
+        ConfigurationError,
+        "outside",
+        lambda: resolve_database_path(str(directory_alias / "aliased.duckdb")),
+    )
+    cwd_alias = f"/proc/self/cwd/{os.path.relpath(authored, Path.cwd())}"
+    _assert_raises(
+        "a /proc/self/cwd alias reaching an authored file",
+        ConfigurationError,
+        "outside",
+        lambda: resolve_database_path(cwd_alias),
+    )
+    _assert_raises(
+        "an in-memory database",
+        ConfigurationError,
+        "in-memory",
+        lambda: resolve_database_path(":memory:"),
+    )
+    _assert_raises(
+        "an empty database path",
+        ConfigurationError,
+        "is empty",
+        lambda: resolve_database_path("   "),
+    )
+    _assert_equal(
+        authored.read_bytes(), before, "the bytes of this module after every refusal"
+    )
+    return (
+        f"{len(refused) + len(RESERVED_DATABASE_NAMES) + 5} paths, authored names and "
+        "aliases refused, this module untouched"
+    )
+
+
+def _case_sql_split_matrix(scratch: _Scratch) -> str:
+    """Statement boundaries are read outside literals, identifiers and comments."""
+    checks = (
+        ("BEGIN;\nCOMMIT;\n", 2),
+        ("SELECT ';' AS semicolon_in_a_literal;", 1),
+        ("-- a comment; with a semicolon\nSELECT 1;", 1),
+        ("/* a; /* nested */ comment; */ SELECT 1;", 1),
+        ("SELECT 1", 1),
+        ("-- only a comment\n", 0),
+        ('SELECT "quoted;identifier";', 1),
+        ("SELECT 'it''s here; still one';", 1),
+        ("BEGIN;\n\n;\nCOMMIT;\n", 2),
+        ("SELECT $tag$a; b$tag$;", 1),
+    )
+    for text, expected in checks:
+        observed = split_sql_statements(text, DEFAULT_SCHEMA)
+        _assert_equal(len(observed), expected, f"statements of {text!r}")
+    _assert_equal(
+        split_sql_statements("SELECT 1;\n  SELECT 2\n", DEFAULT_SCHEMA),
+        ("SELECT 1", "SELECT 2"),
+        "statements returned as written",
+    )
+    for text, construct in (
+        ("SELECT 'unterminated", "quoted literal"),
+        ('SELECT "unterminated', "quoted identifier"),
+        ("/* unterminated", "block comment"),
+        ("SELECT $tag$unterminated", "dollar-quoted literal"),
+    ):
+        _assert_raises(
+            f"the text {text!r}",
+            ConfigurationError,
+            construct,
+            lambda text=text: split_sql_statements(text, DEFAULT_SCHEMA),
+        )
+    file_faults = (
+        ("a missing script", scratch.absent("no-such.sql"), "cannot be read"),
+        ("an empty script", scratch.write("empty.sql", ""), "is empty"),
+        (
+            "a script carrying only comments",
+            scratch.write("comments.sql", "-- nothing to run\n"),
+            "carries no statement",
+        ),
+    )
+    for what, path, fragment in file_faults:
+        _assert_raises(
+            what,
+            ConfigurationError,
+            fragment,
+            lambda path=path: read_sql_statements(path),
+        )
+    refused = scratch.write("refused.sql", "CREATE SCHEMA raw;\nNOT SQL AT ALL;\n")
+    database = scratch.database("sql-failure.duckdb")
+    with _captured_stderr():
+        connection = open_database(database)
+    try:
+        with _captured_stderr():
+            error = _assert_raises(
+                "a script the database refuses",
+                WarehouseError,
+                "refused statement 2 of 2",
+                lambda: apply_sql_script(connection, refused),
+            )
+        _assert_in("NOT SQL AT ALL", str(error), "the diagnostic")
+        _assert_in(refused.name, str(error), "the diagnostic")
+    finally:
+        connection.close()
+    return (
+        f"{len(checks)} split cases, 4 unterminated constructs and "
+        f"{len(file_faults)} file faults"
+    )
+
+
+def _case_identifiers_redacted(scratch: _Scratch) -> str:
+    """No business identifier and no object URI reaches the output by default."""
+    database = scratch.database("redaction.duckdb")
+    body = _record_bytes()
+    ddl_paths = resolve_ddl_paths(True)
+    with _seeded_bucket(body):
+        with _controlled_environment(scratch, **_SELF_TEST_CREDENTIALS):
+            errors = io.StringIO()
+            with contextlib.redirect_stderr(errors):
+                outcome = load_record(
+                    _SELF_TEST_BUCKET,
+                    _selftest_key(),
+                    DEFAULT_SOURCE_SYSTEM_KEY,
+                    _SELF_TEST_EXTRACT_DATE,
+                    database,
+                    ddl_paths,
+                    region=_SELF_TEST_REGION,
+                )
+    default_stderr = errors.getvalue()
+    default_stdout = _report(
+        qualified_relation_name(),
+        outcome.key_values,
+        outcome.removed,
+        outcome.written,
+        outcome.sha256,
+    )
+    for fragment in _REDACTED_FRAGMENTS:
+        _assert_absent(fragment, default_stdout, "the default summary line")
+    _assert_absent(outcome.uri, default_stderr, "the default progress lines")
+    _assert_absent("1000301", default_stderr, "the default progress lines")
+    _assert_absent(
+        DEFAULT_SOURCE_SYSTEM_KEY, default_stderr, "the default progress lines"
+    )
+    _assert_in(REDACTED_TEXT, default_stderr, "the default progress lines")
+    _assert_in("identifiers=redacted", default_stdout, "the default summary line")
+    _assert_in(outcome.sha256, default_stdout, "the default summary line")
+    with _seeded_bucket(body):
+        with _controlled_environment(scratch, **_SELF_TEST_CREDENTIALS):
+            errors = io.StringIO()
+            with contextlib.redirect_stderr(errors):
+                shown = load_record(
+                    _SELF_TEST_BUCKET,
+                    _selftest_key(),
+                    DEFAULT_SOURCE_SYSTEM_KEY,
+                    _SELF_TEST_EXTRACT_DATE,
+                    database,
+                    ddl_paths,
+                    region=_SELF_TEST_REGION,
+                    show_identifiers=True,
+                )
+    shown_stderr = errors.getvalue()
+    shown_stdout = _report(
+        qualified_relation_name(),
+        shown.key_values,
+        shown.removed,
+        shown.written,
+        shown.sha256,
+        show_identifiers=True,
+    )
+    _assert_in("1000301", shown_stdout, "the summary line under --show-identifiers")
+    _assert_in(
+        DEFAULT_SOURCE_SYSTEM_KEY,
+        shown_stdout,
+        "the summary line under --show-identifiers",
+    )
+    _assert_in(shown.uri, shown_stderr, "the progress lines under --show-identifiers")
+    return (
+        f"{len(_REDACTED_FRAGMENTS)} identifiers withheld by default and carried "
+        "under --show-identifiers"
+    )
+
+
+def _case_cli_loads_and_redacts(scratch: _Scratch) -> str:
+    """The command line loads one object, redacting identifiers unless asked."""
+    database = scratch.database("cli.duckdb")
+    body = _record_bytes()
+    def _arguments(endpoint: str, *extra: str) -> list[str]:
+        return [
+            "--bucket",
+            _SELF_TEST_BUCKET,
+            "--region",
+            _SELF_TEST_REGION,
+            "--endpoint-url",
+            endpoint,
+            "--extract-date",
+            _SELF_TEST_EXTRACT_DATE.isoformat(),
+            "--database",
+            str(database),
+            *extra,
+        ]
+
+    with _served_bucket(body) as endpoint:
+        run = _run_cli(scratch, _arguments(endpoint), **_SELF_TEST_CREDENTIALS)
+    _assert_equal(run.status, EXIT_OK, "the status of a command line load")
+    lines = [line for line in run.stdout.splitlines() if line]
+    _assert_equal(len(lines), 1, f"the stdout lines of a load: {run.stdout!r}")
+    _assert_in(qualified_relation_name(), lines[0], "the summary line")
+    _assert_in("removed=0 written=1", lines[0], "the summary line")
+    for fragment in _REDACTED_FRAGMENTS:
+        _assert_absent(fragment, run.stdout, "the summary line")
+        _assert_absent(fragment, run.stderr, "the progress lines")
+    with _served_bucket(body) as endpoint:
+        repeat = _run_cli(
+            scratch,
+            _arguments(endpoint, "--show-identifiers"),
+            **_SELF_TEST_CREDENTIALS,
+        )
+    _assert_equal(repeat.status, EXIT_OK, "the status of a repeated load")
+    _assert_in("removed=1 written=1", repeat.stdout, "the repeated summary line")
+    _assert_in("1000301", repeat.stdout, "the summary line under --show-identifiers")
+    connection = duckdb.connect(str(database))
+    try:
+        _assert_equal(_row_count(connection), 1, "the rows two command lines left")
+    finally:
+        connection.close()
+    with _served_bucket(body) as endpoint:
+        by_uri = _run_cli(
+            scratch,
+            [
+                "--bucket",
+                _SELF_TEST_BUCKET,
+                "--key",
+                build_object_uri(_SELF_TEST_BUCKET, _selftest_key()),
+                "--region",
+                _SELF_TEST_REGION,
+                "--endpoint-url",
+                endpoint,
+                "--extract-date",
+                _SELF_TEST_EXTRACT_DATE.isoformat(),
+                "--database",
+                str(database),
+                "--no-ddl",
+            ],
+            **_SELF_TEST_CREDENTIALS,
+        )
+    _assert_equal(by_uri.status, EXIT_OK, "the status of a load naming the URI")
+    return "2 command line loads left 1 row, and the URI form named the same object"
+
+
+def _case_exit_codes(scratch: _Scratch) -> str:
+    """Every documented exit status is reachable from the command line."""
+    body = _record_bytes()
+    database = scratch.database("statuses.duckdb")
+    reached: dict[int, str] = {}
+    with _served_bucket(body) as endpoint:
+        run = _run_cli(
+            scratch,
+            [
+                "--bucket",
+                _SELF_TEST_BUCKET,
+                "--region",
+                _SELF_TEST_REGION,
+                "--endpoint-url",
+                endpoint,
+                "--extract-date",
+                _SELF_TEST_EXTRACT_DATE.isoformat(),
+                "--database",
+                str(database),
+            ],
+            **_SELF_TEST_CREDENTIALS,
+        )
+    _assert_equal(run.status, EXIT_OK, "the status of a successful load")
+    reached[EXIT_OK] = "a load"
+    with _served_bucket(_record_text(policy_type="X").encode("utf-8")) as endpoint:
+        run = _run_cli(
+            scratch,
+            [
+                "--bucket",
+                _SELF_TEST_BUCKET,
+                "--region",
+                _SELF_TEST_REGION,
+                "--endpoint-url",
+                endpoint,
+                "--extract-date",
+                _SELF_TEST_EXTRACT_DATE.isoformat(),
+                "--database",
+                str(scratch.database("rejected.duckdb")),
+            ],
+            **_SELF_TEST_CREDENTIALS,
+        )
+    _assert_equal(run.status, EXIT_OBJECT_REJECTED, "the status of a rejected object")
+    _assert_in("landing schema", _assert_one_diagnostic(run.stderr), "the diagnostic")
+    reached[EXIT_OBJECT_REJECTED] = "an object breaching the contract"
+    with _served_bucket() as endpoint:
+        run = _run_cli(
+            scratch,
+            ["--region", _SELF_TEST_REGION, "--endpoint-url", endpoint],
+            **_SELF_TEST_CREDENTIALS,
+        )
+    _assert_equal(
+        run.status, EXIT_CONFIGURATION_REJECTED, "the status of a missing bucket"
+    )
+    _assert_in(BUCKET_VARIABLE, _assert_one_diagnostic(run.stderr), "the diagnostic")
+    reached[EXIT_CONFIGURATION_REJECTED] = "a missing setting"
+    run = _run_cli(scratch, ["--not-an-option"])
+    _assert_equal(
+        run.status, EXIT_CONFIGURATION_REJECTED, "the status of a rejected option"
+    )
+    _assert_in(
+        "command line rejected", _assert_one_diagnostic(run.stderr), "the diagnostic"
+    )
+    with _served_bucket() as endpoint:
+        run = _run_cli(
+            scratch,
+            [
+                "--bucket",
+                _ABSENT_BUCKET,
+                "--region",
+                _SELF_TEST_REGION,
+                "--endpoint-url",
+                endpoint,
+                "--database",
+                str(scratch.database("absent.duckdb")),
+            ],
+            **_SELF_TEST_CREDENTIALS,
+        )
+    _assert_equal(run.status, EXIT_S3_UNAVAILABLE, "the status of an absent bucket")
+    reached[EXIT_S3_UNAVAILABLE] = "a bucket that does not answer"
+    occupied = scratch.database("not-a-database.duckdb")
+    occupied.write_bytes(b"NOT A DUCKDB DATABASE\n")
+    with _served_bucket(body) as endpoint:
+        run = _run_cli(
+            scratch,
+            [
+                "--bucket",
+                _SELF_TEST_BUCKET,
+                "--region",
+                _SELF_TEST_REGION,
+                "--endpoint-url",
+                endpoint,
+                "--extract-date",
+                _SELF_TEST_EXTRACT_DATE.isoformat(),
+                "--database",
+                str(occupied),
+            ],
+            **_SELF_TEST_CREDENTIALS,
+        )
+    _assert_equal(
+        run.status, EXIT_WAREHOUSE_UNAVAILABLE, "the status of a database that is one"
+    )
+    reached[EXIT_WAREHOUSE_UNAVAILABLE] = "a database the file does not carry"
+    _assert_equal(
+        EXIT_SELF_TEST_FAILED,
+        _self_test_status([_CaseResult("failing", False, "observed")]),
+        "the status of a failed self-test case",
+    )
+    reached[EXIT_SELF_TEST_FAILED] = "a failed self-test case"
+    _assert_equal(
+        _self_test_status([_CaseResult("passing", True, "observed")]),
+        EXIT_OK,
+        "the status of a passing self-test run",
+    )
+    return "statuses reachable: " + ", ".join(
+        str(status) for status in sorted(reached)
+    )
+
+
+def _case_scratch_removed(scratch: _Scratch) -> str:
+    """The private directory this run worked inside is removed with everything in it."""
+    path = scratch.path
+    _assert(scratch.removed(), f"the scratch directory remains: {path}")
+    return f"removed {path}"
+
+
+def _run_case(
+    results: list[_CaseResult],
+    stream: Any,
+    quiet: bool,
+    name: str,
+    body: Callable[[], str],
+) -> None:
+    """Run one case, record its outcome and print its line.
+
+    A case that raises records a failure and the run continues with the next
+    case. ``_SelfTestFailure`` carries the observation the case made; a
+    ``LoadError`` or any of the listed defect classes is reported by type and
+    message.
+    """
+    try:
+        detail = body()
+    except _SelfTestFailure as failure:
+        result = _CaseResult(name=name, passed=False, detail=str(failure))
+    except LoadError as error:
+        result = _CaseResult(
+            name=name, passed=False, detail=f"{_type_name(error)}: {error}"
+        )
+    except (
+        ArithmeticError,
+        AssertionError,
+        AttributeError,
+        LookupError,
+        NameError,
+        OSError,
+        RuntimeError,
+        StopIteration,
+        TypeError,
+        ValueError,
+        BotoCoreError,
+        ClientError,
+        duckdb.Error,
+    ) as error:
+        result = _CaseResult(
+            name=name,
+            passed=False,
+            detail=f"unexpected {_type_name(error)}: {error}",
+        )
+    else:
+        result = _CaseResult(name=name, passed=True, detail=detail)
+    results.append(result)
+    if result.passed and quiet:
+        return
+    verdict = "PASS" if result.passed else "FAIL"
+    print(
+        f"self-test {verdict} {result.name} -- {_one_line(result.detail)}", file=stream
+    )
+
+
+def _self_test_status(results: Sequence[_CaseResult]) -> int:
+    """Return ``EXIT_OK`` when every case passed and ``EXIT_SELF_TEST_FAILED`` else."""
+    return (
+        EXIT_OK
+        if all(result.passed for result in results)
+        else EXIT_SELF_TEST_FAILED
+    )
+
+
+def run_self_test(*, quiet: bool = False, stream: Any = None) -> int:
+    """Run every self-test case and return ``EXIT_OK`` or ``EXIT_SELF_TEST_FAILED``.
+
+    Each case prints one line to ``stream``, which defaults to stdout, followed
+    by one summary line; ``quiet`` limits the case lines to the failing ones.
+    Every database a case opens and every document a case writes sits inside one
+    private temporary directory the run creates and the last case removes, so no
+    case writes a path inside the repository and no case touches the database the
+    bridge keeps at ``DEFAULT_DATABASE``. No case reaches a network endpoint: the
+    S3 collaborators are the pinned boto3 client driven through moto in this
+    process and through botocore's own stubber, the warehouse collaborator is the
+    pinned DuckDB, and every environment variable this tool consults is set by
+    the case that needs it and restored afterwards.
+    """
+    out = sys.stdout if stream is None else stream
+    results: list[_CaseResult] = []
+    scratch = _Scratch()
+    try:
+        _run_case(results, out, quiet, "schema_present", _case_schema_present)
+        _run_case(
+            results, out, quiet, "schema_failures",
+            lambda: _case_schema_failures(scratch),
+        )
+        _run_case(results, out, quiet, "record_accepted", _case_record_accepted)
+        _run_case(results, out, quiet, "record_refusals", _case_record_refusals)
+        _run_case(
+            results, out, quiet, "duplicate_members_refused",
+            lambda: _case_duplicate_members_refused(scratch),
+        )
+        _run_case(results, out, quiet, "endpoint_accepted", _case_endpoint_accepted)
+        _run_case(results, out, quiet, "endpoint_refused", _case_endpoint_refused)
+        _run_case(
+            results, out, quiet, "endpoint_resolving_name_refused",
+            lambda: _case_endpoint_resolving_name_refused(scratch),
+        )
+        _run_case(
+            results, out, quiet, "configured_endpoint_ignored",
+            lambda: _case_configured_endpoint_ignored(scratch),
+        )
+        _run_case(
+            results, out, quiet, "credentials_and_region_required",
+            lambda: _case_credentials_and_region_required(scratch),
+        )
+        _run_case(
+            results, out, quiet, "object_identity_recorded",
+            _case_object_identity_recorded,
+        )
+        _run_case(
+            results, out, quiet, "download_bound_to_identity",
+            _case_download_bound_to_identity,
+        )
+        _run_case(results, out, quiet, "replacement_refused", _case_replacement_refused)
+        _run_case(
+            results, out, quiet, "digest_and_length_confirmed",
+            _case_digest_and_length_confirmed,
+        )
+        _run_case(
+            results, out, quiet, "download_failures_reported",
+            _case_download_failures_reported,
+        )
+        _run_case(results, out, quiet, "failure_mapping", _case_failure_mapping)
+        _run_case(
+            results, out, quiet, "raw_relation_shape",
+            lambda: _case_raw_relation_shape(scratch),
+        )
+        _run_case(
+            results, out, quiet, "load_one_row", lambda: _case_load_one_row(scratch)
+        )
+        _run_case(
+            results, out, quiet, "repeated_load_idempotent",
+            lambda: _case_repeated_load_idempotent(scratch),
+        )
+        _run_case(
+            results, out, quiet, "second_key_coexists",
+            lambda: _case_second_key_coexists(scratch),
+        )
+        _run_case(
+            results, out, quiet, "rollback_restores_state",
+            lambda: _case_rollback_restores_state(scratch),
+        )
+        _run_case(
+            results, out, quiet, "row_counts_reported",
+            lambda: _case_row_counts_reported(scratch),
+        )
+        _run_case(
+            results, out, quiet, "database_path_accepted",
+            lambda: _case_database_path_accepted(scratch),
+        )
+        _run_case(
+            results, out, quiet, "database_path_refused",
+            lambda: _case_database_path_refused(scratch),
+        )
+        _run_case(
+            results, out, quiet, "sql_split_matrix",
+            lambda: _case_sql_split_matrix(scratch),
+        )
+        _run_case(
+            results, out, quiet, "identifiers_redacted",
+            lambda: _case_identifiers_redacted(scratch),
+        )
+        _run_case(
+            results, out, quiet, "cli_loads_and_redacts",
+            lambda: _case_cli_loads_and_redacts(scratch),
+        )
+        _run_case(results, out, quiet, "exit_codes", lambda: _case_exit_codes(scratch))
+    finally:
+        _run_case(
+            results, out, quiet, "scratch_removed",
+            lambda: _case_scratch_removed(scratch),
+        )
+
+    passed = sum(1 for result in results if result.passed)
+    failed = len(results) - passed
+    print(
+        f"self-test summary cases={len(results)} passed={passed} failed={failed}",
+        file=out,
+    )
+    return _self_test_status(results)
 
 
 # ---------------------------------------------------------------------------
@@ -1804,7 +5975,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
         (
             LANDING_KEY_ROOT,
             f"source_system_key=<{SOURCE_SYSTEM_KEY_VARIABLE}>",
-            "entity=<ENTITY>",
+            f"entity={LANDING_ENTITY}",
             f"extract_date=<{EXTRACT_DATE_FORM}>",
             OBJECT_NAME,
         )
@@ -1818,27 +5989,43 @@ def build_arg_parser() -> argparse.ArgumentParser:
             "The values written are the values the object carries: each is bound "
             "as text or as SQL NULL exactly as landed, no amount is derived, and "
             "typing is applied by the dbt models downstream.\n"
+            "The object is bound to its own immutable identity first: its entity "
+            "tag, its version where the bucket keeps versions and its byte count "
+            "are recorded, the download requires them, and the bytes that arrive "
+            "are confirmed and held to the whole landing schema before the "
+            "database is opened: a repeated JSON member name is refused, every "
+            "date is held to the calendar, and every timestamp is parsed as one "
+            "real instant.\n"
             "Exit status: 0 success, 2 landed object rejected, 3 command line or "
             "setting rejected, 4 S3 endpoint, bucket or object operation "
-            "unsuccessful, 5 database or SQL operation unsuccessful."
+            "unsuccessful, 5 database or SQL operation unsuccessful or a failed "
+            "self-test case, 130 interrupted."
         ),
         epilog=(
             f"Object key: {key_template}\n"
-            f"The landed column names and their order are read from "
-            f"{DEFAULT_SCHEMA.name}, and the relation is defined by the scripts "
-            "--ddl names; this tool defines none of its own.\n"
-            f"Within one transaction the rows carrying the natural key "
-            f"({', '.join(NATURAL_KEY_FIELDS)}) of the downloaded object are "
-            "removed and that object is written as one row, so a repeated run "
-            "leaves one row and a row loaded from an earlier object survives.\n"
+            f"The landed column names, their order and the constraints the object "
+            f"is validated against are read from {DEFAULT_SCHEMA.name}, and the "
+            f"relation is defined by {', '.join(DDL_SCRIPT_NAMES)} in "
+            f"{DDL_DIRECTORY}; this tool defines none of its own and runs no other "
+            "SQL file.\n"
+            f"One transaction covers the whole load: the two allowlisted scripts, "
+            f"the removal of the rows carrying the natural key "
+            f"({', '.join(NATURAL_KEY_FIELDS)}) of the downloaded object, and the "
+            "write of that object as one row. A repeated run leaves one row, a row "
+            "loaded from an earlier object survives, and a failure withdraws every "
+            "change the transaction made.\n"
             "stdout carries exactly one line, naming the relation written, the "
-            "natural key and the rows removed and written. Every other message "
-            "reaches stderr, and no credential, token or endpoint value is ever "
-            "printed.\n"
-            f"{ENDPOINT_URL_VARIABLE} or --endpoint-url directs the download at a "
-            "local S3-compatible endpoint; with neither present it addresses AWS "
-            "S3. An environment variable whose name merely begins with AWS is "
-            "never read as a credential.\n"
+            "rows removed and written and the digest of the object loaded; the "
+            "natural-key values are carried only under --show-identifiers. Every "
+            "other message reaches stderr, and no credential, token or endpoint "
+            "value is ever printed.\n"
+            f"Run mode {RUN_MODE_LOCAL} runs this loader against a loopback "
+            f"endpoint from --endpoint-url or {ENDPOINT_URL_VARIABLE}; run mode "
+            f"{RUN_MODE_REAL} loads the raw relation through {REAL_MODE_LOADER} "
+            "instead, and this tool refuses to run there. Every endpoint the "
+            "environment or a profile configures is ignored, and an environment "
+            "variable whose name merely begins with AWS is never read as a "
+            "credential.\n"
             "This tool creates no bucket and provisions nothing. Results it "
             "produces are local-substitute results and establish nothing about a "
             "real-target run.\n"
@@ -1847,13 +6034,29 @@ def build_arg_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument(
+        "--run-mode",
+        default=None,
+        choices=RUN_MODES,
+        help=(
+            "branch of the bridge to address; defaults to the "
+            f"{RUN_MODE_VARIABLE} environment variable, then to "
+            f"{DEFAULT_RUN_MODE}. Only {RUN_MODE_LOCAL} runs this loader: "
+            f"{RUN_MODE_REAL} loads the raw relation through {REAL_MODE_LOADER}. "
+            "It is the same setting that selects the dbt output and the landing "
+            "endpoint"
+        ),
+    )
+    parser.add_argument(
         "--bucket",
         default=None,
         metavar="NAME",
         help=(
             "bucket holding the landed object, which must already exist; defaults "
             f"to the {BUCKET_VARIABLE} environment variable. There is no built-in "
-            "bucket name"
+            "bucket name. A general-purpose bucket name: "
+            f"{MIN_BUCKET_CHARACTERS} to {MAX_BUCKET_CHARACTERS} characters drawn "
+            "from lowercase letters, digits, dot and hyphen, beginning and ending "
+            "with a letter or a digit"
         ),
     )
     parser.add_argument(
@@ -1863,8 +6066,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help=(
             "object to download, given as a bare key or as the "
             f"{SERVICE_NAME}{URI_SCHEME_SEPARATOR} URI land_to_s3.py printed, whose "
-            "bucket must match --bucket; omitted, the key is rebuilt from "
-            "--source-system-key, --entity and --extract-date"
+            "bucket must match --bucket. It must equal the key --source-system-key, "
+            "the fixed entity literal and --extract-date rebuild, so it confirms the "
+            "object rather than selecting another; omitted, that rebuilt key is used"
         ),
     )
     parser.add_argument(
@@ -1885,8 +6089,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
         default=None,
         metavar="VALUE",
         help=(
-            f"entity element of the landing prefix (default: {DEFAULT_ENTITY}), "
-            "under the same accepted characters as --source-system-key"
+            "entity element of the landing prefix, which is the fixed literal "
+            f"{LANDING_ENTITY}; omitted, that literal applies, and any other value is "
+            "refused rather than addressing an object outside the canonical prefix"
         ),
     )
     parser.add_argument(
@@ -1903,9 +6108,15 @@ def build_arg_parser() -> argparse.ArgumentParser:
         default=None,
         metavar="URL",
         help=(
-            "S3 endpoint to address, selecting a local S3-compatible endpoint; "
-            f"defaults to the {ENDPOINT_URL_VARIABLE} environment variable. With "
-            "neither present the download addresses AWS S3"
+            "loopback S3 endpoint serving the local substitute, selecting a local "
+            f"S3-compatible endpoint; defaults to the {ENDPOINT_URL_VARIABLE} "
+            f"environment variable. It is required, since this loader runs in run "
+            f"mode {RUN_MODE_LOCAL} alone. Accepted values are "
+            f"{' or '.join(ACCEPTED_ENDPOINT_SCHEMES)} on 127.0.0.0/8, ::1 or "
+            f"{LOOPBACK_HOST_NAME} with an explicit port of "
+            f"{ENDPOINT_PORT_FLOOR} or above, carrying no embedded credentials, "
+            "query, fragment or path beyond '/'; every other endpoint is refused "
+            "by name, and the value itself is never echoed"
         ),
     )
     parser.add_argument(
@@ -1926,20 +6137,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help=(
             "DuckDB database file to write; defaults to the "
             f"{' environment variable, then the '.join(DATABASE_VARIABLES)} "
-            f"environment variable, and then to {DEFAULT_DATABASE}. A path inside "
-            "this tool's own directory is refused"
-        ),
-    )
-    parser.add_argument(
-        "--ddl",
-        action="append",
-        default=None,
-        metavar="PATH",
-        help=(
-            "SQL script applied before the row is written, repeatable and applied "
-            f"in the order given; defaults to every {DDL_GLOB} file in "
-            f"{DEFAULT_DDL_DIRECTORY} sorted by name. The scripts are applied "
-            "exactly as written"
+            f"environment variable, and then to {DEFAULT_DATABASE}. Every "
+            "component of the path is canonicalised, so a symbolic link, a "
+            "/proc/self/cwd alias and a relative path are judged as the file they "
+            f"reach; the result must resolve inside {DATABASE_DIRECTORY}, must not "
+            "be a symbolic link or an existing non-regular file, and must not name "
+            "an authored file of that directory"
         ),
     )
     parser.add_argument(
@@ -1947,74 +6150,149 @@ def build_arg_parser() -> argparse.ArgumentParser:
         dest="apply_ddl",
         action="store_false",
         help=(
-            "apply no SQL script before writing the row, for a database whose "
-            "relation is already present"
+            "apply neither shared warehouse script before writing the row, for a "
+            "database whose relation is already present. Applied by default are "
+            f"{', '.join(DDL_SCRIPT_NAMES)} from {DDL_DIRECTORY}, in that order and "
+            "exactly as written; no option names another script"
         ),
+    )
+    parser.add_argument(
+        SHOW_IDENTIFIERS_OPTION,
+        action="store_true",
+        help=(
+            "carry record values in diagnostics, the natural-key values on the "
+            "summary line and the object URI on the progress lines; without it none "
+            "of them reaches the output, and no policy number, customer number, "
+            "broker id or broker's reference is printed on any path. Also enabled by "
+            f"the {SHOW_IDENTIFIERS_VARIABLE} environment variable carrying one of "
+            f"{', '.join(SHOW_IDENTIFIERS_ENABLING)}"
+        ),
+    )
+    parser.add_argument(
+        "--self-test",
+        action="store_true",
+        help=(
+            "run the built-in case matrix and exit, downloading nothing from any "
+            "network endpoint and opening only databases inside one private "
+            "temporary directory it creates and removes; the caller's database, "
+            "bucket and settings are untouched"
+        ),
+    )
+    parser.add_argument(
+        "--quiet",
+        action="store_true",
+        help="with --self-test, print only the failing case lines and the summary",
     )
     parser.set_defaults(apply_ddl=True)
     return parser
 
 
+
 def _report(
-    relation: str, key_values: Sequence[str], removed: int, written: int
+    relation: str,
+    key_values: Sequence[str | None],
+    removed: int,
+    written: int,
+    outcome_sha256: str,
+    *,
+    show_identifiers: bool = False,
 ) -> str:
     """Return the single stdout line naming what one load wrote.
 
-    The line names the relation, every natural-key field with the value it
-    carried, and the rows removed and written, so a run can be audited from its
-    own output.
+    The line names the relation written, the rows removed and written and the
+    digest of the object loaded, so a run can be audited from its own output.
+    With ``show_identifiers`` false, which is the default, the natural-key values
+    are replaced by a fixed marker and no business identifier reaches stdout,
+    except that a field of ``DIGESTED_KEY_FIELDS`` is carried as the digest
+    ``_identifier`` returns, which keeps the same run recognisable. With it true
+    every field of ``NATURAL_KEY_FIELDS`` is named with the value it carried.
     """
+    if show_identifiers:
+        identity = " ".join(
+            f"{field}={value}" for field, value in zip(NATURAL_KEY_FIELDS, key_values)
+        )
+        return (
+            f"loaded {relation} {identity} removed={removed} written={written} "
+            f"sha256={outcome_sha256}"
+        )
     identity = " ".join(
-        f"{field}={value}" for field, value in zip(NATURAL_KEY_FIELDS, key_values)
+        f"{field}="
+        f"{_identifier(value) if field in DIGESTED_KEY_FIELDS else REDACTED_TEXT}"
+        for field, value in zip(NATURAL_KEY_FIELDS, key_values)
+        if value is not None
     )
     return (
-        f"loaded {relation} {identity} removed={removed} written={written}"
+        f"loaded {relation} {identity} keys={len(NATURAL_KEY_FIELDS)} "
+        f"removed={removed} written={written} sha256={outcome_sha256} "
+        "identifiers=redacted (--show-identifiers carries them)"
     )
 
 
 def _run(args: argparse.Namespace) -> str:
     """Run one load and return the single line to write to stdout.
 
-    Settings are resolved first, so a missing bucket, region, credential or
-    script is reported before any object is downloaded and before the database
-    is opened.
+    Settings are resolved first, and the run mode is reconciled with the resolved
+    endpoint before any session, client or credential exists, so a missing bucket,
+    region, credential or script and a run that belongs to the other branch are all
+    reported before any object is downloaded and before the database is opened.
     """
     bucket = resolve_bucket(args.bucket)
     region = resolve_region(args.region)
-    endpoint_url = resolve_endpoint_url(args.endpoint_url)
+    endpoint_url, endpoint_origin = resolve_endpoint_url(args.endpoint_url)
+    run_mode, run_mode_origin = resolve_run_mode(args.run_mode)
+    confirm_run_mode(run_mode, run_mode_origin, endpoint_url, endpoint_origin)
+    _note(
+        f"run mode {_shown(run_mode)} from {run_mode_origin}, loading from the "
+        "loopback endpoint into the local database"
+    )
     source_system_key = resolve_source_system_key(args.source_system_key)
     entity = resolve_entity(args.entity)
     extract_date = resolve_extract_date(args.extract_date)
     database_path = resolve_database_path(args.database)
-    ddl_paths = resolve_ddl_paths(args.ddl, args.apply_ddl)
+    ddl_paths = resolve_ddl_paths(args.apply_ddl)
     key = resolve_object_key(args.key, bucket, source_system_key, entity, extract_date)
     relation = qualified_relation_name()
     outcome = load_record(
         bucket,
         key,
         source_system_key,
+        extract_date,
         database_path,
         ddl_paths,
         region=region,
         endpoint_url=endpoint_url,
+        show_identifiers=args.show_identifiers,
     )
-    return _report(relation, outcome.key_values, outcome.removed, outcome.written)
+    return _report(
+        relation,
+        outcome.key_values,
+        outcome.removed,
+        outcome.written,
+        outcome.sha256,
+        show_identifiers=args.show_identifiers,
+    )
 
 
 def main(argv: list[str] | None = None) -> int:
     """Load one landed object into the local raw relation, returning the exit status.
 
     ``argv`` defaults to the process arguments. Exactly one line reaches stdout
-    on success, naming the relation written, the natural key and the rows
-    removed and written. Every diagnostic reaches stderr as one control-free
+    on success, naming the relation written, the rows removed and written and the
+    digest of the object loaded, with the natural-key values carried only under
+    ``--show-identifiers``. Every diagnostic reaches stderr as one control-free
     line, names the setting to supply when one is missing, and carries no
-    credential, token or endpoint value. A rejected command line is reported
+    credential or token value and no policy, customer or broker identifier. A
+    rejected command line is reported
     through that same single line, without a usage block, while ``--help``
-    prints the full help and exits with status 0.
+    prints the full help and exits with status 0. With ``--self-test`` the case
+    matrix runs instead of a load and its own lines reach stdout.
     """
     parser = build_arg_parser()
     try:
         args = parser.parse_args(argv)
+        set_show_identifiers(resolve_show_identifiers(args.show_identifiers))
+        if args.self_test:
+            return run_self_test(quiet=args.quiet)
         result = _run(args)
     except LoadError as error:
         print(f"{_PROGRAM}: {_one_line(str(error))}", file=sys.stderr)

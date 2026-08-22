@@ -40,7 +40,7 @@
     },
     "hcapture.cpy": {
       "path": "modernization/harness/copybooks/hcapture.cpy",
-      "sha256": "85ab776bc918ebe6fe878a0bf6496b5434844bb741fcc1e07f6d53b18a9d06f9"
+      "sha256": "d67d85f449860c6aec20d37c8c2bcc528bf282a4251f91b1060ac1d825bd9c97"
     },
     "hsqlca.cpy": {
       "path": "modernization/harness/copybooks/hsqlca.cpy",
@@ -81,7 +81,7 @@
     {
       "origin": "modernization/harness/copybooks/hcapture.cpy",
       "copy": "modernization/harness/build/src/hcapture.cpy",
-      "sha256": "85ab776bc918ebe6fe878a0bf6496b5434844bb741fcc1e07f6d53b18a9d06f9",
+      "sha256": "d67d85f449860c6aec20d37c8c2bcc528bf282a4251f91b1060ac1d825bd9c97",
       "kind": "harness copybook"
     }
   ],
@@ -124,7 +124,7 @@
           "source_lines": "lgapol01.cbl:115",
           "source_text": "             EXEC CICS RETURN END-EXEC",
           "generated_text": "             GOBACK",
-          "notes": "control returns to the caller at this point; the choice belongs to modernization/docs/decision-log.md (planned deliverable; not present at this milestone), row: no called RETURN stub"
+          "notes": "control returns to the caller at this point; see modernization/docs/decision-log.md, row: no called RETURN stub"
         },
         {
           "rule_id": "R5",
@@ -150,7 +150,7 @@
           "source_lines": "lgapol01.cbl:126",
           "source_text": "           EXEC CICS RETURN END-EXEC.",
           "generated_text": "           GOBACK.",
-          "notes": "control returns to the caller at this point; the choice belongs to modernization/docs/decision-log.md (planned deliverable; not present at this milestone), row: no called RETURN stub"
+          "notes": "control returns to the caller at this point; see modernization/docs/decision-log.md, row: no called RETURN stub"
         },
         {
           "rule_id": "R10",
@@ -285,14 +285,14 @@
           "source_lines": "lgapdb01.cbl:205",
           "source_text": "               EXEC CICS RETURN END-EXEC",
           "generated_text": "               GOBACK",
-          "notes": "control returns to the caller at this point; the choice belongs to modernization/docs/decision-log.md (planned deliverable; not present at this milestone), row: no called RETURN stub"
+          "notes": "control returns to the caller at this point; see modernization/docs/decision-log.md, row: no called RETURN stub"
         },
         {
           "rule_id": "R7",
           "source_lines": "lgapdb01.cbl:212",
           "source_text": "             EXEC CICS RETURN END-EXEC",
           "generated_text": "             GOBACK",
-          "notes": "control returns to the caller at this point; the choice belongs to modernization/docs/decision-log.md (planned deliverable; not present at this milestone), row: no called RETURN stub"
+          "notes": "control returns to the caller at this point; see modernization/docs/decision-log.md, row: no called RETURN stub"
         },
         {
           "rule_id": "R5",
@@ -318,7 +318,7 @@
           "source_lines": "lgapdb01.cbl:250",
           "source_text": "           EXEC CICS RETURN END-EXEC.",
           "generated_text": "           GOBACK.",
-          "notes": "control returns to the caller at this point; the choice belongs to modernization/docs/decision-log.md (planned deliverable; not present at this milestone), row: no called RETURN stub"
+          "notes": "control returns to the caller at this point; see modernization/docs/decision-log.md, row: no called RETURN stub"
         },
         {
           "rule_id": "R13",
@@ -434,14 +434,14 @@
           "source_lines": "lgapdb01.cbl:298",
           "source_text": "               EXEC CICS RETURN END-EXEC",
           "generated_text": "               GOBACK",
-          "notes": "control returns to the caller at this point; the choice belongs to modernization/docs/decision-log.md (planned deliverable; not present at this milestone), row: no called RETURN stub"
+          "notes": "control returns to the caller at this point; see modernization/docs/decision-log.md, row: no called RETURN stub"
         },
         {
           "rule_id": "R7",
           "source_lines": "lgapdb01.cbl:303",
           "source_text": "               EXEC CICS RETURN END-EXEC",
           "generated_text": "               GOBACK",
-          "notes": "control returns to the caller at this point; the choice belongs to modernization/docs/decision-log.md (planned deliverable; not present at this milestone), row: no called RETURN stub"
+          "notes": "control returns to the caller at this point; see modernization/docs/decision-log.md, row: no called RETURN stub"
         },
         {
           "rule_id": "R13",
@@ -761,7 +761,7 @@
           "source_lines": "lgapdb01.cbl:394",
           "source_text": "             EXEC CICS RETURN END-EXEC",
           "generated_text": "             GOBACK",
-          "notes": "control returns to the caller at this point; the choice belongs to modernization/docs/decision-log.md (planned deliverable; not present at this milestone), row: no called RETURN stub"
+          "notes": "control returns to the caller at this point; see modernization/docs/decision-log.md, row: no called RETURN stub"
         },
         {
           "rule_id": "R13",
@@ -867,7 +867,7 @@
           "source_lines": "lgapdb01.cbl:432",
           "source_text": "             EXEC CICS RETURN END-EXEC",
           "generated_text": "             GOBACK",
-          "notes": "control returns to the caller at this point; the choice belongs to modernization/docs/decision-log.md (planned deliverable; not present at this milestone), row: no called RETURN stub"
+          "notes": "control returns to the caller at this point; see modernization/docs/decision-log.md, row: no called RETURN stub"
         },
         {
           "rule_id": "R13",
@@ -1000,7 +1000,7 @@
           "source_lines": "lgapdb01.cbl:478",
           "source_text": "             EXEC CICS RETURN END-EXEC",
           "generated_text": "             GOBACK",
-          "notes": "control returns to the caller at this point; the choice belongs to modernization/docs/decision-log.md (planned deliverable; not present at this milestone), row: no called RETURN stub"
+          "notes": "control returns to the caller at this point; see modernization/docs/decision-log.md, row: no called RETURN stub"
         },
         {
           "rule_id": "R13",
@@ -1223,7 +1223,7 @@
           "source_lines": "lgapdb01.cbl:552",
           "source_text": "             EXEC CICS RETURN END-EXEC",
           "generated_text": "             GOBACK",
-          "notes": "control returns to the caller at this point; the choice belongs to modernization/docs/decision-log.md (planned deliverable; not present at this milestone), row: no called RETURN stub"
+          "notes": "control returns to the caller at this point; see modernization/docs/decision-log.md, row: no called RETURN stub"
         },
         {
           "rule_id": "R10",
@@ -1323,7 +1323,7 @@
           "source_lines": "lgapvs01.cbl:146",
           "source_text": "             EXEC CICS RETURN END-EXEC",
           "generated_text": "             GOBACK",
-          "notes": "control returns to the caller at this point; the choice belongs to modernization/docs/decision-log.md (planned deliverable; not present at this milestone), row: no called RETURN stub"
+          "notes": "control returns to the caller at this point; see modernization/docs/decision-log.md, row: no called RETURN stub"
         },
         {
           "rule_id": "R10",
@@ -1533,6 +1533,266 @@
         "length": 32500
       }
     ]
+  },
+  "execution_order_contract": {
+    "declared_constraints": 8,
+    "validated_constraints": 8,
+    "witness_copybook": "modernization/harness/copybooks/hcapture.cpy",
+    "sequence_item": "HC-EVENT-SEQ",
+    "unstamped_value": 0,
+    "ordinal_pic": "9(4)",
+    "ordinal_by_dml_id": {
+      "insert_commercial": "HC-COM-SEQ",
+      "insert_endowment_novarchar": "HC-END-SEQ",
+      "insert_endowment_varchar": "HC-END-SEQ",
+      "insert_house": "HC-HOU-SEQ",
+      "insert_motor": "HC-MOT-SEQ",
+      "insert_policy": "HC-POL-SEQ",
+      "select_lastchanged": "HC-LCHG-SEQ",
+      "set_identity": "HC-IDENT-SEQ"
+    },
+    "vsam_write_ordinal_item": "HC-VSAM-SEQ",
+    "constraints": [
+      {
+        "id": "policy_first_captured",
+        "predecessor": "none",
+        "successor": "insert_policy",
+        "reason_kind": "control_flow",
+        "predecessor_ordinal_item": "none",
+        "successor_ordinal_item": "HC-POL-SEQ",
+        "alternative_predecessor_ordinal_items": [],
+        "enforced_by": "modernization/harness/stubs/sql_insert_policy.cbl",
+        "assertions": 1
+      },
+      {
+        "id": "policy_before_identity",
+        "predecessor": "insert_policy",
+        "successor": "set_identity",
+        "reason_kind": "data_dependency",
+        "predecessor_ordinal_item": "HC-POL-SEQ",
+        "successor_ordinal_item": "HC-IDENT-SEQ",
+        "alternative_predecessor_ordinal_items": [],
+        "enforced_by": "modernization/harness/stubs/sql_set_identity.cbl",
+        "assertions": 3
+      },
+      {
+        "id": "identity_before_lastchanged",
+        "predecessor": "set_identity",
+        "successor": "select_lastchanged",
+        "reason_kind": "data_dependency",
+        "predecessor_ordinal_item": "HC-IDENT-SEQ",
+        "successor_ordinal_item": "HC-LCHG-SEQ",
+        "alternative_predecessor_ordinal_items": [],
+        "enforced_by": "modernization/harness/stubs/sql_select_lastchanged.cbl",
+        "assertions": 3
+      },
+      {
+        "id": "lastchanged_before_motor",
+        "predecessor": "select_lastchanged",
+        "successor": "insert_motor",
+        "reason_kind": "control_flow",
+        "predecessor_ordinal_item": "HC-LCHG-SEQ",
+        "successor_ordinal_item": "HC-MOT-SEQ",
+        "alternative_predecessor_ordinal_items": [],
+        "enforced_by": "modernization/harness/stubs/sql_insert_motor.cbl",
+        "assertions": 3
+      },
+      {
+        "id": "lastchanged_before_house",
+        "predecessor": "select_lastchanged",
+        "successor": "insert_house",
+        "reason_kind": "control_flow",
+        "predecessor_ordinal_item": "HC-LCHG-SEQ",
+        "successor_ordinal_item": "HC-HOU-SEQ",
+        "alternative_predecessor_ordinal_items": [],
+        "enforced_by": "modernization/harness/stubs/sql_insert_house.cbl",
+        "assertions": 3
+      },
+      {
+        "id": "lastchanged_before_endowment",
+        "predecessor": "select_lastchanged",
+        "successor": "insert_endowment_varchar",
+        "reason_kind": "control_flow",
+        "predecessor_ordinal_item": "HC-LCHG-SEQ",
+        "successor_ordinal_item": "HC-END-SEQ",
+        "alternative_predecessor_ordinal_items": [],
+        "enforced_by": "modernization/harness/stubs/sql_insert_endowment.cbl",
+        "assertions": 3
+      },
+      {
+        "id": "policy_and_product_before_vsam_write",
+        "predecessor": "insert_policy",
+        "successor": "cics_write",
+        "reason_kind": "control_flow",
+        "predecessor_ordinal_item": "HC-POL-SEQ",
+        "successor_ordinal_item": "HC-VSAM-SEQ",
+        "alternative_predecessor_ordinal_items": [
+          "HC-MOT-SEQ",
+          "HC-COM-SEQ",
+          "HC-END-SEQ",
+          "HC-HOU-SEQ"
+        ],
+        "enforced_by": "modernization/harness/stubs/cics_write.cbl",
+        "assertions": 7
+      },
+      {
+        "id": "lastchanged_before_commercial",
+        "predecessor": "select_lastchanged",
+        "successor": "insert_commercial",
+        "reason_kind": "data_dependency",
+        "predecessor_ordinal_item": "HC-LCHG-SEQ",
+        "successor_ordinal_item": "HC-COM-SEQ",
+        "alternative_predecessor_ordinal_items": [],
+        "enforced_by": "modernization/harness/stubs/sql_insert_commercial.cbl",
+        "assertions": 3
+      }
+    ]
+  },
+  "capture_order_contract": {
+    "copybook": "modernization/harness/copybooks/hcapture.cpy",
+    "sequence_item": "HC-EVENT-SEQ",
+    "ordinal_items_declared": [
+      "HC-ABEND-SEQ",
+      "HC-COM-SEQ",
+      "HC-END-SEQ",
+      "HC-EVENT-SEQ",
+      "HC-HOU-SEQ",
+      "HC-IDENT-SEQ",
+      "HC-LCHG-SEQ",
+      "HC-MOT-SEQ",
+      "HC-POL-SEQ",
+      "HC-VSAM-SEQ"
+    ],
+    "non_statement_ordinal_items": [
+      "HC-ABEND-SEQ"
+    ],
+    "event_ordinals": {
+      "cics_write": "HC-VSAM-SEQ",
+      "insert_commercial": "HC-COM-SEQ",
+      "insert_endowment_novarchar": "HC-END-SEQ",
+      "insert_endowment_varchar": "HC-END-SEQ",
+      "insert_house": "HC-HOU-SEQ",
+      "insert_motor": "HC-MOT-SEQ",
+      "insert_policy": "HC-POL-SEQ",
+      "select_lastchanged": "HC-LCHG-SEQ",
+      "set_identity": "HC-IDENT-SEQ"
+    },
+    "entries": [
+      {
+        "entry": "policy_and_product_before_vsam_write",
+        "predecessor": "insert_policy",
+        "successor": "cics_write",
+        "enforced_by": "modernization/harness/stubs/cics_write.cbl",
+        "prerequisite_ordinal_items": [
+          "HC-COM-SEQ",
+          "HC-END-SEQ",
+          "HC-HOU-SEQ",
+          "HC-MOT-SEQ",
+          "HC-POL-SEQ"
+        ],
+        "successor_ordinal_item": "HC-VSAM-SEQ",
+        "first_captured_ordinal": null,
+        "guard_line": 274
+      },
+      {
+        "entry": "lastchanged_before_commercial",
+        "predecessor": "select_lastchanged",
+        "successor": "insert_commercial",
+        "enforced_by": "modernization/harness/stubs/sql_insert_commercial.cbl",
+        "prerequisite_ordinal_items": [
+          "HC-LCHG-SEQ"
+        ],
+        "successor_ordinal_item": "HC-COM-SEQ",
+        "first_captured_ordinal": null,
+        "guard_line": 412
+      },
+      {
+        "entry": "lastchanged_before_endowment",
+        "predecessor": "select_lastchanged",
+        "successor": "insert_endowment_varchar",
+        "enforced_by": "modernization/harness/stubs/sql_insert_endowment.cbl",
+        "prerequisite_ordinal_items": [
+          "HC-LCHG-SEQ"
+        ],
+        "successor_ordinal_item": "HC-END-SEQ",
+        "first_captured_ordinal": null,
+        "guard_line": 350
+      },
+      {
+        "entry": "lastchanged_before_house",
+        "predecessor": "select_lastchanged",
+        "successor": "insert_house",
+        "enforced_by": "modernization/harness/stubs/sql_insert_house.cbl",
+        "prerequisite_ordinal_items": [
+          "HC-LCHG-SEQ"
+        ],
+        "successor_ordinal_item": "HC-HOU-SEQ",
+        "first_captured_ordinal": null,
+        "guard_line": 240
+      },
+      {
+        "entry": "lastchanged_before_motor",
+        "predecessor": "select_lastchanged",
+        "successor": "insert_motor",
+        "enforced_by": "modernization/harness/stubs/sql_insert_motor.cbl",
+        "prerequisite_ordinal_items": [
+          "HC-LCHG-SEQ"
+        ],
+        "successor_ordinal_item": "HC-MOT-SEQ",
+        "first_captured_ordinal": null,
+        "guard_line": 261
+      },
+      {
+        "entry": "policy_first_captured",
+        "predecessor": "none",
+        "successor": "insert_policy",
+        "enforced_by": "modernization/harness/stubs/sql_insert_policy.cbl",
+        "prerequisite_ordinal_items": [
+          "HC-POL-SEQ"
+        ],
+        "successor_ordinal_item": "HC-POL-SEQ",
+        "first_captured_ordinal": 1,
+        "guard_line": 361
+      },
+      {
+        "entry": "identity_before_lastchanged",
+        "predecessor": "set_identity",
+        "successor": "select_lastchanged",
+        "enforced_by": "modernization/harness/stubs/sql_select_lastchanged.cbl",
+        "prerequisite_ordinal_items": [
+          "HC-IDENT-SEQ"
+        ],
+        "successor_ordinal_item": "HC-LCHG-SEQ",
+        "first_captured_ordinal": null,
+        "guard_line": 426
+      },
+      {
+        "entry": "policy_before_identity",
+        "predecessor": "insert_policy",
+        "successor": "set_identity",
+        "enforced_by": "modernization/harness/stubs/sql_set_identity.cbl",
+        "prerequisite_ordinal_items": [
+          "HC-POL-SEQ"
+        ],
+        "successor_ordinal_item": "HC-IDENT-SEQ",
+        "first_captured_ordinal": null,
+        "guard_line": 182
+      }
+    ],
+    "driver_agreement": {
+      "driver": "modernization/harness/driver.cbl",
+      "order_table_events": {
+        "cics_write": "HC-VSAM-SEQ",
+        "insert_commercial": "HC-COM-SEQ",
+        "insert_endowment": "HC-END-SEQ",
+        "insert_house": "HC-HOU-SEQ",
+        "insert_motor": "HC-MOT-SEQ",
+        "insert_policy": "HC-POL-SEQ",
+        "select_lastchanged": "HC-LCHG-SEQ",
+        "set_identity": "HC-IDENT-SEQ"
+      },
+      "reads_order_violation": true
+    }
   },
   "response_condition_item": "DFHRESP-NORMAL",
   "commented_source_tokens": {
