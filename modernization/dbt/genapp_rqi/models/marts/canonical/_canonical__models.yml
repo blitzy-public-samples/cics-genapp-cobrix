@@ -86,10 +86,10 @@
 # relationships. This project declares no packages.yml and no dbt package. The three
 # singular tests under modernization/dbt/genapp_rqi/tests/ carry the assertions no built-in
 # test expresses: key uniqueness on the pair (source_system_key, policy_number), row-for-row
-# parity with ref('int_policy_issue_decoded') in both directions, the presence of one row
-# per expected request id, parity of the key set between the two relations, the relation
-# inventory of the canonical schema, the physical column shape of both relations, the
-# product premium null pattern, and the value, sign and magnitude of the six amounts.
+# parity with ref('int_policy_issue_decoded') in both directions, the presence of at least
+# one row per expected request id, parity of the key set between the two relations, the
+# relation inventory of the canonical schema, the physical column shape of both relations,
+# the product premium null pattern, and the value, sign and magnitude of the six amounts.
 #
 # Applied unchanged on Amazon Redshift and DuckDB.
 # Diagram reference: Figure 4 — dbt Transformation DAG and Field Allocation
@@ -274,7 +274,7 @@ models:
           are the default of the expected_request_ids variable
           tests/assert_issued_policy_unique_key.sql and
           tests/assert_product_premium_nullability.sql read, and each of them is carried by
-          exactly one row of this relation. VARCHAR(6), never null: the model casts the
+          at least one row of this relation. VARCHAR(6), never null: the model casts the
           arriving text to that width, and the width of the value is asserted by the
           singular test of this relation.
         config:

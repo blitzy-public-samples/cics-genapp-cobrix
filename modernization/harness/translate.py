@@ -65,8 +65,9 @@ Behaviour
   column, a trailing newline, no surviving ``EXEC CICS`` / ``EXEC SQL`` /
   ``END-EXEC`` / ``DFHRESP(`` / ``PROCESS SQL`` token, and the expected
   structural counts.
-* Writes ``<build-dir>/logs/source-baseline.sha256`` in ``sha256sum`` format
-  and a JSON report recording every applied rule site.
+* Writes ``<build-dir>/logs/source-baseline.sha256`` in ``sha256sum`` format,
+  headed by a comment line carrying the run disposition, and a JSON report
+  recording every applied rule site and carrying that disposition as a member.
 
 The script is argv-driven and never prompts.  Exit status is 0 on success and
 non-zero, with a precise message on standard error, on any failure.
@@ -109,6 +110,12 @@ DEFAULT_COPYBOOK_DIR = "modernization/harness/copybooks"
 
 BASELINE_RELATIVE = "logs/source-baseline.sha256"
 REPORT_RELATIVE = "logs/translation-report.json"
+
+# Disposition of the target this run was validated against.  Every artifact
+# this module writes states it at its head, in that artifact's own syntax: the
+# standard-output summary and the baseline take one line each, the JSON report
+# takes a member, so no artifact of a run can be read without it.
+STATUS_LABEL_TEXT = "validated against local substitute, not AWS"
 
 # --------------------------------------------------------------------------
 # Read allow-list
@@ -5956,12 +5963,17 @@ def verify_no_tracked_source_modification(source_dir: Path) -> dict:
 # Evidence files
 # --------------------------------------------------------------------------
 def render_baseline(source_dir: Path, baseline: dict) -> str:
-    """Render the source digests in ``sha256sum -c`` format."""
+    """Render the source digests in ``sha256sum -c`` format.
+
+    The first row is a ``#`` comment carrying the run disposition.
+    ``sha256sum --check`` skips comment lines, so the rendered file still
+    checks the five digest rows that follow it.
+    """
     try:
         relative = source_dir.resolve().relative_to(REPO_ROOT)
     except ValueError:
         relative = source_dir.resolve()
-    rows = []
+    rows = [f"# status_label: {STATUS_LABEL_TEXT}"]
     for name in sorted(baseline):
         rows.append(f"{baseline[name]}  {(relative / name).as_posix()}")
     return "\n".join(rows) + "\n"
@@ -6047,6 +6059,7 @@ def build_report(
     return {
         "schema_version": 1,
         "translator": repo_relative(Path(__file__)),
+        "status_label": STATUS_LABEL_TEXT,
         "inputs": {
             "source_dir": repo_relative(source_dir),
             "build_dir": repo_relative(build_tree.root),
@@ -6282,8 +6295,13 @@ def translate_all(
 
 
 def summarise(outcome: dict) -> str:
-    """Render the one-block success summary written to standard output."""
+    """Render the one-block success summary written to standard output.
+
+    The disposition of the run heads the block, so the log this output is
+    retained in states it above its first generation record.
+    """
     lines = [
+        f"status_label: {STATUS_LABEL_TEXT}",
         (
             f"translate.py: generated {len(outcome['results'])} program(s) into "
             f"{repo_relative(outcome['build_dir'])}/src"

@@ -1,3 +1,4 @@
+status_label: validated against local substitute, not AWS
 DRIVER: case 01AMOT fixture 01amot request id 01AMOT
 DRIVER: SAMPLEFILE read from standard input
 DRIVER: POSTFILE   written into descriptor 3, opened as /dev/fd/3

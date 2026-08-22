@@ -55,15 +55,21 @@
 --     One key of the upstream relation carrying return_code 00 yields exactly one row of
 --     the relation under test.
 --
---   issued_request_id_not_carried_once
---     Each request id of the expected_request_ids variable is carried by exactly one row of
---     the relation under test. The default of that variable is the two request ids of the
+--   issued_request_id_not_carried
+--     Each request id of the expected_request_ids variable is carried by at least one row
+--     of the relation under test. The number of rows carrying it is not read, so a second
+--     source system, a further policy of the same product and a backfill each add rows
+--     under an expected request id without breaching this rule; the uniqueness of the
+--     natural key of every one of those rows is asserted by issued_key_not_unique above.
+--     The default of that variable is the two request ids of the
 --     authored sample definitions under modernization/extraction/sample_input/: 01AMOT,
 --     which the routing EVALUATE at base/src/lgapdb01.cbl:196 resolves to policy type M,
 --     and 01ACOM, which base/src/lgapdb01.cbl:200 resolves to policy type C. A row carrying
 --     any other routed request id is not read by this rule, so the 01AEND and 01AHOU rows
 --     the same routing admits at base/src/lgapdb01.cbl:188 and :192 neither satisfy nor
---     breach it. An emptied, wiped or fully filtered relation breaches it.
+--     breach it. An emptied, wiped or fully filtered relation breaches it. The variable set
+--     to an empty list withdraws this rule and leaves every other rule of this file
+--     asserted.
 --
 --   issued_text_value_outside_declared_width
 --     Each text value observes the width its contract declares: source_system_key at most
@@ -170,7 +176,8 @@
 {% set upstream = ref('int_policy_issue_decoded') %}
 {% set landed = source('genapp', 'genapp_policy_issue') %}
 
-{# Request ids expected to be carried by exactly one row each. #}
+{# Request ids each expected to be carried by at least one row. An empty list withdraws
+    that rule and leaves every other rule of this file asserted. #}
 {% set expected_request_ids = var('expected_request_ids', ['01AMOT', '01ACOM']) %}
 
 {# The two canonical relation names of AAP section 0.3.2. #}
@@ -294,14 +301,23 @@ key_breaches as (
 
 ),
 
--- The request ids expected to be carried by exactly one row each.
+-- The request ids each expected to be carried by at least one row. An empty list yields the
+-- typed relation below, which carries no row, so the rule reading it returns none.
 expected_request_ids as (
+{% if expected_request_ids %}
 {% for request_id in expected_request_ids %}
     select '{{ request_id }}' as request_id
     {% if not loop.last %}
     union all
     {% endif %}
 {% endfor %}
+{% else %}
+    select cast(null as varchar) as request_id
+
+    from {{ issued }}
+
+    where 1 = 0
+{% endif %}
 ),
 
 -- Rows of the relation under test per request id.
@@ -504,20 +520,21 @@ where assertion is not null
 
 union all
 
--- One row per expected request id.
+-- One row per expected request id no row of the relation under test carries.
 select
-    'issued_request_id_not_carried_once' as assertion,
+    'issued_request_id_not_carried' as assertion,
     e.request_id as subject,
     cast(null as varchar) as source_system_key,
     cast(null as bigint) as policy_number,
-    'rows=' || cast(coalesce(m.mart_rows, 0) as varchar) || ' required 1' as detail
+    'rows=' || cast(coalesce(m.mart_rows, 0) as varchar)
+        || ' required at least 1' as detail
 
 from expected_request_ids e
 
 left join issued_request_ids m
     on e.request_id = m.request_id
 
-where coalesce(m.mart_rows, 0) <> 1
+where coalesce(m.mart_rows, 0) = 0
 {% for column in text_columns %}
 union all
 

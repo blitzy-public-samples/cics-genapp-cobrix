@@ -1,3 +1,4 @@
+status_label: validated against local substitute, not AWS
 compiler: 3.2.0 (cobc)
 compiler options: -std=ibm -fbinary-truncate -ffold-copy=LOWER -ext cpy
 COB_CONFIG_DIR: /usr/share/gnucobol/config (pinned)

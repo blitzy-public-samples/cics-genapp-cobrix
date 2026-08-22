@@ -646,6 +646,11 @@ db2_group_declarations:
 # The seventeen logical field entries. `runtime_status` is one of active, derived or
 # declaration_only. `populated_by` is one of request, chain, derivation or null. The
 # warehouse-assigned entry is held separately under the `source_system_key` key below.
+# `blank_window_lands_null: true` marks an entry whose COMMAREA window lands null when it holds
+# only spaces, which extraction applies before the window is decoded by its kind. It is recorded
+# only on an entry that carries a `commarea` block, records `populated_by` other than chain,
+# records every target as nullable and is not one of the `premium_payment` amounts, so a blank
+# window of an applicable amount and of a value the chain assigns stays refused.
 fields:
 
   - logical_entry: payment
@@ -1276,8 +1281,9 @@ fields:
         nullable: true
     landing_field: broker_id
     transformation: >-
-      Passthrough. Leading zeros are stripped for landing and the warehouse casts the landed
-      string to BIGINT.
+      Passthrough. An empty trimmed value lands as null. Leading zeros are stripped for landing
+      and the warehouse casts the landed string to BIGINT.
+    blank_window_lands_null: true
     evidence:
       - base/src/lgcmarea.cpy:41
       - base/src/lgpolicy.cpy:49

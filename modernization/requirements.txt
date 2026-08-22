@@ -8,8 +8,8 @@
 # pins or record them: modernization/validation/diff_harness_vs_warehouse.py
 # (duckdb, redshift-connector), modernization/docs/decision-log.md and
 # modernization/docs/traceability-matrix.md.
-# See also: modernization/docs/decision-log.md,
-# modernization/docs/traceability-matrix.md
+# See also, both planned deliverables not present at this milestone:
+# modernization/docs/decision-log.md, modernization/docs/traceability-matrix.md
 #
 # Transitive security exception - sqlparse. In force while the pins below stand.
 # Affected transitive package and resolved version: sqlparse 0.5.5. The advisories raised
@@ -35,7 +35,8 @@
 # [">=1.12.0", "<1.13.0"] of modernization/dbt/genapp_rqi/dbt_project.yml, and
 # dbt-redshift 1.11.1 declares sqlparse<0.7.0,>=0.5.0. Both pins have to move together,
 # because either ceiling alone still excludes 0.6.0. A move of an exact pin below is
-# recorded in modernization/docs/decision-log.md.
+# recorded in modernization/docs/decision-log.md, a planned deliverable not
+# present at this milestone.
 # Resource limits while this exception stands: the advisories are denial-of-service
 # conditions reached while parsing SQL, so the dbt CLI of this environment is run as a
 # bounded batch invocation over the fixed authored model and test set and never as a

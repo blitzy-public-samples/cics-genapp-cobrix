@@ -45,9 +45,9 @@
 # schema name verbatim. No relation alias is set.
 # Landed rows are successful executions only: modernization/extraction/extract_commarea.py
 # refuses a record whose returned CA-RETURN-CODE is not 00, so return_code holds 00 in every
-# row of this model, every not_null test below is satisfied by the landing contract, and the
-# six values the chain assigns are documented on that column as source facts rather than as a
-# warehouse domain.
+# landed row and every not_null test below is satisfied by the landing contract; the
+# accepted_values test on that column admits the six codes the chain assigns, so a row
+# carrying any of the other five is carried through this model rather than stopping the run.
 # Every data test below is a dbt built-in test. This project declares no packages.yml and no
 # dbt package. Uniqueness of the natural key (source_system_key, policy_number) is asserted by
 # the singular tests of modernization/dbt/genapp_rqi/tests/.
@@ -107,11 +107,11 @@ models:
       is not a COMMAREA item at all: it is derived from the request routing of
       base/src/lgapdb01.cbl:184-207 before landing, and this model verifies the landed letter
       against request_id through those same four branches. Those three values are the three the
-      chain assigns rather than receives: a row carrying return_code 00 carries all three, and a
-      row carrying any other return code can carry null in any of them, so no not_null test is
-      declared on them at this layer and the not_null constraints of the two canonical relations
-      apply to their return_code 00 rows. The model derives no value and applies no arithmetic
-      to any amount: none of base/src/lgapol01.cbl,
+      chain assigns rather than receives: every landed record carries return code 00, so every
+      row of this model carries all three, the not_null tests declared on policy_number,
+      policy_type and last_changed below assert that at this layer, and the not_null
+      constraints of the two canonical relations assert it at theirs. The model derives no
+      value and applies no arithmetic to any amount: none of base/src/lgapol01.cbl,
       base/src/lgapdb01.cbl and base/src/lgapvs01.cbl carries a COMPUTE, MULTIPLY, DIVIDE or
       COMP-3 statement, each amount reaches its Db2 host variable through a plain MOVE, and no
       value is rounded or rescaled. The product overlays of base/src/lgcmarea.cpy each REDEFINE
@@ -169,9 +169,10 @@ models:
           value exists only in the returned COMMAREA. The Db2-side counterpart DB2-POLICYNUMBER
           PIC 9(10), base/src/lgpolicy.cpy:44, is declaration-only and carries no runtime
           value. Cast from the staged digit string to bigint; BIGINT in both canonical
-          relations. Never null on a row whose return_code is 00; on a row carrying 70, 80,
-          90, 98 or 99 the landing contract accepts null, and 0 reaches this column where the
-          chain assigned no identity. Second element of the natural key
+          relations. Never null: every landed record carries return code 00 together with the
+          identity the chain recovered, and modernization/landing/landing-schema.json admits
+          only a digit string whose first digit is not 0 for this value, so neither a null nor
+          a 0 reaches this column. Second element of the natural key
           (source_system_key, policy_number), whose uniqueness is asserted by the singular
           tests of modernization/dbt/genapp_rqi/tests/.
         config:
@@ -240,11 +241,11 @@ models:
           Request identifier the chain routes on. CA-REQUEST-ID PIC X(6),
           base/src/lgcmarea.cpy:10, evaluated at base/src/lgapdb01.cbl:184. The routing
           EVALUATE recognises 01AEND, 01AHOU, 01AMOT and 01ACOM, and those four are the
-          production domain of this column; its WHEN OTHER branch at
-          base/src/lgapdb01.cbl:202-205 sets return code 99 and returns, and
-          modernization/extraction/extract_commarea.py lands that unrouted id under
-          --allow-nonzero-return-code with policy_type null, so such a row reaches this model
-          carrying its request id and no letter. The two authored sample definitions under
+          production domain of this column; an unrouted id reaches its WHEN OTHER branch at
+          base/src/lgapdb01.cbl:202-205, which sets return code 99 and returns, and
+          modernization/extraction/extract_commarea.py refuses to land a record carrying an
+          unrouted id, so those four ids are the whole domain reaching this model and no row
+          arrives without a policy_type letter. The two authored sample definitions under
           modernization/extraction/sample_input/ carry 01AMOT, which resolves policy type M,
           and 01ACOM, which resolves policy type C. This model reads the value to verify
           policy_type against the routing. The accepted values are those four ids: 01AEND
@@ -280,11 +281,15 @@ models:
           response was not normal, 90 SQL failure, 98 COMMAREA shorter than the required length
           and 99 unsupported request id; the harness captures under
           modernization/validation/artifacts/ hold the returned code of each executed sample.
-          Only a successful execution is landed: modernization/extraction/extract_commarea.py
-          refuses a record whose returned code is not 00 and
-          modernization/landing/landing-schema.json admits 00 alone, so this column holds 00 in
-          every row of this model, the accepted_values test below pins it to that one code, and
-          the other five values reach no layer of the warehouse. The column
+          Only a successful execution is landed: modernization/landing/landing-schema.json
+          admits the single value 00, enforced by
+          modernization/extraction/extract_commarea.py, which refuses a record whose returned
+          code is not 00, so every landed row carries 00. The accepted_values test below admits
+          all six codes the chain assigns, so a row carrying 70, 80, 90, 98 or 99 that reaches
+          the source relation by any other route is carried through the staging model and this
+          model as evidence for failure analysis; the two models of models/marts/canonical
+          apply where return_code = '00', the one gate a row passes to reach a canonical
+          relation. The column
           is retained because canonical.issued_policy carries it, and the models of
           models/marts/canonical restate the filter to 00 on their own reads. Carried
           unchanged from staging, cast to char(2), the type canonical.issued_policy carries.
@@ -301,7 +306,7 @@ models:
           - not_null
           - accepted_values:
               arguments:
-                values: ["00"]
+                values: ["00", "70", "80", "90", "98", "99"]
 
       - name: issue_date
         data_type: date

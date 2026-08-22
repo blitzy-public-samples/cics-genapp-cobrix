@@ -119,10 +119,14 @@ WHICH INPUTS IT ACCEPTS
                     to modernization/validation/local.duckdb. Every component of
                     the requested path is canonicalised first, so a symbolic
                     link, a /proc/self/cwd alias and a relative path all resolve
-                    to the file they name. The resolved path must sit inside
-                    modernization/validation/, must not be a symbolic link or an
+                    to the file they name. The resolved path must name a file
+                    directly inside modernization/validation/, not inside a
+                    directory below it, must not be a symbolic link or an
                     existing non-regular file, and must not name one of the
-                    authored files that directory carries.
+                    authored files that directory carries. Each of those is a
+                    rejected setting, reported with the configuration status and
+                    naming the setting it came from, before the object is
+                    downloaded.
     --no-ddl        apply none of the shared warehouse scripts, for a database
                     whose relation is already present. There is no option
                     naming a script: the scripts applied are the fixed
@@ -167,15 +171,20 @@ WHAT --self-test CHECKS
     schema, the endpoint policy over accepted and refused forms, the download
     failures botocore reports, an object replaced between the head request and
     the download, a digest that does not match the recorded one, the database
-    path policy over accepted and refused paths, SQL statement splitting, the
-    physical shape of raw.genapp_policy_issue as the catalog reports it, one
-    load, a repeated load of the same record, a load of a second record, a
-    failure mid-transaction with the rollback that follows it, the row counts the
+    path policy over accepted and refused paths, a path in a directory below the
+    one directory a database may sit in refused as a setting before any request
+    is made, SQL statement splitting, the physical shape of
+    raw.genapp_policy_issue as the catalog reports it, one load, a repeated load
+    of the same record, a load of a second record, a failure mid-transaction with
+    the rollback that follows it, an interrupt reported as one line and status 130
+    from the command line and from an interrupted statement, the row counts the
     tool reports against the relation, redaction of business identifiers in both
     modes, and that every documented exit status is reachable. Collaborators are
     the pinned boto3 and botocore clients, driven through moto and through
     botocore's own stubber, and the pinned DuckDB, so a call this matrix makes is
-    a call the pinned distribution models.
+    a call the pinned distribution models. The moto server a case starts serves
+    that case alone and logs no request of its own, so the lines the matrix writes
+    are the matrix's own.
 
 WHERE IT WRITES
     One relation, raw.genapp_policy_issue, whose column names, column order and
@@ -211,7 +220,8 @@ WHERE IT WRITES
 HOW IT FAILS
     Every failure writes one control-free line to stderr and returns a non-zero
     status: 2 for a landed object that breaches the landing contract, 3 for a
-    rejected command line or an unresolved setting, 4 for an S3 endpoint, bucket
+    runtime environment that is not the pinned one, a rejected command line or an
+    unresolved setting, 4 for an S3 endpoint, bucket
     or object operation that did not succeed, 5 for a database or SQL operation
     that did not succeed or a failed self-test case, 130 for an interrupt. A
     missing setting is named in the diagnostic. A SQL statement that the database
@@ -220,6 +230,13 @@ HOW IT FAILS
     is given: without it a rejected value is reported by its JSON pointer, the
     constraint it breached and its JSON type and size. The tool never prompts and
     requires no TTY.
+
+    An interrupt is one line, "load_local: interrupted before completion", and
+    status 130 wherever it arrives: while the third-party modules this tool
+    imports are still loading, while a setting is resolving, while the object is
+    downloading, and while the transaction is running, where DuckDB reports the
+    interrupt as an interrupted query rather than as a refused statement. Nothing
+    is written on any of those paths.
 
 WHAT IT NEVER DOES
     It creates no bucket, cluster, workgroup, role, policy, network or key, and
@@ -240,44 +257,137 @@ WHERE THIS STEP SITS
     Figure 5 — Validation Harness Control Flow, both in
     modernization/docs/architecture.md.
 
-Decision rationale: see modernization/docs/decision-log.md.
+Decision rationale: see modernization/docs/decision-log.md, a planned deliverable not present at this milestone.
 """
 
 from __future__ import annotations
 
-import argparse
-import contextlib
-import datetime
-import hashlib
-import io
-import ipaddress
-import json
-import os
-import re
-import shutil
-import stat
 import sys
-import tempfile
-import urllib.parse
-from collections.abc import Callable, Iterable, Mapping, Sequence
-from pathlib import Path
-from typing import Any, NamedTuple, NoReturn
-
-import boto3.session
-import duckdb
-import jsonschema.exceptions
-from botocore.config import Config
-from botocore.exceptions import (
-    BotoCoreError,
-    ClientError,
-    EndpointConnectionError,
-    NoCredentialsError,
-    NoRegionError,
-    PartialCredentialsError,
-)
-from jsonschema.validators import Draft202012Validator
 
 _PROGRAM = "load_local"
+
+# Status an interrupted run returns, and the one line it writes. Both are declared
+# before every import but sys, and those imports are covered by the same reporting,
+# so an interrupt that arrives while the standard library, boto3, duckdb or
+# jsonschema is still loading is reported as that single line and that status rather
+# than as a traceback of import frames. The run itself reports an interrupt through
+# the same line.
+EXIT_INTERRUPTED = 130
+INTERRUPTED_MESSAGE = f"{_PROGRAM}: interrupted before completion"
+
+
+def _report_interrupt() -> None:
+    """Write the one line an interrupted run reports to stderr, and return None."""
+    print(INTERRUPTED_MESSAGE, file=sys.stderr)
+
+
+# Status a run returns when the interpreter running it, or a version installed for it,
+# is not the one the project pins. It is the status of a rejected setting, declared here
+# because the check it belongs to runs before the imports it covers.
+EXIT_ENVIRONMENT_REJECTED = 3
+
+# Python release series and distribution versions this tool runs under: the series
+# modernization/requirements.txt is installed against and the exact version it pins for
+# every distribution this module imports. The interpreter carrying them is
+# modernization/.venv/bin/python.
+PINNED_PYTHON_SERIES = (3, 12)
+PINNED_DISTRIBUTIONS = (
+    ("boto3", "1.43.74"),
+    ("botocore", "1.43.74"),
+    ("duckdb", "1.5.5"),
+    ("jsonschema", "4.26.0"),
+)
+PINNED_INTERPRETER = "modernization/.venv/bin/python"
+PINNED_REQUIREMENTS = "modernization/requirements.txt"
+
+
+def _printable(text: str) -> str:
+    """Return ``text`` with every character a terminal would act on replaced."""
+    return "".join(character if character.isprintable() else "?" for character in text)
+
+
+def _refuse_environment(reason: str) -> None:
+    """Write one line naming ``reason`` and end the run, returning None to no caller."""
+    print(f"{_PROGRAM}: {_printable(reason)}", file=sys.stderr)
+    raise SystemExit(EXIT_ENVIRONMENT_REJECTED)
+
+
+def confirm_pinned_environment() -> None:
+    """Confirm this run carries the pinned interpreter series and versions.
+
+    The interpreter's release series is compared with ``PINNED_PYTHON_SERIES`` and the
+    installed version of every distribution in ``PINNED_DISTRIBUTIONS`` with the version
+    pinned there, before any distribution is imported: an interpreter of another series,
+    a distribution that is absent and a distribution at another version each end the run
+    with ``EXIT_ENVIRONMENT_REJECTED`` and one line naming what was found, what is
+    required and the interpreter to run this tool through. A run whose environment
+    matches returns None and nothing is written.
+    """
+    found = ".".join(str(number) for number in sys.version_info[:3])
+    required = ".".join(str(number) for number in PINNED_PYTHON_SERIES)
+    if sys.version_info[: len(PINNED_PYTHON_SERIES)] != PINNED_PYTHON_SERIES:
+        _refuse_environment(
+            f"this tool runs on the Python {required} series, and the interpreter "
+            f"running it is Python {found} at {sys.executable}; run it through "
+            f"{PINNED_INTERPRETER}"
+        )
+    from importlib import metadata
+
+    for name, pinned in PINNED_DISTRIBUTIONS:
+        try:
+            installed = metadata.version(name)
+        except metadata.PackageNotFoundError:
+            _refuse_environment(
+                f"{name} is not installed for the interpreter at {sys.executable}, and "
+                f"{PINNED_REQUIREMENTS} pins {name} {pinned}; run this tool through "
+                f"{PINNED_INTERPRETER}"
+            )
+            return
+        if installed != pinned:
+            _refuse_environment(
+                f"{name} {installed} is installed for the interpreter at "
+                f"{sys.executable}, and {PINNED_REQUIREMENTS} pins {name} {pinned}; "
+                f"run this tool through {PINNED_INTERPRETER}"
+            )
+
+
+try:
+    confirm_pinned_environment()
+
+    import argparse
+    import contextlib
+    import datetime
+    import hashlib
+    import io
+    import ipaddress
+    import json
+    import logging
+    import os
+    import re
+    import shutil
+    import stat
+    import tempfile
+    import urllib.parse
+    from collections.abc import Callable, Iterable, Mapping, Sequence
+    from pathlib import Path
+    from typing import Any, NamedTuple, NoReturn
+
+    import boto3.session
+    import duckdb
+    import jsonschema.exceptions
+    from botocore.config import Config
+    from botocore.exceptions import (
+        BotoCoreError,
+        ClientError,
+        EndpointConnectionError,
+        NoCredentialsError,
+        NoRegionError,
+        PartialCredentialsError,
+    )
+    from jsonschema.validators import Draft202012Validator
+except KeyboardInterrupt:
+    _report_interrupt()
+    raise SystemExit(EXIT_INTERRUPTED) from None
 
 # Paths resolved from this script's own directory rather than from the working
 # directory, so every working directory reads the same contract and reaches the
@@ -303,6 +413,8 @@ DDL_SCRIPT_NAMES = ("01_schemas.sql", "02_raw_genapp_policy_issue.sql")
 
 # Names in DATABASE_DIRECTORY that a database path may never resolve to: the authored
 # files of that directory, which this tool must not open as a database or overwrite.
+# diff_harness_vs_warehouse.py and validation-evidence.md are planned deliverables
+# not present at this milestone, and are reserved here before they are authored.
 RESERVED_DATABASE_NAMES = (
     "diff_harness_vs_warehouse.py",
     "validation-evidence.md",
@@ -486,6 +598,12 @@ READ_CHUNK_BYTES = 65536
 # record.
 EXPECTED_INSERTED_ROWS = 1
 
+# Reason DuckDB reports for a statement stopped by the process's own interrupt. The
+# driver consumes that interrupt while the statement runs and reports it as a
+# RuntimeError carrying this text, which is neither a KeyboardInterrupt nor one of the
+# driver's own errors, so _interrupted names it explicitly.
+INTERRUPTED_STATEMENT_TEXT = "Query interrupted"
+
 # Connection behaviour applied to every request, bounding the time a failing
 # endpoint can hold up the caller. MAX_ATTEMPTS is the number of calls one request
 # makes in total, the first included, and is applied through the client's
@@ -497,13 +615,13 @@ RETRY_MODE = "standard"
 
 EXIT_OK = 0
 EXIT_OBJECT_REJECTED = 2
-EXIT_CONFIGURATION_REJECTED = 3
+EXIT_CONFIGURATION_REJECTED = EXIT_ENVIRONMENT_REJECTED
 EXIT_S3_UNAVAILABLE = 4
 EXIT_WAREHOUSE_UNAVAILABLE = 5
 # A failed self-test case returns the same status as a warehouse failure, since a
-# case that did not hold is a load that would not have succeeded.
+# case that did not hold is a load that would not have succeeded. EXIT_INTERRUPTED is
+# declared above the third-party imports, with the reporting that covers them.
 EXIT_SELF_TEST_FAILED = EXIT_WAREHOUSE_UNAVAILABLE
-EXIT_INTERRUPTED = 130
 
 # Characters of untrusted text one diagnostic fragment carries before
 # truncation, the keys one diagnostic names, and the schema violations one
@@ -763,6 +881,23 @@ def _reason(error: BaseException) -> str:
     """
     text = str(error) or _type_name(error)
     return _escaped(_redacted(text), MAX_DIAGNOSTIC_MESSAGE_CHARACTERS)
+
+
+def _interrupted(error: BaseException) -> bool:
+    """Return whether ``error`` is the database's report of an interrupted statement.
+
+    DuckDB reports an interrupt that arrives while a statement is running in one of
+    two ways, neither of them a ``KeyboardInterrupt``: as
+    ``duckdb.InterruptException`` when the connection itself was interrupted, and as a
+    ``RuntimeError`` carrying ``INTERRUPTED_STATEMENT_TEXT`` when the driver consumed
+    the pending interrupt of this process while the statement ran, which is the shape
+    a run stopped by hand at the keyboard meets. A run stopped mid-statement therefore
+    reaches the database error paths, and each of them asks this question first so such
+    a run is reported as the interrupt it is rather than as a database refusal.
+    """
+    if isinstance(error, duckdb.InterruptException):
+        return True
+    return isinstance(error, RuntimeError) and str(error) == INTERRUPTED_STATEMENT_TEXT
 
 
 def _listed(names: Sequence[str]) -> str:
@@ -1620,8 +1755,32 @@ def confirm_run_mode(
 
 
 
+def resolved_database_root() -> Path:
+    """Return ``ALLOWED_DATABASE_ROOT`` resolved through every symbolic link.
+
+    This is the one directory a database file may sit in, in the form every path
+    check compares against.
+    """
+    return Path(os.path.realpath(ALLOWED_DATABASE_ROOT))
+
+
+def is_database_root(candidate: str | os.PathLike[str]) -> bool:
+    """Report whether ``candidate`` resolves to ``resolved_database_root``.
+
+    ``candidate`` is resolved through every symbolic link, so a link, a
+    ``/proc/self/cwd`` alias and a relative path are judged as the directory they
+    reach. A sub-directory of that root is not that root and is reported false.
+
+    This predicate is the whole containment rule: ``resolve_database_path`` applies
+    it to the parent of the ``--database`` value before any client exists, and
+    ``open_database`` applies it again to the path it is handed, so the setting a
+    caller supplies and the file the connection opens are held to one rule.
+    """
+    return Path(os.path.realpath(candidate)) == resolved_database_root()
+
+
 def resolve_database_path(supplied: str | None) -> Path:
-    """Return the DuckDB database file to open, contained under the validation area.
+    """Return the DuckDB database file to open, named inside the validation directory.
 
     ``supplied`` is the ``--database`` value; ``LOCAL_DUCKDB_PATH`` and then
     ``DUCKDB_DATABASE`` are consulted when it is absent, and ``DEFAULT_DATABASE``
@@ -1630,17 +1789,28 @@ def resolve_database_path(supplied: str | None) -> Path:
 
     The resolved path is the one this tool creates parent directories for and
     writes, so it is contained rather than merely inspected: the candidate and its
-    parent are resolved through every symbolic link, and the result must sit inside
-    ``DATABASE_DIRECTORY``, which keeps a destination out of ``base/``, out of the
-    authored source tree and out of any directory a link points at. The path itself
-    may not be a symbolic link, may not name an existing entry that is not a regular
-    file, and may not name one of ``RESERVED_DATABASE_NAMES``. The returned path is
-    absolute.
+    parent are resolved through every symbolic link, and ``is_database_root`` must
+    hold for that parent, which keeps a destination out of ``base/``, out of the
+    authored source tree, out of any directory a link points at, out of the
+    directories that hold this bridge's committed evidence and out of any
+    sub-directory of ``DATABASE_DIRECTORY`` itself. A path in a directory below
+    ``DATABASE_DIRECTORY`` is a rejected setting, and it is rejected here, where
+    every other ``--database`` fault is rejected, rather than at the open that
+    ``open_database`` guards: the whole policy is applied before the object is
+    downloaded. The path itself may not be a symbolic link, may not name an existing
+    entry that is not a regular file, and may not name one of
+    ``RESERVED_DATABASE_NAMES``. The returned path is absolute and its parent is
+    ``resolved_database_root``, which is the path ``open_database`` accepts.
+
+    Every one of these refusals is a ``ConfigurationError``, so a database setting a
+    caller cannot use is reported with the configuration status before any session,
+    client or credential exists, before the object is downloaded and before a
+    database file is created.
 
     Raises ``ConfigurationError`` when the resolved value is empty, names an
-    in-memory database, resolves outside ``DATABASE_DIRECTORY``, is a symbolic link,
-    names an existing non-regular entry, or names an authored file of that
-    directory.
+    in-memory database, does not name a file directly inside ``DATABASE_DIRECTORY``,
+    resolves into a directory below it, is a symbolic link, names an existing
+    non-regular entry, or names an authored file of that directory.
     """
     value, origin = _resolved(supplied, "--database", DATABASE_VARIABLES)
     if value is None:
@@ -1666,14 +1836,15 @@ def resolve_database_path(supplied: str | None) -> Path:
             f"the database path from {origin} names a directory rather than a file: "
             f"{_path_shown(value)}"
         )
-    contained_root = Path(os.path.realpath(DATABASE_DIRECTORY))
+    contained_root = resolved_database_root()
     parent = Path(os.path.realpath(candidate.parent))
-    if parent != contained_root and contained_root not in parent.parents:
+    if not is_database_root(candidate.parent):
         raise ConfigurationError(
-            f"the database path from {origin} resolves outside "
-            f"{_path_shown(contained_root)}: {_path_shown(value)}; this tool writes "
-            f"its database inside that directory only, and "
-            f"{_path_shown(DEFAULT_DATABASE)} is the path this bridge keeps it at"
+            f"the database path from {origin} does not name a file directly inside "
+            f"{_path_shown(contained_root)}: {_path_shown(value)} resolves into "
+            f"{_path_shown(parent)}, which is outside that one directory; name a file "
+            f"in it instead, and {_path_shown(DEFAULT_DATABASE)} is the path this "
+            f"bridge keeps its database at"
         )
     resolved = parent / candidate.name
     if resolved.name in RESERVED_DATABASE_NAMES:
@@ -3117,15 +3288,22 @@ def apply_sql_script(
     transaction the statements run inside, and a script carrying its own
     transaction control has already been refused by ``read_sql_statements``.
 
-    Raises ``ConfigurationError`` when the script cannot be read or split, and
-    ``WarehouseError`` naming the script, the statement's position in it and the
-    statement as written when the database refuses a statement.
+    Raises ``ConfigurationError`` when the script cannot be read or split,
+    ``KeyboardInterrupt`` when the statement was interrupted rather than refused,
+    and ``WarehouseError`` naming the script, the statement's position in it and
+    the statement as written when the database refuses a statement.
     """
     statements = read_sql_statements(path)
     for ordinal, statement in enumerate(statements, start=1):
         try:
             connection.execute(statement)
+        except RuntimeError as error:
+            if not _interrupted(error):
+                raise
+            raise KeyboardInterrupt from error
         except duckdb.Error as error:
+            if _interrupted(error):
+                raise KeyboardInterrupt from error
             raise WarehouseError(
                 f"the database refused statement {ordinal} of {len(statements)} in "
                 f"{_path_shown(path)}: {_reason(error)}. The statement, as written: "
@@ -3273,13 +3451,21 @@ def open_database(path: Path) -> duckdb.DuckDBPyConnection:
     the second examination rather than prevented: such a run is refused, the
     connection is closed and nothing is written through it.
 
-    Raises ``WarehouseError`` when the parent is not the allowed root, when the
-    name is refused, or when the database cannot be opened or confirmed.
+    The parent is held to ``is_database_root``, the same predicate
+    ``resolve_database_path`` applies to the ``--database`` value: a path that
+    resolver returned satisfies it, and a path reaching this function by any other
+    route is refused here. Because that resolver has already refused every
+    ``--database`` value whose parent is not the allowed root, the check repeated
+    here guards the window between that resolution and this open rather than a
+    rejected setting.
+
+    Raises ``KeyboardInterrupt`` when the open was interrupted rather than refused,
+    and ``WarehouseError`` when the parent is not the allowed root, when the name is
+    refused, or when the database cannot be opened or confirmed.
     """
     name = path.name
     parent = os.path.realpath(path.parent)
-    allowed_root = os.path.realpath(ALLOWED_DATABASE_ROOT)
-    if parent != allowed_root:
+    if not is_database_root(path.parent):
         raise WarehouseError(
             f"the database path resolves to a file in {_path_shown(parent)}: "
             f"{_path_shown(path)}; only a file directly inside "
@@ -3290,7 +3476,13 @@ def open_database(path: Path) -> duckdb.DuckDBPyConnection:
         before = _database_entry(name, descriptor)
         try:
             connection = duckdb.connect(str(path))
+        except RuntimeError as error:
+            if not _interrupted(error):
+                raise
+            raise KeyboardInterrupt from error
         except (duckdb.Error, OSError) as error:
+            if _interrupted(error):
+                raise KeyboardInterrupt from error
             raise WarehouseError(
                 f"the database cannot be opened: {_path_shown(path)}: {_reason(error)}"
             ) from error
@@ -3312,7 +3504,7 @@ def open_database(path: Path) -> duckdb.DuckDBPyConnection:
         except WarehouseError:
             try:
                 connection.close()
-            except duckdb.Error as close_error:
+            except (duckdb.Error, RuntimeError) as close_error:
                 _warn(
                     "the database connection could not be closed after the database "
                     f"file was refused: {_reason(close_error)}"
@@ -3413,12 +3605,19 @@ def upsert_record(
     absent is not withdrawn by the rollback; it stays on disk holding no schema and
     no row.
 
+    An interrupt that arrives while a statement is running is a run stopped by
+    hand rather than a database that refused the load: DuckDB reports it as an
+    interrupted query, ``_interrupted`` recognises it, the transaction is rolled
+    back as for any other failure and ``KeyboardInterrupt`` leaves this function,
+    so the caller reports the interrupt and nothing is written.
+
     Raises ``ConfigurationError`` when a bootstrap script cannot be read,
-    ``WarehouseError`` when the transaction cannot be started, when a statement or
-    the commit did not succeed, or when the write did not report exactly
-    ``EXPECTED_INSERTED_ROWS`` rows, and ``SchemaError`` when the relation name is
-    not usable. Whatever the failure, a started transaction is rolled back before
-    the diagnostic leaves this function.
+    ``KeyboardInterrupt`` when a statement was interrupted, ``WarehouseError`` when
+    the transaction cannot be started, when a statement or the commit did not
+    succeed, or when the write did not report exactly ``EXPECTED_INSERTED_ROWS``
+    rows, and ``SchemaError`` when the relation name is not usable. Whatever the
+    failure, a started transaction is rolled back before the diagnostic leaves this
+    function.
     """
     if len(values) != len(columns):
         raise WarehouseError(
@@ -3452,13 +3651,15 @@ def upsert_record(
         if started:
             try:
                 connection.execute("ROLLBACK")
-            except duckdb.Error as rollback_error:
+            except (duckdb.Error, RuntimeError) as rollback_error:
                 _warn(
                     "the transaction could not be rolled back after the load failed: "
                     f"{_reason(rollback_error)}"
                 )
         if isinstance(error, (LoadError, KeyboardInterrupt, SystemExit)):
             raise
+        if _interrupted(error):
+            raise KeyboardInterrupt from error
         if not started:
             raise WarehouseError(
                 f"the database refused the start of the transaction writing one row "
@@ -3572,7 +3773,7 @@ def load_record(
     finally:
         try:
             connection.close()
-        except duckdb.Error as error:
+        except (duckdb.Error, RuntimeError) as error:
             _warn(f"the database connection could not be closed: {_reason(error)}")
     return LoadOutcome(
         uri, key_values, removed, written, identity, downloaded.sha256
@@ -3662,6 +3863,11 @@ _SELF_TEST_CREDENTIALS = {
 # branch alone, so such a case has to name a loopback endpoint; the port is assigned
 # by the operating system and nothing leaves this machine.
 _LOOPBACK_ADDRESS = "127.0.0.1"
+
+# Logger the WSGI server under moto's own server writes one request line to. It is
+# disabled while a case's server runs, and restored afterwards, so a served request
+# adds no line to the output of a self-test run.
+_REQUEST_LOGGER_NAME = "werkzeug"
 
 # Bucket name no case creates, which is how a run reaches a bucket that does not
 # answer.
@@ -3924,6 +4130,65 @@ class _ReplacingClient(_RecordingClient):
         return self._client.get_object(**arguments)
 
 
+class _InterruptingConnection:
+    """One DuckDB connection that reports an interrupt for one statement.
+
+    Every call reaches the wrapped connection unchanged except an ``execute`` whose
+    statement carries ``fragment``: that one raises one of the two errors DuckDB
+    raises when a statement is stopped by hand, named by ``shape``, and records the
+    statement it was raised for. This is the interrupt a run stopped mid-transaction
+    meets, driven here rather than waited for.
+    """
+
+    def __init__(
+        self,
+        connection: duckdb.DuckDBPyConnection,
+        fragment: str,
+        shape: type[BaseException] = duckdb.InterruptException,
+    ) -> None:
+        self._connection = connection
+        self._fragment = fragment
+        self._shape = shape
+        self.interrupted: list[str] = []
+
+    def execute(self, statement: str, *arguments: Any) -> Any:
+        """Execute ``statement`` unless it carries the fragment, which interrupts it."""
+        if self._fragment in statement:
+            self.interrupted.append(statement)
+            raise self._shape(INTERRUPTED_STATEMENT_TEXT)
+        return self._connection.execute(statement, *arguments)
+
+    def __getattr__(self, name: str) -> Any:
+        """Return the wrapped attribute unchanged."""
+        return getattr(self._connection, name)
+
+
+# The two shapes DuckDB reports an interrupted statement as: its own interrupt error,
+# and the RuntimeError it raises for the interrupt of this process that it consumed.
+_INTERRUPT_SHAPES = (duckdb.InterruptException, RuntimeError)
+
+
+class _RecordingHandler(logging.Handler):
+    """One logging handler that keeps every record it is given.
+
+    ``records`` holds them in emission order, so a case can establish both that a
+    silenced logger emitted nothing and that the same logger emits while it is not
+    silenced.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(level=logging.NOTSET)
+        self.records: list[logging.LogRecord] = []
+
+    def emit(self, record: logging.LogRecord) -> None:
+        """Keep ``record`` and return None."""
+        self.records.append(record)
+
+    def messages(self) -> tuple[str, ...]:
+        """Return the formatted message of every record kept, in emission order."""
+        return tuple(record.getMessage() for record in self.records)
+
+
 @contextlib.contextmanager
 def _controlled_environment(scratch: _Scratch, **overrides: str) -> Any:
     """Run a case with every consulted environment variable set by that case alone.
@@ -4008,11 +4273,27 @@ def _served_bucket(body: bytes | None = None) -> Any:
     memory, and is stopped on the way out whatever happened. ``body`` is written as
     the landed object when it is given; with None the bucket stays absent, which is
     the path an unreachable object takes.
+
+    The server writes nothing of its own to this run's output. ``verbose=False``
+    silences moto, and the request log of the WSGI server underneath it - one line
+    per served request, on stderr, outside this tool's diagnostic form - is disabled
+    for the lifetime of the server and restored to the state it was found in
+    afterwards, whatever happened, so nothing this manager does outlives it.
     """
     from moto.server import ThreadedMotoServer
 
+    request_log = logging.getLogger(_REQUEST_LOGGER_NAME)
+    previous_disabled = request_log.disabled
+    previous_level = request_log.level
+    request_log.disabled = True
+    request_log.setLevel(logging.CRITICAL)
     server = ThreadedMotoServer(ip_address=_LOOPBACK_ADDRESS, port=0, verbose=False)
-    server.start()
+    try:
+        server.start()
+    except BaseException:
+        request_log.setLevel(previous_level)
+        request_log.disabled = previous_disabled
+        raise
     try:
         host, port = server.get_host_and_port()
         endpoint = f"http://{host}:{port}"
@@ -4039,6 +4320,24 @@ def _served_bucket(body: bytes | None = None) -> Any:
         yield endpoint
     finally:
         server.stop()
+        request_log.setLevel(previous_level)
+        request_log.disabled = previous_disabled
+
+
+def _read_served_object(endpoint: str) -> bytes:
+    """Return the bytes of the landed object a served bucket holds at ``endpoint``.
+
+    The read is one request to that endpoint through the pinned boto3 client
+    carrying this module's own connection behaviour, so what a case establishes is
+    what the server did with a request rather than what a patched client did.
+    """
+    client = boto3.session.Session(
+        region_name=_SELF_TEST_REGION,
+        aws_access_key_id=_SELF_TEST_CREDENTIALS["AWS_ACCESS_KEY_ID"],
+        aws_secret_access_key=_SELF_TEST_CREDENTIALS["AWS_SECRET_ACCESS_KEY"],
+    ).client(SERVICE_NAME, endpoint_url=endpoint, config=_client_config())
+    response = client.get_object(Bucket=_SELF_TEST_BUCKET, Key=_selftest_key())
+    return bytes(response["Body"].read())
 
 
 @contextlib.contextmanager
@@ -5344,11 +5643,34 @@ def _case_database_path_accepted(scratch: _Scratch) -> str:
         not accepted.exists(),
         "an accepted path created a file before anything was written",
     )
-    return "4 accepted database paths resolved inside the database directory"
+    _assert(
+        is_database_root(DATABASE_DIRECTORY)
+        and is_database_root(os.path.realpath(DATABASE_DIRECTORY))
+        and is_database_root(os.path.relpath(DATABASE_DIRECTORY, Path.cwd())),
+        "the database directory is not recognised as the one root a database sits in",
+    )
+    _assert(
+        not is_database_root(DATABASE_DIRECTORY / "sub")
+        and not is_database_root(DATABASE_DIRECTORY.parent),
+        "a sub-directory or the parent of the database directory is taken for the root",
+    )
+    for accepted_path in (
+        resolve_database_path(None),
+        resolve_database_path(str(beside)),
+        resolve_database_path(relative),
+    ):
+        _assert(
+            is_database_root(accepted_path.parent),
+            f"the accepted path {accepted_path} has a parent open_database refuses",
+        )
+    return (
+        "4 accepted database paths resolved inside the database directory, each with a "
+        "parent the opener accepts"
+    )
 
 
 def _case_database_path_refused(scratch: _Scratch) -> str:
-    """Every path outside the database directory is refused, and nothing is written."""
+    """Every path that is not directly inside the database directory is refused."""
     authored = _THIS_DIR / "load_local.py"
     before = authored.read_bytes()
     refused = (
@@ -5364,14 +5686,57 @@ def _case_database_path_refused(scratch: _Scratch) -> str:
         ("a path outside the repository", str(scratch.absent("outside.duckdb"))),
     )
     for what, value in refused:
-        _assert_raises(
+        error = _assert_raises(
             what,
             ConfigurationError,
             "outside",
             lambda value=value: resolve_database_path(value),
         )
+        _assert_equal(
+            error.exit_status,
+            EXIT_CONFIGURATION_REJECTED,
+            f"the status refusing {what}",
+        )
     _assert_equal(
         authored.read_bytes(), before, "the bytes of this module after the refusals"
+    )
+    nested = (
+        (
+            "a name in a sub-directory of the database directory",
+            DATABASE_DIRECTORY / "sub" / "main.duckdb",
+        ),
+        (
+            "a name two levels below the database directory",
+            DATABASE_DIRECTORY / "sub" / "deeper" / "main.duckdb",
+        ),
+        (
+            "a name in a sub-directory reached by a relative path",
+            Path(os.path.relpath(DATABASE_DIRECTORY, Path.cwd())) / "sub" / "x.duckdb",
+        ),
+    )
+    for what, value in nested:
+        error = _assert_raises(
+            what,
+            ConfigurationError,
+            "directly inside",
+            lambda value=value: resolve_database_path(str(value)),
+        )
+        _assert_equal(
+            error.exit_status,
+            EXIT_CONFIGURATION_REJECTED,
+            f"the status refusing {what}",
+        )
+        for named in (
+            os.path.realpath(DATABASE_DIRECTORY),
+            os.fspath(DEFAULT_DATABASE),
+        ):
+            _assert(
+                named in str(error),
+                f"{what} was refused with {str(error)!r}, naming no {named!r}",
+            )
+    _assert(
+        not (DATABASE_DIRECTORY / "sub").exists(),
+        "a refused sub-directory path created a directory in the database directory",
     )
     for name in RESERVED_DATABASE_NAMES:
         _assert_raises(
@@ -5419,8 +5784,339 @@ def _case_database_path_refused(scratch: _Scratch) -> str:
         authored.read_bytes(), before, "the bytes of this module after every refusal"
     )
     return (
-        f"{len(refused) + len(RESERVED_DATABASE_NAMES) + 5} paths, authored names and "
-        "aliases refused, this module untouched"
+        f"{len(refused) + len(nested) + len(RESERVED_DATABASE_NAMES) + 5} paths, "
+        "authored names and aliases refused with status "
+        f"{EXIT_CONFIGURATION_REJECTED}, this module untouched"
+    )
+
+
+def _case_database_path_below_root_refused(scratch: _Scratch) -> str:
+    """A path in a directory below the database directory is a rejected setting.
+
+    The refusal carries ``EXIT_CONFIGURATION_REJECTED``, names the setting the value
+    came from, and reaches the caller before the object is read: a command line
+    naming such a path writes no progress line about the bucket, the download or the
+    database, and creates no file at the path it named.
+    """
+    below = (
+        (
+            "an existing directory below the database directory",
+            DATABASE_DIRECTORY / "artifacts",
+        ),
+        (
+            "a directory below it that does not exist",
+            DATABASE_DIRECTORY / "no-such-directory",
+        ),
+        (
+            "a directory two levels below it",
+            DATABASE_DIRECTORY / "artifacts" / "deeper",
+        ),
+    )
+    for what, directory in below:
+        candidate = directory / "selftest-below-root.duckdb"
+        error = _assert_raises(
+            what,
+            ConfigurationError,
+            "directly inside",
+            lambda candidate=candidate: resolve_database_path(str(candidate)),
+        )
+        _assert_equal(
+            error.exit_status,
+            EXIT_CONFIGURATION_REJECTED,
+            f"the status of {what} refused",
+        )
+        _assert_in("--database", str(error), "the diagnostic")
+        _assert(
+            not candidate.exists(),
+            f"the refused path was created: {candidate}",
+        )
+    named = DATABASE_DIRECTORY / "artifacts" / "selftest-below-root.duckdb"
+    for variable in DATABASE_VARIABLES:
+        with _controlled_environment(scratch, **{variable: str(named)}):
+            error = _assert_raises(
+                f"a path below the database directory from {variable}",
+                ConfigurationError,
+                "directly inside",
+                lambda: resolve_database_path(None),
+            )
+        _assert_in(variable, str(error), "the diagnostic")
+    with _served_bucket(_record_bytes()) as endpoint:
+        run = _run_cli(
+            scratch,
+            [
+                "--bucket",
+                _SELF_TEST_BUCKET,
+                "--region",
+                _SELF_TEST_REGION,
+                "--endpoint-url",
+                endpoint,
+                "--extract-date",
+                _SELF_TEST_EXTRACT_DATE.isoformat(),
+                "--database",
+                str(named),
+            ],
+            **_SELF_TEST_CREDENTIALS,
+        )
+    _assert_equal(
+        run.status,
+        EXIT_CONFIGURATION_REJECTED,
+        "the status of a command line naming a path below the database directory",
+    )
+    _assert_equal(run.stdout, "", "stdout of that command line")
+    line = _assert_one_diagnostic(run.stderr)
+    _assert_in("directly inside", line, "the diagnostic")
+    _assert_in("--database", line, "the diagnostic")
+    for absent in ("reading bucket", "bound the download", "opened database"):
+        _assert_absent(absent, run.stderr, "the stderr of that command line")
+    _assert(not named.exists(), f"the refused path was created: {named}")
+    return (
+        f"{len(below)} paths below the database directory and "
+        f"{len(DATABASE_VARIABLES)} settings carrying one refused as settings, "
+        "before any request"
+    )
+
+
+def _case_self_test_server_silent() -> str:
+    """The server a case starts logs no request line, and leaves its logger as found.
+
+    The request logger is collected rather than printed for the length of this case,
+    so the negative control - the same request with the logger no longer silenced,
+    which does record a line - adds nothing to the output of a self-test run either.
+    """
+    request_log = logging.getLogger(_REQUEST_LOGGER_NAME)
+    found = (request_log.disabled, request_log.level)
+    handlers = request_log.handlers[:]
+    propagate = request_log.propagate
+    collector = _RecordingHandler()
+    request_log.handlers = [collector]
+    request_log.propagate = False
+    body = _record_bytes()
+    try:
+        with _served_bucket(body) as endpoint:
+            _assert(
+                request_log.disabled,
+                "the request logger is not silenced while the server runs",
+            )
+            _assert_equal(
+                len(_read_served_object(endpoint)),
+                len(body),
+                "the bytes the served object carries",
+            )
+            _assert_equal(
+                collector.messages(), (), "the records a silenced request log emits"
+            )
+            request_log.disabled = False
+            request_log.setLevel(logging.INFO)
+            try:
+                _read_served_object(endpoint)
+            finally:
+                request_log.setLevel(logging.CRITICAL)
+                request_log.disabled = True
+            _assert(
+                any("GET" in message for message in collector.messages()),
+                "the request log records no request while it is not silenced: "
+                f"{collector.messages()}",
+            )
+    finally:
+        request_log.handlers = handlers
+        request_log.propagate = propagate
+    _assert_equal(
+        (request_log.disabled, request_log.level),
+        found,
+        "the request logger after the server stopped",
+    )
+    return (
+        "0 request lines while the server ran, "
+        f"{len(collector.records)} once the log was not silenced, logger restored"
+    )
+
+
+def _case_environment_guard(scratch: _Scratch) -> str:
+    """Confirm the environment check accepts this run and refuses the others.
+
+    The interpreter running the matrix carries the pinned series and the pinned version
+    of every distribution named, so the unpatched check returns without writing. Each
+    refusal is then observed with the pinned values replaced for the duration of one
+    call: another series, a distribution that is not installed and a distribution at
+    another version each end the run with ``EXIT_ENVIRONMENT_REJECTED`` and one line
+    naming what was found, the pin and the interpreter to run this tool through.
+    """
+    _assert_equal(
+        confirm_pinned_environment(), None, "the check of a pinned environment"
+    )
+    refused: list[str] = []
+    for what, series, distributions, expected in (
+        (
+            "another interpreter series",
+            (sys.version_info[0], sys.version_info[1] + 1),
+            PINNED_DISTRIBUTIONS,
+            "series, and the interpreter running it is Python",
+        ),
+        (
+            "a distribution that is not installed",
+            PINNED_PYTHON_SERIES,
+            (("genapp-rqi-absent-distribution", "1.0.0"),),
+            "is not installed for the interpreter at",
+        ),
+        (
+            "a distribution at another version",
+            PINNED_PYTHON_SERIES,
+            (("duckdb", "0.0.1"),),
+            "pins duckdb 0.0.1; run this tool through",
+        ),
+    ):
+        original_series = globals()["PINNED_PYTHON_SERIES"]
+        original_distributions = globals()["PINNED_DISTRIBUTIONS"]
+        globals()["PINNED_PYTHON_SERIES"] = series
+        globals()["PINNED_DISTRIBUTIONS"] = distributions
+        status: Any = None
+        with _captured_stderr() as captured:
+            try:
+                confirm_pinned_environment()
+            except SystemExit as request:
+                status = request.code
+            finally:
+                globals()["PINNED_PYTHON_SERIES"] = original_series
+                globals()["PINNED_DISTRIBUTIONS"] = original_distributions
+        _assert_equal(status, EXIT_ENVIRONMENT_REJECTED, f"the status of {what}")
+        lines = [line for line in captured.getvalue().splitlines() if line]
+        _assert_equal(len(lines), 1, f"the lines reported for {what}")
+        _assert_in(expected, lines[0], f"the line reported for {what}")
+        _assert(
+            lines[0].startswith(f"{_PROGRAM}: "),
+            f"the line reported for {what} names this tool",
+        )
+        _assert_equal(_one_line(lines[0]), lines[0], f"that line for {what}")
+        refused.append(what)
+    return (
+        f"the pinned environment accepted, {len(refused)} environments refused with "
+        f"status {EXIT_ENVIRONMENT_REJECTED}"
+    )
+
+
+def _case_interrupt_reported(scratch: _Scratch) -> str:
+    """An interrupt is one line and status 130, from the report and from a run.
+
+    The line is the one the reporting installed above the third-party imports
+    writes, which is the line a run interrupted anywhere else writes as well: the
+    command-line case reaches it through a resolution step that is interrupted.
+    """
+    with _captured_stderr() as captured:
+        _report_interrupt()
+    lines = [line for line in captured.getvalue().splitlines() if line]
+    _assert_equal(lines, [INTERRUPTED_MESSAGE], "the lines an interrupt reports")
+    _assert_equal(
+        INTERRUPTED_MESSAGE,
+        f"{_PROGRAM}: interrupted before completion",
+        "the line an interrupt reports",
+    )
+    _assert_equal(
+        _one_line(INTERRUPTED_MESSAGE), INTERRUPTED_MESSAGE, "that line as one line"
+    )
+    _assert_equal(EXIT_INTERRUPTED, 130, "the status an interrupt returns")
+    for shape in _INTERRUPT_SHAPES:
+        _assert(
+            _interrupted(shape(INTERRUPTED_STATEMENT_TEXT)),
+            f"an interrupted statement reported as {shape.__name__} is not "
+            "recognised as an interrupt",
+        )
+    for other in (
+        duckdb.Error("refused"),
+        OSError("refused"),
+        ValueError("refused"),
+        RuntimeError("refused"),
+    ):
+        _assert(
+            not _interrupted(other),
+            f"{_type_name(other)} is recognised as an interrupt",
+        )
+
+    def _interrupt(_supplied: str | None) -> str:
+        """Interrupt the run at the first setting it resolves."""
+        raise KeyboardInterrupt
+
+    original = globals()["resolve_bucket"]
+    globals()["resolve_bucket"] = _interrupt
+    try:
+        run = _run_cli(scratch, ["--bucket", _SELF_TEST_BUCKET])
+    finally:
+        globals()["resolve_bucket"] = original
+    _assert_equal(run.status, EXIT_INTERRUPTED, "the status of an interrupted run")
+    _assert_equal(run.stdout, "", "stdout of an interrupted run")
+    _assert_equal(
+        [line for line in run.stderr.splitlines() if line],
+        [INTERRUPTED_MESSAGE],
+        "the stderr of an interrupted run",
+    )
+    return f"{INTERRUPTED_MESSAGE!r} and status {EXIT_INTERRUPTED}"
+
+
+def _case_interrupt_in_transaction(scratch: _Scratch) -> str:
+    """A statement interrupted mid-transaction is an interrupt, not a refusal.
+
+    Both statement paths of the transaction are covered, each in both shapes DuckDB
+    reports an interrupted statement as: a bootstrap script statement and the write
+    itself, reported as the driver's own interrupt error and as the RuntimeError it
+    raises for the interrupt of this process that it consumed. Each rolls the
+    transaction back, leaves the rows the database held, and reports the interrupt
+    rather than a database refusal.
+    """
+    database = scratch.database("interrupted.duckdb")
+    columns = read_column_names(load_schema())
+    loaded = _load_into(scratch, database, _record_bytes())
+    values = tuple(value for _, value in _MOTOR_RECORD_MEMBERS)
+    connection = duckdb.connect(str(database))
+    try:
+        before_count = _row_count(connection)
+        before_rows = _rows_for_key(connection, columns, loaded.key_values)
+        _assert_equal(before_count, 1, "the rows before the interrupted writes")
+        interrupted = 0
+        for step, fragment, ddl_paths in (
+            ("the write itself", "INSERT INTO", ()),
+            ("a bootstrap statement", "CREATE TABLE", resolve_ddl_paths(True)),
+        ):
+            for shape in _INTERRUPT_SHAPES:
+                what = f"{step} reported as {shape.__name__}"
+                interrupting = _InterruptingConnection(connection, fragment, shape)
+                with _captured_stderr() as captured:
+                    _assert_raises(
+                        f"{what} interrupted",
+                        KeyboardInterrupt,
+                        "",
+                        lambda interrupting=interrupting, ddl_paths=ddl_paths: (
+                            upsert_record(
+                                interrupting,
+                                columns,
+                                values,
+                                loaded.key_values,
+                                ddl_paths,
+                            )
+                        ),
+                    )
+                _assert_equal(
+                    len(interrupting.interrupted),
+                    1,
+                    f"the statements {what} interrupted",
+                )
+                _assert_absent(
+                    "refused the load", captured.getvalue(), f"the output of {what}"
+                )
+                _assert_absent(
+                    "refused statement", captured.getvalue(), f"the output of {what}"
+                )
+                _assert_equal(
+                    _row_count(connection), before_count, f"the rows after {what}"
+                )
+                _assert_equal(
+                    _rows_for_key(connection, columns, loaded.key_values),
+                    before_rows,
+                    f"the row after {what}",
+                )
+                interrupted += 1
+    finally:
+        connection.close()
+    return (
+        f"{interrupted} interrupted statements reported as interrupts, no row written"
     )
 
 
@@ -5915,6 +6611,26 @@ def run_self_test(*, quiet: bool = False, stream: Any = None) -> int:
             lambda: _case_database_path_refused(scratch),
         )
         _run_case(
+            results, out, quiet, "database_path_below_root_refused",
+            lambda: _case_database_path_below_root_refused(scratch),
+        )
+        _run_case(
+            results, out, quiet, "self_test_server_silent",
+            _case_self_test_server_silent,
+        )
+        _run_case(
+            results, out, quiet, "environment_guard",
+            lambda: _case_environment_guard(scratch),
+        )
+        _run_case(
+            results, out, quiet, "interrupt_reported",
+            lambda: _case_interrupt_reported(scratch),
+        )
+        _run_case(
+            results, out, quiet, "interrupt_in_transaction",
+            lambda: _case_interrupt_in_transaction(scratch),
+        )
+        _run_case(
             results, out, quiet, "sql_split_matrix",
             lambda: _case_sql_split_matrix(scratch),
         )
@@ -5996,10 +6712,13 @@ def build_arg_parser() -> argparse.ArgumentParser:
             "database is opened: a repeated JSON member name is refused, every "
             "date is held to the calendar, and every timestamp is parsed as one "
             "real instant.\n"
-            "Exit status: 0 success, 2 landed object rejected, 3 command line or "
+            "Exit status: 0 success, 2 landed object rejected, 3 runtime "
+            "environment, command line or "
             "setting rejected, 4 S3 endpoint, bucket or object operation "
             "unsuccessful, 5 database or SQL operation unsuccessful or a failed "
-            "self-test case, 130 interrupted."
+            "self-test case, 130 interrupted, which is that status and one line "
+            "wherever the interrupt arrives, the third-party imports and the "
+            "transaction included."
         ),
         epilog=(
             f"Object key: {key_template}\n"
@@ -6030,6 +6749,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
             "produces are local-substitute results and establish nothing about a "
             "real-target run.\n"
             "Decision rationale: modernization/docs/decision-log.md"
+            " (planned deliverable; not present at this milestone)"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -6140,9 +6860,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
             f"environment variable, and then to {DEFAULT_DATABASE}. Every "
             "component of the path is canonicalised, so a symbolic link, a "
             "/proc/self/cwd alias and a relative path are judged as the file they "
-            f"reach; the result must resolve inside {DATABASE_DIRECTORY}, must not "
-            "be a symbolic link or an existing non-regular file, and must not name "
-            "an authored file of that directory"
+            f"reach; the result must name a file directly inside {DATABASE_DIRECTORY} "
+            "rather than in a directory below it, must not be a symbolic link or an "
+            "existing non-regular file, and must not name an authored file of that "
+            "directory. Each of those is refused as a rejected setting, naming the "
+            "setting it came from, with the configuration status before the object "
+            "is downloaded"
         ),
     )
     parser.add_argument(
@@ -6233,7 +6956,8 @@ def _run(args: argparse.Namespace) -> str:
 
     Settings are resolved first, and the run mode is reconciled with the resolved
     endpoint before any session, client or credential exists, so a missing bucket,
-    region, credential or script and a run that belongs to the other branch are all
+    region, credential or script, a database path outside the one directory a
+    database may sit in, and a run that belongs to the other branch are all
     reported before any object is downloaded and before the database is opened.
     """
     bucket = resolve_bucket(args.bucket)
@@ -6298,7 +7022,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"{_PROGRAM}: {_one_line(str(error))}", file=sys.stderr)
         return error.exit_status
     except KeyboardInterrupt:
-        print(f"{_PROGRAM}: interrupted before completion", file=sys.stderr)
+        _report_interrupt()
         return EXIT_INTERRUPTED
 
     print(result)

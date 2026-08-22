@@ -121,6 +121,11 @@
 # control bytes, non-ASCII bytes and backslashes replaced by "\xNN" escapes, so
 # one supplied value occupies exactly one output line.
 #
+# Every run block carries a "status_label:" record holding the disposition of
+# the target the run was validated against, written between the records that
+# identify the run and the baseline it measured. The text is fixed and is
+# written in both modes, so a block read on its own states that disposition.
+#
 # One record of a run block carries a value that differs between two runs of
 # one stage: "timestamp_utc:" holds the UTC time of the run. --reproducible
 # writes fixed text in place of it, and fixed text of its own in place of
@@ -398,6 +403,13 @@ readonly LOG_LOCK_WAIT_SECONDS=60
 # that mode, and neither text names a checkout path.
 readonly REPRODUCIBLE_TIMESTAMP_TEXT="not recorded (--reproducible)"
 readonly REPRODUCIBLE_ROOT_TEXT="this checkout (--reproducible)"
+
+# Disposition of the target this run was validated against, recorded by the
+# "status_label:" line of every run block in the "key: value" form the other
+# header records of a block take. The text is fixed, so the record stands in
+# both modes and a block read on its own states the disposition it was written
+# under.
+readonly STATUS_LABEL_TEXT="validated against local substitute, not AWS"
 
 # External tools every verification run invokes, in first-use order. A missing
 # entry is an environment error, reported before the evidence log is opened.
@@ -3383,6 +3395,9 @@ main() {
   # was written in is legible from the block.
   emit "repository_root: ${root_recorded}"
   emit "evidence_log: $(sanitize "$LOG_PATH")"
+  # The disposition every block of this log carries, after the records that
+  # identify the run and before the baseline it measured.
+  emit "status_label: ${STATUS_LABEL_TEXT}"
   print_baseline
 
   emit "preflight result: PASS"

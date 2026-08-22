@@ -3,6 +3,7 @@ stage: harness-preflight
 timestamp_utc: not recorded (--reproducible)
 repository_root: this checkout (--reproducible)
 evidence_log: modernization/harness/build/logs/readonly-check.log
+status_label: validated against local substitute, not AWS
 baseline (path, lines, sha256):
   base/src/lgapol01.cbl    169  4dddd29539dd96aaec9f6885d3d62d19d40a1c6c888636623164bc5f5b232f6f
   base/src/lgapdb01.cbl    595  3d21ad353a03c63d05defc511372e14477613fa4c51068a51a84d3c840c29815
@@ -50,6 +51,7 @@ stage: harness-compile
 timestamp_utc: not recorded (--reproducible)
 repository_root: this checkout (--reproducible)
 evidence_log: modernization/harness/build/logs/readonly-check.log
+status_label: validated against local substitute, not AWS
 baseline (path, lines, sha256):
   base/src/lgapol01.cbl    169  4dddd29539dd96aaec9f6885d3d62d19d40a1c6c888636623164bc5f5b232f6f
   base/src/lgapdb01.cbl    595  3d21ad353a03c63d05defc511372e14477613fa4c51068a51a84d3c840c29815
@@ -97,6 +99,7 @@ stage: harness-execute
 timestamp_utc: not recorded (--reproducible)
 repository_root: this checkout (--reproducible)
 evidence_log: modernization/harness/build/logs/readonly-check.log
+status_label: validated against local substitute, not AWS
 baseline (path, lines, sha256):
   base/src/lgapol01.cbl    169  4dddd29539dd96aaec9f6885d3d62d19d40a1c6c888636623164bc5f5b232f6f
   base/src/lgapdb01.cbl    595  3d21ad353a03c63d05defc511372e14477613fa4c51068a51a84d3c840c29815
@@ -144,6 +147,7 @@ stage: harness-final
 timestamp_utc: not recorded (--reproducible)
 repository_root: this checkout (--reproducible)
 evidence_log: modernization/harness/build/logs/readonly-check.log
+status_label: validated against local substitute, not AWS
 baseline (path, lines, sha256):
   base/src/lgapol01.cbl    169  4dddd29539dd96aaec9f6885d3d62d19d40a1c6c888636623164bc5f5b232f6f
   base/src/lgapdb01.cbl    595  3d21ad353a03c63d05defc511372e14477613fa4c51068a51a84d3c840c29815

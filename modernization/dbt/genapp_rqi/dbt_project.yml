@@ -20,7 +20,8 @@
 # this milestone).
 # Diagram reference: Figure 4 — dbt Transformation DAG and Field Allocation
 # in modernization/docs/architecture.md.
-# Rationale for every choice in this file: modernization/docs/decision-log.md
+# Rationale for every choice in this file: modernization/docs/decision-log.md,
+# a planned deliverable not present at this milestone.
 
 name: genapp_rqi
 version: '1.0.0'
@@ -39,7 +40,24 @@ model-paths: ["models"]
 macro-paths: ["macros"]
 test-paths: ["tests"]
 
-# Directories removed by dbt clean.
+# Directories removed by dbt clean. target holds the run artifacts of the last
+# invocation, so cleaning it is what invalidates them.
+#
+# Reading target/run_results.json. dbt-core writes that file only for a run that
+# reaches its first node: a run that ends before then - a connection that is refused,
+# a profile that does not render, a target name that does not exist - leaves the
+# previous run's file in place while rewriting target/manifest.json for the target it
+# just tried, so the directory can hold a successful result of one target beside a
+# manifest of another. Two rules follow, and they are the contract for every step that
+# drives this project:
+#   run
+#     "dbt clean --project-dir modernization/dbt/genapp_rqi" before each invocation, so
+#     no artifact of an earlier invocation survives into the next one;
+#   read
+#     metadata.invocation_id and args.target of run_results.json, and treat the file as
+#     the current result only where both match the invocation just run.
+# A step that reports a dbt outcome from this directory without those two checks can
+# report a previous success for a run that failed.
 clean-targets: ["target", "dbt_packages"]
 
 # Supported dbt-core range. Matches the dbt-core pin in modernization/requirements.txt.

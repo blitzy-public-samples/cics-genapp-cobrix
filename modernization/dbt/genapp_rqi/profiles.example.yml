@@ -84,9 +84,11 @@
 #                          redshift; defaults to local_substitute, and the same
 #                          variable is the run mode of the landing and raw-loading
 #                          tools
-#   LOCAL_DUCKDB_PATH      DuckDB database file of the local_substitute output
+#   LOCAL_DUCKDB_PATH      DuckDB database file of the local_substitute output,
+#                          naming a file directly inside
+#                          modernization/validation
 #   DUCKDB_DATABASE        DuckDB database file, read when LOCAL_DUCKDB_PATH
-#                          carries no value
+#                          carries no value, and holding the same shape
 #   REDSHIFT_HOST          cluster endpoint, or Serverless workgroup endpoint
 #   REDSHIFT_PORT          port of that endpoint, a decimal whole number between
 #                          1 and 65535; defaults to 5439
@@ -109,7 +111,8 @@
 # Diagram reference: Figure 2 — AFTER (BUILT): Canonical Warehouse Bridge, and
 # Figure 5 — Validation Harness Control Flow, both in
 # modernization/docs/architecture.md.
-# Rationale for every choice in this file: modernization/docs/decision-log.md
+# Rationale for every choice in this file: modernization/docs/decision-log.md,
+# a planned deliverable not present at this milestone.
 
 genapp_rqi:
 
@@ -138,7 +141,18 @@ genapp_rqi:
       # modernization/landing/load_local.py applies to its --database option. A
       # variable set to the empty string or to whitespace alone counts as unset
       # and the next source is read, which is how load_local.py resolves the same
-      # two variables, so both consumers reach the same file.
+      # two variables.
+      # Both consumers reach the same file for a value this key accepts that
+      # names the modernization/validation directory of this repository.
+      # load_local.py canonicalises its --database value and refuses one
+      # resolving outside its own modernization/validation, exit status 3; this
+      # key reads the path text and refuses a value that does not name a file
+      # directly inside a modernization/validation directory, before a database
+      # file is opened or created. The accepted shape is the relative value
+      # modernization/validation/<file>, or an absolute value ending in those
+      # three components, and a .. component is refused. The refusal names the
+      # variable the value came from, the accepted shape and the value supplied,
+      # and dbt reports it as an invalid credential of this output.
       # A relative value is resolved against the working directory of the dbt
       # process and not against the project directory. Invoke dbt from the
       # repository root, naming the project with
@@ -147,9 +161,22 @@ genapp_rqi:
       path: >-
         {%- set primary = env_var('LOCAL_DUCKDB_PATH', '') -%}
         {%- set secondary = env_var('DUCKDB_DATABASE', '') -%}
-        {{ primary if primary.strip()
-           else (secondary if secondary.strip()
-                 else 'modernization/validation/local.duckdb') }}
+        {%- set supplied = primary if primary.strip() else secondary -%}
+        {%- set origin = 'LOCAL_DUCKDB_PATH' if primary.strip()
+              else 'DUCKDB_DATABASE' -%}
+        {%- set candidate = supplied if supplied.strip()
+              else 'modernization/validation/local.duckdb' -%}
+        {%- set parts = candidate.split('/') -%}
+        {%- set contained = '..' not in parts and parts | length > 2
+              and parts[-1] | length > 0 and parts[-2] == 'validation'
+              and parts[-3] == 'modernization'
+              and (candidate.startswith('/') or parts | length == 3) -%}
+        {{ candidate if contained
+           else [origin ~ ' must name a database file directly inside '
+                 ~ 'modernization/validation, as the relative value '
+                 ~ 'modernization/validation/<file> or as an absolute value '
+                 ~ 'ending in those three components; the value supplied is "'
+                 ~ candidate ~ '"'] }}
 
       # Fallback schema. dbt-duckdb takes the database name from the file name
       # above, and no database key is set here.
@@ -172,10 +199,11 @@ genapp_rqi:
       # unset or carries whitespace alone. A value carrying content is accepted
       # only as decimal digits alone naming a number between 1 and 65535; the int
       # filter on its own would turn 5439.5 into 5439, abc and the empty string
-      # into 0 and 99999 into a port no endpoint listens on, so each of those
-      # fails rendering here instead. The failing expression names the variable
-      # and the accepted values, and dbt reports that text as the reason the
-      # profile could not be rendered.
+      # into 0 and 99999 into a port no endpoint listens on, so a value outside
+      # the accepted set renders as text rather than as a number, which dbt
+      # refuses as an invalid credential of this output before a connection is
+      # opened. The refusal names the variable, the accepted values and the value
+      # supplied.
       port: >-
         {%- set supplied = env_var('REDSHIFT_PORT', '') -%}
         {%- set candidate = supplied if supplied.strip() else '5439' -%}
@@ -184,9 +212,19 @@ genapp_rqi:
         {%- set accepted = decimal and candidate | int >= 1
               and candidate | int <= 65535 -%}
         {{ candidate | int if accepted
-           else {}['REDSHIFT_PORT must be a decimal whole number between 1 and 65535, or unset for the default 5439']() }}
+           else 'REDSHIFT_PORT must be a decimal whole number between 1 and '
+                ~ '65535, or unset for the default 5439; the value supplied is "'
+                ~ supplied ~ '"' }}
 
-      user: "{{ env_var('REDSHIFT_USER') }}"
+      # Database user, and the password authenticating it. Neither carries a
+      # default. REDSHIFT_PASSWORD is read here as well as by the password key
+      # below, and an unset variable ends the run, exit status 2, naming
+      # REDSHIFT_PASSWORD before a connection is opened. No password value is
+      # rendered into this key.
+      user: >-
+        {%- set account = env_var('REDSHIFT_USER') -%}
+        {%- do env_var('REDSHIFT_PASSWORD') -%}
+        {{ account }}
       password: "{{ env_var('REDSHIFT_PASSWORD') }}"
       dbname: "{{ env_var('REDSHIFT_DATABASE') }}"
 
@@ -221,8 +259,10 @@ genapp_rqi:
       # IAM authentication. With these keys uncommented and the password key
       # above removed, user names the database user IAM authorises, cluster_id
       # names a provisioned cluster, and a Serverless workgroup endpoint is
-      # recognised from REDSHIFT_HOST with cluster_id left commented. The sslmode
-      # key above applies to either authentication method.
+      # recognised from REDSHIFT_HOST with cluster_id left commented. Removing
+      # the password key removes the REDSHIFT_PASSWORD line of the user key with
+      # it, so an IAM run requires no password variable. The sslmode key above
+      # applies to either authentication method.
       # method: iam
       # cluster_id: "{{ env_var('REDSHIFT_CLUSTER_ID') }}"
       # iam_profile: "{{ env_var('REDSHIFT_IAM_PROFILE') }}"

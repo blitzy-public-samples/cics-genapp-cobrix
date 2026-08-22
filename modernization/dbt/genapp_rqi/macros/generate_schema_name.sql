@@ -47,7 +47,8 @@
     Execution against real Amazon Redshift has not yet happened.
     Diagram reference: Figure 4 — dbt Transformation DAG and Field Allocation
     in modernization/docs/architecture.md.
-    Rationale for every choice in this file: modernization/docs/decision-log.md
+    Rationale for every choice in this file: modernization/docs/decision-log.md,
+    a planned deliverable not present at this milestone.
 #}
 {% macro generate_schema_name(custom_schema_name, node) -%}
 

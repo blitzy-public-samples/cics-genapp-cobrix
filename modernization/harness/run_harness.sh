@@ -950,6 +950,19 @@ readonly -a CHAIN_LINK_SITES=(
   "lgapdb01.cbl|LGAPVS01"
 )
 
+# Disposition of the target this run was validated against. Every artifact this
+# script publishes states it at its head, in the syntax of that artifact: the
+# compile log takes the "status_label:" record its other header lines are
+# written in, the manifest takes a "#" comment line of its provenance block, the
+# driver log of a case takes the same record ahead of the driver's own output,
+# and the capture file of a case takes the KEY=VALUE form its entries are read
+# in. The three artifacts the translator and the source guard write carry it
+# from those tools. No file of a published set is therefore readable without the
+# disposition of the run that produced it.
+readonly STATUS_LABEL_TEXT="validated against local substitute, not AWS"
+readonly STATUS_LABEL_RECORD="status_label: ${STATUS_LABEL_TEXT}"
+readonly STATUS_LABEL_CAPTURE="STATUS_LABEL=${STATUS_LABEL_TEXT}"
+
 # Stage files this script publishes into the validation artifacts directory,
 # all five collected from the stage logs of the run - the fifth being the
 # evidence log of the source guard, emptied once in the preflight of a run and
@@ -1363,20 +1376,29 @@ success case that run did not execute:
                                               driver log, capture file and
                                               post-chain record of each success
                                               case that ran
-The manifest names the run identifier, the moment it was written, the selection
-the run was invoked with and the cases it executed on "#" comment lines, then
-carries one sha256 line per published file, so "sha256sum -c
-evidence-manifest.sha256" in that directory checks the published set.
+Every published file of a set but the post-chain record of a case states the
+disposition of the run at its head, in the syntax that file is read in: a
+"status_label:" record in the logs, a "#" comment line in the manifest and in
+the source baseline, a "STATUS_LABEL=" entry in a capture file and a member of
+the translation report. The post-chain record carries no such line: it is the
+32,500 characters and one line feed the extraction step reads, and it is
+published byte-for-byte.
+The manifest names the disposition of the run, the run identifier, the moment it
+was written, the selection the run was invoked with and the cases it executed on
+"#" comment lines, then carries one sha256 line per published file, so
+"sha256sum -c evidence-manifest.sha256" in that directory checks the published
+set.
 runtime-versions.txt stands in that directory outside this replacement: it is
 the environment record of the checkout and no run of this script writes it.
 
-The manifest carries the run identifier, the time it was written, the case
-selection, the success cases whose captures the set covers, the identity and
-timestamp seeds, the measured cobc and python versions, the source-guard
-verdict, the number of files in the set and the name standing outside it, all as
-comment lines, then one "sha256sum" line per other file of the set. The comment
-lines carry a leading "#", so "sha256sum --check evidence-manifest.sha256" run
-in that directory checks the set as the manifest stands. Before it publishes,
+The manifest carries the disposition of the run, the run identifier, the time it
+was written, the case selection, the success cases whose captures the set
+covers, the identity and timestamp seeds, the measured cobc and python versions,
+the source-guard verdict, the number of files in the set and the name standing
+outside it, all as comment lines, then one "sha256sum" line per other file of
+the set. The comment lines carry a leading "#", so "sha256sum --check
+evidence-manifest.sha256" run in that directory checks the set as the manifest
+stands. Before it publishes,
 every run repeats the replacement over a directory of its own under
 modernization/harness/build/evidence/, holding the twelve names of a full-table
 run and the environment record, with a set covering one success case: that check
@@ -3958,19 +3980,20 @@ compile_driver() {
 }
 
 # Records the compiler environment and the dialect of this run at the head of
-# the compile log, above the command line of the first module: the options every
-# compile passes, the pinned configuration directory and C options, every
-# ambient value the pin replaced, the files of the dialect chain with the
-# SHA-256 of each, and the value the chain leaves for every key the harness
-# depends on. The block names the configuration directory of the compiler
-# installation and no path of this checkout, so the published log reads the same
-# from every checkout.
+# the compile log, above the command line of the first module: the disposition
+# of the run, the options every compile passes, the pinned configuration
+# directory and C options, every ambient value the pin replaced, the files of
+# the dialect chain with the SHA-256 of each, and the value the chain leaves for
+# every key the harness depends on. The block names the configuration directory
+# of the compiler installation and no path of this checkout, so the published
+# log reads the same from every checkout.
 write_dialect_record() {
   local log="$1"
   local entry="" key="" name="" kind="" digest="" ignored=""
   local truncate_value=""
 
   truncate_value="${COBC_DIALECT_VALUE[binary-truncate]:-unresolved}"
+  log_line "$log" "$STATUS_LABEL_RECORD"
   log_line "$log" "compiler: ${COBC_VERSION} (${COBC})"
   log_line "$log" "compiler options: ${COBC_FLAGS_EFFECTIVE}"
   log_line "$log" "COB_CONFIG_DIR: ${COBC_CONFIG_DIR_PINNED} (pinned)"
@@ -5702,9 +5725,14 @@ stage_execute() {
 # describes itself alone.
 
 # Copies one file of this run into the staging directory under the name it is to
-# be published as, and records the pair for the publication step.
+# be published as, and records the pair for the publication step. A third
+# argument is written as the first line of the staged copy, ahead of the copied
+# content, and is the disposition record of the files the driver of a case
+# writes: those two are handed to the driver as descriptors on an empty file, so
+# the record is placed here rather than in the file the assertions of the case
+# read. A caller that supplies nothing stages the content unchanged.
 stage_artifact() {
-  local source="$1" name="$2"
+  local source="$1" name="$2" header="${3-}"
   local staged="${STAGING_DIR}/${name}"
 
   if [[ ! -f "$source" ]]; then
@@ -5714,7 +5742,12 @@ stage_artifact() {
   fi
   assert_readable_path "$source" "$EXIT_EVIDENCE"
   create_private_file "$staged" "$EXIT_EVIDENCE"
-  if ! cat -- "$source" >"$staged"; then
+  if [[ -n "$header" ]]; then
+    if ! printf '%s\n' "$(sanitize "$header")" >>"$staged"; then
+      die "$EXIT_EVIDENCE" "unable to write the header line of ${staged}"
+    fi
+  fi
+  if ! cat -- "$source" >>"$staged"; then
     die "$EXIT_EVIDENCE" "unable to write ${staged} from ${source}"
   fi
   STAGED_ARTIFACTS+=("${staged}|${name}")
@@ -5727,9 +5760,12 @@ stage_artifact() {
 # block to it, so the copy published carries all four gate runs of this run. The
 # staged pairs are the files of the published set, beside the manifest that
 # describes them; every other name this script owns in the published directory is
-# removed rather than published. The cases that are not success cases keep their
-# log, capture file and post-chain record under the build tree, where the run
-# directory of the case names them.
+# removed rather than published. The driver log and the capture file of a case
+# are staged under the disposition record of the run, each in the syntax that
+# file is read in; the post-chain record is staged byte-for-byte, at the 32,500
+# characters and one line feed the extraction step reads it at. The cases that
+# are not success cases keep their log, capture file and post-chain record under
+# the build tree, where the run directory of the case names them.
 collect_evidence() {
   local name="" label="" lower="" candidate=""
 
@@ -5743,8 +5779,10 @@ collect_evidence() {
         continue
       fi
       lower="$(case_lower "$label")"
-      stage_artifact "${RUN_DIR}/${lower}/driver.log" "driver_${lower}.log"
-      stage_artifact "${RUN_DIR}/${lower}/captures.txt" "captures_${lower}.txt"
+      stage_artifact "${RUN_DIR}/${lower}/driver.log" \
+        "driver_${lower}.log" "$STATUS_LABEL_RECORD"
+      stage_artifact "${RUN_DIR}/${lower}/captures.txt" \
+        "captures_${lower}.txt" "$STATUS_LABEL_CAPTURE"
       stage_artifact "${RUN_DIR}/${lower}/commarea_post.dat" \
         "commarea_post_${lower}.dat"
     done
@@ -5829,13 +5867,14 @@ published_digest() {
 
 # Writes one evidence manifest: the provenance of this run as comment lines,
 # then one "sha256sum" line per staged file under the name it is published as.
-# The provenance names the run, the time the manifest was written, the case
-# selection it describes, the success cases whose captures the set covers, the
-# two seeds of the run, the measured tool versions, the source-guard verdict, the
-# number of files in the set and the name that stands outside it. Every comment
-# line carries a leading "#", which "sha256sum --check" skips, so the manifest
-# checks the set as it stands. The manifest is published with the set and read
-# back from the published directory afterwards.
+# The provenance names the disposition of the run, the run itself, the time the
+# manifest was written, the case selection it describes, the success cases whose
+# captures the set covers, the two seeds of the run, the measured tool versions,
+# the source-guard verdict, the number of files in the set and the name that
+# stands outside it. Every comment line carries a leading "#", which
+# "sha256sum --check" skips, so the manifest checks the set as it stands. The
+# manifest is published with the set and read back from the published directory
+# afterwards.
 #   1 path of the manifest
 #   2 case selection this set describes
 #   3 success cases the set covers, or "none"
@@ -5854,6 +5893,7 @@ write_evidence_manifest() {
   fi
 
   header="# ${PROGRAM} evidence manifest: one run, one published set"$'\n'
+  header+="# status label:        ${STATUS_LABEL_TEXT}"$'\n'
   header+="# run identifier:      $(sanitize "$RUN_ID")"$'\n'
   header+="# written (UTC):       $(sanitize "$stamp")"$'\n'
   header+="# case selection:      $(sanitize "$selection")"$'\n'

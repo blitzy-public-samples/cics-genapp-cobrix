@@ -10,7 +10,10 @@ WHAT THIS TOOL DOES
     lists under ``landing.field_order``. No amount is derived: each premium and the
     payment are carried through as the digits the record holds, with leading zeros
     stripped, and a premium the derived policy type does not apply to is written as
-    null. The four commercial peril codes are never read.
+    null. The four commercial peril codes are never read. A window the map records
+    ``blank_window_lands_null`` for is written as null when it holds only spaces,
+    whatever its kind; every other window whose content the map requires, an applicable
+    amount and a value the chain assigns among them, is refused when it is blank.
 
 WHICH RECORDS IT LANDS
     Successful extractions only. A returned ``CA-RETURN-CODE`` of
@@ -37,7 +40,12 @@ WHICH INPUTS IT ACCEPTS
                  ``copybook_field_map.yml`` beside this script; every working
                  directory resolves the same default).
     --output     destination path for the landing JSON record; missing parent
-                 directories are created.
+                 directories are created and an existing file is left in place unless
+                 ``--overwrite`` is given.
+    --overwrite  replace an existing regular file at the destination. Without it a
+                 destination that already exists is refused by name and nothing is
+                 written; with it the record replaces that file, which keeps the mode
+                 it carries.
     --source-system-key
                  the source-system discriminator written to the record. Taken from
                  the ``SOURCE_SYSTEM_KEY`` environment variable when the option is
@@ -51,8 +59,13 @@ WHICH INPUTS IT ACCEPTS
     --show-identifiers
                  carry record values in diagnostics and the request id, policy type,
                  policy number, customer number, broker id, broker's reference and
-                 return code on the summary line. Withheld by default; also enabled
-                 by the ``GENAPP_SHOW_IDENTIFIERS`` environment variable.
+                 return code on the summary line. Withheld by default; the
+                 ``GENAPP_SHOW_IDENTIFIERS`` environment variable carrying one of
+                 ``SHOW_IDENTIFIERS_ENABLING``, in any case and ignoring surrounding
+                 spaces, enables the same diagnostics and the same summary line as the
+                 option. Every other value of that variable, an empty one and an absent
+                 variable leave the values withheld, and the withheld summary line
+                 carries the digest of the policy number rather than the number.
     --self-test  run the built-in case matrix instead of extracting a record. It
                  accepts ``--field-map`` and neither ``--commarea`` nor ``--output``.
 
@@ -61,11 +74,13 @@ WHICH DESTINATIONS IT ACCEPTS
     resolved, so a symbolic-link chain and a ``/proc/self/cwd`` style alias reach the
     same check as the path they name. A canonical destination inside the repository
     directory holding this script must stand below one of the generated roots
-    ``GENERATED_OUTPUT_ROOTS``; any other path inside that repository, an authored
-    file and anything below ``READ_ONLY_SOURCE_ROOT`` among them, is refused by name.
-    A canonical destination outside that repository is accepted. A destination whose
-    final component is a symbolic link, and one that resolves onto an existing entry
-    that is not a regular file, are refused before anything is created.
+    ``GENERATED_OUTPUT_ROOTS``; any other path inside that repository is refused by
+    name, an authored file, the committed evidence under
+    modernization/validation/artifacts/ and anything below ``READ_ONLY_SOURCE_ROOT``
+    among them. A canonical destination outside that repository is accepted. A
+    destination whose final component is a symbolic link, one that resolves onto an
+    existing entry that is not a regular file, and one that resolves onto an existing
+    regular file without ``--overwrite``, are refused before anything is created.
 
 WHAT IT WRITES
     One JSON object serialised as a single line terminated by one line feed, holding
@@ -74,16 +89,20 @@ WHAT IT WRITES
     is written through a temporary entry in the destination directory, created and
     moved through a descriptor held on that directory, so the parent the record lands
     in cannot be substituted between the checks and the write. Each directory this
-    tool creates carries mode ``DIRECTORY_MODE`` and the landed record carries mode
-    ``FILE_MODE``, both set on the created entry itself so the ambient umask cannot
-    widen them. On success one summary line naming the destination, the derived policy
-    type and the landed key counts reaches stdout, and nothing else does; the business
-    identifiers reach stdout only under ``--show-identifiers``.
+    tool creates carries mode ``DIRECTORY_MODE`` and a record this tool creates carries
+    mode ``FILE_MODE``, both set on the created entry itself so the ambient umask cannot
+    widen them; a record written over an existing file under ``--overwrite`` keeps the
+    mode that file carries. On success one summary line naming the destination, the
+    resolved source-system key with where it came from, the derived policy type and the
+    landed key counts reaches stdout, and nothing else does; the business identifiers
+    reach stdout only under ``--show-identifiers`` or an enabling
+    ``GENAPP_SHOW_IDENTIFIERS`` value, which select the same line.
 
 HOW IT FAILS
     Every failure writes one diagnostic line to stderr and returns a non-zero status:
-    2 for a capture that breaches the record contract, 3 for a field map missing a
-    member this tool reads or contradicting itself, 4 for an unreadable input, a
+    2 for a capture that breaches the record contract, 3 for a runtime environment
+    that is not the pinned one or a field map missing a member this tool reads or
+    contradicting itself, 4 for an unreadable input, a
     refused output or a rejected command line, 5 for a failed self-test case, 6 for a
     capture whose returned ``CA-RETURN-CODE`` is a recorded code other than
     ``RETURN_CODE_SUCCESS``, 130 for an interrupt. Diagnostics carry untrusted text
@@ -101,52 +120,142 @@ WHAT --self-test CHECKS
     One case matrix, run in this process against the field map and records this module
     renders from the map's own windows: field-map validation and every way the map can
     contradict itself, capture reading at, below and above the record length, window
-    decoding for every landing key including blank and all-zero windows, request-id
+    decoding for every landing key including blank and all-zero windows, the window the
+    map records ``blank_window_lands_null`` for against the blank windows that stay
+    refused, a control character in every alphanumeric window, request-id
     routing for the four routed ids and an unrouted one, all six return codes and an
     out-of-domain code, timestamp normalisation and calendar validity for both dates
     and the returned timestamp, the product-specific NULL pattern for M, C, E and H,
     landing key order and JSON serialisation, summary redaction with and without
-    ``--show-identifiers``, destination confinement and refusal, the modes of the
-    created directory and the landed record under a permissive umask, and the output
-    failure paths. Every case runs in one private scratch directory the matrix creates
+    ``--show-identifiers`` and under every ``GENAPP_SHOW_IDENTIFIERS`` value it
+    resolves, the resolved source-system key and its origin on the summary line, the
+    environment guard against the pinned runtime, destination confinement and refusal
+    including the committed evidence directory, the refusal of an existing destination
+    and its replacement under ``--overwrite``, the modes of the created directory and
+    the landed record under a permissive umask and the mode an overwritten file keeps,
+    and the output failure paths. Every case runs in one private scratch directory the
+    matrix creates
     and removes, reads and writes nothing else, and depends on no network, no S3 and
     no clock.
 
 WHICH CHARACTER SET IT READS
     The capture is decoded as ``CAPTURE_ENCODING``, the workstation character set the
     local harness writes; a z/OS extract carries the installation CCSID, documented as
-    285 by default, and is not decoded by this tool.
+    285 by default, and is not decoded by this tool. A decoded alphanumeric window
+    carrying a control character - one of the C0 range, DEL or one of the C1 range - is
+    refused with the record contract's own status and nothing is written, so no landed
+    value carries one; a numeric window admits digits alone.
 
 WHERE THIS STEP SITS
     Figure 2 — AFTER (BUILT): Canonical Warehouse Bridge and
     Figure 5 — Validation Harness Control Flow, both in
     modernization/docs/architecture.md.
 
-Decision rationale: see modernization/docs/decision-log.md.
+Decision rationale: see modernization/docs/decision-log.md, a planned deliverable not present at this milestone.
 """
 
 from __future__ import annotations
 
-import argparse
-import contextlib
-import copy
-import datetime
-import hashlib
-import io
-import json
-import os
-import re
-import shutil
-import stat
 import sys
-import tempfile
-from collections.abc import Callable, Iterable, Mapping, Sequence
-from pathlib import Path
-from typing import Any, NamedTuple, NoReturn
-
-import yaml
 
 _PROGRAM = "extract_commarea"
+
+# Status a run returns when the interpreter running it, or a version installed for it,
+# is not the one the project pins, and the status an interrupted run returns. Both are
+# declared before every import but sys so the environment is confirmed, and an
+# interrupt is reported, before an import of this module can fail on its own.
+EXIT_ENVIRONMENT_REJECTED = 3
+EXIT_INTERRUPTED = 130
+INTERRUPTED_MESSAGE = f"{_PROGRAM}: interrupted before completion"
+
+# Python release series and distribution versions this tool runs under: the series
+# modernization/requirements.txt is installed against and the exact version it pins for
+# every distribution this module imports. The interpreter carrying them is
+# modernization/.venv/bin/python.
+PINNED_PYTHON_SERIES = (3, 12)
+PINNED_DISTRIBUTIONS = (("PyYAML", "6.0.3"),)
+PINNED_INTERPRETER = "modernization/.venv/bin/python"
+PINNED_REQUIREMENTS = "modernization/requirements.txt"
+
+
+def _report_interrupt() -> None:
+    """Write the one line an interrupted run reports to stderr, and return None."""
+    print(INTERRUPTED_MESSAGE, file=sys.stderr)
+
+
+def _printable(text: str) -> str:
+    """Return ``text`` with every character a terminal would act on replaced."""
+    return "".join(character if character.isprintable() else "?" for character in text)
+
+
+def _refuse_environment(reason: str) -> None:
+    """Write one line naming ``reason`` and end the run, returning None to no caller."""
+    print(f"{_PROGRAM}: {_printable(reason)}", file=sys.stderr)
+    raise SystemExit(EXIT_ENVIRONMENT_REJECTED)
+
+
+def confirm_pinned_environment() -> None:
+    """Confirm this run carries the pinned interpreter series and versions.
+
+    The interpreter's release series is compared with ``PINNED_PYTHON_SERIES`` and the
+    installed version of every distribution in ``PINNED_DISTRIBUTIONS`` with the version
+    pinned there, before any distribution is imported: an interpreter of another series,
+    a distribution that is absent and a distribution at another version each end the run
+    with ``EXIT_ENVIRONMENT_REJECTED`` and one line naming what was found, what is
+    required and the interpreter to run this tool through. A run whose environment
+    matches returns None and nothing is written.
+    """
+    found = ".".join(str(number) for number in sys.version_info[:3])
+    required = ".".join(str(number) for number in PINNED_PYTHON_SERIES)
+    if sys.version_info[: len(PINNED_PYTHON_SERIES)] != PINNED_PYTHON_SERIES:
+        _refuse_environment(
+            f"this tool runs on the Python {required} series, and the interpreter "
+            f"running it is Python {found} at {sys.executable}; run it through "
+            f"{PINNED_INTERPRETER}"
+        )
+    from importlib import metadata
+
+    for name, pinned in PINNED_DISTRIBUTIONS:
+        try:
+            installed = metadata.version(name)
+        except metadata.PackageNotFoundError:
+            _refuse_environment(
+                f"{name} is not installed for the interpreter at {sys.executable}, and "
+                f"{PINNED_REQUIREMENTS} pins {name} {pinned}; run this tool through "
+                f"{PINNED_INTERPRETER}"
+            )
+            return
+        if installed != pinned:
+            _refuse_environment(
+                f"{name} {installed} is installed for the interpreter at "
+                f"{sys.executable}, and {PINNED_REQUIREMENTS} pins {name} {pinned}; "
+                f"run this tool through {PINNED_INTERPRETER}"
+            )
+
+
+try:
+    confirm_pinned_environment()
+
+    import argparse
+    import contextlib
+    import copy
+    import datetime
+    import hashlib
+    import io
+    import json
+    import os
+    import re
+    import shutil
+    import stat
+    import tempfile
+    from collections.abc import Callable, Iterable, Mapping, Sequence
+    from pathlib import Path
+    from typing import Any, NamedTuple, NoReturn
+
+    import yaml
+except KeyboardInterrupt:
+    _report_interrupt()
+    raise SystemExit(EXIT_INTERRUPTED) from None
 
 # Field map used when --field-map is omitted, resolved from this script's own
 # directory rather than from the working directory.
@@ -164,10 +273,13 @@ READ_ONLY_SOURCE_ROOT = REPOSITORY_ROOT / "base"
 
 # The generated roots of the bridge, relative to REPOSITORY_ROOT. A destination that
 # canonicalises inside the repository must stand below one of them; every other path
-# inside the repository holds an authored artifact or read-only source and is refused.
+# inside the repository holds an authored artifact, committed evidence or read-only
+# source and is refused. modernization/validation/artifacts is not among them: it holds
+# the committed harness evidence its own evidence-manifest.sha256 hashes and
+# modernization/validation/verify_readonly.sh exempts by name, and a destination
+# resolving onto it is refused like any other path inside the repository.
 GENERATED_OUTPUT_ROOTS = (
     Path("modernization/harness/build"),
-    Path("modernization/validation/artifacts"),
     Path("modernization/validation/expected"),
     Path("modernization/dbt/genapp_rqi/target"),
     Path("modernization/dbt/genapp_rqi/logs"),
@@ -189,13 +301,14 @@ MAX_CAPTURE_BYTES = 64 * 1024
 MAX_FIELD_MAP_BYTES = 1024 * 1024
 READ_CHUNK_BYTES = 65536
 
+# Statuses this tool returns. EXIT_ENVIRONMENT_REJECTED and EXIT_INTERRUPTED are
+# declared with the environment check above, before the imports they cover.
 EXIT_OK = 0
 EXIT_RECORD_REJECTED = 2
-EXIT_FIELD_MAP_INVALID = 3
+EXIT_FIELD_MAP_INVALID = EXIT_ENVIRONMENT_REJECTED
 EXIT_IO_ERROR = 4
 EXIT_SELF_TEST_FAILED = 5
 EXIT_CHAIN_NOT_SUCCESSFUL = 6
-EXIT_INTERRUPTED = 130
 
 # Characters of untrusted text one diagnostic fragment carries before truncation, and
 # the window positions one diagnostic lists.
@@ -215,15 +328,22 @@ IDENTIFIER_DIGEST_CHARACTERS = 12
 IDENTIFIER_DIGEST_PREFIX = "sha256-"
 
 # Candidate names tried when creating the temporary entry the record is written
-# through, the modes carried by a directory this tool creates and by the landed
-# record, and the directories one containment check ascends before it reports the
+# through, the modes carried by a directory this tool creates and by a record this tool
+# creates, and the directories one containment check ascends before it reports the
 # destination directory as unreachable from the filesystem root. Both modes are set on
 # the created entry as well as requested at creation, so the ambient umask cannot widen
-# either: the landed policy data is readable and writable by its owner alone.
+# either: the landed policy data is readable and writable by its owner alone. Neither
+# mode is applied to an entry this tool did not create: a record written over an
+# existing file under OVERWRITE_OPTION carries the mode that file already carries, and
+# a directory that already exists keeps its own mode.
 MAX_TEMPORARY_ATTEMPTS = 8
 DIRECTORY_MODE = 0o700
 FILE_MODE = 0o600
 MAX_CONTAINMENT_ASCENT = 256
+
+# Opt-in replacing an existing regular file at the destination. Without it a destination
+# that resolves onto an existing file is refused by name and nothing is written.
+OVERWRITE_OPTION = "--overwrite"
 
 # Item kinds the field map declares under layout.<group>.items[].kind.
 KIND_NUMERIC = "numeric_display"
@@ -303,7 +423,8 @@ CALENDAR_DATE_FIELDS = (LANDING_ISSUE_DATE, LANDING_EXPIRY_DATE)
 CANONICAL_TYPE_DATE = "DATE"
 CANONICAL_TYPE_TIMESTAMP = "TIMESTAMP"
 
-# Landing keys the summary line carries only under --show-identifiers.
+# Landing keys the summary line carries only once record values are shown, which
+# --show-identifiers and an enabling SHOW_IDENTIFIERS_VARIABLE value both select.
 IDENTIFIER_FIELDS = (
     LANDING_POLICY_NUMBER,
     LANDING_CUSTOMER_NUMBER,
@@ -535,13 +656,6 @@ def _digest(value: str) -> str:
     return IDENTIFIER_DIGEST_PREFIX + encoded[:IDENTIFIER_DIGEST_CHARACTERS]
 
 
-def _identifier(value: str) -> str:
-    """Return one business identifier for output: the value, or its digest."""
-    if show_identifiers_enabled():
-        return value
-    return _digest(value)
-
-
 def _quote_all(names: Iterable[str]) -> str:
     """Return ``names`` quoted, escaped and joined by a comma, in the order given."""
     return ", ".join(_shown(str(name)) for name in names)
@@ -585,6 +699,38 @@ def _non_digit_report(window: str) -> str:
     return report
 
 
+def _control_character_report(window: str) -> str:
+    """Return how many characters of ``window`` are control characters and where.
+
+    A control character is one of the C0 range, DEL or one of the C1 range, which is
+    what ``_CONTROL_CHARACTERS`` matches. Positions are 1-based within the window and at
+    most ``MAX_REPORTED_POSITIONS`` of them are listed, with the number withheld
+    recorded. The offending characters are named, each escaped to printable 7-bit ASCII,
+    only when record values are shown.
+    """
+    positions = [
+        index
+        for index, character in enumerate(window, start=1)
+        if _CONTROL_CHARACTERS.search(character)
+    ]
+    listed = ", ".join(str(position) for position in positions[:MAX_REPORTED_POSITIONS])
+    withheld = len(positions) - min(len(positions), MAX_REPORTED_POSITIONS)
+    if withheld:
+        listed = f"{listed} (+{withheld} further)"
+    report = (
+        f"{len(positions)} characters are control characters, at window positions "
+        f"{listed}"
+    )
+    if show_identifiers_enabled():
+        distinct = dict.fromkeys(
+            character
+            for character in window
+            if _CONTROL_CHARACTERS.search(character)
+        )
+        return f"{report}; they are {_quote_all(distinct)}"
+    return report
+
+
 # ---------------------------------------------------------------------------
 # Field map
 # ---------------------------------------------------------------------------
@@ -599,7 +745,10 @@ class LandingField(NamedTuple):
     entry, ``evidence`` holds the locators it cites, ``domain`` holds the accepted
     values where the entry records them, and ``target_types`` holds the distinct
     canonical column types its ``targets`` block records, which is where the calendar
-    and clock semantics of a value are declared.
+    and clock semantics of a value are declared. ``blank_window_lands_null`` is the
+    map's ``blank_window_lands_null`` member: True for a window that lands null when it
+    holds only spaces, whatever its kind, and False for every window whose content is
+    required.
     """
 
     name: str
@@ -618,6 +767,7 @@ class LandingField(NamedTuple):
     evidence: tuple[str, ...]
     domain: tuple[str, ...] = ()
     target_types: tuple[str, ...] = ()
+    blank_window_lands_null: bool = False
 
     @property
     def is_read_from_record(self) -> bool:
@@ -826,6 +976,58 @@ def _target_types(entry: Mapping[str, Any], where: str) -> tuple[str, ...]:
     return tuple(types)
 
 
+def _blank_window_lands_null(
+    entry: Mapping[str, Any], where: str, has_window: bool, populated_by: str | None
+) -> bool:
+    """Return the entry's ``blank_window_lands_null`` rule, checked against the entry.
+
+    An absent member is False, which is the treatment of every window whose content is
+    required. A member recording True is accepted only on an entry the rule can hold
+    for: it must carry a ``commarea`` block, since a derived key reads no window; it
+    must record ``populated_by`` other than ``POPULATED_BY_CHAIN``, since a value the
+    chain assigns on every successful execution is required rather than optional; and
+    every element of its ``targets`` block must record ``nullable`` as true, since a
+    window landing null must reach a column that accepts null.
+
+    Raises ``FieldMapError`` when the member is neither absent nor a boolean, and when
+    an entry recording True carries no window, is populated by the chain or records a
+    target that is not nullable.
+    """
+    recorded = entry.get("blank_window_lands_null")
+    if recorded is None:
+        return False
+    if not isinstance(recorded, bool):
+        raise FieldMapError(
+            f"the field map records {_shown(f'{where}.blank_window_lands_null')} as "
+            f"{_display(recorded)}; true, false or no member at all is required"
+        )
+    if not recorded:
+        return False
+    if not has_window:
+        raise FieldMapError(
+            f"the field map records {_shown(f'{where}.blank_window_lands_null')} as "
+            "true without a 'commarea' block, so there is no window to find blank"
+        )
+    if populated_by == POPULATED_BY_CHAIN:
+        raise FieldMapError(
+            f"the field map records {_shown(f'{where}.blank_window_lands_null')} as "
+            f"true and {_shown(f'{where}.populated_by')} as "
+            f"{_shown(POPULATED_BY_CHAIN)}; the chain assigns that value on every "
+            f"execution returning {_shown(RETURN_CODE_SUCCESS)}, so a blank window of "
+            "it is refused rather than landed"
+        )
+    for position, target in enumerate(_member_sequence(entry, "targets", where)):
+        target_where = f"{where}.targets[{position}]"
+        if _member(target, "nullable", target_where) is not True:
+            raise FieldMapError(
+                f"the field map records {_shown(f'{where}.blank_window_lands_null')} "
+                f"as true and {_shown(f'{target_where}.nullable')} as "
+                f"{_display(target.get('nullable'))}; a window that lands null feeds a "
+                "nullable column alone"
+            )
+    return True
+
+
 # ---------------------------------------------------------------------------
 # Inputs
 # ---------------------------------------------------------------------------
@@ -978,7 +1180,9 @@ def _landing_field(
     The entry's ``commarea`` block supplies the declaring item and its placement, and
     the item's ``kind`` is taken from the layout windows. A ``commarea`` block naming an
     item the layout does not declare, or recording an offset or length the layout
-    contradicts, raises ``FieldMapError``.
+    contradicts, raises ``FieldMapError``. The entry's ``blank_window_lands_null``
+    member is read through ``_blank_window_lands_null``, which checks it against the
+    rest of the entry. A member this tool does not read is ignored.
     """
     logical_entry = _member_text(entry, "logical_entry", where)
     group = _member_text(entry, "group", where)
@@ -994,6 +1198,9 @@ def _landing_field(
     domain = _optional_text_sequence(entry, "domain", where)
     target_types = _target_types(entry, where)
     commarea = entry.get("commarea")
+    lands_null_when_blank = _blank_window_lands_null(
+        entry, where, commarea is not None, populated_by
+    )
     if commarea is None:
         return LandingField(
             name=landing_name,
@@ -1012,6 +1219,7 @@ def _landing_field(
             evidence=evidence,
             domain=domain,
             target_types=target_types,
+            blank_window_lands_null=lands_null_when_blank,
         )
     commarea_where = f"{where}.commarea"
     item = _member_text(commarea, "item", commarea_where)
@@ -1049,6 +1257,7 @@ def _landing_field(
         evidence=evidence,
         domain=domain,
         target_types=target_types,
+        blank_window_lands_null=lands_null_when_blank,
     )
 
 
@@ -1362,6 +1571,15 @@ def load_field_map(path: Path) -> FieldMap:
     _reject_excluded_items(document, fields)
     routing, unrecognised_return_code = _routing(document)
     amount_fields = _amount_fields(document, fields)
+    for name in amount_fields:
+        if fields[name].blank_window_lands_null:
+            raise FieldMapError(
+                f"the field map records landing key {_shown(name)} as an amount of "
+                f"group {_shown(GROUP_PREMIUM_PAYMENT)} and records "
+                "'blank_window_lands_null' as true for it; an amount the derived "
+                "policy type applies to carries the digits the record holds, and its "
+                "blank window is refused rather than landed"
+            )
     always_populated, nullability = _nullability(
         document, amount_fields, sorted(set(routing.values())), fields
     )
@@ -1547,12 +1765,24 @@ def slice_field(record: str, offset: int, length: int) -> str:
     return record[start:end]
 
 
-def decode_alphanumeric(window: str) -> str | None:
+def decode_alphanumeric(field: LandingField, window: str) -> str | None:
     """Return ``window`` without leading or trailing spaces, or None when it is blank.
 
     A window holding only spaces decodes to None, which lands as JSON null rather than
-    as an empty string.
+    as an empty string. A window carrying a control character - one of the C0 range, DEL
+    or one of the C1 range - is refused, so no landed value carries a character the
+    loaders reading the record cannot represent as text.
+
+    Raises ``RecordError`` naming the landing key, the item, its byte range, how many
+    control characters the window holds and where they sit; the window content itself is
+    reported only when record values are shown.
     """
+    if _CONTROL_CHARACTERS.search(window):
+        raise RecordError(
+            f"{field.described} holds {_value(window)}, which carries a control "
+            f"character; landing key {_shown(field.name)} lands printable text alone; "
+            f"{_control_character_report(window)}"
+        )
     trimmed = window.strip(" ")
     return trimmed or None
 
@@ -1578,6 +1808,11 @@ def decode_numeric_display(field: LandingField, window: str) -> str:
 def decode_window(field: LandingField, record: str) -> str | None:
     """Return one landing value decoded from the record by the field's recorded kind.
 
+    A field the map records ``blank_window_lands_null`` for returns None when its window
+    holds only spaces, whatever its kind, so an optional value the request left blank
+    lands as JSON null instead of reaching the check of its kind. Every other window is
+    decoded by its kind, under which a blank numeric window is refused.
+
     Raises ``FieldMapError`` when the field carries no window or records a kind this
     tool does not decode, and ``RecordError`` when the window content breaches the
     kind.
@@ -1589,8 +1824,10 @@ def decode_window(field: LandingField, record: str) -> str | None:
         )
     assert field.offset is not None and field.length is not None
     window = slice_field(record, field.offset, field.length)
+    if field.blank_window_lands_null and not window.strip(" "):
+        return None
     if field.kind == KIND_ALPHANUMERIC:
-        return decode_alphanumeric(window)
+        return decode_alphanumeric(field, window)
     if field.kind == KIND_NUMERIC:
         return decode_numeric_display(field, window)
     raise FieldMapError(
@@ -1846,14 +2083,15 @@ def _decode_chain_populated(field: LandingField, record: str) -> str | None:
     A window holding only spaces returns None whatever the field's kind, so an
     unassigned value reaches ``_require_assigned`` as absent and is reported as the
     unassigned value it is rather than as a numeric decoding failure. A window holding
-    content is decoded by the field's recorded kind.
+    content is decoded by the field's recorded kind, under which an alphanumeric window
+    carrying a control character and a numeric window carrying a non-digit are refused.
     """
     assert field.offset is not None and field.length is not None
     window = slice_field(record, field.offset, field.length)
     if not window.strip(" "):
         return None
     if field.kind == KIND_ALPHANUMERIC:
-        return decode_alphanumeric(window)
+        return decode_alphanumeric(field, window)
     return decode_numeric_display(field, window)
 
 
@@ -2029,7 +2267,7 @@ def _canonical_generated_roots() -> tuple[Path, ...]:
     )
 
 
-def confine_destination(destination: Path) -> Path:
+def confine_destination(destination: Path, *, overwrite: bool = False) -> Path:
     """Return the canonical path ``destination`` names, or refuse it.
 
     Every component of the destination's parent chain is resolved, so a symbolic-link
@@ -2039,12 +2277,18 @@ def confine_destination(destination: Path) -> Path:
     this file's own location, never from the working directory.
 
     A canonical destination inside that repository is accepted only below one of
-    ``GENERATED_OUTPUT_ROOTS``: every other path inside it holds an authored artifact,
-    and anything below ``READ_ONLY_SOURCE_ROOT`` is refused by that name. A canonical
-    destination outside the repository is accepted, which is the documented workflow of
-    landing into a temporary directory. A destination whose final component is a
-    symbolic link, and one that resolves onto an existing entry that is not a regular
-    file, are refused.
+    ``GENERATED_OUTPUT_ROOTS``: every other path inside it holds an authored artifact or
+    committed evidence, modernization/validation/artifacts among them, and anything
+    below ``READ_ONLY_SOURCE_ROOT`` is refused by that name. A canonical destination
+    outside the repository is accepted, which is the documented workflow of landing into
+    a temporary directory. A destination whose final component is a symbolic link, and
+    one that resolves onto an existing entry that is not a regular file, are refused.
+
+    A destination that resolves onto an existing regular file is refused unless
+    ``overwrite`` is true, wherever it stands: a run that names an occupied path
+    replaces nothing until the command line asks for it through ``OVERWRITE_OPTION``.
+    The containment checks above run first, so a path inside the repository is refused
+    by name whether or not ``overwrite`` was given.
 
     Raises ``InputOutputError`` naming the destination, the canonical form it resolves
     to and the roots that are accepted.
@@ -2089,6 +2333,11 @@ def confine_destination(destination: Path) -> Path:
         raise InputOutputError(
             f"the destination exists and is not a regular file: "
             f"{_path_shown(canonical)}"
+        )
+    if not overwrite:
+        raise InputOutputError(
+            f"the destination exists and is left in place: {_path_shown(canonical)}; "
+            f"{OVERWRITE_OPTION} replaces an existing regular file"
         )
     return canonical
 
@@ -2237,18 +2486,23 @@ def _refuse_read_only_directory(descriptor: int, directory: Path) -> None:
         os.close(current)
 
 
-def _confirm_replaceable(name: str, descriptor: int, destination: Path) -> None:
-    """Confirm ``name`` inside the held directory is absent or is a regular file.
+def _confirm_replaceable(
+    name: str, descriptor: int, destination: Path, *, overwrite: bool
+) -> int | None:
+    """Return the mode of the entry ``name`` names inside the held directory, or None.
 
     The entry is examined relative to ``descriptor`` and without following a symbolic
     link, so the entry examined is the entry inside the directory the caller holds. An
-    absent name passes, and a symbolic link or anything that is not a regular file is
-    refused. ``destination`` names the entry in any diagnostic.
+    absent name passes and returns None; a symbolic link and anything that is not a
+    regular file are refused. An existing regular file is refused unless ``overwrite``
+    is true, and under ``overwrite`` its permission bits are returned so the record
+    that replaces it can carry the mode it already carries. ``destination`` names the
+    entry in any diagnostic.
     """
     try:
         info = os.stat(name, dir_fd=descriptor, follow_symlinks=False)
     except FileNotFoundError:
-        return
+        return None
     except OSError as error:
         raise InputOutputError(
             f"the destination cannot be examined: {_path_shown(destination)}: "
@@ -2263,10 +2517,17 @@ def _confirm_replaceable(name: str, descriptor: int, destination: Path) -> None:
             f"the destination exists and is not a regular file: "
             f"{_path_shown(destination)}"
         )
+    if not overwrite:
+        raise InputOutputError(
+            f"the destination exists and is left in place: "
+            f"{_path_shown(destination)}; {OVERWRITE_OPTION} replaces an existing "
+            "regular file"
+        )
+    return stat.S_IMODE(info.st_mode)
 
 
 def _write_through_temporary(
-    encoded: bytes, name: str, descriptor: int, destination: Path
+    encoded: bytes, name: str, descriptor: int, destination: Path, *, overwrite: bool
 ) -> None:
     """Write ``encoded`` to a temporary entry beside ``name`` and move it onto ``name``.
 
@@ -2278,9 +2539,14 @@ def _write_through_temporary(
     flush a directory leaves the record in place rather than failing the run. A
     temporary entry that survives a failure is removed relative to the same descriptor.
 
-    The temporary entry is created with ``FILE_MODE`` and its mode is then set on the
-    open descriptor, so the landed record carries that mode whatever the ambient umask
-    requested, and it carries it across the move onto the destination name.
+    The temporary entry is created with ``FILE_MODE`` and that mode is set on the open
+    descriptor, so a record this tool creates carries it whatever the ambient umask
+    requested, and it carries it across the move onto the destination name. The final
+    confirmation reports the mode of an existing regular file the move replaces under
+    ``overwrite``, and that mode is set on the same open descriptor before the move, so
+    a file this tool did not create keeps the mode it carries. A destination name
+    occupied since the earlier confirmation is refused here rather than replaced when
+    ``overwrite`` is false.
     """
     flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW
     temporary: str | None = None
@@ -2312,9 +2578,13 @@ def _write_through_temporary(
             while written < len(encoded):
                 written += os.write(file_descriptor, encoded[written:])
             os.fsync(file_descriptor)
+            replaced = _confirm_replaceable(
+                name, descriptor, destination, overwrite=overwrite
+            )
+            if replaced is not None:
+                os.fchmod(file_descriptor, replaced)
         finally:
             os.close(file_descriptor)
-        _confirm_replaceable(name, descriptor, destination)
         os.replace(temporary, name, src_dir_fd=descriptor, dst_dir_fd=descriptor)
         temporary = None
         try:
@@ -2335,7 +2605,11 @@ def _write_through_temporary(
 
 
 def write_record(
-    record: Mapping[str, str | None], destination: Path, field_order: Sequence[str]
+    record: Mapping[str, str | None],
+    destination: Path,
+    field_order: Sequence[str],
+    *,
+    overwrite: bool = False,
 ) -> Path:
     """Write the landing record to ``destination`` and return the path written.
 
@@ -2348,17 +2622,18 @@ def write_record(
     read-only source directory, the examination of the destination name, the creation of
     the temporary entry, the move onto the destination name and both flushes. The parent
     therefore cannot be substituted between the checks and the write. The temporary
-    entry carries ``FILE_MODE`` and the destination name carries that same mode, so a
-    reader never observes a partial record. An existing destination is replaced only
-    when it is a regular file and is not a symbolic link, and a destination directory
-    that is itself a symbolic link is refused.
+    entry carries ``FILE_MODE`` and a destination name this call creates carries that
+    same mode, so a reader never observes a partial record. A destination that already
+    exists is refused unless ``overwrite`` is true, and is then replaced only when it is
+    a regular file and is not a symbolic link, keeping the mode it carries; a
+    destination directory that is itself a symbolic link is refused.
 
     Raises ``FieldMapError`` when the record does not match ``field_order`` and
     ``InputOutputError`` when the destination is refused, cannot be created or cannot
     be written.
     """
     encoded = serialise_record(record, field_order).encode(CAPTURE_ENCODING)
-    target = confine_destination(destination)
+    target = confine_destination(destination, overwrite=overwrite)
     name = target.name
     directory = target.parent
     _create_destination_directory(directory)
@@ -2373,8 +2648,10 @@ def write_record(
         ) from error
     try:
         _refuse_read_only_directory(descriptor, directory)
-        _confirm_replaceable(name, descriptor, target)
-        _write_through_temporary(encoded, name, descriptor, target)
+        _confirm_replaceable(name, descriptor, target, overwrite=overwrite)
+        _write_through_temporary(
+            encoded, name, descriptor, target, overwrite=overwrite
+        )
     finally:
         os.close(descriptor)
     return target
@@ -2384,31 +2661,45 @@ def summarise(
     destination: Path,
     record: Mapping[str, str | None],
     *,
+    source_system_key_origin: str,
     show_identifiers: bool = False,
 ) -> str:
     """Return the one-line stdout summary of a written landing record.
 
-    ``destination`` is the canonical path the record was written to. The default line
-    names that path, the derived policy type - a product class of four letters, not an
-    identifier of any policy, customer or broker - the return code, how many landing
-    keys carry a value and how many are null, and the digest ``_identifier`` returns for
-    the policy number, so the same run stays recognisable without the identifier
-    reaching stdout. It carries no policy number, customer number, broker id or
-    broker's reference, so a captured run log holds no business identifier.
+    ``destination`` is the canonical path the record was written to and
+    ``source_system_key_origin`` is the origin ``resolve_source_system_key`` reported
+    for the key the record carries. The default line names that path, the source-system
+    key with that origin - a discriminator of source systems, not an identifier of any
+    policy, customer or broker, so it is named in full - the derived policy type, a
+    product class of four letters that identifies no policy, customer or broker, the
+    return code, how many landing keys carry a value and how many are null, and the
+    digest ``_digest`` returns for the policy number, so the same run stays recognisable
+    without the identifier reaching stdout. It carries no policy number, customer
+    number, broker id or broker's reference, so a captured run log holds no business
+    identifier.
 
     ``show_identifiers`` restores the identifier line for a local run: the request id,
     the policy type, the policy number, the customer number, the broker id, the
-    broker's reference and the return code, each named with its landing key.
+    broker's reference and the return code, each named with its landing key, after the
+    same source-system key and origin. It carries the resolution
+    ``resolve_show_identifiers`` returned, so the option and the
+    ``SHOW_IDENTIFIERS_VARIABLE`` environment variable select the same line. The
+    redacted line carries the digest of the policy number whatever that resolution is,
+    so a line stating that identifiers are redacted never carries one.
     """
 
     def shown(name: str) -> str:
         value = record.get(name)
         return "null" if value is None else value
 
-    def identified(name: str) -> str:
+    def digested(name: str) -> str:
         value = record.get(name)
-        return "null" if value is None else _identifier(value)
+        return "null" if value is None else _digest(value)
 
+    source_system = (
+        f"{LANDING_SOURCE_SYSTEM_KEY}={shown(LANDING_SOURCE_SYSTEM_KEY)} "
+        f"from {source_system_key_origin}"
+    )
     if show_identifiers:
         named = (
             LANDING_REQUEST_ID,
@@ -2420,14 +2711,14 @@ def summarise(
             LANDING_RETURN_CODE,
         )
         values = " ".join(f"{name}={shown(name)}" for name in named)
-        return f"landed {destination} {values}"
+        return f"landed {destination} {source_system} {values}"
     present = sum(1 for value in record.values() if value is not None)
     return (
-        f"landed {destination} "
+        f"landed {destination} {source_system} "
         f"{LANDING_POLICY_TYPE}={shown(LANDING_POLICY_TYPE)} "
         f"{LANDING_RETURN_CODE}={shown(LANDING_RETURN_CODE)} "
         f"keys={len(record)} values={present} nulls={len(record) - present} "
-        f"policy_digest={identified(LANDING_POLICY_NUMBER)} "
+        f"policy_digest={digested(LANDING_POLICY_NUMBER)} "
         "identifiers=redacted (--show-identifiers carries them)"
     )
 
@@ -2528,6 +2819,15 @@ _ROUTED_REQUEST_IDS = {
     "01ACOM": "C",
 }
 _UNROUTED_REQUEST_ID = "01AXXX"
+
+# The landing keys the field map records 'blank_window_lands_null' for, whose window
+# lands null when it holds only spaces. Every other window whose content the map
+# requires is refused when it is blank.
+_BLANK_WINDOW_LANDS_NULL = (LANDING_BROKER_ID,)
+
+# Control characters a case places inside a decoded window: NUL, tab, line feed,
+# carriage return and DEL, each of which a landed value never carries.
+_CONTROL_CHARACTER_CASES = ("\x00", "\t", "\n", "\r", "\x7f")
 
 # Content a case writes into a window of the product overlay its request does not
 # select; the overlays redefine the same bytes from offset 101.
@@ -2877,11 +3177,21 @@ def _case_field_map_members(field_map: FieldMap) -> str:
         sorted(set(_ROUTED_REQUEST_IDS.values())),
         "the policy types the nullability section records",
     )
+    _expect(
+        sorted(
+            name
+            for name, field in field_map.fields.items()
+            if field.blank_window_lands_null
+        ),
+        sorted(_BLANK_WINDOW_LANDS_NULL),
+        "the landing keys whose blank window lands null",
+    )
     return (
         f"{len(field_map.field_order)} landing keys, "
         f"{len(field_map.routing)} routed request ids, "
         f"{len(field_map.amount_fields)} amounts, "
-        f"{len(field_map.return_code_domain)} return codes"
+        f"{len(field_map.return_code_domain)} return codes, "
+        f"{len(_BLANK_WINDOW_LANDS_NULL)} blank windows landing null"
     )
 
 
@@ -3091,6 +3401,77 @@ def _case_refusal_names_values_under_the_option(field_map: FieldMap) -> str:
     return (
         f"withheld as {_shown(_withheld(6))}, named under "
         f"{SHOW_IDENTIFIERS_OPTION}: {_escaped(shown, 72)}"
+    )
+
+
+def _case_control_character_refused(
+    field_map: FieldMap, name: str, character: str
+) -> str:
+    """Confirm one control character inside an alphanumeric window is refused.
+
+    The window of landing key ``name`` carries ``character`` between two printable
+    characters, and the whole record is decoded so the refusal is the one an extraction
+    meets. The diagnostic must name the item, its byte range, the landing key and the
+    breached constraint, and must carry the character escaped rather than raw.
+    """
+    field = field_map.fields[name]
+    record = _rendered_record(field_map, {**_MOTOR_WINDOWS, name: f"A{character}B"})
+    diagnostic = _expect_raised(
+        RecordError,
+        EXIT_RECORD_REJECTED,
+        (
+            field.described,
+            "carries a control character",
+            _shown(name),
+            "1 characters are control characters, at window positions 2",
+        ),
+        lambda: build_landing_record(record, field_map, DEFAULT_SOURCE_SYSTEM_KEY),
+        f"decoding {name} carrying {_shown(_escaped_character(character))}",
+    )
+    _expect_lacks(diagnostic, character, "the control-character diagnostic")
+    return f"{name} refused: {_escaped(diagnostic, 96)}"
+
+
+def _case_control_character_names_itself_under_the_option(
+    field_map: FieldMap, character: str
+) -> str:
+    """Confirm a refused control character is named, escaped, once display is enabled.
+
+    The default contract withholds the window from the diagnostic, which then states
+    how many control characters it holds and where; with display enabled the diagnostic
+    also names them, each escaped to printable 7-bit ASCII. The setting is restored
+    before the case returns.
+    """
+    record = _rendered_record(
+        field_map,
+        {**_MOTOR_WINDOWS, LANDING_BROKERS_REFERENCE: f"AB{character}CD"},
+    )
+    escaped = _escaped_character(character)
+    previous = show_identifiers_enabled()
+    try:
+        set_show_identifiers(False)
+        withheld = _expect_raised(
+            RecordError,
+            EXIT_RECORD_REJECTED,
+            ("CA-BROKERSREF", "carries a control character", _withheld(10)),
+            lambda: build_landing_record(record, field_map, DEFAULT_SOURCE_SYSTEM_KEY),
+            "decoding a control character with values withheld",
+        )
+        _expect_lacks(withheld, escaped, "the withheld control-character diagnostic")
+        set_show_identifiers(True)
+        shown = _expect_raised(
+            RecordError,
+            EXIT_RECORD_REJECTED,
+            ("CA-BROKERSREF", "carries a control character", f"they are '{escaped}'"),
+            lambda: build_landing_record(record, field_map, DEFAULT_SOURCE_SYSTEM_KEY),
+            "decoding a control character with values shown",
+        )
+        _expect_lacks(shown, character, "the shown control-character diagnostic")
+    finally:
+        set_show_identifiers(previous)
+    return (
+        f"named as '{escaped}' under {SHOW_IDENTIFIERS_OPTION}: "
+        f"{_escaped(shown, 72)}"
     )
 
 
@@ -3357,27 +3738,88 @@ def _case_created_modes(scratch: Path, map_path: Path, field_map: FieldMap) -> s
     return "two directories at 0700 and the record at 0600 under a zero umask"
 
 
-def _case_replaced_record_mode(
+def _case_existing_destination_refused(
     scratch: Path, map_path: Path, field_map: FieldMap
 ) -> str:
-    """Confirm replacing a world-readable record leaves the landed mode private."""
-    directory = _case_directory(scratch, "replace")
+    """Confirm an existing destination is left in place without the overwrite option.
+
+    The existing file carries content this tool never writes and mode 0644, so both its
+    bytes and its permission bits are observable afterwards. The refusal names the
+    destination and the option that replaces it.
+    """
+    directory = _case_directory(scratch, "existing-destination")
     capture = _prepared_capture(directory, field_map, _MOTOR_WINDOWS)
-    destination = _written(directory, _SCRATCH_RECORD_NAME, b"{}\n")
+    destination = _written(directory, _SCRATCH_RECORD_NAME, b"PRE-EXISTING CONTENT\n")
+    os.chmod(destination, 0o644)
+    before = _fingerprint(destination)
+    result = _run_cli(_extraction_argv(capture, destination, map_path))
+    diagnostic = _expect_cli_failure(
+        result,
+        EXIT_IO_ERROR,
+        ["the destination exists and is left in place", OVERWRITE_OPTION],
+        "the extraction aimed at an existing file",
+    )
+    _expect_untouched(destination, before, "the existing destination")
+    _expect(
+        f"{stat.S_IMODE(os.stat(destination).st_mode):04o}",
+        "0644",
+        "the mode of the destination the refused run left in place",
+    )
+    return f"refused and unchanged at 0644: {diagnostic}"
+
+
+def _case_overwrite_keeps_the_existing_mode(
+    scratch: Path, map_path: Path, field_map: FieldMap
+) -> str:
+    """Confirm the overwrite option replaces a 0644 record and leaves its mode alone.
+
+    The ambient umask is set to zero for the run, which is the setting under which a
+    mode taken from the umask would be visible in the result, and the expected mode is
+    the 0644 the replaced file carried rather than ``FILE_MODE``.
+    """
+    directory = _case_directory(scratch, "overwrite-existing")
+    capture = _prepared_capture(directory, field_map, _MOTOR_WINDOWS)
+    destination = _written(directory, _SCRATCH_RECORD_NAME, b"PRE-EXISTING CONTENT\n")
     os.chmod(destination, 0o644)
     previous = os.umask(0o000)
     try:
-        result = _run_cli(_extraction_argv(capture, destination, map_path))
+        result = _run_cli(
+            _extraction_argv(capture, destination, map_path, OVERWRITE_OPTION)
+        )
     finally:
         os.umask(previous)
     _expect_cli_success(result, "the extraction over an existing record")
     _expect(
         f"{stat.S_IMODE(os.stat(destination).st_mode):04o}",
-        "0600",
+        "0644",
         "the mode of the replaced record",
     )
     _expect_record(_decoded_line(destination)[1], _MOTOR_RECORD, "the landed record")
-    return "an existing 0644 record replaced at 0600"
+    return "an existing 0644 record replaced at 0644"
+
+
+def _case_overwrite_creates_at_the_private_mode(
+    scratch: Path, map_path: Path, field_map: FieldMap
+) -> str:
+    """Confirm the overwrite option leaves a created record at the private mode."""
+    directory = _case_directory(scratch, "overwrite-absent")
+    capture = _prepared_capture(directory, field_map, _MOTOR_WINDOWS)
+    destination = directory / _SCRATCH_RECORD_NAME
+    previous = os.umask(0o000)
+    try:
+        result = _run_cli(
+            _extraction_argv(capture, destination, map_path, OVERWRITE_OPTION)
+        )
+    finally:
+        os.umask(previous)
+    _expect_cli_success(result, "the extraction into an absent destination")
+    _expect(
+        f"{stat.S_IMODE(os.stat(destination).st_mode):04o}",
+        f"{FILE_MODE:04o}",
+        "the mode of the created record",
+    )
+    _expect_record(_decoded_line(destination)[1], _MOTOR_RECORD, "the landed record")
+    return f"a created record carries {FILE_MODE:04o} with {OVERWRITE_OPTION} given"
 
 
 def _case_generated_roots_accepted() -> str:
@@ -3443,6 +3885,45 @@ def _case_this_module_destination_refused(
     )
     _expect_untouched(destination, before, "this module")
     return f"refused and unchanged: {diagnostic}"
+
+
+def _case_committed_evidence_refused(
+    scratch: Path, map_path: Path, field_map: FieldMap
+) -> str:
+    """Confirm no destination lands in the committed evidence directory.
+
+    The destination stands inside modernization/validation/artifacts, the directory
+    holding the committed harness evidence, and carries a name that does not exist
+    there, so the case reads and writes no evidence file of that directory and depends
+    on the content of none. It is validated directly and run through the command line
+    with and without ``OVERWRITE_OPTION``; each attempt is refused for standing outside
+    ``GENERATED_OUTPUT_ROOTS`` and creates nothing.
+    """
+    directory = _case_directory(scratch, "committed-evidence")
+    capture = _prepared_capture(directory, field_map, _MOTOR_WINDOWS)
+    evidence = REPOSITORY_ROOT / "modernization" / "validation" / "artifacts"
+    destination = evidence / f"extractor-selftest-{os.getpid()}.json"
+    diagnostic = _expect_raised(
+        InputOutputError,
+        EXIT_IO_ERROR,
+        ["outside every generated root", destination.name],
+        lambda: confine_destination(destination),
+        "validating a destination inside the committed evidence directory",
+    )
+    for extra in ((), (OVERWRITE_OPTION,)):
+        result = _run_cli(_extraction_argv(capture, destination, map_path, *extra))
+        _expect_cli_failure(
+            result,
+            EXIT_IO_ERROR,
+            ["outside every generated root", destination.name],
+            f"the extraction aimed at the committed evidence directory "
+            f"{'with' if extra else 'without'} {OVERWRITE_OPTION}",
+        )
+        if os.path.lexists(destination):
+            raise _SelfTestFailure(
+                f"the refused extraction created {_path_shown(destination)}"
+            )
+    return f"refused with and without {OVERWRITE_OPTION}: {diagnostic}"
 
 
 def _case_read_only_source_refused() -> str:
@@ -3661,6 +4142,8 @@ def _case_summary_redacted(scratch: Path, map_path: Path, field_map: FieldMap) -
     result = _run_cli(_extraction_argv(capture, destination, map_path))
     summary = _expect_cli_success(result, "the extraction summarised by default")
     for fragment in (
+        f"{LANDING_SOURCE_SYSTEM_KEY}={DEFAULT_SOURCE_SYSTEM_KEY} "
+        "from --source-system-key",
         f"{LANDING_POLICY_TYPE}=M",
         "keys=17",
         "identifiers=redacted",
@@ -3698,7 +4181,346 @@ def _case_summary_identifiers(
         _expect_holds(
             summary, f"{name}={_MOTOR_RECORD[name]}", "the identifier summary line"
         )
+    _expect_holds(
+        summary,
+        f"{LANDING_SOURCE_SYSTEM_KEY}={DEFAULT_SOURCE_SYSTEM_KEY} "
+        "from --source-system-key",
+        "the identifier summary line",
+    )
     return f"summary carries seven named values: {_escaped(summary, 96)}"
+
+
+def _case_summary_environment(
+    scratch: Path,
+    map_path: Path,
+    field_map: FieldMap,
+    carried: str,
+    enabling: bool,
+    label: str,
+) -> str:
+    """Confirm the environment variable selects the same summary line as the option.
+
+    ``carried`` is the value ``SHOW_IDENTIFIERS_VARIABLE`` holds for the run. An
+    enabling value must yield the identifier line the option yields, naming all seven
+    values; any other value must yield the redacted line, which names the digest of the
+    policy number and no identifier at all. The landed record is checked in both cases,
+    so the summary line is the only thing the setting changes. The variable and the
+    resolved setting are restored before the case returns.
+    """
+    directory = _case_directory(scratch, f"summary-environment-{label}")
+    capture = _prepared_capture(directory, field_map, _MOTOR_WINDOWS)
+    destination = directory / _SCRATCH_RECORD_NAME
+    previous_value = os.environ.get(SHOW_IDENTIFIERS_VARIABLE)
+    previous_setting = show_identifiers_enabled()
+    try:
+        os.environ[SHOW_IDENTIFIERS_VARIABLE] = carried
+        result = _run_cli(_extraction_argv(capture, destination, map_path))
+    finally:
+        if previous_value is None:
+            os.environ.pop(SHOW_IDENTIFIERS_VARIABLE, None)
+        else:
+            os.environ[SHOW_IDENTIFIERS_VARIABLE] = previous_value
+        set_show_identifiers(previous_setting)
+    summary = _expect_cli_success(
+        result,
+        f"the extraction run with {SHOW_IDENTIFIERS_VARIABLE} carrying "
+        f"{_shown(carried)}",
+    )
+    named = (
+        LANDING_REQUEST_ID,
+        LANDING_POLICY_TYPE,
+        LANDING_POLICY_NUMBER,
+        LANDING_CUSTOMER_NUMBER,
+        LANDING_BROKER_ID,
+        LANDING_BROKERS_REFERENCE,
+        LANDING_RETURN_CODE,
+    )
+    if enabling:
+        for name in named:
+            _expect_holds(
+                summary,
+                f"{name}={_MOTOR_RECORD[name]}",
+                f"the summary line under {SHOW_IDENTIFIERS_VARIABLE}",
+            )
+        _expect_lacks(
+            summary,
+            "identifiers=redacted",
+            f"the summary line under {SHOW_IDENTIFIERS_VARIABLE}",
+        )
+    else:
+        for fragment in ("identifiers=redacted", IDENTIFIER_DIGEST_PREFIX):
+            _expect_holds(
+                summary,
+                fragment,
+                f"the summary line under {SHOW_IDENTIFIERS_VARIABLE}",
+            )
+        for fragment in (
+            *IDENTIFIER_FIELDS,
+            str(_MOTOR_RECORD[LANDING_POLICY_NUMBER]),
+            str(_MOTOR_RECORD[LANDING_BROKERS_REFERENCE]),
+        ):
+            _expect_lacks(
+                summary,
+                fragment,
+                f"the summary line under {SHOW_IDENTIFIERS_VARIABLE}",
+            )
+    _expect_record(_decoded_line(destination)[1], _MOTOR_RECORD, "the landed record")
+    return (
+        f"{SHOW_IDENTIFIERS_VARIABLE}={_shown(carried)} "
+        f"{'names' if enabling else 'withholds'} the identifiers: "
+        f"{_escaped(summary, 96)}"
+    )
+
+
+def _case_summary_redacted_line_carries_no_identifier() -> str:
+    """Confirm the redacted summary line carries a digest under either resolution.
+
+    ``summarise`` is called with display withheld while the resolved setting is first
+    withheld and then enabled, and the line must carry the digest of the policy number
+    and neither the number itself nor any other identifier in both runs. The setting is
+    restored before the case returns.
+    """
+    destination = Path(_SCRATCH_RECORD_NAME)
+    policy_number = str(_MOTOR_RECORD[LANDING_POLICY_NUMBER])
+    previous = show_identifiers_enabled()
+    try:
+        for resolved in (False, True):
+            set_show_identifiers(resolved)
+            line = summarise(
+                destination,
+                _MOTOR_RECORD,
+                source_system_key_origin="the built-in default",
+                show_identifiers=False,
+            )
+            what = f"the redacted summary line with the setting {resolved}"
+            for fragment in (
+                "identifiers=redacted",
+                f"policy_digest={_digest(policy_number)}",
+            ):
+                _expect_holds(line, fragment, what)
+            for fragment in (
+                *IDENTIFIER_FIELDS,
+                policy_number,
+                str(_MOTOR_RECORD[LANDING_BROKERS_REFERENCE]),
+            ):
+                _expect_lacks(line, fragment, what)
+        set_show_identifiers(False)
+        named = summarise(
+            destination,
+            _MOTOR_RECORD,
+            source_system_key_origin="the built-in default",
+            show_identifiers=True,
+        )
+        _expect_holds(
+            named,
+            f"{LANDING_POLICY_NUMBER}={policy_number}",
+            "the identifier summary line with the setting False",
+        )
+    finally:
+        set_show_identifiers(previous)
+    return (
+        f"the redacted line carries {_digest(policy_number)} under either resolution "
+        "and the identifier line carries the values"
+    )
+
+
+def _case_cli_control_character_refused(
+    scratch: Path, map_path: Path, field_map: FieldMap, character: str
+) -> str:
+    """Confirm a control character in a capture lands nothing at the command line."""
+    escaped = _escaped_character(character)
+    directory = _case_directory(scratch, f"control-character-{escaped}")
+    capture = _prepared_capture(
+        directory,
+        field_map,
+        {**_MOTOR_WINDOWS, LANDING_BROKERS_REFERENCE: f"AB{character}CD"},
+    )
+    destination = directory / _SCRATCH_RECORD_NAME
+    result = _run_cli(_extraction_argv(capture, destination, map_path))
+    diagnostic = _expect_cli_failure(
+        result,
+        EXIT_RECORD_REJECTED,
+        ["CA-BROKERSREF", "carries a control character", _shown(
+            LANDING_BROKERS_REFERENCE)],
+        f"the extraction of a capture carrying {_shown(escaped)}",
+    )
+    _expect_lacks(diagnostic, character, "the command line diagnostic")
+    if os.path.lexists(destination):
+        raise _SelfTestFailure(
+            f"the refused extraction created {_path_shown(destination)}"
+        )
+    return f"status {EXIT_RECORD_REJECTED}, nothing written: {diagnostic}"
+
+
+def _case_cli_blank_broker_id_lands_null(
+    scratch: Path, map_path: Path, field_map: FieldMap
+) -> str:
+    """Confirm a blank broker-id window lands null and every other key is unchanged."""
+    directory = _case_directory(scratch, "blank-broker-id")
+    capture = _prepared_capture(
+        directory, field_map, {**_MOTOR_WINDOWS, LANDING_BROKER_ID: ""}
+    )
+    destination = directory / _SCRATCH_RECORD_NAME
+    result = _run_cli(_extraction_argv(capture, destination, map_path))
+    summary = _expect_cli_success(
+        result, "the extraction of a capture whose broker-id window is blank"
+    )
+    text, parsed = _decoded_line(destination)
+    _expect_record(
+        parsed, {**_MOTOR_RECORD, LANDING_BROKER_ID: None}, "the landed record"
+    )
+    _expect_holds(text, f'"{LANDING_BROKER_ID}": null', "the landed line")
+    _expect_holds(summary, "nulls=5", "the summary line")
+    return (
+        f"{len(parsed)} keys landed, {LANDING_BROKER_ID} null, in {len(text)} "
+        "characters"
+    )
+
+
+def _case_cli_blank_amount_window_refused(
+    scratch: Path, map_path: Path, field_map: FieldMap, name: str, item: str
+) -> str:
+    """Confirm a blank applicable amount window lands nothing at the command line."""
+    directory = _case_directory(scratch, f"blank-amount-{name}")
+    capture = _prepared_capture(directory, field_map, {**_MOTOR_WINDOWS, name: ""})
+    destination = directory / _SCRATCH_RECORD_NAME
+    result = _run_cli(_extraction_argv(capture, destination, map_path))
+    diagnostic = _expect_cli_failure(
+        result,
+        EXIT_RECORD_REJECTED,
+        [item, "not all digits"],
+        f"the extraction of a capture whose {name} window is blank",
+    )
+    if os.path.lexists(destination):
+        raise _SelfTestFailure(
+            f"the refused extraction created {_path_shown(destination)}"
+        )
+    return f"status {EXIT_RECORD_REJECTED}, nothing written: {diagnostic}"
+
+
+def _case_environment_guard() -> str:
+    """Confirm the environment check accepts this run and refuses the others.
+
+    The interpreter running the matrix carries the pinned series and the pinned version
+    of every distribution named, so the unpatched check returns without writing. Each
+    refusal is then observed with the pinned values replaced for the duration of one
+    call: another series, a distribution that is not installed and a distribution at
+    another version each end the run with ``EXIT_ENVIRONMENT_REJECTED`` and one line
+    naming what was found, the pin and the interpreter to run this tool through.
+    """
+    _expect(confirm_pinned_environment(), None, "the check of a pinned environment")
+    observed: list[str] = []
+    for what, series, distributions, expected in (
+        (
+            "another interpreter series",
+            (sys.version_info[0], sys.version_info[1] + 1),
+            PINNED_DISTRIBUTIONS,
+            "series, and the interpreter running it is Python",
+        ),
+        (
+            "a distribution that is not installed",
+            PINNED_PYTHON_SERIES,
+            (("genapp-rqi-absent-distribution", "1.0.0"),),
+            "is not installed for the interpreter at",
+        ),
+        (
+            "a distribution at another version",
+            PINNED_PYTHON_SERIES,
+            (("PyYAML", "0.0.1"),),
+            "pins PyYAML 0.0.1; run this tool through",
+        ),
+    ):
+        original_series = globals()["PINNED_PYTHON_SERIES"]
+        original_distributions = globals()["PINNED_DISTRIBUTIONS"]
+        globals()["PINNED_PYTHON_SERIES"] = series
+        globals()["PINNED_DISTRIBUTIONS"] = distributions
+        captured = io.StringIO()
+        try:
+            with contextlib.redirect_stderr(captured):
+                try:
+                    confirm_pinned_environment()
+                except SystemExit as request:
+                    status = request.code
+                else:
+                    status = None
+        finally:
+            globals()["PINNED_PYTHON_SERIES"] = original_series
+            globals()["PINNED_DISTRIBUTIONS"] = original_distributions
+        _expect(status, EXIT_ENVIRONMENT_REJECTED, f"the status of {what}")
+        lines = [line for line in captured.getvalue().splitlines() if line]
+        _expect(len(lines), 1, f"the lines reported for {what}")
+        line = lines[0]
+        if not line.startswith(f"{_PROGRAM}: ") or expected not in line:
+            raise _SelfTestFailure(
+                f"the line reported for {what} is {_shown(line, 200)}"
+            )
+        if line != _one_line(line):
+            raise _SelfTestFailure(f"the line reported for {what} is not one line")
+        observed.append(what)
+    return (
+        f"the pinned environment accepted, {len(observed)} environments refused with "
+        f"status {EXIT_ENVIRONMENT_REJECTED}"
+    )
+
+
+def _case_summary_names_the_key_origin(
+    scratch: Path, map_path: Path, field_map: FieldMap
+) -> str:
+    """Confirm the summary names the source-system key and each origin it comes from.
+
+    The option is omitted for both runs, so the resolution the summary reports is the
+    one the environment and then the built-in default supply; the landed record is read
+    back each time to confirm the line names the key the record carries.
+    """
+    directory = _case_directory(scratch, "summary-key-origin")
+    capture = _prepared_capture(directory, field_map, _MOTOR_WINDOWS)
+    previous = os.environ.get(SOURCE_SYSTEM_KEY_VARIABLE)
+    observed: list[str] = []
+    try:
+        for value, origin, name in (
+            (
+                "FROM_ENVIRONMENT",
+                f"the {SOURCE_SYSTEM_KEY_VARIABLE} environment variable",
+                "environment.json",
+            ),
+            (None, "the built-in default", "default.json"),
+        ):
+            if value is None:
+                os.environ.pop(SOURCE_SYSTEM_KEY_VARIABLE, None)
+            else:
+                os.environ[SOURCE_SYSTEM_KEY_VARIABLE] = value
+            destination = directory / name
+            result = _run_cli(
+                [
+                    "--commarea",
+                    str(capture),
+                    "--output",
+                    str(destination),
+                    "--field-map",
+                    str(map_path),
+                ]
+            )
+            summary = _expect_cli_success(
+                result, f"the extraction summarised with the key from {origin}"
+            )
+            landed = value if value is not None else DEFAULT_SOURCE_SYSTEM_KEY
+            _expect_holds(
+                summary,
+                f"{LANDING_SOURCE_SYSTEM_KEY}={landed} from {origin}",
+                "the summary line",
+            )
+            _expect(
+                _decoded_line(destination)[1][LANDING_SOURCE_SYSTEM_KEY],
+                landed,
+                f"the {LANDING_SOURCE_SYSTEM_KEY} of the record landed from {origin}",
+            )
+            observed.append(origin)
+    finally:
+        if previous is None:
+            os.environ.pop(SOURCE_SYSTEM_KEY_VARIABLE, None)
+        else:
+            os.environ[SOURCE_SYSTEM_KEY_VARIABLE] = previous
+    return f"the summary named the key from {_quote_all(observed)}"
 
 
 def _case_cli_return_code_refused(
@@ -3775,10 +4597,14 @@ def _case_cli_rejects_withdrawn_option(
     return diagnostic
 
 
-def _case_source_system_key(supplied: str | None, expected: str, what: str) -> str:
-    """Confirm one accepted source-system key resolves to the expected value."""
-    _expect(resolve_source_system_key(supplied), expected, f"the key from {what}")
-    return f"{what} resolved to {_shown(expected)}"
+def _case_source_system_key(
+    supplied: str | None, expected: str, expected_origin: str, what: str
+) -> str:
+    """Confirm one accepted source-system key resolves to the value and the origin."""
+    resolved = resolve_source_system_key(supplied)
+    _expect(resolved.value, expected, f"the key from {what}")
+    _expect(resolved.origin, expected_origin, f"the origin of the key from {what}")
+    return f"{what} resolved to {_shown(expected)} from {expected_origin}"
 
 
 def _case_source_system_key_refused(
@@ -3795,19 +4621,26 @@ def _case_source_system_key_refused(
 
 
 def _case_source_system_key_from_environment() -> str:
-    """Confirm an omitted option reads the environment, then the built-in default."""
+    """Confirm an omitted option reads the environment, then the built-in default.
+
+    Each resolution is checked with the origin it reports, which is the wording the
+    summary line carries beside the key.
+    """
     previous = os.environ.get(SOURCE_SYSTEM_KEY_VARIABLE)
     try:
         os.environ[SOURCE_SYSTEM_KEY_VARIABLE] = "FROM_ENVIRONMENT"
         _expect(
             resolve_source_system_key(None),
-            "FROM_ENVIRONMENT",
+            ResolvedSourceSystemKey(
+                "FROM_ENVIRONMENT",
+                f"the {SOURCE_SYSTEM_KEY_VARIABLE} environment variable",
+            ),
             "the key taken from the environment",
         )
         del os.environ[SOURCE_SYSTEM_KEY_VARIABLE]
         _expect(
             resolve_source_system_key(None),
-            DEFAULT_SOURCE_SYSTEM_KEY,
+            ResolvedSourceSystemKey(DEFAULT_SOURCE_SYSTEM_KEY, "the built-in default"),
             "the key taken from the built-in default",
         )
     finally:
@@ -4050,6 +4883,44 @@ def _field_map_cases(
             ),
             ("is derived from the request id",),
         ),
+        (
+            "blank_window_rule_is_not_a_boolean",
+            lambda document: _field_entry(document, LANDING_BROKER_ID).update(
+                {"blank_window_lands_null": "yes"}
+            ),
+            (
+                "blank_window_lands_null",
+                "true, false or no member at all is required",
+            ),
+        ),
+        (
+            "blank_window_rule_without_a_window",
+            lambda document: _field_entry(document, LANDING_POLICY_TYPE).update(
+                {"blank_window_lands_null": True}
+            ),
+            ("blank_window_lands_null", "no window to find blank"),
+        ),
+        (
+            "blank_window_rule_on_a_chain_assigned_key",
+            lambda document: _field_entry(document, LANDING_LAST_CHANGED).update(
+                {"blank_window_lands_null": True}
+            ),
+            ("blank_window_lands_null", f"as {_shown(POPULATED_BY_CHAIN)}"),
+        ),
+        (
+            "blank_window_rule_on_an_amount",
+            lambda document: _field_entry(document, "payment_amount").update(
+                {"blank_window_lands_null": True}
+            ),
+            ("blank_window_lands_null", "blank window is refused rather than landed"),
+        ),
+        (
+            "blank_window_rule_with_a_target_that_is_not_nullable",
+            lambda document: _field_entry(document, LANDING_BROKER_ID)["targets"][
+                0
+            ].update({"nullable": False}),
+            ("blank_window_lands_null", "feeds a nullable column alone"),
+        ),
     )
     for name, mutate, fragments in refusals:
         _run_case(
@@ -4256,6 +5127,16 @@ def _record_cases(results: list[_CaseResult], out: Any, field_map: FieldMap) -> 
             {**_MOTOR_RECORD, LANDING_ISSUE_DATE: None},
         ),
         (
+            "blank_broker_id",
+            {**_MOTOR_WINDOWS, LANDING_BROKER_ID: ""},
+            {**_MOTOR_RECORD, LANDING_BROKER_ID: None},
+        ),
+        (
+            "all_zero_broker_id_window",
+            {**_MOTOR_WINDOWS, LANDING_BROKER_ID: "0"},
+            {**_MOTOR_RECORD, LANDING_BROKER_ID: "0"},
+        ),
+        (
             "all_zero_payment_window",
             {**_MOTOR_WINDOWS, "payment_amount": "0"},
             {**_MOTOR_RECORD, "payment_amount": "0"},
@@ -4379,6 +5260,41 @@ def _record_cases(results: list[_CaseResult], out: Any, field_map: FieldMap) -> 
             EXIT_RECORD_REJECTED,
             ("CA-LASTCHANGED", "is blank", "on every execution returning '00'"),
         ),
+        (
+            "blank_payment",
+            {**_MOTOR_WINDOWS, "payment_amount": ""},
+            RecordError,
+            EXIT_RECORD_REJECTED,
+            ("CA-PAYMENT", "not all digits", "lie outside 0-9"),
+        ),
+        (
+            "blank_motor_premium",
+            {**_MOTOR_WINDOWS, "motor_premium_amount": ""},
+            RecordError,
+            EXIT_RECORD_REJECTED,
+            ("CA-M-PREMIUM", "not all digits", "lie outside 0-9"),
+        ),
+        (
+            "blank_commercial_premium",
+            {**_COMMERCIAL_WINDOWS, "fire_premium_amount": ""},
+            RecordError,
+            EXIT_RECORD_REJECTED,
+            ("CA-B-FirePremium", "not all digits", "lie outside 0-9"),
+        ),
+        (
+            "broker_id_mixing_spaces_and_digits",
+            {**_MOTOR_WINDOWS, LANDING_BROKER_ID: "4 2"},
+            RecordError,
+            EXIT_RECORD_REJECTED,
+            ("CA-BROKERID", "not all digits", "window positions 9"),
+        ),
+        (
+            "broker_id_carrying_a_letter",
+            {**_MOTOR_WINDOWS, LANDING_BROKER_ID: "4A"},
+            RecordError,
+            EXIT_RECORD_REJECTED,
+            ("CA-BROKERID", "not all digits", "window positions 10"),
+        ),
     )
     for name, windows, kind, status, fragments in refused:
         _run_case(
@@ -4395,6 +5311,31 @@ def _record_cases(results: list[_CaseResult], out: Any, field_map: FieldMap) -> 
         out,
         "record_refusal_names_values_under_the_option",
         lambda: _case_refusal_names_values_under_the_option(field_map),
+    )
+    alphanumeric_keys = tuple(
+        name
+        for name in field_map.field_order
+        if name in field_map.fields
+        and field_map.fields[name].is_read_from_record
+        and field_map.fields[name].kind == KIND_ALPHANUMERIC
+    )
+    for name in alphanumeric_keys:
+        for character in _CONTROL_CHARACTER_CASES:
+            _run_case(
+                results,
+                out,
+                f"record_{name}_carrying_{_escaped_character(character)}_refused",
+                lambda name=name, character=character: (
+                    _case_control_character_refused(field_map, name, character)
+                ),
+            )
+    _run_case(
+        results,
+        out,
+        "record_control_character_named_under_the_option",
+        lambda: _case_control_character_names_itself_under_the_option(
+            field_map, "\x00"
+        ),
     )
     for code in field_map.return_code_domain:
         if code == RETURN_CODE_SUCCESS:
@@ -4533,8 +5474,18 @@ def _output_cases(
         lambda: _case_created_modes(scratch, map_path, field_map),
     )
     _run_case(
-        results, out, "replaced_record_stays_private",
-        lambda: _case_replaced_record_mode(scratch, map_path, field_map),
+        results, out, "existing_destination_refused",
+        lambda: _case_existing_destination_refused(scratch, map_path, field_map),
+    )
+    _run_case(
+        results, out, "overwrite_keeps_the_existing_mode",
+        lambda: _case_overwrite_keeps_the_existing_mode(scratch, map_path, field_map),
+    )
+    _run_case(
+        results, out, "overwrite_creates_at_the_private_mode",
+        lambda: _case_overwrite_creates_at_the_private_mode(
+            scratch, map_path, field_map
+        ),
     )
     _run_case(
         results, out, "destination_generated_roots_accepted",
@@ -4560,6 +5511,10 @@ def _output_cases(
     _run_case(
         results, out, "destination_this_module_refused",
         lambda: _case_this_module_destination_refused(scratch, map_path, field_map),
+    )
+    _run_case(
+        results, out, "destination_committed_evidence_refused",
+        lambda: _case_committed_evidence_refused(scratch, map_path, field_map),
     )
     _run_case(
         results, out, "destination_read_only_source_refused",
@@ -4609,6 +5564,63 @@ def _output_cases(
         results, out, "summary_shows_identifiers_on_request",
         lambda: _case_summary_identifiers(scratch, map_path, field_map),
     )
+    for carried, enabling, label in (
+        ("1", True, "1"),
+        ("true", True, "true"),
+        ("yes", True, "yes"),
+        ("on", True, "on"),
+        ("TRUE", True, "upper-true"),
+        (" on ", True, "spaced-on"),
+        ("0", False, "0"),
+        ("false", False, "false"),
+        ("off", False, "off"),
+        ("bogus", False, "bogus"),
+        ("", False, "empty"),
+    ):
+        _run_case(
+            results,
+            out,
+            f"summary_environment_{label}_"
+            f"{'shows' if enabling else 'redacts'}_identifiers",
+            lambda carried=carried, enabling=enabling, label=label:
+            _case_summary_environment(
+                scratch, map_path, field_map, carried, enabling, label
+            ),
+        )
+    _run_case(
+        results, out, "summary_redacted_line_carries_no_identifier",
+        lambda: _case_summary_redacted_line_carries_no_identifier(),
+    )
+    for character in _CONTROL_CHARACTER_CASES:
+        _run_case(
+            results,
+            out,
+            f"command_line_control_character_{_escaped_character(character)}_refused",
+            lambda character=character: _case_cli_control_character_refused(
+                scratch, map_path, field_map, character
+            ),
+        )
+    _run_case(
+        results, out, "command_line_blank_broker_id_lands_null",
+        lambda: _case_cli_blank_broker_id_lands_null(scratch, map_path, field_map),
+    )
+    for name, item in (
+        ("payment_amount", "CA-PAYMENT"),
+        ("motor_premium_amount", "CA-M-PREMIUM"),
+    ):
+        _run_case(
+            results,
+            out,
+            f"command_line_blank_{name}_refused",
+            lambda name=name, item=item: _case_cli_blank_amount_window_refused(
+                scratch, map_path, field_map, name, item
+            ),
+        )
+    _run_case(
+        results, out, "summary_names_the_source_system_key_origin",
+        lambda: _case_summary_names_the_key_origin(scratch, map_path, field_map),
+    )
+    _run_case(results, out, "environment_guard", _case_environment_guard)
     for code in field_map.return_code_domain:
         if code == RETURN_CODE_SUCCESS:
             continue
@@ -4635,7 +5647,7 @@ def _output_cases(
     _run_case(
         results, out, "source_system_key_from_option",
         lambda: _case_source_system_key("OTHER_SYSTEM.1-2", "OTHER_SYSTEM.1-2",
-                                        "the option"),
+                                        "--source-system-key", "the option"),
     )
     _run_case(
         results, out, "source_system_key_from_environment_then_default",
@@ -4779,21 +5791,32 @@ def build_arg_parser() -> argparse.ArgumentParser:
             "resolves inside the repository directory holding this script is accepted "
             "only below "
             f"{_quote_all(str(root) for root in GENERATED_OUTPUT_ROOTS)}; an authored "
-            "file, anything below the repository's base directory, a final component "
+            "file, the committed evidence under modernization/validation/artifacts, "
+            "anything below the repository's base directory, a final component "
             "that is a symbolic link and an existing entry that is not a regular file "
-            "are refused. A destination outside that repository is accepted. Each "
-            f"directory this tool creates carries mode {DIRECTORY_MODE:04o} and the "
-            f"landed record carries mode {FILE_MODE:04o}, both set on the created "
-            "entry so the ambient umask cannot widen them.\n"
+            "are refused. A destination outside that repository is accepted. An "
+            "existing regular file is refused wherever it stands unless "
+            f"{OVERWRITE_OPTION} is given, and is then replaced keeping the mode it "
+            f"carries. Each directory this tool creates carries mode "
+            f"{DIRECTORY_MODE:04o} and a record this tool creates carries mode "
+            f"{FILE_MODE:04o}, both set on the created entry so the ambient umask "
+            "cannot widen them.\n"
+            "The summary line names the resolved source-system key and the origin it "
+            "was taken from.\n"
             "A record value reaches a diagnostic, and a business identifier reaches "
-            f"the summary, only under {SHOW_IDENTIFIERS_OPTION}; without it a rejected "
+            f"the summary, only under {SHOW_IDENTIFIERS_OPTION} or the "
+            f"{SHOW_IDENTIFIERS_VARIABLE} environment variable carrying one of "
+            f"{', '.join(SHOW_IDENTIFIERS_ENABLING)}, which select the same "
+            "diagnostics and the same summary line; without either a rejected "
             "value is reported by field, COBOL item, byte range, breached constraint "
             "and character count, and the policy number is reported as a digest.\n"
             "Every failure writes one control-free line to stderr and returns 2 for a "
-            "rejected capture, 3 for an inconsistent field map, 4 for an unreadable "
+            "rejected capture, 3 for an unpinned runtime environment or an "
+            "inconsistent field map, 4 for an unreadable "
             "input, a refused output or a usage error, 5 for a failed self-test case, "
             "6 for a capture the chain did not complete, or 130 for an interrupt.\n"
             "Decision rationale: modernization/docs/decision-log.md"
+            " (planned deliverable; not present at this milestone)"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -4828,8 +5851,21 @@ def build_arg_parser() -> argparse.ArgumentParser:
             "destination for the landing JSON record; it must canonicalise outside the "
             "repository directory holding this script or below one of its generated "
             f"roots, its parent directories are created with mode {DIRECTORY_MODE:04o} "
-            f"and the record is written with mode {FILE_MODE:04o}; required unless "
-            "--self-test is given"
+            f"and a record this tool creates is written with mode {FILE_MODE:04o}; a "
+            f"path that already exists is refused unless {OVERWRITE_OPTION} is given; "
+            "required unless --self-test is given"
+        ),
+    )
+    parser.add_argument(
+        OVERWRITE_OPTION,
+        action="store_true",
+        help=(
+            "replace an existing regular file at the destination, which keeps the mode "
+            "it carries; without it a destination that already exists is refused by "
+            "name and nothing is written. It never widens where a record may land: a "
+            "path inside the repository directory holding this script and outside "
+            "every generated root, a path below that repository's base directory, a "
+            "symbolic link and an entry that is not a regular file stay refused"
         ),
     )
     parser.add_argument(
@@ -4842,7 +5878,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
             f"{DEFAULT_SOURCE_SYSTEM_KEY}. A variable holding the empty string or "
             "whitespace alone counts as unset. At most "
             f"{MAX_SOURCE_SYSTEM_KEY_CHARACTERS} characters drawn from ASCII letters, "
-            "digits, underscore, dot and hyphen"
+            "digits, underscore, dot and hyphen. The resolved value and the origin it "
+            "was taken from are named on the summary line"
         ),
     )
     parser.add_argument(
@@ -4852,9 +5889,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
             "carry record values in diagnostics and the request id, policy type, "
             "policy number, customer number, broker id, broker's reference and return "
             "code on the summary line; withheld by default, when the summary names the "
-            "policy type, the return code and the landed key counts only, and also "
-            f"enabled by the {SHOW_IDENTIFIERS_VARIABLE} environment variable carrying "
-            f"one of {', '.join(SHOW_IDENTIFIERS_ENABLING)}"
+            "policy type, the return code, the landed key counts and the digest of the "
+            "policy number only, and enabled with the same effect on the diagnostics "
+            f"and on the summary line by the {SHOW_IDENTIFIERS_VARIABLE} environment "
+            f"variable carrying one of {', '.join(SHOW_IDENTIFIERS_ENABLING)}, in any "
+            "case and ignoring surrounding spaces"
         ),
     )
     parser.add_argument(
@@ -4871,7 +5910,20 @@ def build_arg_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def resolve_source_system_key(supplied: str | None) -> str:
+class ResolvedSourceSystemKey(NamedTuple):
+    """One accepted source-system key and the origin it was taken from.
+
+    ``value`` is the key written to the record and carried in the landing prefix.
+    ``origin`` names where it came from - the option, the environment variable or the
+    built-in default - in the wording the summary line and every diagnostic about the
+    key carry.
+    """
+
+    value: str
+    origin: str
+
+
+def resolve_source_system_key(supplied: str | None) -> ResolvedSourceSystemKey:
     """Return the source-system key to write, taking the first value that is present.
 
     ``supplied`` is the ``--source-system-key`` value, or None when the option was
@@ -4883,6 +5935,10 @@ def resolve_source_system_key(supplied: str | None) -> str:
     modernization/dbt/genapp_rqi/profiles.example.yml all apply. A value the option
     itself carries is never passed over: an empty option value is a rejected command
     line rather than a silent default.
+
+    The returned ``ResolvedSourceSystemKey`` carries the accepted value and the origin
+    it was taken from, which the summary line names beside the value and every
+    diagnostic about the key already names.
 
     Raises ``UsageError`` when the resolved value is empty, longer than
     ``MAX_SOURCE_SYSTEM_KEY_CHARACTERS`` or carries a character outside the accepted
@@ -4911,17 +5967,21 @@ def resolve_source_system_key(supplied: str | None) -> str:
             f"the source-system key from {origin} carries a character outside ASCII "
             f"letters, digits, underscore, dot and hyphen: {_shown(value)}"
         )
-    return value
+    return ResolvedSourceSystemKey(value=value, origin=origin)
 
 
 def main(argv: list[str] | None = None) -> int:
     """Decode one capture and write one landing record, returning the exit status.
 
     ``argv`` defaults to the process arguments. Every diagnostic reaches stderr as one
-    control-free line and the success summary reaches stdout the same way. Whether
-    record values may appear in either is resolved from ``--show-identifiers`` and the
+    control-free line and the success summary reaches stdout the same way, naming the
+    resolved source-system key and the origin it was taken from. Whether record values
+    may appear in either is resolved once from ``--show-identifiers`` and the
     environment before the capture is read, so no value reaches a diagnostic before the
-    setting applies. A rejected command line is reported through that same single line,
+    setting applies and the summary line carries that same resolution: the option and
+    the ``SHOW_IDENTIFIERS_VARIABLE`` environment variable select the identifier line
+    alike, and neither absent leaves the redacted line, which names no identifier.
+    A rejected command line is reported through that same single line,
     without a usage block, and returns the status a refused input or output returns,
     while ``--help`` prints the full help and exits with status 0. ``--self-test`` runs
     the case matrix instead of an extraction and returns ``EXIT_SELF_TEST_FAILED`` when
@@ -4933,7 +5993,8 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_arg_parser()
     try:
         args = parser.parse_args(argv)
-        set_show_identifiers(resolve_show_identifiers(args.show_identifiers))
+        show_identifiers = resolve_show_identifiers(args.show_identifiers)
+        set_show_identifiers(show_identifiers)
         if args.self_test:
             if args.commarea is not None or args.output is not None:
                 parser.error("--self-test accepts neither --commarea nor --output")
@@ -4945,8 +6006,13 @@ def main(argv: list[str] | None = None) -> int:
         source_system_key = resolve_source_system_key(args.source_system_key)
         field_map = load_field_map(args.field_map)
         capture = read_commarea(args.commarea, field_map.record_length)
-        record = build_landing_record(capture, field_map, source_system_key)
-        written = write_record(record, args.output, field_map.field_order)
+        record = build_landing_record(capture, field_map, source_system_key.value)
+        written = write_record(
+            record,
+            args.output,
+            field_map.field_order,
+            overwrite=args.overwrite,
+        )
     except ExtractError as error:
         print(f"{_PROGRAM}: {_one_line(str(error))}", file=sys.stderr)
         return error.exit_status
@@ -4954,7 +6020,16 @@ def main(argv: list[str] | None = None) -> int:
         print(f"{_PROGRAM}: interrupted before completion", file=sys.stderr)
         return EXIT_INTERRUPTED
 
-    print(_one_line(summarise(written, record, show_identifiers=args.show_identifiers)))
+    print(
+        _one_line(
+            summarise(
+                written,
+                record,
+                source_system_key_origin=source_system_key.origin,
+                show_identifiers=show_identifiers,
+            )
+        )
+    )
     return EXIT_OK
 
 

@@ -80,19 +80,25 @@
 --     the object the COPY reads.
 --
 -- (4) EXACT OBJECT. The COPY below names a one-entry manifest, so exactly the one
---     validated object is read and no sibling key sharing its prefix is loaded. The
---     executor writes that manifest beside the landed object, at the landed object key
---     with .manifest appended:
---       landing/source_system_key=<key>/entity=policy_issue/extract_date=<date>/part-0000.json.manifest
+--     validated object is read and no sibling key sharing its prefix is loaded.
+--     modernization/landing/land_to_s3.py writes that manifest beside the landed
+--     object, in the same landing run and after the object itself, at the landing
+--     prefix with the object name replaced:
+--       landing/source_system_key=<key>/entity=policy_issue/extract_date=<date>/part-0000.manifest.json
 --     The manifest holds one JSON object naming one entry, whose url is the validated
---     object and whose mandatory flag is true, so an absent object fails the COPY
---     instead of loading nothing:
---       {"entries":[{"url":"s3://<bucket>/landing/source_system_key=<key>/entity=policy_issue/extract_date=<date>/part-0000.json","mandatory":true}]}
+--     object, whose mandatory flag is true and whose content_length is the byte count
+--     of that object, so an absent object and an object of any other length both fail
+--     the COPY instead of loading nothing:
+--       {"entries":[{"url":"s3://<bucket>/landing/source_system_key=<key>/entity=policy_issue/extract_date=<date>/part-0000.json","mandatory":true,"content_length":<bytes>}]}
 --     The url and the manifest key are built from the same validated components as the
---     COPY location below. The executor writes the manifest before sending the COPY and
---     removes it once the transaction has ended, with the S3 access it used to download
---     the object, so the landing prefix keeps only the object
---     modernization/landing/land_to_s3.py wrote.
+--     COPY location below, and
+--       modernization/landing/land_to_s3.py --render-redshift-load manifest --record <record>
+--     prints the same document byte for byte for the same record, so the shipped order
+--     is: land the record, apply the two warehouse DDL scripts, then run these
+--     statements. The manifest is one of the two objects the landing prefix holds and
+--     is left in place, so this load reads it without an executor writing anything to
+--     the bucket; removing it belongs to whatever retention the landing prefix is
+--     given, never to this load.
 --
 -- (5) STATEMENT ORDER AND FAILURE HANDLING. The statements are sent in the order
 --     written, over one session whose autocommit is enabled and which is therefore not
@@ -193,13 +199,15 @@
 --
 -- Object binding. The COPY below reads a manifest rather than the object key directly,
 -- so the load is bound to the object that was validated instead of to whatever object
--- currently sits at the key. The same renderer emits that manifest with
+-- currently sits at the key. That manifest is already on the bucket: a successful
+--     modernization/landing/land_to_s3.py --record <record>
+-- writes it as part-0000.manifest.json beside the record under the same landing prefix,
+-- with one entry carrying the landed object's URL, "mandatory": true and
+-- "content_length" set to the byte count recorded below, so a replaced object of any
+-- other length fails the COPY and a removed object fails it rather than loading
+-- nothing. The same document, byte for byte, is printed by
 --     modernization/landing/land_to_s3.py --render-redshift-load manifest --record <record>
--- as one entry carrying the landed object's URL, "mandatory": true and "content_length"
--- set to the byte count recorded below: a replaced object of any other length fails the
--- COPY, and a removed object fails it rather than loading nothing. Write that manifest
--- beside the object as part-0000.manifest.json under the same landing prefix. Confirm
--- the recorded identity below against
+-- for reading it without an S3 request. Confirm the recorded identity below against
 --     aws s3api head-object --bucket ${S3_BUCKET} --key <key>
 -- before running these statements; ETag, version id and byte count must all match, and
 -- the SHA-256 digest is the digest of the bytes the landing step validated.
@@ -217,6 +225,7 @@
 -- Diagram reference: Figure 2 — AFTER (BUILT): Canonical Warehouse Bridge, in
 -- modernization/docs/architecture.md.
 -- Rationale for every choice in this file: modernization/docs/decision-log.md
+-- (planned deliverable; not present at this milestone)
 
 -- Statement 1 of 11. Bounds every statement of this load, including the COPY, for the
 -- remainder of the session. Amazon Redshift cancels a statement that exceeds the value.

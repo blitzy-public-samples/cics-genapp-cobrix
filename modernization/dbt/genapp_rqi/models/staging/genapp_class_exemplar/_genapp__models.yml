@@ -65,10 +65,10 @@ models:
       ISO-8601 last_changed and the product-specific premium null pattern are already applied
       by modernization/extraction/extract_commarea.py before landing, and no amount is derived
       anywhere in the bridge. policy_number, policy_type and last_changed are the three values
-      the chain assigns rather than receives: a row carrying return_code 00 carries all three,
-      and a row carrying any other return code can carry null in any of them, so no not_null
-      test is declared on them at this layer and the not_null constraints of the two canonical
-      relations apply to their return_code 00 rows. Two source constructs contribute no column
+      the chain assigns rather than receives: every landed record carries return code 00, so
+      every row of this model carries all three, the not_null tests declared on those three
+      columns below assert that at this layer, and the not_null constraints of the two
+      canonical relations assert it at theirs. Two source constructs contribute no column
       of this model. The four commercial peril declarations CA-B-FirePeril, CA-B-CrimePeril,
       CA-B-FloodPeril and CA-B-WeatherPeril, each PIC 9(4) at base/src/lgcmarea.cpy:84, :86,
       :88 and :90, are code items and not amount items, and no column carries one; the amount
@@ -220,11 +220,15 @@ models:
           normal, 90 SQL failure, 98 COMMAREA shorter than the required length, and 99
           unsupported request id; the harness captures under
           modernization/validation/artifacts/ hold the returned code of each executed sample.
-          Only a successful execution is landed: modernization/extraction/extract_commarea.py
-          refuses a record whose returned code is not 00 and
-          modernization/landing/landing-schema.json admits 00 alone, so this column holds 00 in
-          every row of this model, the accepted_values test below pins it to that one code, and
-          the other five values reach no layer of the warehouse. The column
+          Only a successful execution is landed: modernization/landing/landing-schema.json
+          admits the single value 00, enforced by
+          modernization/extraction/extract_commarea.py, which refuses a record whose returned
+          code is not 00, so every landed row carries 00. The accepted_values test below admits
+          all six codes the chain assigns, so a row carrying 70, 80, 90, 98 or 99 that reaches
+          the source relation by any other route is carried through this model and the
+          intermediate model as evidence for failure analysis; the two models of
+          models/marts/canonical apply where return_code = '00', the one gate a row passes to
+          reach a canonical relation. The column
           is retained because canonical.issued_policy carries it, and the models of
           models/marts/canonical restate the filter to 00 on their own reads. Trimmed text of
           two characters; never null.
@@ -240,7 +244,7 @@ models:
           - not_null
           - accepted_values:
               arguments:
-                values: ["00"]
+                values: ["00", "70", "80", "90", "98", "99"]
 
       - name: issue_date
         data_type: varchar(10)

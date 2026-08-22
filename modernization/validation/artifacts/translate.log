@@ -1,3 +1,4 @@
+status_label: validated against local substitute, not AWS
 translate.py: generated 3 program(s) into modernization/harness/build/src
   lgapol01.cbl: 169 source line(s) -> 162 generated line(s); 9 EXEC CICS site(s), 0 EXEC SQL block(s), 143 line(s) copied unchanged
   lgapdb01.cbl: 595 source line(s) -> 514 generated line(s); 20 EXEC CICS site(s), 11 EXEC SQL block(s), 391 line(s) copied unchanged

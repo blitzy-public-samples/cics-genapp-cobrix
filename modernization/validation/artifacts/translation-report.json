@@ -1,6 +1,7 @@
 {
   "schema_version": 1,
   "translator": "modernization/harness/translate.py",
+  "status_label": "validated against local substitute, not AWS",
   "inputs": {
     "source_dir": "base/src",
     "build_dir": "modernization/harness/build",

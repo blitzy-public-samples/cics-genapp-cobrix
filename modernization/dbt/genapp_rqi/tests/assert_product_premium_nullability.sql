@@ -54,13 +54,17 @@
 -- base/src/lgapdb01.cbl:184-207.
 --
 -- Asserted rule premium_row_missing_for_expected_request_id. Each request id of the
--- expected_request_ids variable is carried by exactly one row of the asserted relation, read
--- through the upstream record because the relation carries no request_id column. The default
+-- expected_request_ids variable is carried by at least one row of the asserted relation, read
+-- through the upstream record because the relation carries no request_id column. The number
+-- of rows carrying it is not read, so a second source system, a further policy of the same
+-- product and a backfill each add rows under an expected request id without breaching this
+-- rule, and each added row is read by the null pattern and amount rules above. The default
 -- of that variable is 01AMOT, which base/src/lgapdb01.cbl:196 resolves to policy type M, and
 -- 01ACOM, which base/src/lgapdb01.cbl:200 resolves to policy type C, so the motor rule and
--- the commercial rule above are each exercised by one row. A row carrying any other routed
--- request id neither satisfies nor breaches this rule. An emptied, wiped or fully filtered
--- relation breaches it, and no rule above can then hold vacuously.
+-- the commercial rule above are each exercised by at least one row. A row carrying any other
+-- routed request id neither satisfies nor breaches this rule. An emptied, wiped or fully
+-- filtered relation breaches it, and no rule above can then hold vacuously. The variable set
+-- to an empty list withdraws this rule and leaves every other rule of this file asserted.
 --
 -- Asserted rule rating_amount_presence_differs_from_upstream. Each amount is present in the
 -- asserted relation exactly where ref('int_policy_issue_decoded') carries it for the same
@@ -109,7 +113,8 @@
 {% set rating = ref('canonical_preissued_rating') %}
 {% set upstream = ref('int_policy_issue_decoded') %}
 
-{# Request ids expected to be carried by exactly one row each. #}
+{# Request ids each expected to be carried by at least one row. An empty list withdraws
+   that rule and leaves every other rule of this file asserted. #}
 {% set expected_request_ids = var('expected_request_ids', ['01AMOT', '01ACOM']) %}
 
 {# The absolute delta the amount comparison tolerates, as recorded under
@@ -151,14 +156,23 @@ rating_with_upstream as (
 
 ),
 
--- The request ids expected to be carried by exactly one row each.
+-- The request ids each expected to be carried by at least one row. An empty list yields the
+-- typed relation below, which carries no row, so the rule reading it returns none.
 expected_request_ids as (
+{%- if expected_request_ids %}
 {% for request_id in expected_request_ids %}
     select '{{ request_id }}' as request_id
     {%- if not loop.last %}
     union all
     {%- endif %}
 {%- endfor %}
+{%- else %}
+    select cast(null as varchar) as request_id
+
+    from {{ rating }}
+
+    where 1 = 0
+{%- endif %}
 ),
 
 -- Rows of the asserted relation per request id, read through the upstream record.
@@ -249,21 +263,22 @@ where assertion is not null
 
 union all
 
--- One row per expected request id, so that the motor rule and the commercial rule above are
--- each exercised by one row.
+-- One row per expected request id no row of the asserted relation carries, so that the motor
+-- rule and the commercial rule above are each exercised by at least one row.
 select
     'premium_row_missing_for_expected_request_id' as assertion,
     e.request_id as subject,
     cast(null as varchar) as source_system_key,
     cast(null as bigint) as policy_number,
-    'rows=' || cast(coalesce(m.mart_rows, 0) as varchar) || ' required 1' as detail
+    'rows=' || cast(coalesce(m.mart_rows, 0) as varchar)
+        || ' required at least 1' as detail
 
 from expected_request_ids e
 
 left join rating_request_ids m
     on e.request_id = m.request_id
 
-where coalesce(m.mart_rows, 0) <> 1
+where coalesce(m.mart_rows, 0) = 0
 {% for column in amount_columns %}
 union all
 

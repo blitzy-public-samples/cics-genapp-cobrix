@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
-"""Land one GenApp Policy-Issue record as a single S3 object.
+"""Land one GenApp Policy-Issue record as a single S3 object with its COPY manifest.
 
 WHAT THIS TOOL DOES
     Reads the landing JSON record written by
     modernization/extraction/extract_commarea.py, validates it against
-    modernization/landing/landing-schema.json, and writes it to exactly one S3 object
-    under the landing prefix this module builds. Validation applies every constraint
-    the schema declares, including its enumerations, lengths, patterns and its semantic
+    modernization/landing/landing-schema.json, writes it to exactly one S3 object
+    under the landing prefix this module builds, and writes beside it the one-entry
+    COPY manifest modernization/landing/load_redshift.sql binds its load to.
+    Validation applies every constraint the schema declares, including its
+    enumerations, lengths, patterns and its semantic
     date and timestamp formats, and a document repeating a member name is refused
     rather than resolved to its last value, so the document validated here and the
     bytes uploaded carry the same members. The bytes read from the record file
@@ -68,9 +70,23 @@ WHICH TARGET IT ADDRESSES
     configuration profile carries is ignored, so an AWS_ENDPOINT_URL or
     AWS_ENDPOINT_URL_S3 variable cannot redirect a credentialed request.
 
+    --probe-redshift addresses the real target only. It requires run mode
+    RUN_MODE_REAL and no endpoint override, and it refuses a loopback Redshift host,
+    each by the setting it came from and before a socket is opened: a probe of
+    something serving this machine can never be reported as a Redshift target that
+    answered. It reads no bucket, region or credential setting of the S3 side at all.
+
 WHICH MODES IT RUNS
-    landing         the default: validate one record and write it as one object.
+    landing         the default: validate one record, write it as one object and
+                    write the COPY manifest naming that object beside it.
     --probe         confirm access and exit, writing no landing object.
+    --probe-redshift
+                    confirm access to the real Redshift target and exit, which is
+                    the second half of the precondition gate: connect with the
+                    REDSHIFT_* settings the dbt profile of this bridge documents,
+                    run one connectivity statement, then create, write, count and
+                    roll back one temporary relation. It reads no record, makes no
+                    S3 request and provisions nothing.
     --render-redshift-load
                     substitute modernization/landing/load_redshift.sql, or the
                     manifest that load binds to, for one validated record; no S3
@@ -83,12 +99,14 @@ WHICH MODES IT RUNS
 WHICH INPUTS IT ACCEPTS
     --record        path to the landing JSON record, read as bytes and uploaded
                     unchanged, in a file of at most MAX_RECORD_BYTES bytes. Required
-                    unless --probe or --self-test is given, which read no record. It
+                    unless --probe, --probe-redshift or --self-test is given, which read
+                    no record. It
                     holds one JSON object in the canonical landed form described above,
                     whose member names are unique, and that object must satisfy
                     modernization/landing/landing-schema.json including its date format,
-                    and must carry a normalised last_changed timestamp that names a real
-                    moment.
+                    must carry a normalised last_changed timestamp that names a real
+                    moment, must carry no control character in any value, and must carry
+                    the amounts its policy type populates and null in every other amount.
     --run-mode      branch of the bridge to address, RUN_MODE_LOCAL or RUN_MODE_REAL,
                     defaulting to the DBT_TARGET environment variable and then to
                     DEFAULT_RUN_MODE.
@@ -112,6 +130,17 @@ WHICH INPUTS IT ACCEPTS
                     boto3 session resolves for itself. --render-redshift-load requires
                     a region and resolves none from the session.
     --probe         confirm access and exit, writing no landing object.
+    --probe-redshift
+                    confirm access to the real Redshift target and exit. Every
+                    setting is read from the environment: REDSHIFT_HOST,
+                    REDSHIFT_USER, REDSHIFT_PASSWORD, REDSHIFT_DATABASE and
+                    REDSHIFT_SCHEMA are required, REDSHIFT_PORT defaults to
+                    DEFAULT_REDSHIFT_PORT and REDSHIFT_CONNECT_TIMEOUT to
+                    DEFAULT_REDSHIFT_CONNECT_TIMEOUT seconds. No option carries
+                    any of them, a password on a command line being readable by
+                    every process on the host, and no value of any of them is
+                    printed. Exclusive with --record, --probe,
+                    --render-redshift-load and --self-test.
     --show-identifiers   carry record values in diagnostics. Withheld by default; also
                     enabled by the GENAPP_SHOW_IDENTIFIERS environment variable.
     --render-redshift-load
@@ -146,6 +175,16 @@ HOW IT VALIDATES THE RECORD
     00 on every landed record, so a record carrying any other code is refused before
     anything is written.
 
+    Two contract rules the schema declares are then applied again to the parsed
+    document. No landed value carries a control character: every value is scanned for
+    the C0 controls, DEL and the C1 controls, and a line feed or carriage return at the
+    end of a value is refused along with one inside it. The six amounts carry the
+    allocation the record's own policy type fixes: the payment amount on every policy
+    type, the motor premium on M, the four commercial premiums on C, no product premium
+    on E or H, and null - never a zero - in every amount the policy type does not
+    populate. Both are reported by key and constraint, and both run before any client
+    exists.
+
     A schema violation is reported by the JSON Pointer of the offending value, the
     constraint it breached and the value's JSON type and size. The value itself is
     reported only under --show-identifiers: these records carry policy, customer and broker
@@ -154,32 +193,55 @@ HOW IT VALIDATES THE RECORD
 WHAT --self-test CHECKS
     Schema loading and every way it can fail, record validation against the schema in
     both directions, rejection of a repeated JSON member at every nesting level of the
-    record and of the schema, the endpoint policy over accepted and refused forms, the
-    access probe and its cleanup on success and on failure, one successful upload and
-    the upload failures botocore reports, the Redshift renderer over a byte-compared
+    record and of the schema, rejection of a control character in each of the 17 landed
+    values by the schema and by the tool with nothing uploaded, the product premium
+    allocation over every policy type in both directions, the endpoint policy over
+    accepted and refused forms, the access probe and its cleanup on success and on
+    failure, one successful upload of the record and of the COPY manifest beside it, the
+    upload failures botocore reports, the Redshift renderer over a byte-compared
     successful render and every rejected placeholder value, the rendered statement
-    sequence and column list, the emitted manifest, and that every documented exit
-    status is reachable. Collaborators are the pinned boto3 and botocore clients,
-    driven through moto and through botocore's own stubber, so a call this matrix makes
-    is a call the pinned client models.
+    sequence and column list, the emitted manifest, the Redshift probe over every
+    refused setting, the two settings that carry a default, the statements it runs and
+    the write probe it rolls back, an interrupt reported as one line and status 130,
+    and that every documented exit status is reachable. Collaborators are the pinned
+    boto3 and botocore clients, driven through moto and through botocore's own stubber,
+    so a call this matrix makes is a call the pinned client models; the Redshift probe
+    is driven through a stand-in for the pinned driver, so the matrix opens no socket
+    and reaches no warehouse.
 
 WHERE IT WRITES
-    One object, under the key
+    Two objects of one landing prefix, the record
 
         landing/source_system_key=<KEY>/entity=policy_issue/extract_date=<YYYY-MM-DD>/part-0000.json
 
-    giving the URI s3://<bucket>/<key>. The segments are Hive-style key=value pairs in
-    that order, the object name is literal, the key carries no leading slash, no empty
-    segment and no percent-encoding, and the object is written with content type
-    application/json. The source-system element is the value the validated record
-    itself carries, the entity element is the fixed literal, and no part of the key is
-    taken from a value that has not been validated. Partitioning applies to this key
-    prefix alone: this tool states no distribution, sort or partition property for any
-    warehouse relation.
+    giving the URI s3://<bucket>/<key>, and beside it the COPY manifest
+
+        landing/source_system_key=<KEY>/entity=policy_issue/extract_date=<YYYY-MM-DD>/part-0000.manifest.json
+
+    that modernization/landing/load_redshift.sql binds its load to. The segments are
+    Hive-style key=value pairs in that order, both object names are literal, neither key
+    carries a leading slash, an empty segment or percent-encoding, and both objects are
+    written with content type application/json. The source-system element is the value
+    the validated record itself carries, the entity element is the fixed literal, and no
+    part of either key is taken from a value that has not been validated. Partitioning
+    applies to this key prefix alone: this tool states no distribution, sort or
+    partition property for any warehouse relation.
+
+    The record is written first and the manifest second, so a manifest on the bucket
+    never names an object that was not written. The manifest holds one entry carrying
+    the record's own URI, "mandatory" true and the byte count of the bytes just
+    written, and is byte-identical to what --render-redshift-load manifest prints for
+    the same record. Both objects are written in run mode RUN_MODE_LOCAL and in run mode
+    RUN_MODE_REAL, so the real-branch order is land, then bootstrap the raw relation,
+    then run the COPY of modernization/landing/load_redshift.sql, with no manifest to
+    place by hand. A manifest write that does not succeed after the record was written
+    fails the landing, names the manifest key and leaves the record object in place.
 
     In landing mode stdout carries exactly one line, the s3:// URI of the object
-    written. In probe mode stdout carries exactly one line, the probe verdict. In
-    --render-redshift-load mode stdout carries the rendered document and nothing else.
+    written. In probe mode stdout carries exactly one line, the probe verdict, and in
+    --probe-redshift mode exactly one line, that probe's verdict, carrying no value of
+    the settings it addressed. In --render-redshift-load mode stdout carries the
+    rendered document and nothing else.
     Every other message reaches stderr. No credential, token, session value or
     environment listing is ever printed, on any path, and no value the landing record
     carries is printed unless --show-identifiers is given: a rejected record is reported by
@@ -187,23 +249,32 @@ WHERE IT WRITES
     endpoint is reported by the setting it came from and the element that was refused.
 
 HOW IT FAILS
-    Every failure writes one control-free line to stderr and returns a non-zero
-    status: 2 for a record that breaches the landing contract, 3 for a rejected
-    command line, an unresolved setting or a rejected template, 4 for an S3 endpoint,
-    bucket or object operation that did not succeed, 5 for a failed self-test case, 130
-    for an interrupt. A missing setting is named in the diagnostic. A record value never
-    reaches a diagnostic unless --show-identifiers is given: without it a rejected value is
+    Every failure writes one control-free line to stderr and returns a non-zero status:
+    2 for a record that breaches the landing contract, 3 for a runtime environment that
+    is not the pinned one, a rejected command line, an unresolved setting or a rejected
+    template, 4 for an S3 endpoint, bucket or object
+    operation that did not succeed or a Redshift target that did not answer or refused
+    the probe, 5 for a failed self-test case, 130 for an interrupt, which is one line
+    and that status wherever the interrupt arrives, the imports of this module included.
+    A missing setting is named in the diagnostic. A record value never reaches a
+    diagnostic unless --show-identifiers is given: without it a rejected value is
     reported by its JSON pointer, the schema keyword that rejected it, what the schema
     declares for that keyword and the value's JSON type and size. The tool never prompts
     and requires no TTY.
 
 WHAT IT NEVER DOES
-    It creates no bucket, cluster, workgroup, role, policy, network or key, and sets
-    no versioning, encryption, lifecycle or bucket policy; a bucket that does not
-    answer a head request is reported, never created. It writes no canonical relation,
-    no second object and no provenance object. In landing, probe and render modes it
-    writes nothing to the local filesystem, and it reads nothing under base/ in any
-    mode. The probe object it writes in --probe mode is deleted in a finally block
+    It creates no bucket, cluster, workgroup, role, policy, network or key, and sets no
+    versioning, encryption, lifecycle or bucket policy; a bucket that does not answer a
+    head request is reported, never created. The Redshift probe creates no durable
+    object either: its one relation is temporary, belongs to the session that created it
+    and is withdrawn by the rollback of the transaction it was created in, and no
+    database, schema, user or grant is added or changed. It writes no canonical
+    relation, no object outside the landing prefix of the record it landed, and no
+    provenance object: the record and the COPY manifest naming it are the two objects a
+    landing writes, and no third object, no manifest of any other extract and no index
+    of them is written. In landing, probe and render modes it writes nothing to the
+    local filesystem, and it reads nothing under base/ in any mode. The probe object it
+    writes in --probe mode is deleted in a finally block
     before the tool returns; a delete that does not succeed is a probe failure whose
     diagnostic names the probe key, which is then the one object the run may have left
     on the bucket.
@@ -213,44 +284,134 @@ WHERE THIS STEP SITS
     Figure 5 — Validation Harness Control Flow, both in
     modernization/docs/architecture.md.
 
-Decision rationale: see modernization/docs/decision-log.md.
+Decision rationale: see modernization/docs/decision-log.md, a planned deliverable not present at this milestone.
 """
 
 from __future__ import annotations
 
-import argparse
-import contextlib
-import datetime
-import hashlib
-import io
-import ipaddress
-import json
-import os
-import re
-import shutil
 import sys
-import tempfile
-import urllib.parse
-import uuid
-from collections.abc import Callable, Iterable, Mapping, Sequence
-from pathlib import Path
-from typing import Any, NamedTuple, NoReturn
-
-import boto3.session
-import jsonschema.exceptions
-from botocore.config import Config
-from botocore.exceptions import (
-    BotoCoreError,
-    ClientError,
-    EndpointConnectionError,
-    NoCredentialsError,
-    NoRegionError,
-    PartialCredentialsError,
-)
-from jsonschema import FormatChecker
-from jsonschema.validators import Draft202012Validator
 
 _PROGRAM = "land_to_s3"
+
+# Status an interrupted run returns, and the one line it writes. Both are declared
+# before every import but sys, and those imports are covered by the same reporting, so
+# an interrupt that arrives while the standard library, boto3 or jsonschema is still
+# loading is reported as that single line and that status rather than as a traceback of
+# import frames. The run itself reports an interrupt through the same line.
+EXIT_INTERRUPTED = 130
+INTERRUPTED_MESSAGE = f"{_PROGRAM}: interrupted before completion"
+
+
+def _report_interrupt() -> None:
+    """Write the one line an interrupted run reports to stderr, and return None."""
+    print(INTERRUPTED_MESSAGE, file=sys.stderr)
+
+
+# Status a run returns when the interpreter running it, or a version installed for it,
+# is not the one the project pins. It is the status of a rejected setting, declared here
+# because the check it belongs to runs before the imports it covers.
+EXIT_ENVIRONMENT_REJECTED = 3
+
+# Python release series and distribution versions this tool runs under: the series
+# modernization/requirements.txt is installed against and the exact version it pins for
+# every distribution this module imports. The interpreter carrying them is
+# modernization/.venv/bin/python.
+PINNED_PYTHON_SERIES = (3, 12)
+PINNED_DISTRIBUTIONS = (
+    ("boto3", "1.43.74"),
+    ("botocore", "1.43.74"),
+    ("jsonschema", "4.26.0"),
+)
+PINNED_INTERPRETER = "modernization/.venv/bin/python"
+PINNED_REQUIREMENTS = "modernization/requirements.txt"
+
+
+def _printable(text: str) -> str:
+    """Return ``text`` with every character a terminal would act on replaced."""
+    return "".join(character if character.isprintable() else "?" for character in text)
+
+
+def _refuse_environment(reason: str) -> None:
+    """Write one line naming ``reason`` and end the run, returning None to no caller."""
+    print(f"{_PROGRAM}: {_printable(reason)}", file=sys.stderr)
+    raise SystemExit(EXIT_ENVIRONMENT_REJECTED)
+
+
+def confirm_pinned_environment() -> None:
+    """Confirm this run carries the pinned interpreter series and versions.
+
+    The interpreter's release series is compared with ``PINNED_PYTHON_SERIES`` and the
+    installed version of every distribution in ``PINNED_DISTRIBUTIONS`` with the version
+    pinned there, before any distribution is imported: an interpreter of another series,
+    a distribution that is absent and a distribution at another version each end the run
+    with ``EXIT_ENVIRONMENT_REJECTED`` and one line naming what was found, what is
+    required and the interpreter to run this tool through. A run whose environment
+    matches returns None and nothing is written.
+    """
+    found = ".".join(str(number) for number in sys.version_info[:3])
+    required = ".".join(str(number) for number in PINNED_PYTHON_SERIES)
+    if sys.version_info[: len(PINNED_PYTHON_SERIES)] != PINNED_PYTHON_SERIES:
+        _refuse_environment(
+            f"this tool runs on the Python {required} series, and the interpreter "
+            f"running it is Python {found} at {sys.executable}; run it through "
+            f"{PINNED_INTERPRETER}"
+        )
+    from importlib import metadata
+
+    for name, pinned in PINNED_DISTRIBUTIONS:
+        try:
+            installed = metadata.version(name)
+        except metadata.PackageNotFoundError:
+            _refuse_environment(
+                f"{name} is not installed for the interpreter at {sys.executable}, and "
+                f"{PINNED_REQUIREMENTS} pins {name} {pinned}; run this tool through "
+                f"{PINNED_INTERPRETER}"
+            )
+            return
+        if installed != pinned:
+            _refuse_environment(
+                f"{name} {installed} is installed for the interpreter at "
+                f"{sys.executable}, and {PINNED_REQUIREMENTS} pins {name} {pinned}; "
+                f"run this tool through {PINNED_INTERPRETER}"
+            )
+
+
+try:
+    confirm_pinned_environment()
+
+    import argparse
+    import contextlib
+    import datetime
+    import hashlib
+    import io
+    import ipaddress
+    import json
+    import os
+    import re
+    import shutil
+    import tempfile
+    import urllib.parse
+    import uuid
+    from collections.abc import Callable, Iterable, Mapping, Sequence
+    from pathlib import Path
+    from typing import Any, NamedTuple, NoReturn
+
+    import boto3.session
+    import jsonschema.exceptions
+    from botocore.config import Config
+    from botocore.exceptions import (
+        BotoCoreError,
+        ClientError,
+        EndpointConnectionError,
+        NoCredentialsError,
+        NoRegionError,
+        PartialCredentialsError,
+    )
+    from jsonschema import FormatChecker
+    from jsonschema.validators import Draft202012Validator
+except KeyboardInterrupt:
+    _report_interrupt()
+    raise SystemExit(EXIT_INTERRUPTED) from None
 
 # Landing schema used for validation, resolved from this script's own directory rather
 # than from the working directory, so every working directory validates the same
@@ -308,6 +469,34 @@ SOURCE_SYSTEM_KEY_FIELD = "source_system_key"
 # the landing schema's "date" format, which build_format_checker asserts.
 DATE_FIELDS = ("issue_date", "expiry_date")
 TIMESTAMP_FIELD = "last_changed"
+
+# Record key carrying the product discriminator, the six amount keys, and which of
+# those amounts carry a value for each policy type the discriminator may hold. The
+# payment amount sits in the fixed policy header at base/src/lgcmarea.cpy:43 and is
+# carried by every policy type; each product premium sits in the overlay its own
+# request selects and is null on every other policy type. The overlays redefine the
+# same COMMAREA bytes from offset 101, so the window of an inapplicable premium can
+# hold the selected overlay's content: the policy type decides which amount is carried
+# and blank or zero window content is not that test. The same allocation is recorded by
+# the product_premium_nullability block of
+# modernization/extraction/copybook_field_map.yml and declared by the allOf block of
+# modernization/landing/landing-schema.json.
+POLICY_TYPE_FIELD = "policy_type"
+PAYMENT_FIELD = "payment_amount"
+MOTOR_PREMIUM_FIELD = "motor_premium_amount"
+COMMERCIAL_PREMIUM_FIELDS = (
+    "fire_premium_amount",
+    "crime_premium_amount",
+    "flood_premium_amount",
+    "weather_premium_amount",
+)
+AMOUNT_FIELDS = (PAYMENT_FIELD, MOTOR_PREMIUM_FIELD, *COMMERCIAL_PREMIUM_FIELDS)
+PREMIUM_ALLOCATION: dict[str, tuple[str, ...]] = {
+    "M": (PAYMENT_FIELD, MOTOR_PREMIUM_FIELD),
+    "C": (PAYMENT_FIELD, *COMMERCIAL_PREMIUM_FIELDS),
+    "E": (PAYMENT_FIELD,),
+    "H": (PAYMENT_FIELD,),
+}
 
 # Forms the date and timestamp values are written in. The timestamp form carries no UTC
 # offset, so it is not an RFC 3339 date-time and is parsed with this exact pattern
@@ -489,6 +678,71 @@ PROBE_CONTENT_TYPE = "text/plain"
 # Leading text of the single stdout line --probe writes when every step succeeded.
 PROBE_VERDICT = "s3-access-probe ok"
 
+# Settings the Redshift probe resolves, which are the variables the redshift output of
+# modernization/dbt/genapp_rqi/profiles.example.yml reads for the same connection. The
+# probe reads them from the environment alone: a password on a command line is visible
+# to every process on the host, so no option carries one.
+REDSHIFT_PROFILE_DOCUMENT = "modernization/dbt/genapp_rqi/profiles.example.yml"
+REDSHIFT_HOST_VARIABLE = "REDSHIFT_HOST"
+REDSHIFT_PORT_VARIABLE = "REDSHIFT_PORT"
+REDSHIFT_USER_VARIABLE = "REDSHIFT_USER"
+REDSHIFT_PASSWORD_VARIABLE = "REDSHIFT_PASSWORD"
+REDSHIFT_DATABASE_VARIABLE = "REDSHIFT_DATABASE"
+REDSHIFT_SCHEMA_VARIABLE = "REDSHIFT_SCHEMA"
+REDSHIFT_CONNECT_TIMEOUT_VARIABLE = "REDSHIFT_CONNECT_TIMEOUT"
+
+# Defaults the same profile carries for the two settings that have one, and the bounds
+# every resolved number is held to. A connect timeout is bounded above as well as
+# below, so a probe that cannot reach the endpoint fails rather than waiting without
+# limit.
+DEFAULT_REDSHIFT_PORT = 5439
+DEFAULT_REDSHIFT_CONNECT_TIMEOUT = 30
+MIN_PORT_NUMBER = 1
+MAX_PORT_NUMBER = 65535
+MIN_CONNECT_TIMEOUT_SECONDS = 1
+MAX_CONNECT_TIMEOUT_SECONDS = 3600
+
+# Transport security the probe requires, which is the sslmode the same profile sets:
+# the server certificate has to be issued for the host being addressed and to chain to
+# a trusted authority, so a probe cannot succeed against an endpoint standing in for
+# the real target.
+REDSHIFT_SSL_MODE = "verify-full"
+REDSHIFT_APPLICATION_NAME = "genapp_rqi_access_probe"
+
+# Shapes the resolved Redshift settings are held to before a socket is opened. A host
+# is a DNS name or an IPv4 literal, which admits no scheme, port, path, user
+# information or whitespace; a database, user or schema name is the shape the driver
+# carries as a connection parameter; a password is bounded and control-free, and its
+# value is neither shaped further nor ever echoed.
+_REDSHIFT_HOST_SHAPE = re.compile(r"\A[A-Za-z0-9]([A-Za-z0-9.\-]{0,253}[A-Za-z0-9])?\Z")
+_REDSHIFT_NAME_SHAPE = re.compile(r"\A[A-Za-z0-9_][A-Za-z0-9_$.@\-]{0,126}\Z")
+_REDSHIFT_NUMBER_SHAPE = re.compile(r"\A[0-9]{1,5}\Z")
+MAX_REDSHIFT_HOST_CHARACTERS = 255
+MAX_REDSHIFT_NAME_CHARACTERS = 127
+MAX_REDSHIFT_PASSWORD_CHARACTERS = 256
+
+# The write probe --probe-redshift performs: one temporary relation of one column,
+# created, written, counted and then withdrawn by the rollback of the transaction it
+# was created in. A temporary relation belongs to the session that created it and no
+# durable object is created, so the probe provisions nothing and leaves nothing behind.
+REDSHIFT_PROBE_RELATION_TEMPLATE = "genapp_rqi_access_probe_{token}"
+REDSHIFT_PROBE_COLUMN = "probe"
+REDSHIFT_PROBE_VALUE = "genapp-rqi-access-probe"
+REDSHIFT_PROBE_COLUMN_WIDTH = 64
+REDSHIFT_PROBE_STATEMENT = "SELECT 1"
+REDSHIFT_PROBE_STATEMENT_VALUE = 1
+REDSHIFT_PROBE_ROWS = 1
+
+# Leading text of the single stdout line --probe-redshift writes when every step
+# succeeded, and the outcome it records for the write probe. No setting value reaches
+# that line: the host, the port, the user, the database, the schema and the password
+# are all withheld from stdout, stderr and every diagnostic.
+REDSHIFT_PROBE_VERDICT = "redshift-access-probe ok"
+REDSHIFT_PROBE_WRITE_OUTCOME = "rolled-back"
+
+# Text a redacted setting value is replaced by in a reason the driver supplied.
+REDACTED_SETTING = "<redacted>"
+
 # Connection behaviour applied to every request, bounding the time a failing endpoint
 # can hold up the caller. MAX_ATTEMPTS is the number of calls one request makes in
 # total, the first included, and is applied through the client's total_max_attempts
@@ -500,10 +754,14 @@ RETRY_MODE = "standard"
 
 EXIT_OK = 0
 EXIT_RECORD_REJECTED = 2
-EXIT_CONFIGURATION_REJECTED = 3
+EXIT_CONFIGURATION_REJECTED = EXIT_ENVIRONMENT_REJECTED
 EXIT_S3_UNAVAILABLE = 4
 EXIT_SELF_TEST_FAILED = 5
-EXIT_INTERRUPTED = 130
+# A Redshift target that did not answer or refused the probe returns the same status as
+# an S3 endpoint that did not answer: the run established no access to the target it
+# addressed. EXIT_INTERRUPTED is declared above the imports, with the reporting that
+# covers them.
+EXIT_REDSHIFT_UNAVAILABLE = EXIT_S3_UNAVAILABLE
 
 # Characters of untrusted text one diagnostic fragment carries before truncation, the
 # number of schema violations one diagnostic reports, and the property names one
@@ -522,7 +780,10 @@ SHOW_IDENTIFIERS_OPTION = "--show-identifiers"
 SHOW_IDENTIFIERS_VARIABLE = "GENAPP_SHOW_IDENTIFIERS"
 SHOW_IDENTIFIERS_ENABLING = ("1", "true", "yes", "on")
 
-# Characters escaped out of a diagnostic.
+# Characters escaped out of a diagnostic, and refused in a landed value: the C0
+# controls, DEL and the C1 controls. confirm_control_free_values scans every landed
+# value against this class, and the landing schema's own patterns and enumerations
+# admit none of these characters either.
 _CONTROL_CHARACTERS = re.compile(r"[\x00-\x1f\x7f-\x9f]")
 
 # Client error codes reported with a specific diagnostic.
@@ -575,7 +836,7 @@ class TemplateError(ConfigurationError):
 
 
 class AccessError(LandingError):
-    """An S3 endpoint, bucket or object operation did not succeed."""
+    """A target refused access: an S3 operation or the Redshift probe did not succeed."""
 
     exit_status = EXIT_S3_UNAVAILABLE
 
@@ -1299,6 +1560,40 @@ def validate_record(
     )
 
 
+def confirm_control_free_values(record: Mapping[str, Any], path: Path) -> None:
+    """Confirm no value of ``record`` carries a control character, and return None.
+
+    Every string value the record carries is scanned against ``_CONTROL_CHARACTERS``,
+    which is the C0 control characters, DEL and the C1 control characters, and the scan
+    covers the whole value: a line feed or carriage return at the end of a value is
+    refused along with one inside it, and a NUL, tab or DEL is refused wherever it sits.
+    A value that is not a string carries no character and is passed over, having already
+    been reported by the schema keyword that rejects it. The keys are scanned in the
+    order the record carries them, so the key named is the first one carrying such a
+    character.
+
+    The landing schema declares the same rule, holding each string-valued property to a
+    pattern or an enumeration closed at both ends of the value; this scan applies that
+    rule to the parsed document again, before the bytes are uploaded.
+
+    Raises ``RecordError`` naming the key, the position and the escaped character when
+    one carries a control character, before any client exists and before any byte
+    reaches the network.
+    """
+    for name, value in record.items():
+        if not isinstance(value, str):
+            continue
+        found = _CONTROL_CHARACTERS.search(value)
+        if found is None:
+            continue
+        raise RecordError(
+            f"the landing record carries the control character "
+            f"{_shown(_escaped_character(found.group()))} at position "
+            f"{found.start()} of {_shown(str(name))}: {_path_shown(path)}; a landed "
+            f"value carries printable characters alone"
+        )
+
+
 def confirm_calendar_values(record: Mapping[str, Any], path: Path) -> None:
     """Confirm every date and the timestamp of ``record`` name a real day and moment.
 
@@ -1360,6 +1655,54 @@ def confirm_calendar_values(record: Mapping[str, Any], path: Path) -> None:
             f"{_shown(TIMESTAMP_FIELD)}: {_path_shown(path)}; it is not written "
             f"{TIMESTAMP_FORM}, whose form for that moment is {_shown(normalised)}"
         )
+
+
+def confirm_product_premium_allocation(
+    record: Mapping[str, Any], path: Path
+) -> None:
+    """Confirm the amounts ``record`` carries are the ones its policy type populates.
+
+    ``PREMIUM_ALLOCATION`` names, for the policy type the record carries, which of
+    ``AMOUNT_FIELDS`` hold a value: the payment amount on every policy type, the motor
+    premium on M, the four commercial premiums on C, and no product premium on E or H.
+    Each amount that policy type populates must carry a string and each amount it does
+    not must carry null; a zero does not stand in for an inapplicable premium. The
+    landing schema declares the same allocation in its allOf block, and this check
+    applies it to the parsed document again. Returns None when the record carries
+    exactly the amounts its policy type populates.
+
+    Raises ``RecordError`` naming the amount key and the policy type when one carries a
+    value the policy type does not populate or omits one it does, and when the record
+    carries no policy type this allocation is recorded for, before any client exists and
+    before any byte reaches the network.
+    """
+    policy_type = record.get(POLICY_TYPE_FIELD)
+    if not isinstance(policy_type, str) or policy_type not in PREMIUM_ALLOCATION:
+        raise RecordError(
+            f"the landing record carries {_value_display(policy_type)} as "
+            f"{_shown(POLICY_TYPE_FIELD)}: {_path_shown(path)}; the product premium "
+            f"allocation is recorded for "
+            f"{_quote_all(sorted(PREMIUM_ALLOCATION))} alone"
+        )
+    populated = PREMIUM_ALLOCATION[policy_type]
+    for name in AMOUNT_FIELDS:
+        value = record.get(name)
+        if name in populated:
+            if not isinstance(value, str):
+                raise RecordError(
+                    f"the landing record carries {_json_shape(value)} for "
+                    f"{_shown(name)} while its {_shown(POLICY_TYPE_FIELD)} is "
+                    f"{_shown(policy_type)}: {_path_shown(path)}; that policy type "
+                    f"populates it"
+                )
+            continue
+        if value is not None:
+            raise RecordError(
+                f"the landing record carries {_value_display(value)} for "
+                f"{_shown(name)} while its {_shown(POLICY_TYPE_FIELD)} is "
+                f"{_shown(policy_type)}: {_path_shown(path)}; that policy type "
+                f"populates {_names_shown(populated)}, and every other amount is null"
+            )
 
 
 def confirm_source_system_key(
@@ -1820,6 +2163,247 @@ def confirm_run_mode_endpoint(
         )
 
 
+def confirm_redshift_probe_branch(
+    run_mode: str, run_mode_origin: str, endpoint_url: str | None, endpoint_origin: str
+) -> None:
+    """Confirm the resolved branch is the real target the Redshift probe addresses.
+
+    The Redshift probe is the second half of the precondition gate, and the gate's
+    real branch is the one this tool addresses with no endpoint override and run mode
+    ``RUN_MODE_REAL``. A resolved endpoint serves the local substitute, and run mode
+    ``RUN_MODE_LOCAL`` carries no Redshift target at all: either of them alongside
+    this probe is a run whose settings describe two different branches, and each is
+    refused by the setting it came from before a socket is opened, so no run can
+    report a local substitute as a Redshift target that answered.
+
+    Returns None when the resolved branch is the real target.
+
+    Raises ``ConfigurationError`` naming the setting and where it came from when it is
+    not. No endpoint value reaches the diagnostic.
+    """
+    if endpoint_url is not None:
+        raise ConfigurationError(
+            f"an endpoint is set from {endpoint_origin}, which serves the local "
+            "substitute, and --probe-redshift addresses Amazon Redshift: unset that "
+            "setting to probe the real target, and probe the local substitute with "
+            "--probe instead. The endpoint value is not echoed"
+        )
+    if run_mode != RUN_MODE_REAL:
+        raise ConfigurationError(
+            f"run mode {_shown(run_mode)} from {run_mode_origin} addresses the local "
+            "substitute, which carries no Redshift target: select run mode "
+            f"{_shown(RUN_MODE_REAL)} through --run-mode or the "
+            f"{RUN_MODE_VARIABLE} environment variable to probe the real target"
+        )
+
+
+class RedshiftSettings(NamedTuple):
+    """The resolved Redshift connection settings one probe addresses.
+
+    Each value is the one the environment carried, held to its shape by
+    ``resolve_redshift_settings``. No value of this tuple reaches the output on any
+    path: ``__repr__`` carries none of them, so neither does a diagnostic that
+    formats this tuple, and ``redacted_values`` names the values replaced out of a
+    reason the driver supplied.
+    """
+
+    host: str
+    port: int
+    database: str
+    user: str
+    password: str
+    schema: str
+    connect_timeout: int
+
+    def __repr__(self) -> str:
+        """Return a representation carrying no value of these settings."""
+        return f"RedshiftSettings(<{len(self._fields)} settings resolved>)"
+
+    def redacted_values(self) -> tuple[str, ...]:
+        """Return the values replaced out of any text the driver supplied."""
+        return (self.password, self.host, self.user, self.database, self.schema)
+
+
+def _redshift_origin(variable: str) -> str:
+    """Return the phrase naming the environment variable one setting came from."""
+    return f"the {variable} environment variable"
+
+
+def _require_redshift_setting(variable: str, what: str) -> str:
+    """Return the value ``variable`` carries for a setting that has no default.
+
+    The empty-value resolution is the one every setting of this tool applies: a
+    variable holding the empty string or whitespace alone counts as unset, and a
+    setting with no default is then absent rather than empty.
+
+    Raises ``ConfigurationError`` naming the variable to set and what it carries.
+    """
+    value, name = _from_environment((variable,))
+    if value is None or name is None:
+        raise ConfigurationError(
+            f"no Redshift {what} is set: set {variable} in the environment. It is the "
+            f"same variable the redshift output of {REDSHIFT_PROFILE_DOCUMENT} reads, "
+            "so one setting serves the probe and the run it gates"
+        )
+    return value
+
+
+def _shaped_redshift_setting(
+    value: str, variable: str, what: str, shape: re.Pattern[str], limit: int
+) -> str:
+    """Return ``value`` confirmed usable as one Redshift connection parameter.
+
+    The value is not echoed: a host names the target, a user and a database name the
+    account being addressed, and a diagnostic carries the variable to correct and what
+    it must hold instead.
+
+    Raises ``ConfigurationError`` when ``value`` is longer than ``limit`` or lies
+    outside ``shape``.
+    """
+    origin = _redshift_origin(variable)
+    if len(value) > limit:
+        raise ConfigurationError(
+            f"the Redshift {what} from {origin} holds {len(value)} characters; at most "
+            f"{limit} are accepted. The value is not echoed"
+        )
+    if not shape.fullmatch(value):
+        raise ConfigurationError(
+            f"the Redshift {what} from {origin} is not accepted: it carries a "
+            "character, a leading or trailing separator or whitespace that no "
+            f"{what} carries. A {what} is written on its own, with no scheme, port, "
+            "path, query or user information. The value is not echoed"
+        )
+    return value
+
+
+def _bounded_redshift_number(
+    variable: str, what: str, default: int, minimum: int, maximum: int
+) -> int:
+    """Return the whole number ``variable`` carries, or ``default`` when unset.
+
+    A variable holding the empty string or whitespace alone counts as unset, so the
+    default applies to it. A value carrying content is accepted only as decimal digits
+    alone naming a number between ``minimum`` and ``maximum``: text, a signed value, a
+    fractional value and a number outside those bounds are each refused rather than
+    converted, which is the resolution the redshift output of
+    modernization/dbt/genapp_rqi/profiles.example.yml applies to the same variable.
+    The refused number is quoted, since it is neither a credential nor an address.
+
+    Raises ``ConfigurationError`` naming the variable and the accepted values.
+    """
+    value, name = _from_environment((variable,))
+    if value is None or name is None:
+        return default
+    if not _REDSHIFT_NUMBER_SHAPE.fullmatch(value) or not (
+        minimum <= int(value) <= maximum
+    ):
+        raise ConfigurationError(
+            f"the Redshift {what} from {_redshift_origin(variable)} is not a decimal "
+            f"whole number between {minimum} and {maximum}: {_shown(value)}; leave the "
+            f"variable unset for the default of {default}"
+        )
+    return int(value)
+
+
+def resolve_redshift_settings() -> RedshiftSettings:
+    """Return the Redshift connection settings the probe addresses.
+
+    Every value comes from the environment, from the variables the redshift output of
+    modernization/dbt/genapp_rqi/profiles.example.yml reads, so the probe and the run
+    it gates are configured by one set of settings and no credential is passed on a
+    command line where every process on the host could read it. ``REDSHIFT_PORT``
+    defaults to ``DEFAULT_REDSHIFT_PORT`` and ``REDSHIFT_CONNECT_TIMEOUT`` to
+    ``DEFAULT_REDSHIFT_CONNECT_TIMEOUT``; the host, user, password, database and
+    schema carry no default and are required. Every value is held to its shape and
+    its bounds here, before the driver is imported and before a socket is opened.
+
+    The host is required to be a DNS name or an IPv4 literal that is not a loopback
+    address: a loopback host serves something on this machine, which cannot be the
+    Amazon Redshift target this probe reports on.
+
+    No resolved value is echoed. A diagnostic names the variable to correct and what
+    it has to carry, and for the two numeric settings the number that was refused.
+
+    Raises ``ConfigurationError`` naming the variable when a required setting is
+    absent, when a value lies outside its shape or bounds, or when the host names a
+    loopback address.
+    """
+    host = _shaped_redshift_setting(
+        _require_redshift_setting(REDSHIFT_HOST_VARIABLE, "host"),
+        REDSHIFT_HOST_VARIABLE,
+        "host",
+        _REDSHIFT_HOST_SHAPE,
+        MAX_REDSHIFT_HOST_CHARACTERS,
+    )
+    if _is_loopback_host(host):
+        raise ConfigurationError(
+            f"the Redshift host from {_redshift_origin(REDSHIFT_HOST_VARIABLE)} names "
+            "a loopback address, which serves this machine rather than Amazon "
+            "Redshift; this probe reports on the real target alone, and the local "
+            "substitute is probed with --probe against its own endpoint. The value is "
+            "not echoed"
+        )
+    user = _shaped_redshift_setting(
+        _require_redshift_setting(REDSHIFT_USER_VARIABLE, "user"),
+        REDSHIFT_USER_VARIABLE,
+        "user",
+        _REDSHIFT_NAME_SHAPE,
+        MAX_REDSHIFT_NAME_CHARACTERS,
+    )
+    password = _require_redshift_setting(REDSHIFT_PASSWORD_VARIABLE, "password")
+    if len(password) > MAX_REDSHIFT_PASSWORD_CHARACTERS:
+        raise ConfigurationError(
+            f"the Redshift password from "
+            f"{_redshift_origin(REDSHIFT_PASSWORD_VARIABLE)} holds "
+            f"{len(password)} characters; at most {MAX_REDSHIFT_PASSWORD_CHARACTERS} "
+            "are accepted. The value is never echoed"
+        )
+    if _CONTROL_CHARACTERS.search(password):
+        raise ConfigurationError(
+            f"the Redshift password from "
+            f"{_redshift_origin(REDSHIFT_PASSWORD_VARIABLE)} carries a control "
+            "character, which no password of a connection parameter carries. The "
+            "value is never echoed"
+        )
+    database = _shaped_redshift_setting(
+        _require_redshift_setting(REDSHIFT_DATABASE_VARIABLE, "database"),
+        REDSHIFT_DATABASE_VARIABLE,
+        "database",
+        _REDSHIFT_NAME_SHAPE,
+        MAX_REDSHIFT_NAME_CHARACTERS,
+    )
+    schema = _shaped_redshift_setting(
+        _require_redshift_setting(REDSHIFT_SCHEMA_VARIABLE, "schema"),
+        REDSHIFT_SCHEMA_VARIABLE,
+        "schema",
+        _REDSHIFT_NAME_SHAPE,
+        MAX_REDSHIFT_NAME_CHARACTERS,
+    )
+    port = _bounded_redshift_number(
+        REDSHIFT_PORT_VARIABLE,
+        "port",
+        DEFAULT_REDSHIFT_PORT,
+        MIN_PORT_NUMBER,
+        MAX_PORT_NUMBER,
+    )
+    connect_timeout = _bounded_redshift_number(
+        REDSHIFT_CONNECT_TIMEOUT_VARIABLE,
+        "connect timeout in seconds",
+        DEFAULT_REDSHIFT_CONNECT_TIMEOUT,
+        MIN_CONNECT_TIMEOUT_SECONDS,
+        MAX_CONNECT_TIMEOUT_SECONDS,
+    )
+    return RedshiftSettings(
+        host=host,
+        port=port,
+        database=database,
+        user=user,
+        password=password,
+        schema=schema,
+        connect_timeout=connect_timeout,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Key construction
 # ---------------------------------------------------------------------------
@@ -2252,6 +2836,379 @@ def put_record(client: Any, bucket: str, key: str, body: bytes) -> None:
             error, bucket, f"write the landing object {_shown(key)}"
         ) from error
 
+
+def put_manifest(client: Any, bucket: str, key: str, body: bytes) -> None:
+    """Write ``body`` to ``key`` in ``bucket`` as the COPY manifest, and return None.
+
+    ``body`` is written exactly as given, with content type ``OBJECT_CONTENT_TYPE``, so
+    the stored manifest is byte-identical to the document ``build_copy_manifest``
+    returned for the same landed object. One object is written and nothing else on the
+    bucket is read, written or configured. A write that does not succeed is reported
+    with the whole manifest key, which the reader needs to place or remove the object
+    by hand.
+
+    Raises ``AccessError`` when the write did not succeed, and ``ConfigurationError``
+    when a credential setting is missing.
+    """
+    try:
+        client.put_object(
+            Bucket=bucket,
+            Key=key,
+            Body=body,
+            ContentType=OBJECT_CONTENT_TYPE,
+        )
+    except (ClientError, BotoCoreError) as error:
+        raise _failure_for(
+            error,
+            bucket,
+            f"write the COPY manifest {_shown(key, MAX_DIAGNOSTIC_PATH_CHARACTERS)}",
+        ) from error
+
+
+# ---------------------------------------------------------------------------
+# Redshift access probe
+# ---------------------------------------------------------------------------
+
+
+def _redshift_driver() -> Any:
+    """Return the pinned redshift-connector module, imported on this call alone.
+
+    The import happens here rather than at module level, so a landing run, a probe of
+    the local substitute and a render load nothing this probe needs.
+
+    Raises ``ConfigurationError`` when the pinned distribution is not installed.
+    """
+    try:
+        import redshift_connector
+    except ImportError as error:
+        raise ConfigurationError(
+            "the Redshift driver is not installed: install the pinned "
+            "redshift-connector of modernization/requirements.txt into "
+            f"modernization/.venv and run this probe through it: {_reason(error)}"
+        ) from error
+    return redshift_connector
+
+
+def _redshift_reason(error: BaseException, settings: RedshiftSettings) -> str:
+    """Return the reason ``error`` reported, carrying no resolved setting value.
+
+    A driver diagnostic can quote the host it addressed, the database it opened or the
+    user it authenticated as, and this tool discloses none of them, so every value
+    ``redacted_values`` names is replaced before the text is bounded. Any URL the text
+    carries is redacted as it is everywhere else in this tool.
+
+    The replacement is one left-to-right pass over one alternation of the values,
+    longest first, so a value that is a substring of another is replaced as part of the
+    longer one and the placeholder this pass writes is never scanned again. Each value
+    matches only where it is not surrounded by further identifier characters, so a
+    one-character setting value is replaced where the driver quoted it as a value and
+    not inside an unrelated word of the driver's own wording.
+    """
+    text = str(error) or _type_name(error)
+    values = sorted({value for value in settings.redacted_values() if value}, key=len)
+    if values:
+        pattern = "|".join(
+            rf"(?<![0-9A-Za-z_]){re.escape(value)}(?![0-9A-Za-z_])"
+            for value in reversed(values)
+        )
+        text = re.sub(pattern, REDACTED_SETTING, text)
+    return _escaped(_redacted(text), MAX_DIAGNOSTIC_MESSAGE_CHARACTERS)
+
+
+def _redshift_failure(
+    error: BaseException, settings: RedshiftSettings, action: str
+) -> LandingError:
+    """Return the diagnostic for a Redshift ``action`` that did not succeed.
+
+    Every driver failure is an ``AccessError``: an endpoint that does not resolve, a
+    connection that is refused or times out, a certificate that does not verify and a
+    credential the target rejected all leave this run without access to the target it
+    addressed, which is the one thing the probe reports on.
+    """
+    return AccessError(f"cannot {action}: {_redshift_reason(error, settings)}")
+
+
+def build_redshift_probe_relation() -> str:
+    """Return the name of the temporary relation one write probe creates.
+
+    The name carries ``REDSHIFT_PROBE_RELATION_TEMPLATE`` with a random token, so two
+    probes never name the same relation, and it reaches the statement as SQL text
+    rather than as a bound value, so it is confirmed usable as one unquoted SQL
+    identifier first.
+
+    Raises ``ConfigurationError`` when the name built is not one unquoted identifier.
+    """
+    name = REDSHIFT_PROBE_RELATION_TEMPLATE.format(token=uuid.uuid4().hex)
+    if not _IDENTIFIER_SHAPE.fullmatch(name) or len(name) > MAX_IDENTIFIER_CHARACTERS:
+        raise ConfigurationError(
+            f"the write probe relation name is not one unquoted SQL identifier of at "
+            f"most {MAX_IDENTIFIER_CHARACTERS} characters: {_shown(name)}"
+        )
+    return name
+
+
+def _redshift_statement_rows(
+    driver: Any,
+    connection: Any,
+    settings: RedshiftSettings,
+    statement: str,
+    action: str,
+    *,
+    arguments: Sequence[Any] | None = None,
+    expect_rows: bool = False,
+) -> tuple[tuple[Any, ...], ...]:
+    """Run ``statement`` on one cursor of ``connection``, returning the rows it made.
+
+    ``arguments`` are bound rather than joined into the statement text, and the rows
+    are read only for a statement that produces them, so a statement that produces
+    none is not asked for a result set. The cursor is closed on the way out whatever
+    happened, and a close that did not succeed is a warning rather than a failure of
+    the probe.
+
+    Raises ``AccessError`` when the cursor could not be opened or the statement did
+    not succeed, with no resolved setting value in the diagnostic.
+    """
+    try:
+        cursor = connection.cursor()
+    except (driver.Error, OSError) as error:
+        raise _redshift_failure(error, settings, action) from error
+    try:
+        try:
+            if arguments is None:
+                cursor.execute(statement)
+            else:
+                cursor.execute(statement, tuple(arguments))
+            if not expect_rows:
+                return ()
+            return tuple(tuple(row) for row in cursor.fetchall())
+        except (driver.Error, OSError) as error:
+            raise _redshift_failure(error, settings, action) from error
+    finally:
+        try:
+            cursor.close()
+        except (driver.Error, OSError) as close_error:
+            _warn(
+                "the Redshift cursor could not be closed after "
+                f"{action}: {_redshift_reason(close_error, settings)}"
+            )
+
+
+def _redshift_single_value(
+    rows: Sequence[Sequence[Any]], what: str
+) -> Any:
+    """Return the one value ``rows`` carries, for a statement that answers with one.
+
+    Raises ``AccessError`` when the target answered with no row, more than one row or
+    a row that does not carry exactly one value, so a probe never reads a verdict out
+    of an answer of another shape.
+    """
+    if len(rows) != 1 or len(rows[0]) != 1:
+        raise AccessError(
+            f"cannot read {what}: the target answered "
+            f"{_counted(len(rows), 'row')} rather than exactly one row of one value"
+        )
+    return rows[0][0]
+
+
+def _withdraw_redshift_probe(
+    driver: Any, connection: Any, settings: RedshiftSettings, relation: str
+) -> BaseException | None:
+    """Withdraw everything the write probe made, and return what stopped that.
+
+    The rollback of the transaction the temporary relation was created in withdraws
+    the relation and the row together, which is the withdrawal this probe relies on.
+    A rollback that did not succeed is followed by the drop of that one relation, so a
+    session that survived the rollback carries no probe relation either. Returns None
+    when the probe was withdrawn, and the failure that stopped the drop otherwise.
+    """
+    try:
+        connection.rollback()
+        return None
+    except (driver.Error, OSError) as rollback_error:
+        _warn(
+            "the write probe transaction could not be rolled back: "
+            f"{_redshift_reason(rollback_error, settings)}; dropping the probe "
+            f"relation {_shown(relation)} instead"
+        )
+    try:
+        _redshift_statement_rows(
+            driver,
+            connection,
+            settings,
+            f"DROP TABLE IF EXISTS {relation}",
+            f"drop the write probe relation {_shown(relation)}",
+        )
+    except LandingError as drop_error:
+        return drop_error
+    return None
+
+
+def _probe_redshift_write(
+    driver: Any, connection: Any, settings: RedshiftSettings, relation: str
+) -> None:
+    """Create, write and count one temporary relation, then withdraw all of it.
+
+    The relation is temporary, so it belongs to this session alone and no durable
+    object is created: this probe provisions nothing, on the target or anywhere else.
+    One row is written and counted, which is what establishes that the target accepts
+    a write rather than only a connection, and the rollback that follows withdraws the
+    row and the relation together. A withdrawal that did not succeed after the probe's
+    own steps succeeded is the failure raised, naming the relation to drop by hand; a
+    withdrawal that did not succeed after a failed step is a warning, and the step's
+    own failure is the one raised.
+
+    Returns None when the write probe succeeded and was withdrawn.
+
+    Raises ``AccessError`` when a step did not succeed, when the row written was not
+    counted back, or when the probe could not be withdrawn.
+    """
+    probe_failure: BaseException | None = None
+    try:
+        _redshift_statement_rows(
+            driver,
+            connection,
+            settings,
+            f"CREATE TEMPORARY TABLE {relation} "
+            f"({REDSHIFT_PROBE_COLUMN} VARCHAR({REDSHIFT_PROBE_COLUMN_WIDTH}))",
+            "create the write probe relation",
+        )
+        _redshift_statement_rows(
+            driver,
+            connection,
+            settings,
+            f"INSERT INTO {relation} ({REDSHIFT_PROBE_COLUMN}) VALUES (%s)",
+            "write the write probe row",
+            arguments=(REDSHIFT_PROBE_VALUE,),
+        )
+        rows = _redshift_statement_rows(
+            driver,
+            connection,
+            settings,
+            f"SELECT count(*) FROM {relation}",
+            "read the write probe row back",
+            expect_rows=True,
+        )
+        written = _redshift_single_value(rows, "the write probe row count")
+        if written != REDSHIFT_PROBE_ROWS:
+            raise AccessError(
+                f"cannot confirm the write probe: {relation} carried "
+                f"{_display(written)} rows after one write, expected "
+                f"{REDSHIFT_PROBE_ROWS}"
+            )
+    except BaseException as error:
+        probe_failure = error
+        raise
+    finally:
+        withdrawal_failure = _withdraw_redshift_probe(
+            driver, connection, settings, relation
+        )
+        if withdrawal_failure is not None:
+            if probe_failure is None:
+                raise AccessError(
+                    f"cannot withdraw the write probe relation {_shown(relation)}, "
+                    "which the probe created and which the session may still carry "
+                    f"for removal by hand: {_one_line(str(withdrawal_failure))}"
+                ) from withdrawal_failure
+            _warn(
+                f"the write probe relation {_shown(relation)} could not be withdrawn "
+                f"after the probe failed: {_one_line(str(withdrawal_failure))}"
+            )
+
+
+def probe_redshift_access(
+    settings: RedshiftSettings, driver: Any | None = None
+) -> str:
+    """Confirm the Redshift target answers and accepts one withdrawn write.
+
+    The probe opens one connection with the settings resolved from the environment and
+    the transport security the dbt profile of this bridge sets, runs
+    ``REDSHIFT_PROBE_STATEMENT`` and requires the value that statement declares, and
+    then performs the write probe: one temporary relation created, written, counted and
+    withdrawn by the rollback of its own transaction. That is the whole of the second
+    half of the precondition gate. Returning the verdict means every one of those
+    steps succeeded.
+
+    ``driver`` names the module the connection is opened through, and defaults to the
+    pinned redshift-connector imported on the call. Nothing is created on the target,
+    on AWS or on this machine: no cluster, workgroup, database, schema, durable
+    relation, network or IAM object, and no bucket. The connection is closed on the way
+    out whatever happened.
+
+    The verdict is one line carrying no setting value, and no diagnostic of this probe
+    carries the host, the port, the user, the database, the schema or the password.
+
+    Raises ``ConfigurationError`` when the driver cannot be imported, and
+    ``AccessError`` when the target did not answer, refused the connection, refused a
+    credential, answered the connectivity statement with anything else, refused the
+    write probe or could not withdraw it.
+    """
+    driver = _redshift_driver() if driver is None else driver
+    _note(
+        "addressing the Redshift target named by "
+        f"{REDSHIFT_HOST_VARIABLE} on the port from {REDSHIFT_PORT_VARIABLE}, as the "
+        f"user from {REDSHIFT_USER_VARIABLE} against the database from "
+        f"{REDSHIFT_DATABASE_VARIABLE}, with {_shown(REDSHIFT_SSL_MODE)} transport "
+        f"and a {settings.connect_timeout} second connect timeout; no value of those "
+        "settings is printed"
+    )
+    try:
+        connection = driver.connect(
+            host=settings.host,
+            port=settings.port,
+            database=settings.database,
+            user=settings.user,
+            password=settings.password,
+            timeout=settings.connect_timeout,
+            ssl=True,
+            sslmode=REDSHIFT_SSL_MODE,
+            application_name=REDSHIFT_APPLICATION_NAME,
+        )
+    except (driver.Error, OSError) as error:
+        raise _redshift_failure(
+            error, settings, "reach the Redshift target"
+        ) from error
+    try:
+        answered = _redshift_single_value(
+            _redshift_statement_rows(
+                driver,
+                connection,
+                settings,
+                REDSHIFT_PROBE_STATEMENT,
+                f"run {REDSHIFT_PROBE_STATEMENT} on the Redshift target",
+                expect_rows=True,
+            ),
+            f"the answer to {REDSHIFT_PROBE_STATEMENT}",
+        )
+        if answered != REDSHIFT_PROBE_STATEMENT_VALUE:
+            raise AccessError(
+                f"cannot confirm the Redshift target: {REDSHIFT_PROBE_STATEMENT} "
+                f"answered {_display(answered)}, expected "
+                f"{REDSHIFT_PROBE_STATEMENT_VALUE}"
+            )
+        relation = build_redshift_probe_relation()
+        _note(
+            f"the connectivity statement answered {REDSHIFT_PROBE_STATEMENT_VALUE}; "
+            f"writing the temporary probe relation {_shown(relation)}, which the "
+            "rollback that follows withdraws"
+        )
+        _probe_redshift_write(driver, connection, settings, relation)
+        _note(
+            f"the write probe wrote {REDSHIFT_PROBE_ROWS} row of {_shown(relation)} "
+            "and withdrew it; nothing was provisioned"
+        )
+    finally:
+        try:
+            connection.close()
+        except (driver.Error, OSError) as close_error:
+            _warn(
+                "the Redshift connection could not be closed: "
+                f"{_redshift_reason(close_error, settings)}"
+            )
+    return (
+        f"{REDSHIFT_PROBE_VERDICT} "
+        f"select={REDSHIFT_PROBE_STATEMENT_VALUE} "
+        f"write-probe={REDSHIFT_PROBE_WRITE_OUTCOME}"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -3147,25 +4104,38 @@ def land_record(
     endpoint_url: str | None = None,
     schema_path: Path = DEFAULT_SCHEMA,
 ) -> str:
-    """Validate one landing record, write it as one object, and return its URI.
+    """Validate one landing record, write it with its COPY manifest, and return its URI.
 
     The record is read as bytes, parsed with a repeated member name refused, validated
     against the schema at ``schema_path``, confirmed to carry its keys in the order the
     schema's ``required`` list fixes, confirmed to be the canonical one-line bytes of
-    that object, confirmed to carry a real date in each date key and a real moment in its
-    timestamp, and checked to carry ``source_system_key`` itself; the landing key is then
-    built from the value the validated record carries and the fixed entity literal, all
-    before any client exists. The schema admits ``return_code`` 00 alone, so the record
-    written is one successful execution of the chain, carrying the policy number and the
-    last-changed timestamp the chain assigned; a record carrying any other code is
-    rejected here. The bytes read are the bytes written, so the stored object is
-    byte-identical to ``record_path``. Exactly one object is written and nothing is
-    created on the bucket.
+    that object, confirmed to carry no control character in any value, confirmed to carry
+    a real date in each date key and a real moment in its timestamp, confirmed to carry
+    the amounts its policy type populates and null in every other amount, and checked to
+    carry ``source_system_key`` itself; the landing key is then built from the value the
+    validated record carries and the fixed entity literal, all before any client
+    exists. The schema admits ``return_code`` 00 alone, so the record written is one
+    successful execution of the chain, carrying the policy number and the last-changed
+    timestamp the chain assigned; a record carrying any other code is rejected here.
+    The bytes read are the bytes written, so the stored object is byte-identical to
+    ``record_path``.
+
+    Two objects are written under the landing prefix and nothing else is created on the
+    bucket: the record at ``build_landing_key`` and, beside it, the COPY manifest
+    modernization/landing/load_redshift.sql binds its load to, at
+    ``build_manifest_key``. The record is written first and the manifest second, so no
+    manifest on the bucket ever names an object that was not written, and the manifest
+    is the document ``build_copy_manifest`` returns for that object: one entry carrying
+    the record's own URI, ``mandatory`` true and the byte count of the bytes just
+    written, which is what ``--render-redshift-load manifest`` prints for the same
+    record. A manifest write that does not succeed after the record was written fails
+    the landing and names the manifest key, leaving the record object in place. Both
+    objects are written in either run mode.
 
     Raises ``RecordError`` when the record breaches the landing contract,
     ``SchemaError`` when the schema cannot be used, ``ConfigurationError`` when a
-    setting cannot be resolved, and ``AccessError`` when the bucket or the write did not
-    answer.
+    setting cannot be resolved, and ``AccessError`` when the bucket or either write did
+    not answer.
     """
     body = read_record_bytes(record_path)
     record = parse_record(body, record_path)
@@ -3173,9 +4143,13 @@ def land_record(
     validate_record(record, build_validator(schema, schema_path), record_path)
     confirm_key_order(record, landed_key_order(schema, schema_path), record_path)
     confirm_canonical_bytes(body, record, record_path)
+    confirm_control_free_values(record, record_path)
     confirm_calendar_values(record, record_path)
+    confirm_product_premium_allocation(record, record_path)
     confirm_source_system_key(record, source_system_key, record_path)
-    key = build_landing_key(str(record[SOURCE_SYSTEM_KEY_FIELD]), entity, extract_date)
+    carried_key = str(record[SOURCE_SYSTEM_KEY_FIELD])
+    key = build_landing_key(carried_key, entity, extract_date)
+    manifest_key = build_manifest_key(carried_key, entity, extract_date)
     _note(
         f"validated {_path_shown(record_path)} carrying {len(body)} bytes for key "
         f"{_shown(key, MAX_DIAGNOSTIC_PATH_CHARACTERS)}"
@@ -3183,7 +4157,15 @@ def land_record(
     client = resolve_s3_access(bucket, region, endpoint_url)
     confirm_bucket_reachable(client, bucket)
     put_record(client, bucket, key, body)
-    return build_object_uri(bucket, key)
+    object_uri = build_object_uri(bucket, key)
+    manifest = build_copy_manifest(object_uri, len(body)).encode("ascii")
+    put_manifest(client, bucket, manifest_key, manifest)
+    _note(
+        "wrote the COPY manifest "
+        f"{_shown(manifest_key, MAX_DIAGNOSTIC_PATH_CHARACTERS)} carrying "
+        f"{len(manifest)} bytes, naming the landed object and its {len(body)} bytes"
+    )
+    return object_uri
 
 
 # ---------------------------------------------------------------------------
@@ -3245,6 +4227,19 @@ _SELF_TEST_CREDENTIALS = {
     "AWS_SECRET_ACCESS_KEY": "selftest-secret-key",
 }
 
+# The Redshift settings every probe case resolves, each shaped as the resolution
+# accepts it. Every value is distinctive, and no case may leave one of them in a
+# verdict, a progress line or a diagnostic.
+_SELF_TEST_REDSHIFT = {
+    REDSHIFT_HOST_VARIABLE: (
+        "genapp-rqi-selftest.abc123.eu-west-2.redshift.amazonaws.com"
+    ),
+    REDSHIFT_USER_VARIABLE: "genapp_rqi_loader_selftest",
+    REDSHIFT_PASSWORD_VARIABLE: "selftest-redshift-canary-password",
+    REDSHIFT_DATABASE_VARIABLE: "genapp_selftest",
+    REDSHIFT_SCHEMA_VARIABLE: "raw_selftest",
+}
+
 # Every environment variable a case controls. The three at the end keep a session from
 # reading a profile, a credentials file or an instance metadata service.
 _CONSULTED_VARIABLES = (
@@ -3253,6 +4248,13 @@ _CONSULTED_VARIABLES = (
     SOURCE_SYSTEM_KEY_VARIABLE,
     *REGION_VARIABLES,
     IAM_ROLE_VARIABLE,
+    REDSHIFT_HOST_VARIABLE,
+    REDSHIFT_PORT_VARIABLE,
+    REDSHIFT_USER_VARIABLE,
+    REDSHIFT_PASSWORD_VARIABLE,
+    REDSHIFT_DATABASE_VARIABLE,
+    REDSHIFT_SCHEMA_VARIABLE,
+    REDSHIFT_CONNECT_TIMEOUT_VARIABLE,
     "AWS_ACCESS_KEY_ID",
     "AWS_SECRET_ACCESS_KEY",
     "AWS_SESSION_TOKEN",
@@ -3457,6 +4459,51 @@ def _motor_record_text(**changes: Any) -> str:
     members.extend(changes.items())
     return _json_object_text(members)
 
+
+def _record_members(**changes: Any) -> dict[str, Any]:
+    """Return the motor record's members as a mapping, with ``changes`` applied."""
+    return {**dict(_MOTOR_RECORD_MEMBERS), **changes}
+
+
+# The members that turn the motor record into a record of another product, each
+# carrying the amounts PREMIUM_ALLOCATION populates for its policy type and null in
+# every other amount. The policy number differs from the motor record's, so a case
+# needing a second natural key has one.
+_COMMERCIAL_CHANGES: dict[str, Any] = {
+    "policy_number": "1000302",
+    "policy_type": "C",
+    "request_id": "01ACOM",
+    "payment_amount": "1750",
+    "motor_premium_amount": None,
+    "fire_premium_amount": "13500",
+    "crime_premium_amount": "9400",
+    "flood_premium_amount": "7200",
+    "weather_premium_amount": "5100",
+}
+_ENDOWMENT_CHANGES: dict[str, Any] = {
+    "policy_number": "1000303",
+    "policy_type": "E",
+    "request_id": "01AEND",
+    "motor_premium_amount": None,
+}
+_HOUSE_CHANGES: dict[str, Any] = {
+    "policy_number": "1000304",
+    "policy_type": "H",
+    "request_id": "01AHOU",
+    "motor_premium_amount": None,
+}
+
+# Control characters a case places inside a landed value, each paired with the name the
+# case reports it by. Every one of them is refused wherever it sits in a value.
+_EMBEDDED_CONTROL_CHARACTERS = (
+    ("nul", "\x00"),
+    ("tab", "\t"),
+    ("carriage-return", "\r"),
+    ("line-feed", "\n"),
+    ("delete", "\x7f"),
+    ("c1-control", "\x85"),
+)
+
 # ---------------------------------------------------------------------------
 # Self-test: support
 # ---------------------------------------------------------------------------
@@ -3522,6 +4569,148 @@ class _RecordingClient:
     def operations(self) -> tuple[str, ...]:
         """Return the operations called so far, in call order."""
         return tuple(operation for operation, _ in self.calls)
+
+
+class _StandInRedshiftError(Exception):
+    """The class a stand-in Redshift driver raises its own failures as."""
+
+
+def _stand_in_step(statement: str) -> str:
+    """Return the name of the probe step ``statement`` performs."""
+    if statement == REDSHIFT_PROBE_STATEMENT:
+        return "select"
+    for opening, step in (
+        ("CREATE TEMPORARY TABLE", "create"),
+        ("INSERT INTO", "insert"),
+        ("SELECT count(*)", "count"),
+        ("DROP TABLE", "drop"),
+    ):
+        if statement.startswith(opening):
+            return step
+    return "statement"
+
+
+class _StandInRedshiftCursor:
+    """One cursor of a stand-in connection, answering from what its driver holds."""
+
+    def __init__(self, connection: "_StandInRedshiftConnection") -> None:
+        self.connection = connection
+        self.rows: tuple[tuple[Any, ...], ...] = ()
+        self.closed = False
+
+    def execute(self, statement: str, arguments: Sequence[Any] | None = None) -> None:
+        """Record one statement with the arguments bound to it and hold its answer."""
+        self.connection.record(statement, arguments)
+        self.rows = self.connection.answer(statement)
+
+    def fetchall(self) -> tuple[tuple[Any, ...], ...]:
+        """Return the rows the statement executed last answered with."""
+        return self.rows
+
+    def close(self) -> None:
+        """Record this cursor closed, then fail when that step was told to fail."""
+        self.closed = True
+        self.connection.driver.refuse("cursor-close")
+
+
+class _StandInRedshiftConnection:
+    """One connection of a stand-in driver, recording every statement it was given."""
+
+    def __init__(self, driver: "_StandInRedshiftDriver") -> None:
+        self.driver = driver
+        self.statements: list[tuple[str, tuple[Any, ...] | None]] = []
+        self.cursors: list[_StandInRedshiftCursor] = []
+        self.rolled_back = 0
+        self.committed = 0
+        self.closed = False
+
+    def cursor(self) -> _StandInRedshiftCursor:
+        """Return one cursor, failing first when that step was told to fail."""
+        self.driver.refuse("cursor")
+        cursor = _StandInRedshiftCursor(self)
+        self.cursors.append(cursor)
+        return cursor
+
+    def record(self, statement: str, arguments: Sequence[Any] | None) -> None:
+        """Record one statement, then fail when the step it performs was told to."""
+        self.statements.append(
+            (statement, None if arguments is None else tuple(arguments))
+        )
+        self.driver.refuse(_stand_in_step(statement))
+
+    def answer(self, statement: str) -> tuple[tuple[Any, ...], ...]:
+        """Return the rows the step ``statement`` performs answers with."""
+        return self.driver.answer(_stand_in_step(statement))
+
+    def rollback(self) -> None:
+        """Count one rollback, failing first when that step was told to fail."""
+        self.driver.refuse("rollback")
+        self.rolled_back += 1
+
+    def commit(self) -> None:
+        """Count one commit, which no step of this probe performs."""
+        self.committed += 1
+
+    def close(self) -> None:
+        """Record this connection closed, then fail when that step was told to."""
+        self.closed = True
+        self.driver.refuse("close")
+
+    def steps(self) -> tuple[str, ...]:
+        """Return the probe steps this connection ran statements for, in order."""
+        return tuple(_stand_in_step(statement) for statement, _ in self.statements)
+
+
+class _StandInRedshiftDriver:
+    """One stand-in for the pinned redshift-connector that opens no socket.
+
+    ``connect`` records the parameters it was called with and returns one
+    ``_StandInRedshiftConnection``, and ``Error`` is the class the probe catches a
+    driver failure as. ``refusals`` names the steps that fail and the failure each
+    raises - connect, cursor, cursor-close, select, create, insert, count, drop,
+    rollback and close - and ``answers`` names the answer a step that produces rows
+    gives: a tuple is the rows verbatim, and any other value is one row of one value.
+    A case therefore drives the connect, statement, write, rollback, drop and close
+    paths of the probe with no socket, no credential and no warehouse.
+    """
+
+    Error = _StandInRedshiftError
+
+    def __init__(
+        self,
+        *,
+        refusals: dict[str, BaseException] | None = None,
+        answers: dict[str, Any] | None = None,
+    ) -> None:
+        self.refusals = dict(refusals or {})
+        self.answers: dict[str, Any] = {
+            "select": REDSHIFT_PROBE_STATEMENT_VALUE,
+            "count": REDSHIFT_PROBE_ROWS,
+        }
+        self.answers.update(answers or {})
+        self.connect_arguments: dict[str, Any] = {}
+        self.connections: list[_StandInRedshiftConnection] = []
+
+    def connect(self, **arguments: Any) -> _StandInRedshiftConnection:
+        """Record the connection parameters and return one stand-in connection."""
+        self.connect_arguments = dict(arguments)
+        self.refuse("connect")
+        connection = _StandInRedshiftConnection(self)
+        self.connections.append(connection)
+        return connection
+
+    def refuse(self, step: str) -> None:
+        """Raise the failure ``step`` was told to fail with, when it was told to."""
+        failure = self.refusals.get(step)
+        if failure is not None:
+            raise failure
+
+    def answer(self, step: str) -> tuple[tuple[Any, ...], ...]:
+        """Return the rows ``step`` answers with, or none for a step that has none."""
+        answer = self.answers.get(step)
+        if isinstance(answer, tuple):
+            return answer
+        return () if answer is None else ((answer,),)
 
 
 @contextlib.contextmanager
@@ -3904,6 +5093,203 @@ def _case_duplicate_members_refused(scratch: _Scratch) -> str:
     return "3 repeated members refused, 2 documents still parsed"
 
 
+def _case_control_characters_refused(scratch: _Scratch) -> str:
+    """A control character in any landed value is refused, and nothing is uploaded.
+
+    Each of the 17 landed keys is given its own value with one line feed appended, which
+    is the trailing-newline form, and ``brokers_reference`` is also given each embedded
+    control character. Every case is put to the schema and to the value scan, and one
+    landing run against the mocked service establishes that such a record reaches no
+    object.
+    """
+    mock_aws, _ = _test_collaborators()
+    schema = load_schema()
+    validator = build_validator(schema, DEFAULT_SCHEMA)
+    order = landed_key_order(schema, DEFAULT_SCHEMA)
+    motor = _record_members()
+    commercial = _record_members(**_COMMERCIAL_CHANGES)
+
+    def _refused(label: str, name: str, text: str) -> None:
+        """Require the schema and the value scan to refuse ``text``, naming ``name``."""
+        path = scratch.write(f"record-control-{label}.json", text)
+        record = parse_record(read_record_bytes(path), path)
+        schema_error = _assert_raises(
+            f"a control character in {name!r} against the schema",
+            RecordError,
+            "does not satisfy",
+            lambda: validate_record(record, validator, path),
+        )
+        _assert_in(name, str(schema_error), f"the schema diagnostic for {name!r}")
+        scan_error = _assert_raises(
+            f"a control character in {name!r} against the value scan",
+            RecordError,
+            "control character",
+            lambda: confirm_control_free_values(record, path),
+        )
+        _assert_in(name, str(scan_error), f"the value-scan diagnostic for {name!r}")
+
+    for name in order:
+        carried = motor[name] if isinstance(motor[name], str) else commercial[name]
+        changes = {} if isinstance(motor[name], str) else dict(_COMMERCIAL_CHANGES)
+        changes[name] = f"{carried}\n"
+        _refused(f"trailing-{name}", name, _motor_record_text(**changes))
+    for label, character in _EMBEDDED_CONTROL_CHARACTERS:
+        _refused(
+            f"embedded-{label}",
+            "brokers_reference",
+            _motor_record_text(brokers_reference=f"AB{character}CD"),
+        )
+    accepted = scratch.write("record-control-accepted.json", _motor_record_text())
+    confirm_control_free_values(
+        parse_record(read_record_bytes(accepted), accepted), accepted
+    )
+    path = scratch.write(
+        "record-control-upload.json", _motor_record_text(policy_number="1000301\n")
+    )
+    with mock_aws():
+        with _controlled_environment(
+            scratch, AWS_DEFAULT_REGION=_SELF_TEST_REGION, **_SELF_TEST_CREDENTIALS
+        ):
+            raw = boto3.session.Session(region_name=_SELF_TEST_REGION).client(
+                SERVICE_NAME, config=_client_config()
+            )
+            raw.create_bucket(
+                Bucket=_SELF_TEST_BUCKET,
+                CreateBucketConfiguration={"LocationConstraint": _SELF_TEST_REGION},
+            )
+            with _captured_stderr():
+                error = _assert_raises(
+                    "a landing whose record carries a control character",
+                    RecordError,
+                    "policy_number",
+                    lambda: land_record(
+                        path,
+                        _SELF_TEST_BUCKET,
+                        DEFAULT_SOURCE_SYSTEM_KEY,
+                        LANDING_ENTITY,
+                        _SELF_TEST_EXTRACT_DATE,
+                    ),
+                )
+            _assert_equal(
+                error.exit_status, EXIT_RECORD_REJECTED, "the status of the refusal"
+            )
+            listing = raw.list_objects_v2(Bucket=_SELF_TEST_BUCKET)
+            _assert_equal(listing.get("KeyCount"), 0, "objects in the bucket")
+    return (
+        f"{len(order)} trailing and {len(_EMBEDDED_CONTROL_CHARACTERS)} embedded "
+        "control characters refused, nothing uploaded"
+    )
+
+
+def _case_product_premium_allocation(scratch: _Scratch) -> str:
+    """Each policy type carries the amounts it populates and null in every other.
+
+    The allocation table is confirmed to cover exactly the policy types the schema's
+    enumeration admits, then one record per policy type is accepted and every
+    contradiction of the allocation is refused by the schema and by the allocation
+    check.
+    """
+    schema = load_schema()
+    validator = build_validator(schema, DEFAULT_SCHEMA)
+    declared = schema["properties"][POLICY_TYPE_FIELD]["enum"]
+    _assert_equal(
+        sorted(PREMIUM_ALLOCATION), sorted(declared), "the policy types allocated"
+    )
+
+    def _accepted(label: str, text: str) -> None:
+        """Require the schema and the allocation check to accept ``text``."""
+        path = scratch.write(f"record-premium-{label}.json", text)
+        record = parse_record(read_record_bytes(path), path)
+        validate_record(record, validator, path)
+        confirm_product_premium_allocation(record, path)
+
+    def _refused(label: str, text: str, name: str) -> None:
+        """Require both layers to refuse ``text``, naming the amount ``name``."""
+        path = scratch.write(f"record-premium-{label}.json", text)
+        record = parse_record(read_record_bytes(path), path)
+        schema_error = _assert_raises(
+            f"{label} against the schema",
+            RecordError,
+            "does not satisfy",
+            lambda: validate_record(record, validator, path),
+        )
+        _assert_in(name, str(schema_error), f"the schema diagnostic for {label}")
+        allocation_error = _assert_raises(
+            f"{label} against the allocation check",
+            RecordError,
+            POLICY_TYPE_FIELD,
+            lambda: confirm_product_premium_allocation(record, path),
+        )
+        _assert_in(name, str(allocation_error), f"the allocation diagnostic for {label}")
+
+    for label, changes in (
+        ("motor", {}),
+        ("commercial", _COMMERCIAL_CHANGES),
+        ("endowment", _ENDOWMENT_CHANGES),
+        ("house", _HOUSE_CHANGES),
+    ):
+        _accepted(label, _motor_record_text(**dict(changes)))
+    refusals = (
+        (
+            "commercial-carrying-a-motor-premium",
+            {**_COMMERCIAL_CHANGES, "motor_premium_amount": "450"},
+            "motor_premium_amount",
+        ),
+        (
+            "commercial-carrying-a-zero-motor-premium",
+            {**_COMMERCIAL_CHANGES, "motor_premium_amount": "0"},
+            "motor_premium_amount",
+        ),
+        (
+            "commercial-omitting-a-commercial-premium",
+            {**_COMMERCIAL_CHANGES, "crime_premium_amount": None},
+            "crime_premium_amount",
+        ),
+        (
+            "motor-carrying-a-commercial-premium",
+            {"fire_premium_amount": "13500"},
+            "fire_premium_amount",
+        ),
+        (
+            "motor-omitting-the-motor-premium",
+            {"motor_premium_amount": None},
+            "motor_premium_amount",
+        ),
+        (
+            "motor-omitting-the-payment",
+            {"payment_amount": None},
+            "payment_amount",
+        ),
+        (
+            "endowment-carrying-a-motor-premium",
+            {**_ENDOWMENT_CHANGES, "motor_premium_amount": "450"},
+            "motor_premium_amount",
+        ),
+        (
+            "house-carrying-a-commercial-premium",
+            {**_HOUSE_CHANGES, "flood_premium_amount": "7200"},
+            "flood_premium_amount",
+        ),
+    )
+    for label, changes, name in refusals:
+        _refused(label, _motor_record_text(**dict(changes)), name)
+    unallocated = scratch.write(
+        "record-premium-unallocated.json", _motor_record_text(policy_type="X")
+    )
+    _assert_raises(
+        "a record carrying a policy type the allocation does not cover",
+        RecordError,
+        "allocation is recorded for",
+        lambda: confirm_product_premium_allocation(
+            parse_record(read_record_bytes(unallocated), unallocated), unallocated
+        ),
+    )
+    return (
+        f"{len(PREMIUM_ALLOCATION)} policy types allocated, {len(refusals)} "
+        "contradictions refused"
+    )
+
+
 def _case_endpoint_accepted() -> str:
     """Every loopback endpoint form the policy accepts is returned unchanged."""
     for endpoint in _ACCEPTED_ENDPOINTS:
@@ -4169,7 +5555,7 @@ def _case_credentials_and_region_required(scratch: _Scratch) -> str:
 
 
 def _case_landing_uploads_bytes(scratch: _Scratch) -> str:
-    """One landing writes the record's own bytes to the derived key, and nothing else."""
+    """One landing writes the record's bytes and its manifest, and nothing else."""
     mock_aws, _ = _test_collaborators()
     path = scratch.write("record-upload.json", _motor_record_text())
     body = path.read_bytes()
@@ -4203,13 +5589,47 @@ def _case_landing_uploads_bytes(scratch: _Scratch) -> str:
             _assert_equal(
                 stored["ContentType"], OBJECT_CONTENT_TYPE, "the stored content type"
             )
+            manifest_key = build_manifest_key(
+                DEFAULT_SOURCE_SYSTEM_KEY, LANDING_ENTITY, _SELF_TEST_EXTRACT_DATE
+            )
+            expected_manifest = build_copy_manifest(uri, len(body)).encode("ascii")
+            stored_manifest = raw.get_object(
+                Bucket=_SELF_TEST_BUCKET, Key=manifest_key
+            )
+            manifest_bytes = stored_manifest["Body"].read()
+            _assert_equal(manifest_bytes, expected_manifest, "the stored manifest")
+            _assert_equal(
+                stored_manifest["ContentType"],
+                OBJECT_CONTENT_TYPE,
+                "the stored manifest content type",
+            )
+            entries = json.loads(manifest_bytes.decode("ascii"))["entries"]
+            _assert_equal(len(entries), 1, "entries the manifest names")
+            _assert_equal(entries[0]["url"], uri, "the URI the manifest entry names")
+            _assert_equal(entries[0]["mandatory"], True, "the entry's mandatory flag")
+            _assert_equal(
+                entries[0]["content_length"], len(body), "the entry's content length"
+            )
             listing = raw.list_objects_v2(Bucket=_SELF_TEST_BUCKET)
-            _assert_equal(listing.get("KeyCount"), 1, "objects in the bucket")
-    return f"{len(body)} bytes stored unchanged at the derived key"
+            _assert_equal(listing.get("KeyCount"), 2, "objects in the bucket")
+            _assert_equal(
+                sorted(entry["Key"] for entry in listing["Contents"]),
+                sorted((key, manifest_key)),
+                "the keys the landing wrote",
+            )
+            _assert_equal(
+                raw.get_object(Bucket=_SELF_TEST_BUCKET, Key=key)["Body"].read(),
+                body,
+                "the record's bytes after the manifest was written",
+            )
+    return (
+        f"{len(body)} bytes stored unchanged at the derived key, "
+        f"{len(expected_manifest)} manifest bytes beside them"
+    )
 
 
 def _case_upload_failure_reported(scratch: _Scratch) -> str:
-    """An upload the endpoint refuses is reported with the key and the right status."""
+    """A record or manifest upload the endpoint refuses is reported with its key."""
     _, Stubber = _test_collaborators()
     client = _stubbed_client()
     key = build_landing_key(
@@ -4240,7 +5660,52 @@ def _case_upload_failure_reported(scratch: _Scratch) -> str:
         )
         put_record(client, _SELF_TEST_BUCKET, key, b"{}\n")
         stubber.assert_no_pending_responses()
-    return "upload failure reported, upload parameters confirmed against the model"
+    manifest_key = build_manifest_key(
+        DEFAULT_SOURCE_SYSTEM_KEY, LANDING_ENTITY, _SELF_TEST_EXTRACT_DATE
+    )
+    manifest = build_copy_manifest(
+        build_object_uri(_SELF_TEST_BUCKET, key), 499
+    ).encode("ascii")
+    client = _stubbed_client()
+    with Stubber(client) as stubber:
+        stubber.add_client_error(
+            "put_object", service_error_code="AccessDenied", http_status_code=403
+        )
+        manifest_error = _assert_raises(
+            "a manifest upload the endpoint refuses",
+            AccessError,
+            "not permitted",
+            lambda: put_manifest(
+                client, _SELF_TEST_BUCKET, manifest_key, manifest
+            ),
+        )
+    _assert(
+        MANIFEST_OBJECT_NAME in str(manifest_error),
+        f"the manifest failure {str(manifest_error)!r} does not name the manifest key",
+    )
+    _assert_equal(
+        manifest_error.exit_status,
+        EXIT_S3_UNAVAILABLE,
+        "the status of the manifest failure",
+    )
+    client = _stubbed_client()
+    with Stubber(client) as stubber:
+        stubber.add_response(
+            "put_object",
+            {},
+            {
+                "Bucket": _SELF_TEST_BUCKET,
+                "Key": manifest_key,
+                "Body": manifest,
+                "ContentType": OBJECT_CONTENT_TYPE,
+            },
+        )
+        put_manifest(client, _SELF_TEST_BUCKET, manifest_key, manifest)
+        stubber.assert_no_pending_responses()
+    return (
+        "record and manifest upload failures reported, both sets of upload parameters "
+        "confirmed against the model"
+    )
 
 
 def _case_keys_built() -> str:
@@ -4813,6 +6278,665 @@ def _case_render_cli(scratch: _Scratch) -> str:
     return "sql and manifest rendered from options and from the environment"
 
 
+def _case_redshift_settings_resolved(scratch: _Scratch) -> str:
+    """Every Redshift setting resolves from the environment, two of them by default."""
+    with _controlled_environment(scratch, **_SELF_TEST_REDSHIFT):
+        settings = resolve_redshift_settings()
+    for value, variable, what in (
+        (settings.host, REDSHIFT_HOST_VARIABLE, "host"),
+        (settings.user, REDSHIFT_USER_VARIABLE, "user"),
+        (settings.password, REDSHIFT_PASSWORD_VARIABLE, "password"),
+        (settings.database, REDSHIFT_DATABASE_VARIABLE, "database"),
+        (settings.schema, REDSHIFT_SCHEMA_VARIABLE, "schema"),
+    ):
+        _assert_equal(value, _SELF_TEST_REDSHIFT[variable], f"the resolved {what}")
+    _assert_equal(
+        settings.port, DEFAULT_REDSHIFT_PORT, "the port with its variable unset"
+    )
+    _assert_equal(
+        settings.connect_timeout,
+        DEFAULT_REDSHIFT_CONNECT_TIMEOUT,
+        "the connect timeout with its variable unset",
+    )
+    blank = {REDSHIFT_PORT_VARIABLE: "   ", REDSHIFT_CONNECT_TIMEOUT_VARIABLE: "\t"}
+    with _controlled_environment(scratch, **_SELF_TEST_REDSHIFT, **blank):
+        unset = resolve_redshift_settings()
+    _assert_equal(unset.port, DEFAULT_REDSHIFT_PORT, "the port from a blank variable")
+    _assert_equal(
+        unset.connect_timeout,
+        DEFAULT_REDSHIFT_CONNECT_TIMEOUT,
+        "the connect timeout from a blank variable",
+    )
+    supplied = {
+        REDSHIFT_PORT_VARIABLE: "5451",
+        REDSHIFT_CONNECT_TIMEOUT_VARIABLE: "7",
+    }
+    with _controlled_environment(scratch, **_SELF_TEST_REDSHIFT, **supplied):
+        carried = resolve_redshift_settings()
+    _assert_equal(carried.port, 5451, "the port the environment carried")
+    _assert_equal(carried.connect_timeout, 7, "the timeout the environment carried")
+    shown = f"{settings!r} {settings} {settings.host!s:.0}"
+    for variable, value in _SELF_TEST_REDSHIFT.items():
+        _assert(
+            value not in shown,
+            f"a representation of the settings carries the {variable} value",
+        )
+    _assert_equal(
+        len(settings.redacted_values()), 5, "the values withheld from a driver reason"
+    )
+    return (
+        f"5 settings resolved, port {DEFAULT_REDSHIFT_PORT} and timeout "
+        f"{DEFAULT_REDSHIFT_CONNECT_TIMEOUT} by default, no value in a representation"
+    )
+
+
+def _case_redshift_settings_refused(scratch: _Scratch) -> str:
+    """Every unusable Redshift setting is refused by name, before any socket exists."""
+    def _without(variable: str) -> dict[str, str]:
+        """Return the settings with ``variable`` carrying nothing at all."""
+        return {
+            name: value
+            for name, value in _SELF_TEST_REDSHIFT.items()
+            if name != variable
+        }
+
+    def _carrying(variable: str, value: str) -> dict[str, str]:
+        """Return the settings with ``variable`` carrying ``value``."""
+        return {**_SELF_TEST_REDSHIFT, variable: value}
+
+    checks: list[tuple[str, dict[str, str], str, str]] = []
+    for variable, what in (
+        (REDSHIFT_HOST_VARIABLE, "host"),
+        (REDSHIFT_USER_VARIABLE, "user"),
+        (REDSHIFT_PASSWORD_VARIABLE, "password"),
+        (REDSHIFT_DATABASE_VARIABLE, "database"),
+        (REDSHIFT_SCHEMA_VARIABLE, "schema"),
+    ):
+        absent = f"no Redshift {what} is set: set {variable}"
+        checks.append((f"an absent {what}", _without(variable), absent, ""))
+        checks.append((f"a blank {what}", _carrying(variable, "   "), absent, ""))
+    refused_shape = "is not accepted"
+    for variable, value, fragment in (
+        (REDSHIFT_HOST_VARIABLE, "https://warehouse.example.aws", refused_shape),
+        (REDSHIFT_HOST_VARIABLE, "warehouse.example.aws:5439", refused_shape),
+        (REDSHIFT_HOST_VARIABLE, "warehouse .example.aws", refused_shape),
+        (REDSHIFT_HOST_VARIABLE, "-warehouse.example.aws", refused_shape),
+        (REDSHIFT_HOST_VARIABLE, "warehouse.example.aws/genapp", refused_shape),
+        (REDSHIFT_HOST_VARIABLE, "w" * 260, "at most 255"),
+        (REDSHIFT_HOST_VARIABLE, "127.0.0.1", "names a loopback address"),
+        (REDSHIFT_HOST_VARIABLE, "127.9.9.9", "names a loopback address"),
+        (REDSHIFT_HOST_VARIABLE, LOOPBACK_HOST_NAME, "names a loopback address"),
+        (REDSHIFT_USER_VARIABLE, "genapp loader", refused_shape),
+        (REDSHIFT_USER_VARIABLE, "u" * 130, "at most 127"),
+        (REDSHIFT_DATABASE_VARIABLE, "genapp;drop", refused_shape),
+        (REDSHIFT_DATABASE_VARIABLE, "genapp\ndrop", refused_shape),
+        (REDSHIFT_SCHEMA_VARIABLE, "raw'--", refused_shape),
+        (REDSHIFT_PASSWORD_VARIABLE, "p" * 300, "at most 256"),
+        (REDSHIFT_PASSWORD_VARIABLE, "secret\npassword", "carries a control"),
+    ):
+        checks.append(
+            (f"{variable} carrying an unusable value", _carrying(variable, value),
+             fragment, value)
+        )
+    for variable, value in (
+        (REDSHIFT_PORT_VARIABLE, "0"),
+        (REDSHIFT_PORT_VARIABLE, "70000"),
+        (REDSHIFT_PORT_VARIABLE, "abc"),
+        (REDSHIFT_PORT_VARIABLE, "-1"),
+        (REDSHIFT_PORT_VARIABLE, "54.39"),
+        (REDSHIFT_CONNECT_TIMEOUT_VARIABLE, "0"),
+        (REDSHIFT_CONNECT_TIMEOUT_VARIABLE, "99999"),
+        (REDSHIFT_CONNECT_TIMEOUT_VARIABLE, "ten"),
+    ):
+        checks.append(
+            (f"{variable} carrying {value!r}", _carrying(variable, value),
+             "is not a decimal whole number between", "")
+        )
+    for what, overrides, fragment, withheld in checks:
+        with _controlled_environment(scratch, **overrides):
+            error = _assert_raises(
+                what, ConfigurationError, fragment, resolve_redshift_settings
+            )
+        _assert_equal(
+            error.exit_status,
+            EXIT_CONFIGURATION_REJECTED,
+            f"the status of {what}",
+        )
+        _assert_equal(
+            _one_line(str(error)), str(error), f"the diagnostic of {what} as one line"
+        )
+        for variable, value in _SELF_TEST_REDSHIFT.items():
+            _assert(
+                value not in str(error),
+                f"the diagnostic of {what} carries the {variable} value",
+            )
+        if withheld:
+            _assert(
+                withheld not in str(error),
+                f"the diagnostic of {what} echoes the value it refused",
+            )
+    return f"{len(checks)} unusable Redshift settings refused by name, no value echoed"
+
+
+def _case_redshift_probe_succeeds(scratch: _Scratch) -> str:
+    """The probe runs SELECT 1, writes one temporary row and rolls the write back."""
+    with _controlled_environment(scratch, **_SELF_TEST_REDSHIFT):
+        settings = resolve_redshift_settings()
+    driver = _StandInRedshiftDriver()
+    with _captured_stderr() as captured:
+        verdict = probe_redshift_access(settings, driver)
+    _assert_equal(
+        verdict,
+        f"{REDSHIFT_PROBE_VERDICT} select={REDSHIFT_PROBE_STATEMENT_VALUE} "
+        f"write-probe={REDSHIFT_PROBE_WRITE_OUTCOME}",
+        "the probe verdict",
+    )
+    _assert_equal(
+        driver.connect_arguments,
+        {
+            "host": settings.host,
+            "port": DEFAULT_REDSHIFT_PORT,
+            "database": settings.database,
+            "user": settings.user,
+            "password": settings.password,
+            "timeout": DEFAULT_REDSHIFT_CONNECT_TIMEOUT,
+            "ssl": True,
+            "sslmode": REDSHIFT_SSL_MODE,
+            "application_name": REDSHIFT_APPLICATION_NAME,
+        },
+        "the connection parameters the probe supplied",
+    )
+    _assert_equal(len(driver.connections), 1, "the connections the probe opened")
+    connection = driver.connections[0]
+    _assert_equal(
+        connection.steps(),
+        ("select", "create", "insert", "count"),
+        "the steps the probe ran",
+    )
+    statements = [statement for statement, _ in connection.statements]
+    _assert_equal(statements[0], REDSHIFT_PROBE_STATEMENT, "the connectivity statement")
+    relation = statements[1].split()[3]
+    _assert(
+        bool(_IDENTIFIER_SHAPE.fullmatch(relation)),
+        f"the probe relation {relation!r} is not one unquoted identifier",
+    )
+    _assert(
+        relation.startswith(REDSHIFT_PROBE_RELATION_TEMPLATE.format(token="")),
+        f"the probe relation {relation!r} is not named for this probe",
+    )
+    _assert_equal(
+        statements[1],
+        f"CREATE TEMPORARY TABLE {relation} "
+        f"({REDSHIFT_PROBE_COLUMN} VARCHAR({REDSHIFT_PROBE_COLUMN_WIDTH}))",
+        "the write probe relation statement",
+    )
+    _assert_equal(
+        statements[2],
+        f"INSERT INTO {relation} ({REDSHIFT_PROBE_COLUMN}) VALUES (%s)",
+        "the write probe statement",
+    )
+    _assert_equal(
+        connection.statements[2][1],
+        (REDSHIFT_PROBE_VALUE,),
+        "the value the write probe bound",
+    )
+    _assert_equal(
+        statements[3], f"SELECT count(*) FROM {relation}", "the read-back statement"
+    )
+    _assert_equal(connection.rolled_back, 1, "the rollbacks the probe performed")
+    _assert_equal(connection.committed, 0, "the commits the probe performed")
+    _assert(connection.closed, "the probe left the connection open")
+    _assert_equal(len(connection.cursors), 4, "the cursors the probe opened")
+    _assert(
+        all(cursor.closed for cursor in connection.cursors),
+        "the probe left a cursor open",
+    )
+    _assert(
+        build_redshift_probe_relation() != build_redshift_probe_relation(),
+        "two write probes name the same relation",
+    )
+    reported = f"{verdict}\n{captured.getvalue()}"
+    for variable, value in _SELF_TEST_REDSHIFT.items():
+        _assert(
+            value not in reported,
+            f"the probe output carries the {variable} value",
+        )
+    return (
+        f"{len(statements)} statements, {REDSHIFT_PROBE_ROWS} row written and rolled "
+        "back, nothing provisioned, no setting value reported"
+    )
+
+
+def _case_redshift_reason_redaction(scratch: _Scratch) -> str:
+    """A driver reason keeps its own wording while every setting value goes.
+
+    The values are one character each, which is the shortest a setting can be and the
+    length a driver's own wording carries everywhere: the reason has to lose the value
+    the driver quoted, keep every word of the wording, and carry the placeholder once
+    per quoted value rather than a placeholder written into a placeholder.
+    """
+    short = RedshiftSettings(
+        host="h",
+        port=5439,
+        database="d",
+        user="u",
+        password="p",
+        schema="s",
+        connect_timeout=4,
+    )
+    reasons = (
+        (
+            "a name that did not resolve",
+            "('communication error', gaierror(-2, 'Name or service not known'))",
+            ("communication error", "gaierror", "Name or service not known"),
+        ),
+        (
+            "a connection that timed out",
+            "('connection time out', TimeoutError('timed out'))",
+            ("connection time out", "TimeoutError", "timed out"),
+        ),
+        (
+            "a quoted host, user and database",
+            "could not connect to 'h' as 'u' on 'd'.'s' with password 'p'",
+            ("could not connect to", "with password"),
+        ),
+    )
+    for what, supplied, kept in reasons:
+        reported = _redshift_reason(_StandInRedshiftError(supplied), short)
+        for value in short.redacted_values():
+            _assert(
+                f"'{value}'" not in reported,
+                f"the reason for {what} carries a quoted setting value",
+            )
+        for wording in kept:
+            _assert_in(wording, reported, f"the wording of {what}")
+        _assert(
+            f"{REDACTED_SETTING[:2]}{REDACTED_SETTING}" not in reported,
+            f"the reason for {what} carries a placeholder inside a placeholder",
+        )
+        _assert_equal(
+            _one_line(reported), reported, f"the reason for {what} as one line"
+        )
+    quoted = _redshift_reason(
+        _StandInRedshiftError("could not connect to 'h' as 'u' on 'd'.'s'"), short
+    )
+    _assert_equal(
+        quoted.count(REDACTED_SETTING), 4, "the placeholders of the quoted reason"
+    )
+    long = _redshift_reason(
+        _StandInRedshiftError("host genapp.example.com refused the connection"),
+        short._replace(host="genapp.example.com"),
+    )
+    _assert(
+        "genapp.example.com" not in long, "the reason carries the host it addressed"
+    )
+    return (
+        f"{len(reasons)} driver reasons kept their wording, "
+        f"{len(short.redacted_values())} setting values replaced once each"
+    )
+
+
+def _case_redshift_probe_failures(scratch: _Scratch) -> str:
+    """Every step of the probe that can fail is reported without a setting value."""
+    with _controlled_environment(scratch, **_SELF_TEST_REDSHIFT):
+        settings = resolve_redshift_settings()
+    quoted = (
+        f"could not connect to {settings.host} port {settings.port} as "
+        f"{settings.user} on {settings.database}.{settings.schema} with password "
+        f"{settings.password}"
+    )
+    checks: tuple[tuple[str, dict[str, BaseException], dict[str, Any], str], ...] = (
+        (
+            "a refused connection",
+            {"connect": _StandInRedshiftError(quoted)},
+            {},
+            "cannot reach the Redshift target",
+        ),
+        (
+            "an endpoint that does not answer",
+            {"connect": OSError(quoted)},
+            {},
+            "cannot reach the Redshift target",
+        ),
+        (
+            "a refused cursor",
+            {"cursor": _StandInRedshiftError("no cursor is available")},
+            {},
+            f"cannot run {REDSHIFT_PROBE_STATEMENT}",
+        ),
+        (
+            "a refused connectivity statement",
+            {"select": _StandInRedshiftError("the statement was refused")},
+            {},
+            f"cannot run {REDSHIFT_PROBE_STATEMENT}",
+        ),
+        (
+            "a connectivity answer of another shape",
+            {},
+            {"select": ()},
+            "rather than exactly one row",
+        ),
+        (
+            "a connectivity answer of another value",
+            {},
+            {"select": 2},
+            f"{REDSHIFT_PROBE_STATEMENT} answered 2",
+        ),
+        (
+            "a refused write probe relation",
+            {"create": _StandInRedshiftError("the relation was refused")},
+            {},
+            "cannot create the write probe relation",
+        ),
+        (
+            "a refused write",
+            {"insert": _StandInRedshiftError("the write was refused")},
+            {},
+            "cannot write the write probe row",
+        ),
+        (
+            "a refused read back",
+            {"count": _StandInRedshiftError("the read was refused")},
+            {},
+            "cannot read the write probe row back",
+        ),
+        (
+            "a row that was not counted back",
+            {},
+            {"count": 0},
+            "rows after one write",
+        ),
+        (
+            "a withdrawal that did not succeed",
+            {
+                "rollback": _StandInRedshiftError("no transaction is active"),
+                "drop": _StandInRedshiftError("the relation cannot be dropped"),
+            },
+            {},
+            "cannot withdraw the write probe relation",
+        ),
+    )
+    for what, refusals, answers, fragment in checks:
+        driver = _StandInRedshiftDriver(refusals=refusals, answers=answers)
+        with _captured_stderr() as captured:
+            error = _assert_raises(
+                what,
+                AccessError,
+                fragment,
+                lambda driver=driver: probe_redshift_access(settings, driver),
+            )
+        _assert_equal(
+            error.exit_status, EXIT_REDSHIFT_UNAVAILABLE, f"the status of {what}"
+        )
+        _assert_equal(
+            _one_line(str(error)), str(error), f"the diagnostic of {what} as one line"
+        )
+        reported = f"{error}\n{captured.getvalue()}"
+        for variable, value in _SELF_TEST_REDSHIFT.items():
+            _assert(
+                value not in reported,
+                f"the report of {what} carries the {variable} value",
+            )
+        if "connect" in refusals:
+            _assert_in(
+                REDACTED_SETTING, str(error), f"the reason reported for {what}"
+            )
+        for connection in driver.connections:
+            _assert(connection.closed, f"the connection was left open after {what}")
+
+    warned: list[str] = []
+    for what, refusals, fragment, steps in (
+        (
+            "a rollback that did not succeed",
+            {"rollback": _StandInRedshiftError("no transaction is active")},
+            "could not be rolled back",
+            ("select", "create", "insert", "count", "drop"),
+        ),
+        (
+            "a cursor that could not be closed",
+            {"cursor-close": _StandInRedshiftError("the cursor is gone")},
+            "cursor could not be closed",
+            ("select", "create", "insert", "count"),
+        ),
+        (
+            "a connection that could not be closed",
+            {"close": _StandInRedshiftError("the connection is gone")},
+            "connection could not be closed",
+            ("select", "create", "insert", "count"),
+        ),
+    ):
+        driver = _StandInRedshiftDriver(refusals=refusals)
+        with _captured_stderr() as captured:
+            verdict = probe_redshift_access(settings, driver)
+        _assert_in(REDSHIFT_PROBE_VERDICT, verdict, f"the verdict after {what}")
+        _assert_in(fragment, captured.getvalue(), f"the warning after {what}")
+        _assert_equal(
+            driver.connections[0].steps(), steps, f"the steps run after {what}"
+        )
+        for variable, value in _SELF_TEST_REDSHIFT.items():
+            _assert(
+                value not in captured.getvalue(),
+                f"the warning after {what} carries the {variable} value",
+            )
+        warned.append(what)
+    return (
+        f"{len(checks)} refused steps reported as access failures and "
+        f"{len(warned)} warned about, no setting value in any of them"
+    )
+
+
+def _case_redshift_probe_branch(scratch: _Scratch) -> str:
+    """The Redshift probe addresses the real branch alone and stands on its own."""
+    record = scratch.write("record-redshift-probe.json", _motor_record_text())
+    local = _run_cli(scratch, ["--probe-redshift"], **_SELF_TEST_REDSHIFT)
+    _assert_equal(
+        local.status, EXIT_CONFIGURATION_REJECTED, "the status in the local branch"
+    )
+    _assert_in(RUN_MODE_VARIABLE, local.stderr, "the local-branch diagnostic")
+    _assert_one_diagnostic(local.stderr)
+    for what, argv, overrides, fragment in (
+        (
+            "an endpoint on the command line",
+            ["--probe-redshift", "--run-mode", RUN_MODE_REAL,
+             "--endpoint-url", "http://127.0.0.1:5000"],
+            _SELF_TEST_REDSHIFT,
+            "--endpoint-url",
+        ),
+        (
+            "an endpoint in the environment",
+            ["--probe-redshift", "--run-mode", RUN_MODE_REAL],
+            {**_SELF_TEST_REDSHIFT, ENDPOINT_URL_VARIABLE: "http://127.0.0.1:5000"},
+            ENDPOINT_URL_VARIABLE,
+        ),
+        (
+            "no Redshift setting at all",
+            ["--probe-redshift", "--run-mode", RUN_MODE_REAL],
+            {},
+            REDSHIFT_HOST_VARIABLE,
+        ),
+        (
+            "a loopback Redshift host",
+            ["--probe-redshift", "--run-mode", RUN_MODE_REAL],
+            {**_SELF_TEST_REDSHIFT, REDSHIFT_HOST_VARIABLE: "127.0.0.1"},
+            "loopback address",
+        ),
+        (
+            "--record alongside the probe",
+            ["--probe-redshift", "--run-mode", RUN_MODE_REAL, "--record", str(record)],
+            _SELF_TEST_REDSHIFT,
+            "--probe-redshift accepts no --record",
+        ),
+        (
+            "--probe alongside the probe",
+            ["--probe-redshift", "--run-mode", RUN_MODE_REAL, "--probe"],
+            _SELF_TEST_REDSHIFT,
+            "--probe-redshift accepts no --probe",
+        ),
+        (
+            "--render-redshift-load alongside the probe",
+            ["--probe-redshift", "--run-mode", RUN_MODE_REAL,
+             "--render-redshift-load", RENDER_DOCUMENT_SQL],
+            _SELF_TEST_REDSHIFT,
+            "--probe-redshift accepts no --render-redshift-load",
+        ),
+        (
+            "--self-test alongside the probe",
+            ["--self-test", "--probe-redshift"],
+            _SELF_TEST_REDSHIFT,
+            "--self-test accepts no --probe-redshift",
+        ),
+    ):
+        run = _run_cli(scratch, argv, **overrides)
+        _assert_equal(
+            run.status, EXIT_CONFIGURATION_REJECTED, f"the status with {what}"
+        )
+        _assert_equal(run.stdout, "", f"stdout with {what}")
+        _assert_in(fragment, run.stderr, f"the diagnostic with {what}")
+        _assert_one_diagnostic(run.stderr)
+        _assert(
+            "addressing the Redshift target" not in run.stderr,
+            f"the run with {what} addressed the target before refusing the settings",
+        )
+        _assert(
+            BUCKET_VARIABLE not in run.stderr,
+            f"the run with {what} resolved a bucket setting before its own",
+        )
+        for variable, value in _SELF_TEST_REDSHIFT.items():
+            _assert(
+                value not in run.stderr,
+                f"the diagnostic with {what} carries the {variable} value",
+            )
+    return "the probe refused 9 runs that did not address the real Redshift branch"
+
+
+def _case_environment_guard(scratch: _Scratch) -> str:
+    """Confirm the environment check accepts this run and refuses the others.
+
+    The interpreter running the matrix carries the pinned series and the pinned version
+    of every distribution named, so the unpatched check returns without writing. Each
+    refusal is then observed with the pinned values replaced for the duration of one
+    call: another series, a distribution that is not installed and a distribution at
+    another version each end the run with ``EXIT_ENVIRONMENT_REJECTED`` and one line
+    naming what was found, the pin and the interpreter to run this tool through.
+    """
+    _assert_equal(
+        confirm_pinned_environment(), None, "the check of a pinned environment"
+    )
+    refused: list[str] = []
+    for what, series, distributions, expected in (
+        (
+            "another interpreter series",
+            (sys.version_info[0], sys.version_info[1] + 1),
+            PINNED_DISTRIBUTIONS,
+            "series, and the interpreter running it is Python",
+        ),
+        (
+            "a distribution that is not installed",
+            PINNED_PYTHON_SERIES,
+            (("genapp-rqi-absent-distribution", "1.0.0"),),
+            "is not installed for the interpreter at",
+        ),
+        (
+            "a distribution at another version",
+            PINNED_PYTHON_SERIES,
+            (("jsonschema", "0.0.1"),),
+            "pins jsonschema 0.0.1; run this tool through",
+        ),
+    ):
+        original_series = globals()["PINNED_PYTHON_SERIES"]
+        original_distributions = globals()["PINNED_DISTRIBUTIONS"]
+        globals()["PINNED_PYTHON_SERIES"] = series
+        globals()["PINNED_DISTRIBUTIONS"] = distributions
+        status: Any = None
+        with _captured_stderr() as captured:
+            try:
+                confirm_pinned_environment()
+            except SystemExit as request:
+                status = request.code
+            finally:
+                globals()["PINNED_PYTHON_SERIES"] = original_series
+                globals()["PINNED_DISTRIBUTIONS"] = original_distributions
+        _assert_equal(status, EXIT_ENVIRONMENT_REJECTED, f"the status of {what}")
+        lines = [line for line in captured.getvalue().splitlines() if line]
+        _assert_equal(len(lines), 1, f"the lines reported for {what}")
+        _assert_in(expected, lines[0], f"the line reported for {what}")
+        _assert(
+            lines[0].startswith(f"{_PROGRAM}: "),
+            f"the line reported for {what} names this tool",
+        )
+        _assert_equal(_one_line(lines[0]), lines[0], f"that line for {what}")
+        refused.append(what)
+    return (
+        f"the pinned environment accepted, {len(refused)} environments refused with "
+        f"status {EXIT_ENVIRONMENT_REJECTED}"
+    )
+
+
+def _case_interrupt_reported(scratch: _Scratch) -> str:
+    """An interrupt is one line and status 130, from the report and from a run.
+
+    The line is the one the reporting installed above the imports writes, which is the
+    line a run interrupted anywhere else writes as well: the command-line case reaches
+    it through a resolution step that is interrupted, and the probe cases through a
+    driver step that is.
+    """
+    with _captured_stderr() as captured:
+        _report_interrupt()
+    lines = [line for line in captured.getvalue().splitlines() if line]
+    _assert_equal(lines, [INTERRUPTED_MESSAGE], "the lines an interrupt reports")
+    _assert_equal(
+        INTERRUPTED_MESSAGE,
+        f"{_PROGRAM}: interrupted before completion",
+        "the line an interrupt reports",
+    )
+    _assert_equal(
+        _one_line(INTERRUPTED_MESSAGE), INTERRUPTED_MESSAGE, "that line as one line"
+    )
+    _assert_equal(EXIT_INTERRUPTED, 130, "the status an interrupt returns")
+    record = scratch.write("record-interrupted.json", _motor_record_text())
+
+    def _interrupt(_supplied: str | None) -> str:
+        """Interrupt the run at the first setting it resolves."""
+        raise KeyboardInterrupt
+
+    original = globals()["resolve_bucket"]
+    globals()["resolve_bucket"] = _interrupt
+    try:
+        run = _run_cli(scratch, ["--record", str(record)])
+    finally:
+        globals()["resolve_bucket"] = original
+    _assert_equal(run.status, EXIT_INTERRUPTED, "the status of an interrupted run")
+    _assert_equal(run.stdout, "", "stdout of an interrupted run")
+    _assert_equal(
+        [line for line in run.stderr.splitlines() if line],
+        [INTERRUPTED_MESSAGE],
+        "the stderr of an interrupted run",
+    )
+    with _controlled_environment(scratch, **_SELF_TEST_REDSHIFT):
+        settings = resolve_redshift_settings()
+    for step in ("connect", "select", "insert"):
+        driver = _StandInRedshiftDriver(refusals={step: KeyboardInterrupt()})
+        with _captured_stderr():
+            _assert_raises(
+                f"an interrupt at the {step} step of the probe",
+                KeyboardInterrupt,
+                "",
+                lambda driver=driver: probe_redshift_access(settings, driver),
+            )
+        for connection in driver.connections:
+            _assert(
+                connection.closed,
+                f"the connection was left open by an interrupt at {step}",
+            )
+        if step == "insert":
+            _assert_equal(
+                driver.connections[0].rolled_back,
+                1,
+                "the rollbacks after an interrupted write",
+            )
+    return f"{INTERRUPTED_MESSAGE!r} and status {EXIT_INTERRUPTED}"
+
+
 def _case_exit_codes(scratch: _Scratch) -> str:
     """Every documented exit status is reachable, and none is reported for a success."""
     mock_aws, _ = _test_collaborators()
@@ -5020,9 +7144,10 @@ def run_self_test(*, quiet: bool = False, stream: Any = None) -> int:
     the last case removes, so no case reads or writes a path inside the repository other
     than the landing schema and the Redshift load template it validates against. No case
     reaches a network endpoint: the S3 collaborators are the pinned boto3 client driven
-    through moto in this process and through botocore's own stubber, and every
-    environment variable this tool consults is set by the case that needs it and
-    restored afterwards.
+    through moto in this process and through botocore's own stubber, the Redshift probe
+    is driven through a stand-in for the pinned driver, so no case opens a socket to a
+    warehouse or carries a credential to one, and every environment variable this tool
+    consults is set by the case that needs it and restored afterwards.
     """
     out = sys.stdout if stream is None else stream
     results: list[_CaseResult] = []
@@ -5044,6 +7169,14 @@ def run_self_test(*, quiet: bool = False, stream: Any = None) -> int:
         _run_case(
             results, out, quiet, "duplicate_members_refused",
             lambda: _case_duplicate_members_refused(scratch),
+        )
+        _run_case(
+            results, out, quiet, "control_characters_refused",
+            lambda: _case_control_characters_refused(scratch),
+        )
+        _run_case(
+            results, out, quiet, "product_premium_allocation",
+            lambda: _case_product_premium_allocation(scratch),
         )
         _run_case(results, out, quiet, "endpoint_accepted", _case_endpoint_accepted)
         _run_case(results, out, quiet, "endpoint_refused", _case_endpoint_refused)
@@ -5108,6 +7241,38 @@ def run_self_test(*, quiet: bool = False, stream: Any = None) -> int:
         )
         _run_case(results, out, quiet, "sql_split_matrix", _case_sql_split_matrix)
         _run_case(results, out, quiet, "render_cli", lambda: _case_render_cli(scratch))
+        _run_case(
+            results, out, quiet, "redshift_settings_resolved",
+            lambda: _case_redshift_settings_resolved(scratch),
+        )
+        _run_case(
+            results, out, quiet, "redshift_settings_refused",
+            lambda: _case_redshift_settings_refused(scratch),
+        )
+        _run_case(
+            results, out, quiet, "redshift_probe_succeeds",
+            lambda: _case_redshift_probe_succeeds(scratch),
+        )
+        _run_case(
+            results, out, quiet, "redshift_probe_failures",
+            lambda: _case_redshift_probe_failures(scratch),
+        )
+        _run_case(
+            results, out, quiet, "redshift_reason_redaction",
+            lambda: _case_redshift_reason_redaction(scratch),
+        )
+        _run_case(
+            results, out, quiet, "redshift_probe_branch",
+            lambda: _case_redshift_probe_branch(scratch),
+        )
+        _run_case(
+            results, out, quiet, "environment_guard",
+            lambda: _case_environment_guard(scratch),
+        )
+        _run_case(
+            results, out, quiet, "interrupt_reported",
+            lambda: _case_interrupt_reported(scratch),
+        )
         _run_case(results, out, quiet, "exit_codes", lambda: _case_exit_codes(scratch))
     finally:
         _run_case(
@@ -5153,36 +7318,52 @@ def build_arg_parser() -> argparse.ArgumentParser:
     and the option wins whenever both carry a value. Abbreviated option names are not
     accepted.
     """
-    key_template = KEY_SEPARATOR.join(
+    key_prefix_template = KEY_SEPARATOR.join(
         (
             LANDING_KEY_ROOT,
             f"source_system_key=<{SOURCE_SYSTEM_KEY_VARIABLE}>",
             f"entity={LANDING_ENTITY}",
             f"extract_date=<{EXTRACT_DATE_FORM}>",
-            OBJECT_NAME,
         )
+    )
+    key_template = f"{key_prefix_template}{KEY_SEPARATOR}{OBJECT_NAME}"
+    manifest_key_template = (
+        f"{key_prefix_template}{KEY_SEPARATOR}{MANIFEST_OBJECT_NAME}"
     )
     parser = _CommandLineParser(
         prog=_PROGRAM,
         allow_abbrev=False,
         description=(
-            "Validate one GenApp Policy-Issue landing record and write it as a single "
-            "S3 object under the landing prefix.\n"
+            "Validate one GenApp Policy-Issue landing record, write it as a single "
+            "S3 object under the landing prefix and write the COPY manifest naming "
+            "that object beside it.\n"
             "The bytes of the record file are the bytes uploaded: no amount is "
             "derived, no key is added, removed, renamed or reordered, and the JSON is "
             "never re-serialised.\n"
             "A repeated JSON member name is refused, every date is held to the "
             "calendar, and every timestamp is parsed as one real instant.\n"
-            "Exit status: 0 success, 2 record rejected, 3 command line or setting "
-            "rejected, 4 S3 endpoint, bucket or object operation unsuccessful, 130 "
-            "interrupted."
+            "Exit status: 0 success, 2 record rejected, 3 runtime environment, "
+            "command line or setting rejected, 4 S3 endpoint, bucket or object "
+            "operation unsuccessful or "
+            "Redshift target unreachable or refusing, 5 self-test case failed, 130 "
+            "interrupted, which is that status and one line wherever the interrupt "
+            "arrives, the imports of this tool included."
         ),
         epilog=(
             f"Object key: {key_template}\n"
-            f"Object URI: {SERVICE_NAME}://<bucket>/<key>, written with content type "
-            f"{OBJECT_CONTENT_TYPE}. Partitioning applies to this key prefix alone.\n"
+            f"Manifest key: {manifest_key_template}\n"
+            f"Object URI: {SERVICE_NAME}://<bucket>/<key>, both written with content "
+            f"type {OBJECT_CONTENT_TYPE}. Partitioning applies to this key prefix "
+            "alone.\n"
+            "A landing writes the record first and the manifest second, in either run "
+            "mode. The manifest carries one entry naming the record's own URI, "
+            "mandatory true and the byte count written, and is byte-identical to what "
+            f"--render-redshift-load {RENDER_DOCUMENT_MANIFEST} prints for the same "
+            "record, so the real-branch order is land, bootstrap the raw relation, "
+            "then run the COPY of load_redshift.sql.\n"
             "In landing mode stdout carries exactly one line, the URI of the object "
-            "written; in probe mode it carries exactly one line, the probe verdict. "
+            "written; in either probe mode it carries exactly one line, that probe's "
+            "verdict. "
             "Every other message reaches stderr, no credential, token or endpoint "
             "value is ever printed, and a rejected record is reported by field, "
             "validation keyword and value shape rather than by value.\n"
@@ -5195,9 +7376,20 @@ def build_arg_parser() -> argparse.ArgumentParser:
             "Access is established from resolved credentials, a resolved region and a "
             "bucket that answers a head request, and an environment variable whose "
             "name merely begins with AWS is never read as a credential.\n"
-            "This tool creates no bucket and provisions nothing. It writes one object "
-            "and nothing to the local filesystem.\n"
+            f"--probe-redshift is the gate's second half and addresses the real target "
+            f"alone: it requires run mode {RUN_MODE_REAL}, no endpoint override and a "
+            "Redshift host that is not a loopback address, each refused by the setting "
+            "it came from before a socket is opened. It connects with the REDSHIFT_* "
+            f"settings {REDSHIFT_PROFILE_DOCUMENT} documents, runs "
+            f"{REDSHIFT_PROBE_STATEMENT}, and creates, writes, counts and rolls back "
+            "one temporary relation. No host, port, user, database, schema or password "
+            "value reaches stdout, stderr or a diagnostic, and a reason the driver "
+            "supplied is carried with every one of those values removed.\n"
+            "This tool creates no bucket and provisions nothing: no cluster, "
+            "workgroup, database, schema, durable relation, network or IAM object. It "
+            "writes those two objects and nothing to the local filesystem.\n"
             "Decision rationale: modernization/docs/decision-log.md"
+            " (planned deliverable; not present at this milestone)"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -5208,8 +7400,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
         metavar="PATH",
         help=(
             "landing JSON record written by extract_commarea.py, uploaded byte for "
-            f"byte, of at most {MAX_RECORD_BYTES} bytes; required unless --probe is "
-            "given, which reads no record"
+            f"byte, of at most {MAX_RECORD_BYTES} bytes; required unless --probe or "
+            "--probe-redshift is given, which read no record"
         ),
     )
     parser.add_argument(
@@ -5299,8 +7491,30 @@ def build_arg_parser() -> argparse.ArgumentParser:
         action="store_true",
         help=(
             "confirm credentials, region and bucket access by writing and deleting one "
-            "probe object outside the landing prefix, then exit; no landing object is "
-            "written and no record is read"
+            "probe object outside the landing prefix, then exit; no landing object and "
+            "no manifest are written and no record is read"
+        ),
+    )
+    parser.add_argument(
+        "--probe-redshift",
+        action="store_true",
+        help=(
+            "confirm access to the real Redshift target and exit, which is the second "
+            "half of the precondition gate: connect with the REDSHIFT_* settings "
+            f"{REDSHIFT_PROFILE_DOCUMENT} documents, run "
+            f"{REDSHIFT_PROBE_STATEMENT}, then create, write, count and roll back one "
+            "temporary relation. Nothing is provisioned: no cluster, workgroup, "
+            "database, schema, durable relation, network or IAM object, and no bucket. "
+            f"Every setting is read from the environment - {REDSHIFT_HOST_VARIABLE}, "
+            f"{REDSHIFT_USER_VARIABLE}, {REDSHIFT_PASSWORD_VARIABLE}, "
+            f"{REDSHIFT_DATABASE_VARIABLE} and {REDSHIFT_SCHEMA_VARIABLE} are "
+            f"required, {REDSHIFT_PORT_VARIABLE} defaults to {DEFAULT_REDSHIFT_PORT} "
+            f"and {REDSHIFT_CONNECT_TIMEOUT_VARIABLE} to "
+            f"{DEFAULT_REDSHIFT_CONNECT_TIMEOUT} seconds - and no value of any of them "
+            "is printed. It requires run mode "
+            f"{RUN_MODE_REAL} and no endpoint override, reads no record, writes no "
+            "object, and is exclusive with --record, --probe, "
+            "--render-redshift-load and --self-test"
         ),
     )
     parser.add_argument(
@@ -5401,7 +7615,7 @@ def _require_record_path(supplied: Path | None) -> Path:
         raise UsageError(
             "no landing record is named: supply --record with the path to the record "
             "extract_commarea.py wrote. It is required for every landing run, and only "
-            "--probe, which reads no record, may omit it"
+            "--probe and --probe-redshift, which read no record, may omit it"
         )
     return supplied
 
@@ -5409,18 +7623,35 @@ def _require_record_path(supplied: Path | None) -> Path:
 def _run(args: argparse.Namespace) -> str:
     """Run one probe, one render or one landing, returning what stdout carries.
 
-    The bucket, region and endpoint settings resolve first, so an unresolved setting is
+    In Redshift probe mode nothing of the S3 side is resolved at all - no bucket, no
+    region, no credential and no client - since that probe addresses the warehouse: the
+    endpoint and run-mode settings are resolved only to establish that the run selects
+    the real branch, the Redshift settings are resolved and shaped, and one connection
+    is then opened, questioned and closed. Otherwise the bucket, region and endpoint
+    settings resolve first, so an unresolved setting is
     reported before anything else runs, and the run mode is reconciled with the resolved
     endpoint before any session, client or credential exists. In probe mode the client and
     its credentials are resolved next and one probe object is written and deleted: no
-    record is read and no landing object is written. In landing mode ``land_record``
-    reads, parses and validates the record and builds the landing key next, and only then
-    are the client and its credentials resolved, the bucket confirmed reachable and the
-    object written. A record that breaches the landing contract is therefore reported
+    record is read and neither landing object is written. In landing mode
+    ``land_record`` reads, parses and validates the record and builds the landing and
+    manifest keys next, and only then are the client and its credentials resolved, the
+    bucket confirmed reachable, the record written and the manifest written beside it.
+    A record that breaches the landing contract is therefore reported
     before any client exists, and an unresolved credential is reported after the record
     has been read and validated. In render mode no session, client, credential or request
     is involved at all, and the rendered document is returned as written.
     """
+    if args.probe_redshift:
+        endpoint_url, endpoint_origin = resolve_endpoint_url(args.endpoint_url)
+        run_mode, run_mode_origin = resolve_run_mode(args.run_mode)
+        confirm_redshift_probe_branch(
+            run_mode, run_mode_origin, endpoint_url, endpoint_origin
+        )
+        _note(
+            f"run mode {_shown(run_mode)} from {run_mode_origin}, probing the real "
+            "Redshift target"
+        )
+        return probe_redshift_access(resolve_redshift_settings())
     bucket = resolve_bucket(args.bucket)
     region = resolve_region(args.region)
     if args.render_redshift_load is not None:
@@ -5482,6 +7713,7 @@ def main(argv: list[str] | None = None) -> int:
             for option, present in (
                 ("--record", args.record is not None),
                 ("--probe", args.probe),
+                ("--probe-redshift", args.probe_redshift),
                 ("--render-redshift-load", args.render_redshift_load is not None),
             ):
                 if present:
@@ -5489,12 +7721,20 @@ def main(argv: list[str] | None = None) -> int:
             return run_self_test(quiet=args.quiet)
         if args.probe and args.render_redshift_load is not None:
             parser.error("--probe and --render-redshift-load are exclusive")
+        if args.probe_redshift:
+            for option, present in (
+                ("--record", args.record is not None),
+                ("--probe", args.probe),
+                ("--render-redshift-load", args.render_redshift_load is not None),
+            ):
+                if present:
+                    parser.error(f"--probe-redshift accepts no {option}")
         result = _run(args)
     except LandingError as error:
         print(f"{_PROGRAM}: {_one_line(str(error))}", file=sys.stderr)
         return error.exit_status
     except KeyboardInterrupt:
-        print(f"{_PROGRAM}: interrupted before completion", file=sys.stderr)
+        _report_interrupt()
         return EXIT_INTERRUPTED
 
     if args.render_redshift_load is not None:

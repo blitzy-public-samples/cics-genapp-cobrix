@@ -1,3 +1,4 @@
+STATUS_LABEL=validated against local substitute, not AWS
 CASE=01AMOT
 FIXTURE=01amot
 SAMPLE_RECORD_LENGTH=32500
