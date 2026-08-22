@@ -85,11 +85,27 @@
 --     object, in the same landing run and after the object itself, at the landing
 --     prefix with the object name replaced:
 --       landing/source_system_key=<key>/entity=policy_issue/extract_date=<date>/part-0000.manifest.json
---     The manifest holds one JSON object naming one entry, whose url is the validated
---     object, whose mandatory flag is true and whose content_length is the byte count
---     of that object, so an absent object and an object of any other length both fail
---     the COPY instead of loading nothing:
---       {"entries":[{"url":"s3://<bucket>/landing/source_system_key=<key>/entity=policy_issue/extract_date=<date>/part-0000.json","mandatory":true,"content_length":<bytes>}]}
+--     The manifest holds one JSON object naming one entry, in the shape Amazon
+--     Redshift's manifest schema fixes: url is the validated object, the mandatory flag
+--     is true, so an absent object fails the COPY instead of loading nothing, and the
+--     byte count of that object sits under a nested meta member, where the manifest
+--     schema places it and where Amazon Redshift verifies it for a columnar format.
+--     This COPY is FORMAT AS JSON, for which Amazon Redshift performs no
+--     content-length check, so that byte count records the object the manifest was
+--     written for rather than being enforced by the COPY. It is written indented by
+--     two spaces and terminated by one line feed, exactly as shown here with the
+--     bucket, key, date and byte count of the run substituted:
+--       {
+--         "entries": [
+--           {
+--             "url": "s3://<bucket>/landing/source_system_key=<key>/entity=policy_issue/extract_date=<date>/part-0000.json",
+--             "mandatory": true,
+--             "meta": {
+--               "content_length": <bytes>
+--             }
+--           }
+--         ]
+--       }
 --     The url and the manifest key are built from the same validated components as the
 --     COPY location below, and
 --       modernization/landing/land_to_s3.py --render-redshift-load manifest --record <record>
@@ -137,8 +153,8 @@
 -- no AWS access is available on this branch, and these statements have never been run
 -- against a real target, so formal AWS validation of this loader remains OPEN. Results
 -- obtained through modernization/landing/load_local.py are local-substitute results and
--- close nothing here. modernization/validation/validation-evidence.md will record that
--- status; it is a planned deliverable and is not present at this milestone.
+-- close nothing here. modernization/validation/validation-evidence.md records that
+-- status.
 --
 -- Substitution. The only supported substitution path for the placeholder tokens in
 -- this file is
@@ -198,14 +214,17 @@
 --                          no versions
 --
 -- Object binding. The COPY below reads a manifest rather than the object key directly,
--- so the load is bound to the object that was validated instead of to whatever object
--- currently sits at the key. That manifest is already on the bucket: a successful
+-- so the object list is the one the landing writer produced and no sibling key sharing
+-- the prefix is read. That manifest is already on the bucket: a successful
 --     modernization/landing/land_to_s3.py --record <record>
 -- writes it as part-0000.manifest.json beside the record under the same landing prefix,
--- with one entry carrying the landed object's URL, "mandatory": true and
--- "content_length" set to the byte count recorded below, so a replaced object of any
--- other length fails the COPY and a removed object fails it rather than loading
--- nothing. The same document, byte for byte, is printed by
+-- with one entry carrying the landed object's URL, "mandatory": true and a nested
+-- "meta" member whose "content_length" is the byte count recorded below, which is where
+-- Amazon Redshift's manifest schema places it. "mandatory": true makes a removed object
+-- fail the COPY rather than load nothing; this COPY is FORMAT AS JSON, for which Amazon
+-- Redshift performs no content-length check, so that byte count records the object this
+-- load was bound to and is confirmed by the head-object call below rather than by the
+-- COPY. The same document, byte for byte, is printed by
 --     modernization/landing/land_to_s3.py --render-redshift-load manifest --record <record>
 -- for reading it without an S3 request. Confirm the recorded identity below against
 --     aws s3api head-object --bucket ${S3_BUCKET} --key <key>
@@ -225,7 +244,6 @@
 -- Diagram reference: Figure 2 — AFTER (BUILT): Canonical Warehouse Bridge, in
 -- modernization/docs/architecture.md.
 -- Rationale for every choice in this file: modernization/docs/decision-log.md
--- (planned deliverable; not present at this milestone)
 
 -- Statement 1 of 11. Bounds every statement of this load, including the COPY, for the
 -- remainder of the session. Amazon Redshift cancels a statement that exceeds the value.

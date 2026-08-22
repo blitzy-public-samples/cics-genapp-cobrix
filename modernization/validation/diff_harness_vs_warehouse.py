@@ -100,7 +100,13 @@ WHICH INPUTS IT ACCEPTS
                     modernization/validation/artifacts/diff-report.json.
     --expected-dir  directory of the per-case capture snapshots. Default
                     modernization/validation/expected.
-    --quiet         print the verdict line alone.
+    --self-test     run the built-in case matrix and exit; it opens no warehouse,
+                    reaches no endpoint, reads no harness output and writes
+                    nothing outside one private temporary directory it creates
+                    and removes. It is refused alongside any other option but
+                    --quiet.
+    --quiet         print the verdict line alone; with --self-test, print the
+                    failing case lines and the summary line alone.
 
     The Redshift target reads REDSHIFT_HOST, REDSHIFT_PORT, REDSHIFT_DATABASE,
     REDSHIFT_USER and REDSHIFT_PASSWORD, the variable contract of
@@ -128,6 +134,30 @@ WHAT IT WRITES
     AWS" and the report states that these results leave the formal AWS diff
     requirement OPEN.
 
+WHAT --self-test CHECKS
+    That this gate can fail, and on which inputs. The matrix drives the
+    comparison functions in this process over built records: a non-amount value
+    the warehouse carries differently, an amount delta of zero, one below the
+    tolerance, one exactly at it, one just above it and one well above it, a
+    warehouse amount carrying another scale, an absent harness authority and a
+    column with no authority at all, the NULL expectation of a product premium
+    in both directions, the blank-window path of a nullable column in both
+    directions, two harness authorities that disagree, a warehouse NULL where the
+    harness carries a value, a harness value and a warehouse value neither
+    normalisation reads, and the five normalisations over values that do compare
+    equal. It then drives the statuses those records produce: the status and
+    verdict of one case and of the run, the precedence over every ordered pair of
+    the declared statuses, the Markdown report, the JSON document and the summary
+    line of a failing run, and the refusal of an output path resolving inside a
+    protected tree. Every case asserts an observed value, and one case asserts
+    that a failing case returns the self-test status.
+
+    The matrix opens no warehouse, reaches no endpoint, reads no harness output
+    and reads no field map. It writes two reports and one document inside one
+    private temporary directory it creates and the last case removes, so no path
+    of this repository is written and the reports of the last comparison run
+    stand untouched.
+
 HOW IT FAILS
     0   every comparison passed. A non-zero delta inside the tolerance is
         reported in the unexpected_in_tolerance section and returns 0.
@@ -144,6 +174,8 @@ HOW IT FAILS
         target that cannot be opened, an absent Redshift setting, an adapter
         that is not installed, or a field map that disagrees with the byte grid
         this tool carries. Nothing is written on this path.
+    5   one case of --self-test did not hold. It is returned by --self-test
+        alone: a comparison run never returns it.
 
 WHERE THIS STEP SITS
     Figure 5 — Validation Harness Control Flow in
@@ -157,11 +189,14 @@ from __future__ import annotations
 import argparse
 import contextlib
 import datetime
+import io
 import json
 import os
 import re
+import shutil
 import sys
-from collections.abc import Iterable, Mapping, Sequence
+import tempfile
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
@@ -202,6 +237,11 @@ EXIT_COMPARISON_FAILED = 1
 EXIT_HARNESS_INPUT = 2
 EXIT_WAREHOUSE_REFUSED = 3
 EXIT_CONFIGURATION = 4
+
+# Status --self-test returns when one of its cases did not hold. A comparison
+# run never returns it, and it stands outside _EXIT_PRECEDENCE, which orders the
+# statuses a comparison contributes.
+EXIT_SELF_TEST_FAILED = 5
 
 # Order the statuses are reported in when a run collects more than one.
 _EXIT_PRECEDENCE = (
@@ -3433,6 +3473,7 @@ exit statuses:
   3  the warehouse content was refused: a canonical relation or column set other
      than the declared one, or other than exactly one row for a natural key
   4  a connection, configuration or usage failure; nothing is written
+  5  one case of --self-test did not hold; a comparison run never returns it
 """
 
 
@@ -3554,11 +3595,67 @@ def build_parser() -> _ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--self-test",
+        action="store_true",
+        help=(
+            "run the built-in case matrix and exit. It opens no warehouse, reaches "
+            "no endpoint, reads no harness output and no field map, and writes "
+            "nothing outside one private temporary directory it creates and "
+            "removes; a case that does not hold returns "
+            f"{EXIT_SELF_TEST_FAILED}. Accepted with --quiet alone."
+        ),
+    )
+    parser.add_argument(
         "--quiet",
         action="store_true",
-        help="print the verdict line alone.",
+        help=(
+            "print the verdict line alone; with --self-test, print the failing case "
+            "lines and the summary line alone."
+        ),
     )
     return parser
+
+
+# Option of every setting a comparison run reads, by the destination argparse
+# stores it under. --self-test reads none of them and is refused alongside any
+# of them whose value differs from the declared default. The case matrix asserts
+# that this inventory names every destination a parsed command line carries.
+_RUN_OPTIONS = (
+    ("case", "--case"),
+    ("cases", "--cases"),
+    ("run_dir", "--run-dir"),
+    ("captures", "--captures"),
+    ("commarea_post", "--commarea-post"),
+    ("sample_record", "--sample-record"),
+    ("field_map", "--field-map"),
+    ("target", "--target"),
+    ("database", "--database"),
+    ("source_system_key", "--source-system-key"),
+    ("report", "--report"),
+    ("json_report", "--json"),
+    ("expected_dir", "--expected-dir"),
+)
+
+
+def _refuse_self_test_companions(
+    parser: _ArgumentParser, arguments: argparse.Namespace
+) -> None:
+    """Refuse --self-test alongside an option a comparison run would have read.
+
+    The case matrix reads no input, opens no warehouse and writes no report of
+    the run. Every option of ``_RUN_OPTIONS`` is compared with the default the
+    parser declares, and a value that differs is named in the diagnostic.
+    """
+    supplied = [
+        option
+        for dest, option in _RUN_OPTIONS
+        if getattr(arguments, dest) != parser.get_default(dest)
+    ]
+    if supplied:
+        raise ConfigurationError(
+            "--self-test reads no input and opens no warehouse, so it accepts none "
+            f"of {_quote_all(supplied)}"
+        )
 
 
 class Settings(NamedTuple):
@@ -3776,10 +3873,1667 @@ def print_summary(report: RunReport, settings: Settings) -> None:
         print(f"{_PROGRAM}: {AWS_OPEN_TEXT}")
 
 
-def main(argv: Sequence[str] | None = None) -> int:
-    """Run the comparison gate and return the status of the run."""
+# --------------------------------------------------------------------------
+# Self-test: fixtures
+# --------------------------------------------------------------------------
+# Every case below drives the comparison functions of this module in this
+# process over records it builds itself, so no case opens a warehouse, reads a
+# harness artifact, reads the field map or reaches an endpoint. Each case states
+# what it observed in its return value, and one failing case carries the run to
+# EXIT_SELF_TEST_FAILED.
+class _SelfTestFailure(Exception):
+    """One self-test case did not hold; the message states what was observed."""
+
+
+class _SelfTestOutcome(NamedTuple):
+    """The outcome of one self-test case."""
+
+    name: str
+    passed: bool
+    detail: str
+
+
+# Prefix of the private temporary directory one self-test run works inside.
+_SCRATCH_PREFIX = "diff-harness-selftest-"
+
+# Case, relations, items and locators the built records carry. The case and the
+# relations are the declared ones, and the item names and locators of each
+# column are the ones the field map declares for the logical field entry that
+# supplies it, so a built record reads as a record of a comparison run.
+_SELF_TEST_CASE = SUPPORTED_CASES[0]
+_SELF_TEST_ISSUED = RELATION_KEYS[0]
+_SELF_TEST_RATING = RELATION_KEYS[1]
+_SELF_TEST_POLICY_NUMBER = 1
+_SELF_TEST_ITEMS = {
+    "policy_number": ("CA-POLICY-NUM", "base/src/lgcmarea.cpy:35"),
+    "request_id": ("CA-REQUEST-ID", "base/src/lgcmarea.cpy:10"),
+    "issue_date": ("CA-ISSUE-DATE / DB2-ISSUEDATE", "base/src/lgcmarea.cpy:38"),
+    "last_changed": ("CA-LASTCHANGED / DB2-LASTCHANGED", "base/src/lgcmarea.cpy:40"),
+    "policy_type": ("DB2-POLICYTYPE", "base/src/lgpolicy.cpy:43"),
+    "customer_number": ("CA-CUSTOMER-NUM", "base/src/lgcmarea.cpy:12"),
+    "brokers_reference": (
+        "CA-BROKERSREF / DB2-BROKERSREF",
+        "base/src/lgcmarea.cpy:42",
+    ),
+    "payment_amount": ("CA-PAYMENT / DB2-PAYMENT", "base/src/lgcmarea.cpy:43"),
+    "motor_premium_amount": (
+        "CA-M-PREMIUM / DB2-M-PREMIUM",
+        "base/src/lgcmarea.cpy:73",
+    ),
+}
+
+# Text a built record carries where a comparison run carries a path it read.
+_SELF_TEST_ORIGIN = "built by --self-test"
+
+
+def _assert(condition: bool, message: str) -> None:
+    """Raise ``_SelfTestFailure`` carrying ``message`` unless ``condition`` holds."""
+    if not condition:
+        raise _SelfTestFailure(message)
+
+
+def _assert_equal(observed: Any, expected: Any, what: str) -> None:
+    """Raise ``_SelfTestFailure`` unless ``observed`` equals ``expected``."""
+    if observed != expected:
+        raise _SelfTestFailure(f"{what} is {observed!r}, expected {expected!r}")
+
+
+def _assert_in(fragment: str, text: str, what: str) -> None:
+    """Raise ``_SelfTestFailure`` unless ``text`` carries ``fragment``."""
+    if fragment not in text:
+        raise _SelfTestFailure(
+            f"{what} does not carry {fragment!r}: {_shown(text, limit=240)}"
+        )
+
+
+def _assert_raises(
+    what: str,
+    expected: type[BaseException],
+    fragment: str,
+    body: Callable[[], Any],
+) -> str:
+    """Return the message of the ``expected`` diagnostic ``body`` raises.
+
+    A body that returns, that raises another class, or that raises a message
+    without ``fragment`` fails the case.
+    """
     try:
-        arguments = build_parser().parse_args(list(argv) if argv is not None else None)
+        body()
+    except expected as error:
+        message = str(error)
+        _assert_in(fragment, message, f"the diagnostic of {what}")
+        return message
+    except Exception as error:  # any other class is a failure of this case
+        raise _SelfTestFailure(
+            f"{what} raised {type(error).__name__}: {_first_line(error)}"
+        ) from error
+    raise _SelfTestFailure(f"{what} was accepted, expected {expected.__name__}")
+
+
+class _Scratch:
+    """One private directory a self-test run writes inside.
+
+    The directory is created below the system temporary directory under
+    ``_SCRATCH_PREFIX`` on first use, so two runs in parallel never share a
+    name. ``absent`` names a path inside it without creating it, and ``remove``
+    deletes it with everything in it and reports that it is gone.
+    """
+
+    def __init__(self) -> None:
+        self._path: Path | None = None
+
+    @property
+    def path(self) -> Path:
+        """Return this run's directory, creating it on first use."""
+        if self._path is None:
+            self._path = Path(tempfile.mkdtemp(prefix=_SCRATCH_PREFIX))
+        return self._path
+
+    @property
+    def created(self) -> Path | None:
+        """Return the directory this run created, or None when it created none."""
+        return self._path
+
+    def absent(self, name: str) -> Path:
+        """Return the path of ``name`` inside this directory without creating it."""
+        return self.path / name
+
+    def remove(self) -> bool:
+        """Delete this directory with everything in it and report that it is gone."""
+        if self._path is None:
+            return True
+        shutil.rmtree(self._path, ignore_errors=True)
+        return not self._path.exists()
+
+
+def _captured(body: Callable[[], Any]) -> tuple[str, str]:
+    """Return the stdout and the stderr text ``body`` printed."""
+    out, err = io.StringIO(), io.StringIO()
+    with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+        body()
+    return out.getvalue(), err.getvalue()
+
+
+def _commarea_witness(raw: str, item: str) -> Witness:
+    """Return the returned-COMMAREA authority of ``item`` carrying ``raw``."""
+    return Witness(
+        source=f"returned COMMAREA ({item})",
+        raw=raw,
+        family="commarea",
+        key=item,
+    )
+
+
+def _capture_authority(raw: str | None, key: str) -> Witness:
+    """Return the policy-insert capture authority of ``key`` carrying ``raw``.
+
+    ``raw`` None builds the shape ``_capture_witness`` builds for a capture file
+    that omits the key: no value and the absence named.
+    """
+    return Witness(
+        source=f"policy insert capture (capture key {key})",
+        raw=raw,
+        absent=None if raw is not None else f"the capture file carries no key {key}",
+        key=key,
+    )
+
+
+# COMMAREA item each built column is read from, where the returned COMMAREA
+# carries a window for it. policy_type has no window: a run derives it from the
+# request id.
+_SELF_TEST_WINDOWS = {
+    "policy_number": "CA-POLICY-NUM",
+    "request_id": "CA-REQUEST-ID",
+    "issue_date": "CA-ISSUE-DATE",
+    "last_changed": "CA-LASTCHANGED",
+    "customer_number": "CA-CUSTOMER-NUM",
+    "brokers_reference": "CA-BROKERSREF",
+}
+
+
+def _authority_for(column: str, raw: str) -> Witness:
+    """Return the authority a comparison run reads ``column`` from, holding ``raw``."""
+    if column == "policy_type":
+        return Witness(
+            source="request routing derivation from CA-REQUEST-ID",
+            raw=raw,
+            family="derived",
+        )
+    return _commarea_witness(raw, _SELF_TEST_WINDOWS[column])
+
+
+def _record(
+    kind: str,
+    witnesses: tuple[Witness, ...],
+    *,
+    column: str,
+    relation: str = _SELF_TEST_ISSUED,
+    notes: tuple[str, ...] = (),
+) -> Comparison:
+    """Return one uncompared record for ``column``, carrying ``witnesses``."""
+    item, locator = _SELF_TEST_ITEMS[column]
+    return Comparison(
+        relation=relation,
+        column=column,
+        kind=kind,
+        cobol_item=item,
+        locator=locator,
+        witnesses=witnesses,
+        notes=notes,
+    )
+
+
+def _compared(
+    kind: str,
+    witnesses: tuple[Witness, ...],
+    warehouse_value: Any,
+    *,
+    column: str,
+    relation: str = _SELF_TEST_ISSUED,
+    nullable: bool = False,
+) -> Comparison:
+    """Return the record ``_compare_column`` produced for these built inputs."""
+    return _compare_column(
+        _record(kind, witnesses, column=column, relation=relation),
+        warehouse_value,
+        nullable=nullable,
+    )
+
+
+def _compared_amount(
+    digits: str,
+    warehouse: Any,
+    *,
+    column: str = "payment_amount",
+    capture: str = SQL_CAPTURE_KEYS["payment"],
+) -> Comparison:
+    """Return the amount record compared for ``digits`` against ``warehouse``."""
+    return _compared(
+        KIND_AMOUNT,
+        (_capture_authority(digits, capture),),
+        warehouse,
+        column=column,
+        relation=_SELF_TEST_RATING,
+    )
+
+
+def _policy_number_record(warehouse: Any) -> Comparison:
+    """Return the policy_number record compared against ``warehouse``."""
+    return _compared(
+        KIND_INTEGER,
+        (_commarea_witness("0000000001", "CA-POLICY-NUM"),),
+        warehouse,
+        column="policy_number",
+    )
+
+
+def _missing_record() -> Comparison:
+    """Return the customer_number record whose capture authority is absent."""
+    return _compared(
+        KIND_INTEGER,
+        (_capture_authority(None, SQL_CAPTURE_KEYS["customer_number"]),),
+        100,
+        column="customer_number",
+    )
+
+
+def _built_case(
+    comparisons: Sequence[Comparison] = (),
+    assertions: Sequence[Assertion] = (),
+    statuses: Sequence[int] = (),
+) -> CaseResult:
+    """Return one case result carrying the records a case built."""
+    return CaseResult(
+        case=_SELF_TEST_CASE,
+        fixture=_SELF_TEST_CASE.lower(),
+        policy_type=VERIFIED_ROUTING[_SELF_TEST_CASE],
+        request_id=_SELF_TEST_CASE,
+        policy_number=_SELF_TEST_POLICY_NUMBER,
+        captures_path=_SELF_TEST_ORIGIN,
+        commarea_path=_SELF_TEST_ORIGIN,
+        sample_source=_SELF_TEST_ORIGIN,
+        comparisons=list(comparisons),
+        assertions=list(assertions),
+        snapshot_path=_SELF_TEST_ORIGIN,
+        snapshot_state=_SELF_TEST_ORIGIN,
+        statuses=list(statuses),
+    )
+
+
+def _built_report(
+    cases: Sequence[CaseResult] = (),
+    *,
+    statuses: Sequence[int] = (),
+    local_substitute: bool = True,
+) -> RunReport:
+    """Return one run report carrying the cases a self-test case built."""
+    return RunReport(
+        generated_at="1970-01-01T00:00:00Z",
+        target=TARGET_DUCKDB if local_substitute else TARGET_REDSHIFT,
+        adapter=_SELF_TEST_ORIGIN,
+        adapter_version="0",
+        python_version=".".join(str(number) for number in sys.version_info[:3]),
+        connection=f"{_SELF_TEST_ORIGIN} (no connection opened)",
+        source_system_key=DEFAULT_SOURCE_SYSTEM_KEY,
+        field_map=_SELF_TEST_ORIGIN,
+        run_dir=_SELF_TEST_ORIGIN,
+        expected_dir=_SELF_TEST_ORIGIN,
+        requested_cases=(_SELF_TEST_CASE,),
+        local_substitute=local_substitute,
+        inventory={
+            "verdict": _SELF_TEST_ORIGIN,
+            "columns": {
+                ISSUED_POLICY_ALIAS: list(ISSUED_POLICY_COLUMNS),
+                PREISSUED_RATING_ALIAS: list(PREISSUED_RATING_COLUMNS),
+            },
+        },
+        return_codes={code: _SELF_TEST_ORIGIN for code in VERIFIED_RETURN_CODES},
+        cases=list(cases),
+        statuses=list(statuses),
+    )
+
+
+def _failed_assertion() -> Assertion:
+    """Return one failed VSAM assertion, as a short write would produce it."""
+    return Assertion(
+        group=GROUP_VSAM,
+        name="record length",
+        expected=str(VSAM_RECORD_LENGTH),
+        observed="63",
+        locator="base/src/lgapvs01.cbl:135-141",
+        status=STATUS_FAIL,
+        notes=(f"the capture records 63 where the write states {VSAM_RECORD_LENGTH}",),
+    )
+
+
+def _mixed_report() -> RunReport:
+    """Return a report of one case carrying every reportable outcome at once.
+
+    The case holds one failed column, one non-zero in-tolerance amount delta, one
+    warehouse amount of another scale and one failed assertion, so the report
+    renders every section a failing run reaches.
+    """
+    return _built_report(
+        [
+            _built_case(
+                [
+                    _policy_number_record(2),
+                    _compared_amount("000480", Decimal("480.01")),
+                    _compared_amount(
+                        "000360",
+                        Decimal("360.000"),
+                        column="motor_premium_amount",
+                        capture=SQL_CAPTURE_KEYS["motor_premium"],
+                    ),
+                ],
+                [_failed_assertion()],
+            )
+        ]
+    )
+
+
+def _self_test_settings(scratch: _Scratch, *, quiet: bool = False) -> Settings:
+    """Return settings whose every path lies inside the private directory."""
+    return Settings(
+        cases=(_SELF_TEST_CASE,),
+        run_dir=scratch.absent("run"),
+        captures=None,
+        commarea=None,
+        sample=None,
+        field_map=scratch.absent("copybook_field_map.yml"),
+        target=TARGET_DUCKDB,
+        database=scratch.absent("local.duckdb"),
+        source_system_key=DEFAULT_SOURCE_SYSTEM_KEY,
+        report=scratch.absent("diff-report.md"),
+        json_report=scratch.absent("diff-report.json"),
+        expected_dir=scratch.absent("expected"),
+        quiet=quiet,
+    )
+
+
+def _tracked_report_state() -> tuple[tuple[str, int, int] | None, ...]:
+    """Return the size and modification time of the two reports of a real run.
+
+    A path that is absent is recorded as None. The write cases read this before
+    and after they write, so a write that reached a tracked report is observed.
+    """
+    states: list[tuple[str, int, int] | None] = []
+    for default in (DEFAULT_REPORT, DEFAULT_JSON_REPORT):
+        path = _resolved(default)
+        try:
+            status = path.stat()
+        except OSError:
+            states.append(None)
+            continue
+        states.append((str(path), status.st_size, status.st_mtime_ns))
+    return tuple(states)
+
+
+# --------------------------------------------------------------------------
+# Self-test: cases
+# --------------------------------------------------------------------------
+def _case_mismatched_value_fails() -> str:
+    """A non-amount value the warehouse carries differently fails its column."""
+    failing = _compared(
+        KIND_TEXT,
+        (_commarea_witness("BRMOT001  ", "CA-BROKERSREF"),),
+        "BRMOT002",
+        column="brokers_reference",
+    )
+    _assert_equal(failing.status, STATUS_FAIL, "the status of a mismatched value")
+    _assert_equal(failing.passed, False, "the passed flag of a mismatched value")
+    _assert_equal(failing.harness_value, "BRMOT001", "the harness value compared")
+    _assert_equal(failing.warehouse_value, "BRMOT002", "the warehouse value compared")
+    _assert_equal(
+        failing.normalisations,
+        (NORM_TRAILING_TRIM,),
+        "the normalisation named for a fixed-width text window",
+    )
+    _assert_in(
+        "the warehouse carries",
+        "; ".join(failing.notes),
+        "the note of a mismatched value",
+    )
+    matching = _compared(
+        KIND_TEXT,
+        (_commarea_witness("BRMOT001  ", "CA-BROKERSREF"),),
+        "BRMOT001",
+        column="brokers_reference",
+    )
+    _assert_equal(
+        matching.status, STATUS_PASS, "the status of the same window matching"
+    )
+    return (
+        f"brokers_reference harness [{failing.harness_value}] against warehouse "
+        f"[{failing.warehouse_value}] -> {failing.status}; against [BRMOT001] -> "
+        f"{matching.status}"
+    )
+
+
+def _case_failed_column_fails_case_and_run() -> str:
+    """One failed column carries the case and the run to EXIT_COMPARISON_FAILED."""
+    failing = _policy_number_record(2)
+    _assert_equal(
+        failing.status, STATUS_FAIL, "the status of a policy number that differs"
+    )
+    case = _built_case([failing])
+    _assert_equal(
+        case.exit_status,
+        EXIT_COMPARISON_FAILED,
+        "the status of a case carrying a failed column",
+    )
+    _assert_equal(case.verdict, "FAIL", "the verdict of that case")
+    _assert_equal(len(case.failed), 1, "the failed columns of that case")
+    report = _built_report([case])
+    _assert_equal(
+        report.exit_status,
+        EXIT_COMPARISON_FAILED,
+        "the status of a run carrying that case",
+    )
+    _assert_equal(report.verdict, "FAIL", "the verdict of that run")
+    _assert_equal(
+        report.as_document()["summary"]["failed"],
+        1,
+        "the failed count of the JSON summary",
+    )
+    passing = _built_report([_built_case([_policy_number_record(1)])])
+    _assert_equal(
+        passing.exit_status, EXIT_OK, "the status of a run whose columns all passed"
+    )
+    _assert_equal(passing.verdict, "PASS", "the verdict of that run")
+    return (
+        f"harness policy number 1 against warehouse 2 -> {failing.status}, case "
+        f"{case.verdict} exit {case.exit_status}, run {report.verdict} exit "
+        f"{report.exit_status}; against warehouse 1 -> {passing.verdict} exit "
+        f"{passing.exit_status}"
+    )
+
+
+def _case_amount_delta_zero_passes() -> str:
+    """A zero amount delta passes and records no in-tolerance anomaly."""
+    record = _compared_amount("000480", Decimal("480.00"))
+    _assert_equal(record.status, STATUS_PASS, "the status of a zero delta")
+    _assert_equal(
+        record.in_tolerance_anomaly, False, "the in-tolerance flag of a zero delta"
+    )
+    _assert_equal(record.scale_anomaly, False, "the scale flag of a declared scale")
+    _assert_equal(record.delta, "0.00", "the delta recorded for equal amounts")
+    _assert_equal(Decimal(record.delta), Decimal(0), "that delta read as a decimal")
+    _assert_equal(
+        record.harness_value, "480", "the harness amount read from its DISPLAY digits"
+    )
+    _assert_equal(record.warehouse_value, "480.00", "the warehouse amount read")
+    case = _built_case([record])
+    _assert_equal(case.exit_status, EXIT_OK, "the status of a case of that record")
+    _assert_equal(case.in_tolerance, [], "the in-tolerance list of that case")
+    return (
+        f"payment_amount harness {record.harness_value} against warehouse "
+        f"{record.warehouse_value} -> {record.status}, delta {record.delta}, "
+        f"in_tolerance_anomaly {record.in_tolerance_anomaly}, case exit "
+        f"{case.exit_status}"
+    )
+
+
+def _case_amount_delta_at_tolerance_passes() -> str:
+    """A delta of exactly AMOUNT_TOLERANCE passes, is called out and still exits 0."""
+    record = _compared_amount("000480", Decimal("480.01"))
+    _assert_equal(
+        record.status,
+        STATUS_PASS_IN_TOLERANCE,
+        "the status of a delta at the tolerance",
+    )
+    _assert_equal(record.passed, True, "the passed flag of that record")
+    _assert_equal(
+        record.in_tolerance_anomaly, True, "the in-tolerance flag of that record"
+    )
+    _assert_equal(
+        Decimal(record.delta or ""),
+        AMOUNT_TOLERANCE,
+        "the delta recorded against AMOUNT_TOLERANCE",
+    )
+    _assert_in(
+        "is not zero and is within the tolerance",
+        "; ".join(record.notes),
+        "the note of a delta at the tolerance",
+    )
+    case = _built_case([record])
+    report = _built_report([case])
+    _assert_equal(
+        case.exit_status, EXIT_OK, "the status of a case carrying that delta alone"
+    )
+    _assert_equal(report.exit_status, EXIT_OK, "the status of the run of that case")
+    _assert_equal(report.verdict, "PASS", "the verdict of that run")
+    _assert_equal(
+        [carried.column for _, carried in report.in_tolerance],
+        ["payment_amount"],
+        "the columns the run reports as unexpected in tolerance",
+    )
+    _assert_equal(
+        report.as_document()["summary"]["unexpected_in_tolerance"],
+        [
+            {
+                "case": _SELF_TEST_CASE,
+                "column": "payment_amount",
+                "delta": format(AMOUNT_TOLERANCE, "f"),
+            }
+        ],
+        "the unexpected_in_tolerance summary of that run",
+    )
+    return (
+        f"payment_amount 480 against 480.01 -> {record.status}, delta "
+        f"{record.delta} = AMOUNT_TOLERANCE, anomaly recorded, run "
+        f"{report.verdict} exit {report.exit_status}"
+    )
+
+
+def _case_amount_delta_above_tolerance_fails() -> str:
+    """A delta above AMOUNT_TOLERANCE fails the column and the case."""
+    record = _compared_amount("000480", Decimal("480.02"))
+    _assert_equal(
+        record.status, STATUS_FAIL, "the status of a delta above the tolerance"
+    )
+    _assert_equal(record.delta, "0.02", "the delta recorded")
+    _assert_equal(
+        record.in_tolerance_anomaly,
+        False,
+        "the in-tolerance flag of a delta above the tolerance",
+    )
+    _assert_in(
+        f"is above the tolerance {AMOUNT_TOLERANCE}",
+        "; ".join(record.notes),
+        "the note of a delta above the tolerance",
+    )
+    case = _built_case([record])
+    _assert_equal(
+        case.exit_status,
+        EXIT_COMPARISON_FAILED,
+        "the status of a case carrying that delta",
+    )
+    _assert_equal(case.verdict, "FAIL", "the verdict of that case")
+    return (
+        f"payment_amount 480 against 480.02 -> {record.status}, delta "
+        f"{record.delta} above {AMOUNT_TOLERANCE}, case {case.verdict} exit "
+        f"{case.exit_status}"
+    )
+
+
+def _case_amount_tolerance_boundary_sweep() -> str:
+    """The classification of a delta follows AMOUNT_TOLERANCE on both sides of it."""
+    expected = (
+        ("480.00", STATUS_PASS, False),
+        ("480.005", STATUS_PASS_IN_TOLERANCE, True),
+        ("479.995", STATUS_PASS_IN_TOLERANCE, True),
+        ("480.01", STATUS_PASS_IN_TOLERANCE, True),
+        ("479.99", STATUS_PASS_IN_TOLERANCE, True),
+        ("480.0101", STATUS_FAIL, False),
+        ("479.9899", STATUS_FAIL, False),
+        ("480.02", STATUS_FAIL, False),
+        ("4800.00", STATUS_FAIL, False),
+    )
+    observed: list[str] = []
+    for warehouse, status, anomaly in expected:
+        record = _compared_amount("000480", Decimal(warehouse))
+        _assert_equal(record.status, status, f"the status of warehouse {warehouse}")
+        _assert_equal(
+            record.in_tolerance_anomaly,
+            anomaly,
+            f"the in-tolerance flag of warehouse {warehouse}",
+        )
+        observed.append(f"{warehouse} delta {record.delta} -> {record.status}")
+    return f"harness 480 against {len(expected)} warehouse values: " + "; ".join(
+        observed
+    )
+
+
+def _case_amount_scale_anomaly_recorded() -> str:
+    """A warehouse amount of another scale is recorded as an anomaly and passes."""
+    fractional = _compared_amount("000480", Decimal("480.000"))
+    _assert_equal(fractional.scale_anomaly, True, "the scale flag of scale 3")
+    _assert_equal(
+        fractional.status, STATUS_PASS, "the status of a zero delta at scale 3"
+    )
+    _assert_in(
+        f"carries scale 3 where the canonical type declares {AMOUNT_SCALE}",
+        "; ".join(fractional.notes),
+        "the note of an amount at scale 3",
+    )
+    integral = _compared_amount("000480", Decimal("480"))
+    _assert_equal(integral.scale_anomaly, True, "the scale flag of scale 0")
+    _assert_in(
+        "carries scale 0", "; ".join(integral.notes), "the note of an amount at scale 0"
+    )
+    declared = _compared_amount("000480", Decimal("480.00"))
+    _assert_equal(
+        declared.scale_anomaly, False, f"the scale flag of scale {AMOUNT_SCALE}"
+    )
+    _assert_in(
+        f"warehouse scale {AMOUNT_SCALE}",
+        "; ".join(declared.notes),
+        "the scale note of an amount at the declared scale",
+    )
+    report = _built_report([_built_case([fractional])])
+    _assert_equal(
+        [carried.column for _, carried in report.scale_anomalies],
+        ["payment_amount"],
+        "the columns the run reports as scale anomalies",
+    )
+    _assert_equal(
+        report.as_document()["summary"]["scale_anomalies"],
+        [{"case": _SELF_TEST_CASE, "column": "payment_amount"}],
+        "the scale_anomalies summary of that run",
+    )
+    _assert_equal(
+        report.exit_status,
+        EXIT_OK,
+        "the status of a run whose only anomaly is a scale",
+    )
+    return (
+        f"scale 3 -> anomaly {fractional.scale_anomaly} status {fractional.status}; "
+        f"scale 0 -> anomaly {integral.scale_anomaly}; scale {AMOUNT_SCALE} -> "
+        f"anomaly {declared.scale_anomaly}; run exit {report.exit_status}"
+    )
+
+
+def _case_absent_authority_reports_missing() -> str:
+    """An absent harness authority reports MISSING, which is not a pass."""
+    absent = _missing_record()
+    _assert_equal(absent.status, STATUS_MISSING, "the status of an absent authority")
+    _assert_equal(absent.missing, True, "the missing flag of that record")
+    _assert_equal(absent.passed, False, "the passed flag of a MISSING record")
+    _assert_in(
+        "the capture file carries no key",
+        "; ".join(absent.notes),
+        "the note of an absent capture key",
+    )
+    without = _compared(KIND_INTEGER, (), 100, column="customer_number")
+    _assert_equal(
+        without.status, STATUS_MISSING, "the status of a column with no authority"
+    )
+    _assert_equal(without.authority, "none", "the authority of that column")
+    _assert_in(
+        "no harness authority carries this column",
+        "; ".join(without.notes),
+        "the note of a column with no authority",
+    )
+    case = _built_case([absent])
+    _assert_equal(
+        case.exit_status,
+        EXIT_HARNESS_INPUT,
+        "the status of a case carrying a MISSING column",
+    )
+    _assert_equal(case.verdict, "FAIL", "the verdict of that case")
+    report = _built_report([case])
+    _assert_equal(
+        report.as_document()["summary"]["missing"],
+        1,
+        "the missing count of the JSON summary",
+    )
+    _assert_equal(
+        report.exit_status, EXIT_HARNESS_INPUT, "the status of the run of that case"
+    )
+    return (
+        f"absent capture key -> {absent.status} (passed {absent.passed}), no "
+        f"authority -> {without.status}, case {case.verdict} exit "
+        f"{case.exit_status}, run exit {report.exit_status}"
+    )
+
+
+def _case_null_expectation_both_branches() -> str:
+    """A NULL expectation passes on NULL and fails on any value standing in it."""
+    kept = _compare_null_expected(
+        _record(
+            KIND_NULL_EXPECTED, (), column="motor_premium_amount",
+            relation=_SELF_TEST_RATING,
+        ),
+        None,
+    )
+    _assert_equal(kept.status, STATUS_PASS, "the status of NULL where NULL is expected")
+    _assert_equal(kept.harness_value, None, "the harness value of that record")
+    _assert_equal(kept.warehouse_value, "NULL", "the warehouse value of that record")
+    zero = _compare_null_expected(
+        _record(
+            KIND_NULL_EXPECTED, (), column="motor_premium_amount",
+            relation=_SELF_TEST_RATING,
+        ),
+        Decimal("0.00"),
+    )
+    _assert_equal(zero.status, STATUS_FAIL, "the status of a zero standing for NULL")
+    _assert_in(
+        "zero instead of NULL",
+        "; ".join(zero.notes),
+        "the note of a zero standing for NULL",
+    )
+    valued = _compare_null_expected(
+        _record(
+            KIND_NULL_EXPECTED, (), column="motor_premium_amount",
+            relation=_SELF_TEST_RATING,
+        ),
+        Decimal("125.00"),
+    )
+    _assert_equal(valued.status, STATUS_FAIL, "the status of a value standing for NULL")
+    _assert_in(
+        "125.00", "; ".join(valued.notes), "the value named in that diagnostic"
+    )
+    routed_null = _compared(
+        KIND_NULL_EXPECTED, (), None, column="motor_premium_amount",
+        relation=_SELF_TEST_RATING,
+    )
+    routed_value = _compared(
+        KIND_NULL_EXPECTED, (), Decimal("125.00"), column="motor_premium_amount",
+        relation=_SELF_TEST_RATING,
+    )
+    _assert_equal(
+        routed_null.status,
+        STATUS_PASS,
+        "the status _compare_column returns for a NULL expectation carrying NULL",
+    )
+    _assert_equal(
+        routed_value.status,
+        STATUS_FAIL,
+        "the status _compare_column returns for a NULL expectation carrying a value",
+    )
+    return (
+        f"motor_premium_amount NULL -> {kept.status}, 0.00 -> {zero.status} (zero "
+        f"instead of NULL), 125.00 -> {valued.status}; routed through "
+        f"_compare_column -> {routed_null.status} and {routed_value.status}"
+    )
+
+
+def _case_nullable_blank_window_both_branches() -> str:
+    """A blank COMMAREA window lands NULL in a nullable column and nothing else."""
+    blank = (_commarea_witness(" " * 10, "CA-BROKERSREF"),)
+    landed = _compared(
+        KIND_TEXT, blank, None, column="brokers_reference", nullable=True
+    )
+    _assert_equal(
+        landed.status, STATUS_PASS, "the status of a blank window against NULL"
+    )
+    _assert_equal(landed.harness_value, None, "the harness value of that record")
+    _assert_in(
+        "blank window lands null",
+        ", ".join(landed.normalisations),
+        "the normalisations of that record",
+    )
+    filled = _compared(
+        KIND_TEXT, blank, "BRMOT001", column="brokers_reference", nullable=True
+    )
+    _assert_equal(
+        filled.status, STATUS_FAIL, "the status of a blank window against a value"
+    )
+    _assert_in(
+        "holds spaces alone and the warehouse carries",
+        "; ".join(filled.notes),
+        "the note of a blank window against a value",
+    )
+    strict = _compared(
+        KIND_TEXT, blank, None, column="brokers_reference", nullable=False
+    )
+    _assert_equal(
+        strict.status,
+        STATUS_FAIL,
+        "the status of NULL against a blank window of a column that is not nullable",
+    )
+    return (
+        f"blank CA-BROKERSREF against NULL -> {landed.status}, against [BRMOT001] "
+        f"-> {filled.status}, against NULL in a column that is not nullable -> "
+        f"{strict.status}"
+    )
+
+
+def _case_authorities_that_disagree_fail() -> str:
+    """Two harness authorities that disagree fail the column and are both named."""
+    disagreeing = _compared(
+        KIND_INTEGER,
+        (
+            _commarea_witness("0000000001", "CA-POLICY-NUM"),
+            _capture_authority("2", SQL_CAPTURE_KEYS["policy_number"]),
+        ),
+        1,
+        column="policy_number",
+    )
+    _assert_equal(
+        disagreeing.status, STATUS_FAIL, "the status of authorities that disagree"
+    )
+    _assert_in(
+        "the harness authorities disagree",
+        "; ".join(disagreeing.notes),
+        "the note of authorities that disagree",
+    )
+    _assert_in(
+        "returned COMMAREA",
+        disagreeing.harness_value or "",
+        "the authorities named in the harness value",
+    )
+    _assert_in(
+        SQL_CAPTURE_KEYS["policy_number"],
+        disagreeing.harness_value or "",
+        "the capture key named in the harness value",
+    )
+    agreeing = _compared(
+        KIND_INTEGER,
+        (
+            _commarea_witness("0000000001", "CA-POLICY-NUM"),
+            _capture_authority("1", SQL_CAPTURE_KEYS["policy_number"]),
+        ),
+        1,
+        column="policy_number",
+    )
+    _assert_equal(
+        agreeing.status, STATUS_PASS, "the status of authorities that agree"
+    )
+    _assert_in(
+        "; ", agreeing.authority, "the authorities the passing record was read from"
+    )
+    return (
+        f"COMMAREA 1 against capture 2 -> {disagreeing.status} with both values "
+        f"named; COMMAREA 1 against capture 1 -> {agreeing.status} over "
+        f"{len(agreeing.witnesses)} authorities"
+    )
+
+
+def _case_warehouse_null_fails() -> str:
+    """A warehouse NULL fails a column whose harness authority carries a value."""
+    strict = _policy_number_record(None)
+    _assert_equal(strict.status, STATUS_FAIL, "the status of a NULL policy number")
+    _assert_equal(strict.warehouse_value, "NULL", "the warehouse value recorded")
+    _assert_in(
+        "the warehouse carries NULL where the harness carries",
+        "; ".join(strict.notes),
+        "the note of a warehouse NULL",
+    )
+    nullable = _compared(
+        KIND_INTEGER,
+        (_commarea_witness("0000000001", "CA-POLICY-NUM"),),
+        None,
+        column="policy_number",
+        nullable=True,
+    )
+    _assert_equal(
+        nullable.status,
+        STATUS_FAIL,
+        "the status of a NULL against digits in a nullable column",
+    )
+    return (
+        f"harness policy number 1 against warehouse NULL -> {strict.status}, and "
+        f"-> {nullable.status} with the column declared nullable"
+    )
+
+
+def _case_unreadable_harness_value_fails() -> str:
+    """A harness value the normalisation of its kind cannot read fails the column."""
+    digits = _compared(
+        KIND_INTEGER,
+        (_commarea_witness("00000000A1", "CA-POLICY-NUM"),),
+        1,
+        column="policy_number",
+    )
+    _assert_equal(digits.status, STATUS_FAIL, "the status of a non-numeric window")
+    _assert_in(
+        "does not hold decimal digits alone",
+        "; ".join(digits.notes),
+        "the note of a non-numeric window",
+    )
+    date = _compared(
+        KIND_DATE,
+        (_commarea_witness("2026-13-01", "CA-ISSUE-DATE"),),
+        datetime.date(2026, 1, 1),
+        column="issue_date",
+    )
+    _assert_equal(date.status, STATUS_FAIL, "the status of a month outside 1..12")
+    _assert_in(
+        "is not a calendar date",
+        "; ".join(date.notes),
+        "the note of a month outside 1..12",
+    )
+    moment = _compared(
+        KIND_TIMESTAMP,
+        (_commarea_witness("2026-08-19 11:22", "CA-LASTCHANGED"),),
+        datetime.datetime(2026, 8, 19, 11, 22, 0),  # noqa: DTZ001
+        column="last_changed",
+    )
+    _assert_equal(moment.status, STATUS_FAIL, "the status of a truncated timestamp")
+    _assert_in(
+        "matches none of the accepted timestamp forms",
+        "; ".join(moment.notes),
+        "the note of a truncated timestamp",
+    )
+    return (
+        f"[00000000A1] -> {digits.status}, [2026-13-01] -> {date.status}, "
+        f"[2026-08-19 11:22] -> {moment.status}"
+    )
+
+
+def _case_unreadable_warehouse_value_fails() -> str:
+    """A warehouse value the comparable form of its kind cannot read fails."""
+    text = _policy_number_record("1x")
+    _assert_equal(text.status, STATUS_FAIL, "the status of a non-numeric warehouse id")
+    _assert_in(
+        "the warehouse value is not comparable",
+        "; ".join(text.notes),
+        "the note of a non-numeric warehouse id",
+    )
+    fractional = _policy_number_record(Decimal("1.5"))
+    _assert_equal(
+        fractional.status, STATUS_FAIL, "the status of a fractional warehouse id"
+    )
+    _assert_in(
+        "is not a whole number",
+        "; ".join(fractional.notes),
+        "the note of a fractional warehouse id",
+    )
+    amount = _compared_amount("000480", "four hundred and eighty")
+    _assert_equal(amount.status, STATUS_FAIL, "the status of a non-numeric amount")
+    _assert_in(
+        "the warehouse value is not comparable",
+        "; ".join(amount.notes),
+        "the note of a non-numeric amount",
+    )
+    return (
+        f"warehouse [1x] -> {text.status}, warehouse 1.5 -> {fractional.status}, "
+        f"warehouse [four hundred and eighty] -> {amount.status}"
+    )
+
+
+def _case_normalisations_compare_equal() -> str:
+    """Every declared normalisation compares equal values equal and nothing else."""
+    checks = (
+        (KIND_TEXT, "request_id", "01AMOT    ", "01AMOT", NORM_TRAILING_TRIM),
+        (KIND_CHAR, "policy_type", " M ", "M", NORM_TRAILING_TRIM),
+        (KIND_INTEGER, "policy_number", "0000000001", 1, NORM_INTEGER),
+        (
+            KIND_DATE,
+            "issue_date",
+            "2026-08-19",
+            datetime.date(2026, 8, 19),
+            NORM_ISO_DATE,
+        ),
+        (
+            KIND_TIMESTAMP,
+            "last_changed",
+            "2026-08-19-11.22.33.123456",
+            datetime.datetime(2026, 8, 19, 11, 22, 33, 123456),  # noqa: DTZ001
+            NORM_TIMESTAMP,
+        ),
+        (
+            KIND_TIMESTAMP,
+            "last_changed",
+            "2026-08-19T11:22:33.123456",
+            datetime.datetime(2026, 8, 19, 11, 22, 33, 123456),  # noqa: DTZ001
+            NORM_TIMESTAMP,
+        ),
+        (
+            KIND_TIMESTAMP,
+            "last_changed",
+            "2026-08-19 11:22:33.123456",
+            datetime.datetime(2026, 8, 19, 11, 22, 33, 123456),  # noqa: DTZ001
+            NORM_TIMESTAMP,
+        ),
+    )
+    observed: list[str] = []
+    for kind, column, raw, warehouse, normalisation in checks:
+        record = _compared(
+            kind, (_authority_for(column, raw),), warehouse, column=column,
+        )
+        _assert_equal(record.status, STATUS_PASS, f"the status of {kind} {raw!r}")
+        _assert_in(
+            normalisation,
+            ", ".join(record.normalisations),
+            f"the normalisation named for {kind}",
+        )
+        observed.append(f"{kind} {raw.strip()} -> {record.status}")
+    apart = _compared(
+        KIND_TIMESTAMP,
+        (_commarea_witness("2026-08-19-11.22.33.123456", "CA-LASTCHANGED"),),
+        datetime.datetime(2026, 8, 19, 11, 22, 33, 123457),  # noqa: DTZ001
+        column="last_changed",
+    )
+    _assert_equal(
+        apart.status,
+        STATUS_FAIL,
+        "the status of two moments one microsecond apart",
+    )
+    return (
+        f"{len(checks)} equal values compared: " + "; ".join(observed) +
+        f"; one microsecond apart -> {apart.status}"
+    )
+
+
+def _case_failed_assertion_fails_case() -> str:
+    """An assertion outside the columns carries the case to its own status."""
+    passing_column = _policy_number_record(1)
+    failed = _built_case([passing_column], [_failed_assertion()])
+    _assert_equal(
+        failed.exit_status,
+        EXIT_COMPARISON_FAILED,
+        "the status of a case whose columns passed and whose assertion failed",
+    )
+    _assert_equal(failed.verdict, "FAIL", "the verdict of that case")
+    _assert_equal(len(failed.failed_assertions), 1, "the failed assertions counted")
+    missing_assertion = Assertion(
+        group=GROUP_CHAIN,
+        name="policy insert capture",
+        expected="present",
+        observed="absent",
+        locator="base/src/lgapdb01.cbl:261-321",
+        status=STATUS_MISSING,
+        notes=(f"the capture file carries no key {POLICY_PRESENT_KEY}",),
+    )
+    absent = _built_case([passing_column], [missing_assertion])
+    _assert_equal(
+        absent.exit_status,
+        EXIT_HARNESS_INPUT,
+        "the status of a case carrying a MISSING assertion",
+    )
+    passing_assertion = Assertion(
+        group=GROUP_IDENTITY,
+        name="policy_number across both relations",
+        expected="equal",
+        observed="equal",
+        locator="base/src/lgapdb01.cbl:307-321",
+    )
+    clean = _built_case([passing_column], [passing_assertion])
+    _assert_equal(
+        clean.exit_status, EXIT_OK, "the status of a case whose assertions passed"
+    )
+    return (
+        f"failed assertion -> case exit {failed.exit_status}, MISSING assertion -> "
+        f"case exit {absent.exit_status}, passing assertion -> case exit "
+        f"{clean.exit_status}"
+    )
+
+
+def _case_case_status_precedence() -> str:
+    """A case reports the status standing first in the declared precedence."""
+    both = _built_case([_missing_record(), _policy_number_record(2)])
+    _assert_equal(
+        both.exit_status,
+        EXIT_HARNESS_INPUT,
+        "the status of a case carrying a MISSING and a failed column",
+    )
+    refused = _built_case(
+        [_policy_number_record(2)], statuses=[EXIT_WAREHOUSE_REFUSED]
+    )
+    _assert_equal(
+        refused.exit_status,
+        EXIT_WAREHOUSE_REFUSED,
+        "the status of a case whose warehouse content was refused",
+    )
+    configured = _built_case(
+        [], statuses=[EXIT_COMPARISON_FAILED, EXIT_CONFIGURATION]
+    )
+    _assert_equal(
+        configured.exit_status,
+        EXIT_CONFIGURATION,
+        "the status of a case carrying a configuration failure",
+    )
+    empty = _built_case([])
+    _assert_equal(
+        empty.exit_status, EXIT_OK, "the status of a case carrying no record at all"
+    )
+    return (
+        f"MISSING with FAIL -> {both.exit_status}, refused warehouse -> "
+        f"{refused.exit_status}, configuration -> {configured.exit_status}, no "
+        f"record -> {empty.exit_status}"
+    )
+
+
+def _case_run_report_statuses() -> str:
+    """The run reports the status of its cases and of the failures it recorded."""
+    empty = _built_report([])
+    _assert_equal(
+        empty.exit_status,
+        EXIT_HARNESS_INPUT,
+        "the status of a run that compared no case",
+    )
+    _assert_equal(empty.verdict, "FAIL", "the verdict of that run")
+    refused = _built_report([_built_case([])], statuses=[EXIT_WAREHOUSE_REFUSED])
+    _assert_equal(
+        refused.exit_status,
+        EXIT_WAREHOUSE_REFUSED,
+        "the status of a run whose warehouse content was refused",
+    )
+    mixed = _built_report(
+        [_built_case([_policy_number_record(2)]), _built_case([_missing_record()])]
+    )
+    _assert_equal(
+        mixed.exit_status,
+        EXIT_HARNESS_INPUT,
+        "the status of a run carrying a failed case and a missing input",
+    )
+    _assert_equal(mixed.verdict, "FAIL", "the verdict of that run")
+    passing = _built_report([_built_case([_policy_number_record(1)])])
+    _assert_equal(
+        passing.exit_status, EXIT_OK, "the status of a run whose cases all passed"
+    )
+    _assert_equal(
+        passing.status_label,
+        STATUS_LABEL_TEXT,
+        "the disposition of a local-substitute run",
+    )
+    return (
+        f"no case -> {empty.exit_status}, refused warehouse -> "
+        f"{refused.exit_status}, failed and missing -> {mixed.exit_status}, all "
+        f"passing -> {passing.exit_status} carrying the disposition "
+        f"[{passing.status_label}]"
+    )
+
+
+def _case_exit_precedence_ordering() -> str:
+    """_worst_status returns the status standing first in _EXIT_PRECEDENCE."""
+    pairs = 0
+    for index, first in enumerate(_EXIT_PRECEDENCE):
+        for second in _EXIT_PRECEDENCE[index + 1:]:
+            _assert_equal(
+                _worst_status([first, second]),
+                first,
+                f"the worst status of {first} then {second}",
+            )
+            _assert_equal(
+                _worst_status([second, first]),
+                first,
+                f"the worst status of {second} then {first}",
+            )
+            pairs += 1
+    _assert_equal(
+        _worst_status(_EXIT_PRECEDENCE),
+        _EXIT_PRECEDENCE[0],
+        "the worst status of every declared status",
+    )
+    _assert_equal(_worst_status([]), EXIT_OK, "the worst status of no status at all")
+    _assert_equal(
+        _worst_status([EXIT_OK]), EXIT_OK, "the worst status of a passing run alone"
+    )
+    _assert_equal(
+        sorted(_EXIT_PRECEDENCE),
+        [
+            EXIT_OK,
+            EXIT_COMPARISON_FAILED,
+            EXIT_HARNESS_INPUT,
+            EXIT_WAREHOUSE_REFUSED,
+            EXIT_CONFIGURATION,
+        ],
+        "the statuses _EXIT_PRECEDENCE orders",
+    )
+    return (
+        f"{pairs} ordered pairs in both argument orders each resolve to the status "
+        f"standing first, the whole set resolves to {_EXIT_PRECEDENCE[0]}, and no "
+        f"status at all resolves to {EXIT_OK}"
+    )
+
+
+def _case_markdown_reports_failure() -> str:
+    """The Markdown report of a failing run states FAIL and keeps its disposition."""
+    text = render_markdown(_mixed_report())
+    _assert_in(
+        f"**Overall verdict: FAIL** (exit status {EXIT_COMPARISON_FAILED})",
+        text,
+        "the verdict line of the Markdown report",
+    )
+    _assert_in(f"| {_SELF_TEST_CASE} | FAIL |", text, "the verdict row of the case")
+    _assert_in(STATUS_LABEL_TEXT, text, "the disposition of the Markdown report")
+    _assert_in(AWS_OPEN_TEXT, text, "the AWS statement of the Markdown report")
+    _assert_in(STATUS_FAIL, text, "the status of the failed column")
+    _assert_in(
+        "## Amount deltas inside the tolerance",
+        text,
+        "the in-tolerance section of the report",
+    )
+    _assert_in(
+        "carries scale 3", text, "the scale anomaly recorded in the report"
+    )
+    passing = render_markdown(_built_report([_built_case([_policy_number_record(1)])]))
+    _assert_in(
+        f"**Overall verdict: PASS** (exit status {EXIT_OK})",
+        passing,
+        "the verdict line of a passing report",
+    )
+    _assert_in(
+        "unexpected_in_tolerance: none",
+        passing,
+        "the in-tolerance line of a passing report",
+    )
+    _assert_in(
+        STATUS_LABEL_TEXT, passing, "the disposition of the passing report"
+    )
+    return (
+        f"failing run renders [Overall verdict: FAIL] exit {EXIT_COMPARISON_FAILED} "
+        f"with the case row FAIL, the in-tolerance and scale sections and the "
+        f"disposition; passing run renders [Overall verdict: PASS] exit {EXIT_OK}"
+    )
+
+
+def _case_json_document_reports_failure() -> str:
+    """The JSON document of a failing run carries FAIL and every counted outcome."""
+    document = _mixed_report().as_document()
+    _assert_equal(document["verdict"], "FAIL", "the verdict of the JSON document")
+    _assert_equal(
+        document["exit_status"],
+        EXIT_COMPARISON_FAILED,
+        "the exit status of the JSON document",
+    )
+    summary = document["summary"]
+    _assert_equal(summary["failed"], 1, "the failed columns counted")
+    _assert_equal(summary["failed_assertions"], 1, "the failed assertions counted")
+    _assert_equal(summary["missing"], 0, "the missing columns counted")
+    _assert_equal(
+        summary["unexpected_in_tolerance"],
+        [
+            {
+                "case": _SELF_TEST_CASE,
+                "column": "payment_amount",
+                "delta": format(AMOUNT_TOLERANCE, "f"),
+            }
+        ],
+        "the unexpected_in_tolerance summary",
+    )
+    _assert_equal(
+        summary["scale_anomalies"],
+        [{"case": _SELF_TEST_CASE, "column": "motor_premium_amount"}],
+        "the scale_anomalies summary",
+    )
+    _assert_equal(
+        document["status_label"], STATUS_LABEL_TEXT, "the disposition recorded"
+    )
+    _assert_equal(
+        document["aws_diff_requirement"], "OPEN", "the AWS disposition recorded"
+    )
+    serialised = json.dumps(document, indent=2, sort_keys=True, ensure_ascii=True)
+    _assert_in('"verdict": "FAIL"', serialised, "the serialised JSON document")
+    return (
+        f"failing run documents verdict FAIL exit {document['exit_status']}, "
+        f"failed {summary['failed']}, failed_assertions "
+        f"{summary['failed_assertions']}, one in-tolerance delta and one scale "
+        f"anomaly, serialised in {len(serialised)} characters"
+    )
+
+
+def _case_summary_line_reports_failure(scratch: _Scratch) -> str:
+    """The printed summary of a failing run states FAIL and names the column."""
+    report = _mixed_report()
+    out, err = _captured(
+        lambda: print_summary(report, _self_test_settings(scratch))
+    )
+    _assert_in(f"{_PROGRAM}: FAIL", out, "the verdict line of a failing run")
+    _assert_in("1 failed", out, "the failure count on the verdict line")
+    _assert_in(STATUS_LABEL_TEXT, out, "the disposition on the verdict line")
+    _assert_in(
+        f"{STATUS_FAIL} {_SELF_TEST_ISSUED}.policy_number",
+        err,
+        "the failed column line on stderr",
+    )
+    _assert_in(
+        f"{STATUS_FAIL} {GROUP_VSAM}",
+        err,
+        "the failed assertion line on stderr",
+    )
+    quiet_out, quiet_err = _captured(
+        lambda: print_summary(report, _self_test_settings(scratch, quiet=True))
+    )
+    _assert_equal(
+        len(quiet_out.strip().splitlines()),
+        1,
+        "the lines a quiet summary prints to stdout",
+    )
+    _assert_in(f"{_PROGRAM}: FAIL", quiet_out, "the verdict line of a quiet summary")
+    _assert_equal(quiet_err, "", "the stderr of a quiet summary")
+    return (
+        f"failing run prints [{_PROGRAM}: FAIL ...] with the disposition, names "
+        f"{_SELF_TEST_ISSUED}.policy_number and the {GROUP_VSAM} assertion on "
+        f"stderr, and prints one line under --quiet"
+    )
+
+
+def _case_reports_written_inside_scratch(scratch: _Scratch) -> str:
+    """Both reports of a failing run are written, and only inside the scratch."""
+    before = _tracked_report_state()
+    settings = _self_test_settings(scratch)
+    write_reports(_mixed_report(), settings)
+    markdown = settings.report.read_text(encoding="utf-8")
+    document = json.loads(settings.json_report.read_text(encoding="utf-8"))
+    _assert_in(
+        "**Overall verdict: FAIL**", markdown, "the Markdown report written"
+    )
+    _assert_equal(
+        document["exit_status"],
+        EXIT_COMPARISON_FAILED,
+        "the exit status of the JSON report written",
+    )
+    _assert_equal(
+        settings.report.parent,
+        scratch.path,
+        "the directory the reports were written in",
+    )
+    _assert_equal(
+        _tracked_report_state(),
+        before,
+        "the size and modification time of the two default report paths",
+    )
+    return (
+        f"wrote {settings.report.name} ({len(markdown)} characters) and "
+        f"{settings.json_report.name} inside the private directory; the two "
+        f"default report paths are unchanged"
+    )
+
+
+def _case_protected_trees_refused(scratch: _Scratch) -> str:
+    """An output path inside a protected tree is refused and nothing is written."""
+    refused: list[str] = []
+    for tree in PROTECTED_TREES:
+        _assert_raises(
+            f"an output path resolving inside {tree}/",
+            ConfigurationError,
+            "this tool never writes",
+            lambda tree=tree: _refuse_protected_path(REPO_ROOT / tree),
+        )
+        target = REPO_ROOT / tree / "self-test-must-not-appear.txt"
+        _assert_raises(
+            f"a write inside {tree}/",
+            ConfigurationError,
+            "this tool never writes",
+            lambda target=target: _write_output(target, _SELF_TEST_ORIGIN),
+        )
+        _assert(not target.exists(), f"the refused write created {target}")
+        refused.append(tree)
+    accepted = scratch.absent("accepted.txt")
+    _write_output(accepted, f"{_SELF_TEST_ORIGIN}\n")
+    _assert_equal(
+        accepted.read_text(encoding="utf-8"),
+        f"{_SELF_TEST_ORIGIN}\n",
+        "the text written inside the private directory",
+    )
+    return (
+        f"{len(refused)} protected trees refused as an output path and as a write "
+        f"({', '.join(refused)}), each creating nothing; a path inside the private "
+        f"directory is written"
+    )
+
+
+def _case_self_test_status_reachable() -> str:
+    """A failing case returns EXIT_SELF_TEST_FAILED, which no comparison returns."""
+    _assert_equal(
+        _self_test_status([_SelfTestOutcome("built", True, "observed")]),
+        EXIT_OK,
+        "the status of a matrix whose cases all passed",
+    )
+    _assert_equal(
+        _self_test_status(
+            [
+                _SelfTestOutcome("built", True, "observed"),
+                _SelfTestOutcome("built", False, "observed"),
+            ]
+        ),
+        EXIT_SELF_TEST_FAILED,
+        "the status of a matrix carrying a failing case",
+    )
+    declared = (
+        EXIT_OK,
+        EXIT_COMPARISON_FAILED,
+        EXIT_HARNESS_INPUT,
+        EXIT_WAREHOUSE_REFUSED,
+        EXIT_CONFIGURATION,
+        EXIT_SELF_TEST_FAILED,
+    )
+    _assert_equal(len(set(declared)), len(declared), "the distinct statuses declared")
+    _assert(
+        EXIT_SELF_TEST_FAILED not in _EXIT_PRECEDENCE,
+        "EXIT_SELF_TEST_FAILED stands inside _EXIT_PRECEDENCE",
+    )
+    return (
+        f"a passing matrix returns {EXIT_OK} and a matrix carrying one failing "
+        f"case returns {EXIT_SELF_TEST_FAILED}, which stands outside the "
+        f"{len(_EXIT_PRECEDENCE)} comparison statuses"
+    )
+
+
+def _case_command_line_refusals() -> str:
+    """--self-test is refused alongside a run option, and its inventory is complete."""
+    namespace = vars(build_parser().parse_args([]))
+    _assert_equal(
+        sorted(namespace),
+        sorted([dest for dest, _ in _RUN_OPTIONS] + ["self_test", "quiet"]),
+        "the destinations a parsed command line carries",
+    )
+    statuses: list[int] = []
+    out, err = _captured(
+        lambda: statuses.append(main(["--self-test", "--target", TARGET_REDSHIFT]))
+    )
+    _assert_equal(
+        statuses[-1],
+        EXIT_CONFIGURATION,
+        "the status of --self-test alongside --target",
+    )
+    _assert_in("--target", err, "the diagnostic of --self-test alongside --target")
+    _assert_equal(out, "", "the stdout of that refusal")
+    out, err = _captured(lambda: statuses.append(main(["--not-an-option"])))
+    _assert_equal(
+        statuses[-1], EXIT_CONFIGURATION, "the status of an option this tool has not"
+    )
+    _assert_in(
+        "the command line was refused",
+        err,
+        "the diagnostic of an option this tool has not",
+    )
+    _assert_equal(out, "", "the stdout of that refusal")
+    return (
+        f"--self-test with --target -> {EXIT_CONFIGURATION} naming --target, an "
+        f"unknown option -> {EXIT_CONFIGURATION}, and _RUN_OPTIONS names every "
+        f"one of the {len(namespace)} destinations a command line carries"
+    )
+
+
+def _case_scratch_removed(scratch: _Scratch) -> str:
+    """The private directory this run worked inside is removed with everything in it."""
+    created = scratch.created
+    _assert(scratch.remove(), f"the private directory remains: {created}")
+    if created is None:
+        return "no private directory was created by this run"
+    _assert(not created.exists(), f"the private directory remains: {created}")
+    return f"removed {created}"
+
+
+# --------------------------------------------------------------------------
+# Self-test: matrix
+# --------------------------------------------------------------------------
+def _run_case(
+    results: list[_SelfTestOutcome],
+    stream: Any,
+    quiet: bool,
+    name: str,
+    body: Callable[[], str],
+) -> None:
+    """Run one case, record its outcome and print its line.
+
+    A case that raises records a failure and the matrix continues with the next
+    case. ``_SelfTestFailure`` carries the observation the case made; a
+    ``DiffError`` or any of the listed defect classes is reported by class and
+    message.
+    """
+    try:
+        detail = body()
+    except _SelfTestFailure as failure:
+        result = _SelfTestOutcome(name=name, passed=False, detail=str(failure))
+    except DiffError as error:
+        result = _SelfTestOutcome(
+            name=name, passed=False, detail=f"{type(error).__name__}: {error}"
+        )
+    except (
+        ArithmeticError,
+        AssertionError,
+        AttributeError,
+        LookupError,
+        NameError,
+        OSError,
+        RuntimeError,
+        StopIteration,
+        TypeError,
+        ValueError,
+    ) as error:
+        result = _SelfTestOutcome(
+            name=name,
+            passed=False,
+            detail=f"unexpected {type(error).__name__}: {error}",
+        )
+    else:
+        result = _SelfTestOutcome(name=name, passed=True, detail=detail)
+    results.append(result)
+    if result.passed and quiet:
+        return
+    verdict = "PASS" if result.passed else "FAIL"
+    print(
+        f"self-test {verdict} {result.name} -- "
+        f"{_printable(' '.join(result.detail.split()))}",
+        file=stream,
+    )
+
+
+def _self_test_status(results: Sequence[_SelfTestOutcome]) -> int:
+    """Return ``EXIT_OK`` when every case passed and ``EXIT_SELF_TEST_FAILED`` else."""
+    return (
+        EXIT_OK
+        if all(result.passed for result in results)
+        else EXIT_SELF_TEST_FAILED
+    )
+
+
+def run_self_test(*, quiet: bool = False, stream: Any = None) -> int:
+    """Run every self-test case and return ``EXIT_OK`` or ``EXIT_SELF_TEST_FAILED``.
+
+    Each case prints one line to ``stream``, which defaults to stdout, followed
+    by one summary line; ``quiet`` limits the case lines to the failing ones.
+    Every comparison a case makes is made in this process over records the case
+    built, so the matrix opens no warehouse, reads no harness output, reads no
+    field map and reaches no endpoint. The three documents a case writes are
+    written inside one private temporary directory the matrix creates and the
+    last case removes, so no path of this repository is written and the reports
+    of the last comparison run stand untouched.
+    """
+    out = sys.stdout if stream is None else stream
+    results: list[_SelfTestOutcome] = []
+    scratch = _Scratch()
+    try:
+        _run_case(
+            results, out, quiet, "mismatched_value_fails", _case_mismatched_value_fails
+        )
+        _run_case(
+            results, out, quiet, "failed_column_fails_case_and_run",
+            _case_failed_column_fails_case_and_run,
+        )
+        _run_case(
+            results, out, quiet, "amount_delta_zero_passes",
+            _case_amount_delta_zero_passes,
+        )
+        _run_case(
+            results, out, quiet, "amount_delta_at_tolerance_passes",
+            _case_amount_delta_at_tolerance_passes,
+        )
+        _run_case(
+            results, out, quiet, "amount_delta_above_tolerance_fails",
+            _case_amount_delta_above_tolerance_fails,
+        )
+        _run_case(
+            results, out, quiet, "amount_tolerance_boundary_sweep",
+            _case_amount_tolerance_boundary_sweep,
+        )
+        _run_case(
+            results, out, quiet, "amount_scale_anomaly_recorded",
+            _case_amount_scale_anomaly_recorded,
+        )
+        _run_case(
+            results, out, quiet, "absent_authority_reports_missing",
+            _case_absent_authority_reports_missing,
+        )
+        _run_case(
+            results, out, quiet, "null_expectation_both_branches",
+            _case_null_expectation_both_branches,
+        )
+        _run_case(
+            results, out, quiet, "nullable_blank_window_both_branches",
+            _case_nullable_blank_window_both_branches,
+        )
+        _run_case(
+            results, out, quiet, "authorities_that_disagree_fail",
+            _case_authorities_that_disagree_fail,
+        )
+        _run_case(
+            results, out, quiet, "warehouse_null_fails", _case_warehouse_null_fails
+        )
+        _run_case(
+            results, out, quiet, "unreadable_harness_value_fails",
+            _case_unreadable_harness_value_fails,
+        )
+        _run_case(
+            results, out, quiet, "unreadable_warehouse_value_fails",
+            _case_unreadable_warehouse_value_fails,
+        )
+        _run_case(
+            results, out, quiet, "normalisations_compare_equal",
+            _case_normalisations_compare_equal,
+        )
+        _run_case(
+            results, out, quiet, "failed_assertion_fails_case",
+            _case_failed_assertion_fails_case,
+        )
+        _run_case(
+            results, out, quiet, "case_status_precedence", _case_case_status_precedence
+        )
+        _run_case(results, out, quiet, "run_report_statuses", _case_run_report_statuses)
+        _run_case(
+            results, out, quiet, "exit_precedence_ordering",
+            _case_exit_precedence_ordering,
+        )
+        _run_case(
+            results, out, quiet, "markdown_reports_failure",
+            _case_markdown_reports_failure,
+        )
+        _run_case(
+            results, out, quiet, "json_document_reports_failure",
+            _case_json_document_reports_failure,
+        )
+        _run_case(
+            results, out, quiet, "summary_line_reports_failure",
+            lambda: _case_summary_line_reports_failure(scratch),
+        )
+        _run_case(
+            results, out, quiet, "reports_written_inside_scratch",
+            lambda: _case_reports_written_inside_scratch(scratch),
+        )
+        _run_case(
+            results, out, quiet, "protected_trees_refused",
+            lambda: _case_protected_trees_refused(scratch),
+        )
+        _run_case(
+            results, out, quiet, "self_test_status_reachable",
+            _case_self_test_status_reachable,
+        )
+        _run_case(
+            results, out, quiet, "command_line_refusals", _case_command_line_refusals
+        )
+    finally:
+        _run_case(
+            results, out, quiet, "scratch_removed",
+            lambda: _case_scratch_removed(scratch),
+        )
+    passed = sum(1 for result in results if result.passed)
+    failed = len(results) - passed
+    print(
+        f"self-test summary cases={len(results)} passed={passed} failed={failed}",
+        file=out,
+    )
+    return _self_test_status(results)
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    """Run the comparison gate and return the status of the run.
+
+    ``--self-test`` runs the built-in case matrix instead of a comparison and
+    returns its own status, opening no warehouse and reading no harness output.
+    """
+    parser = build_parser()
+    try:
+        arguments = parser.parse_args(list(argv) if argv is not None else None)
+        if arguments.self_test:
+            _refuse_self_test_companions(parser, arguments)
+            return run_self_test(quiet=bool(arguments.quiet))
         settings = resolve_settings(arguments)
     except ConfigurationError as error:
         print(f"{_PROGRAM}: {_printable(str(error))}", file=sys.stderr)

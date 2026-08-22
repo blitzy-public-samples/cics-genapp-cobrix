@@ -305,7 +305,7 @@ WHERE THIS STEP SITS
     Figure 5 — Validation Harness Control Flow, both in
     modernization/docs/architecture.md.
 
-Decision rationale: see modernization/docs/decision-log.md, a planned deliverable not present at this milestone.
+Decision rationale: see modernization/docs/decision-log.md.
 """
 
 from __future__ import annotations
@@ -3849,16 +3849,24 @@ def _copy_column_names(statement: str) -> tuple[str, ...]:
 def build_copy_manifest(object_uri: str, content_length: int) -> str:
     """Return the COPY manifest binding one load to one landed object.
 
-    The manifest carries exactly one entry: the object's URL, ``mandatory`` true, and
-    ``content_length`` set to the byte count of the validated object, so a COPY reading
-    it fails on a removed object and on an object of any other length.
+    The manifest carries exactly one entry, in the shape Amazon Redshift's manifest
+    schema fixes: the validated object's URL, ``mandatory`` true, and a nested
+    ``meta`` member holding ``content_length``. ``mandatory`` true makes a COPY
+    reading this manifest fail on a removed object rather than load nothing. The byte
+    count sits under ``meta`` because that is where the manifest schema places it, and
+    where Redshift verifies it for a columnar format; the load this manifest serves is
+    ``FORMAT AS JSON``, for which Redshift performs no content-length check, so the
+    value records the byte count of the object the manifest was written for rather
+    than being enforced by the COPY.
+
+    Decision rationale: modernization/docs/decision-log.md, row D-40.
     """
     document = {
         "entries": [
             {
                 "url": object_uri,
                 "mandatory": True,
-                "content_length": content_length,
+                "meta": {"content_length": content_length},
             }
         ]
     }
@@ -5845,7 +5853,13 @@ def _case_landing_uploads_bytes(scratch: _Scratch) -> str:
             _assert_equal(entries[0]["url"], uri, "the URI the manifest entry names")
             _assert_equal(entries[0]["mandatory"], True, "the entry's mandatory flag")
             _assert_equal(
-                entries[0]["content_length"], len(body), "the entry's content length"
+                entries[0]["meta"]["content_length"],
+                len(body),
+                "the entry's nested content length",
+            )
+            _assert(
+                "content_length" not in entries[0],
+                "the manifest entry carries a top-level content_length member",
             )
             listing = raw.list_objects_v2(Bucket=_SELF_TEST_BUCKET)
             _assert_equal(listing.get("KeyCount"), 2, "objects in the bucket")
@@ -5963,9 +5977,14 @@ def _case_landing_replacement_noted(scratch: _Scratch) -> str:
                 .decode("ascii")
             )
             _assert_equal(
-                manifest["entries"][0]["content_length"],
+                manifest["entries"][0]["meta"]["content_length"],
                 len(second_body),
                 "the byte count the manifest names after the replacement",
+            )
+            _assert(
+                "content_length" not in manifest["entries"][0],
+                "the replaced manifest entry carries a top-level content_length "
+                "member",
             )
     return (
         f"{len(first_body)} bytes replaced by {len(second_body)} at one key, the "
@@ -6384,8 +6403,11 @@ def _case_render_manifest(scratch: _Scratch) -> str:
     entries = document["entries"]
     _assert_equal(len(entries), 1, "manifest entries")
     entry = entries[0]
-    _assert_equal(
-        tuple(entry), ("url", "mandatory", "content_length"), "the entry members"
+    _assert_equal(tuple(entry), ("url", "mandatory", "meta"), "the entry members")
+    _assert_equal(tuple(entry["meta"]), ("content_length",), "the entry meta members")
+    _assert(
+        "content_length" not in entry,
+        "the entry carries a top-level content_length member beside its meta",
     )
     object_key = build_landing_key(
         DEFAULT_SOURCE_SYSTEM_KEY, LANDING_ENTITY, _SELF_TEST_EXTRACT_DATE
@@ -6396,7 +6418,9 @@ def _case_render_manifest(scratch: _Scratch) -> str:
         "the entry URL",
     )
     _assert_equal(entry["mandatory"], True, "the entry mandatory flag")
-    _assert_equal(entry["content_length"], len(body), "the entry content length")
+    _assert_equal(
+        entry["meta"]["content_length"], len(body), "the entry content length"
+    )
     _assert(
         MANIFEST_OBJECT_NAME not in entry["url"],
         "the manifest names itself instead of the landed object",
@@ -6695,9 +6719,13 @@ def _case_render_cli(scratch: _Scratch) -> str:
     _assert_equal(manifest_run.status, EXIT_OK, "the status of a rendered manifest")
     document = parse_json_document(manifest_run.stdout)
     _assert_equal(
-        document["entries"][0]["content_length"],
+        document["entries"][0]["meta"]["content_length"],
         len(path.read_bytes()),
         "the content length on stdout",
+    )
+    _assert(
+        "content_length" not in document["entries"][0],
+        "the manifest on stdout carries a top-level content_length member",
     )
     for extra, fragment, status in (
         ([], f"{IAM_ROLE_VARIABLE} environment variable", EXIT_CONFIGURATION_REJECTED),
@@ -7881,7 +7909,6 @@ def build_arg_parser() -> argparse.ArgumentParser:
             "workgroup, database, schema, durable relation, network or IAM object. It "
             "writes those two objects and nothing to the local filesystem.\n"
             "Decision rationale: modernization/docs/decision-log.md"
-            " (planned deliverable; not present at this milestone)"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -8034,9 +8061,10 @@ def build_arg_parser() -> argparse.ArgumentParser:
             "comment sequence; an unsupported placeholder, a placeholder without a "
             "value, a rendered key that is not the record's own and a rendered delete "
             "guard that is not keyed on the record's own policy number are all "
-            "refused. The manifest carries one mandatory entry with the byte count of "
-            "the validated object, so the COPY fails on a replaced or removed object. "
-            "No S3 request is made, no object is written and no credential is used"
+            "refused. The manifest carries one mandatory entry naming the validated "
+            "object, with that object's byte count under the entry's nested meta "
+            "member, so the COPY fails on a removed object. No S3 request is made, no "
+            "object is written and no credential is used"
         ),
     )
     parser.add_argument(

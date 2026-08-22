@@ -14,7 +14,7 @@ Two conventions govern everything below, and both are deliberate.
 
 - **Facts here, reasons elsewhere.** This guide states findings, facts, status and procedures. Every "why" belongs to
   [`decision-log.md`](decision-log.md), which is the single rationale source for the whole `modernization/` tree; where
-  a reader would ask why a choice was made, this guide names the row that answers it (`D-01` … `D-65`). Construct-level
+  a reader would ask why a choice was made, this guide names the row that answers it (`D-01` … `D-78`). Construct-level
   and artifact-level source-to-target coverage belongs to [`traceability-matrix.md`](traceability-matrix.md) and
   column-level coverage to [`field-level-lineage.md`](field-level-lineage.md); neither is reproduced here.
 - **Topology by figure, never by prose.** All five figures live in [`architecture.md`](architecture.md) and are cited
@@ -51,6 +51,16 @@ The active branch is the local substitute, and every result this project has pro
 | Warehouse | DuckDB, in place of Amazon Redshift |
 | Formal AWS diff requirement | **OPEN** |
 | AWS infrastructure provisioned by this work | none: zero buckets, zero clusters, zero Serverless workgroups, zero networks, zero IAM objects |
+| Dependency set of this environment | **not approved for production use** while the transitive `sqlparse` exception stands (`D-75`) |
+
+**The dependency restriction, stated here so it is not invisible.** The pinned dbt distributions resolve
+`sqlparse 0.5.5`, and the release that fixes its published advisories is excluded by the declared constraint of both
+pins, so **this dependency set is not approved for production use**. While that exception stands the dbt CLI of this
+environment is run only as a bounded batch invocation over the authored model and test set of
+`modernization/dbt/genapp_rqi` — no dbt server, no RPC mode, no process that accepts SQL from a caller, and no
+production workload served from this environment. `D-75` carries the decision with its owner and its review trigger.
+This restriction and the AWS diff are **independent**: closing the diff does not lift the restriction, and lifting the
+restriction does not close the diff.
 
 The branch is not a build-time constant. `make gate` re-probes real S3 and real Amazon Redshift on every invocation and
 records the selection in `modernization/validation/artifacts/gate-selection.json`, so the branch is a measured property
@@ -323,8 +333,9 @@ Recorded here in outline only; the rewrite rules and the harness limitations bel
 
 - Translated programs and stubs compile as callable modules with `cobc -m`; `harness/driver.cbl` compiles as an
   executable with `cobc -x`.
-- Compiler options are fixed at `-std=ibm -ffold-copy=LOWER -ext cpy`. `harness/run_harness.sh` compiles with the same
-  options plus `-fbinary-truncate` (`D-23`).
+- Compiler options are fixed at the four mandated options `-std=ibm -fbinary-truncate -ffold-copy=LOWER -ext cpy`
+  (`D-23`), and both build paths use them: the `compile` target of [`../Makefile`](../Makefile) and the build
+  `harness/run_harness.sh` performs for `execute`, which additionally pins the compiler environment (`D-71`).
 - `COB_LIBRARY_PATH` is set before execution so the driver resolves the compiled modules.
 - Compilation reads only generated copies under `modernization/harness/build/**`; no source artifact is preprocessed in
   place (`D-06`).
@@ -444,6 +455,27 @@ may be personal data even without names or addresses.
 - No credential and no real customer record is committed to this repository; the samples are authored fixtures.
 - Masking, retention and access-control design are outside this task.
 - **Any future field expansion requires a separate privacy and security review.**
+
+**Identifiers are withheld by default.** On success `modernization/extraction/extract_commarea.py` writes one summary
+line naming the destination, the source-system key with its origin, the derived policy type, the return code, how many
+landing keys carry a value and how many are null, and a digest of the policy number in place of the number —
+`sha256-` followed by the leading 12 hexadecimal characters of the SHA-256 of that value — and it states
+`identifiers=redacted`. That line carries **no** policy number, customer number, broker id or brokers reference, so a
+captured run log holds no business identifier. A rejected window, timestamp or identifier reaches a diagnostic by field
+name, COBOL item, byte range, the constraint it breached and its character count, never by value.
+
+**One opt-in reverses that, and a reader should know it exists.** Either the option `--show-identifiers` or the
+environment variable **`GENAPP_SHOW_IDENTIFIERS`** carrying `1`, `true`, `yes` or `on` — in any case and ignoring
+surrounding spaces — selects the same identifier line, which then names `request_id`, `policy_type`, `policy_number`,
+`customer_number`, `broker_id`, `brokers_reference` and `return_code` in full and carries record values into
+diagnostics. Every other value of that variable, an empty value and an absent variable leave the values withheld. The
+variable is named in the environment table of `modernization/README.md` for that reason.
+
+**File modes are set, not inherited.** A directory the extractor creates carries mode `0700` and a landing record it
+creates carries mode `0600`, each set on the created entry itself as well as requested at creation, so the ambient
+umask cannot widen either and the landed policy data is readable and writable by its owner alone. Neither mode is
+applied to an entry the tool did not create: a record written over an existing file under `--overwrite` keeps the mode
+that file already carries, and a directory that already exists keeps its own mode.
 
 ### 9.4 A source finding operators should know: the stale motor length
 

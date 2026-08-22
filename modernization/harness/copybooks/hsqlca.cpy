@@ -46,9 +46,8 @@
       * Harness topology: Figure 5 — Validation Harness Control Flow
       * in modernization/docs/architecture.md.
       *
-      * See modernization/docs/decision-log.md (planned deliverable;
-      * not present at this milestone):
-      * "shared EXTERNAL harness state" and "minimal SQLCA field set".
+      * See modernization/docs/decision-log.md, rows D-26: shared
+      * EXTERNAL harness state; D-78: minimal SQLCA field set.
       *
       *----------------------------------------------------------------*
       * SQLCA - SQL communications area of the translated LGAPDB01.    *

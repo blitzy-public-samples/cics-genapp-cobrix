@@ -14,8 +14,8 @@
       * modernization/harness/build/. Every statement below about the
       * harness or about a translated program describes the delivered
       * contract. modernization/validation/diff_harness_vs_warehouse.py
-      * is a planned artifact and is not present in the tree, so every
-      * statement below about the diff tool is the planned contract.
+      * is present in the tree, so every statement below about the diff
+      * tool describes the contract it implements.
       *
       * Records what the translated Policy-Issue chain hands to each
       * emulated service. The SQL groups hold the host-variable values
@@ -90,13 +90,13 @@
       * HC-ABEND-SEQ are capture-control items, not host-variable
       * slots; no stub USING arity changes.
       *
-      * Rationale is to be recorded in
-      * modernization/docs/decision-log.md (planned deliverable; not
-      * present at this milestone), rows: shared EXTERNAL harness
-      * state; HC- capture prefix; per-statement capture without
-      * deduplication; shared event-sequence ordering witness and order
-      * guard; commercial peril-code capture without canonical mapping;
-      * flat VSAM payload capture.
+      * Rationale is recorded in
+      * modernization/docs/decision-log.md, rows D-26: shared
+      * EXTERNAL harness state; D-66: per-statement capture
+      * without deduplication; D-27: shared event-sequence ordering
+      * witness and order guard; D-12: commercial peril operands
+      * accepted by the harness stubs; D-67: flat VSAM payload
+      * capture; D-76: HC- capture prefix.
       *
       * Harness topology: Figure 5 — Validation Harness Control Flow
       * in modernization/docs/architecture.md.
@@ -161,9 +161,9 @@
       * [base/src/lgapvs01.cbl:142] for the write response, so a case
       * that injects nothing behaves exactly as before.
       *
-      * See modernization/docs/decision-log.md (planned deliverable;
-      * not present at this milestone), row: deterministic failure
-      * injection through shared harness state.
+      * See modernization/docs/decision-log.md,
+      * row: deterministic failure injection through shared harness
+      * state.
            03 HC-INJECT.
       *
       * SQLCODE that sql_insert_policy.cbl reports for the POLICY
@@ -303,9 +303,9 @@
       * both pairs at 'N' and zero; the returned CA-RETURN-CODE is then
       * the witness of how far the chain travelled.
       *
-      * See modernization/docs/decision-log.md (planned deliverable;
-      * not present at this milestone), row: chain traversal witnessed
-      * through the emulated services.
+      * See modernization/docs/decision-log.md,
+      * row: chain traversal witnessed through the emulated
+      * services.
            03 HC-CHAIN.
       *
       * Set to 'Y' by sql_insert_policy.cbl when the translated
@@ -507,9 +507,9 @@
       * [base/src/lgapdb01.cbl:461]. Held per statement: this item and
       * HC-IDENT-POLICYNUM hold the value separately and are compared
       * with each other.
-      * See modernization/docs/decision-log.md (planned deliverable;
-      * not present at this milestone), row: per-statement capture
-      * without deduplication.
+      * See modernization/docs/decision-log.md,
+      * row D-66: per-statement capture without
+      * deduplication.
               05 HC-MOT-POLICYNUM         PIC S9(9) COMP.
       *
       * Slot 2, column MAKE. Witnesses CA-M-MAKE
@@ -565,9 +565,9 @@
       * by the MOVE statements at [base/src/lgapdb01.cbl:488-496]. The
       * block's column names are transcribed as the source spells them
       * at [base/src/lgapdb01.cbl:502-521].
-      * See modernization/docs/decision-log.md (planned deliverable;
-      * not present at this milestone), row: commercial peril-code
-      * capture without canonical mapping.
+      * See modernization/docs/decision-log.md,
+      * row D-12: commercial peril operands accepted by the
+      * harness stubs.
            03 HC-SQL-COMMERCIAL.
       *
       * Set to 'Y' by sql_insert_commercial.cbl when the
@@ -869,8 +869,8 @@
       * Item order follows the declaration order at
       * [base/src/lgapvs01.cbl:27-29], not the MOVE order at
       * [base/src/lgapvs01.cbl:99-101].
-      * See modernization/docs/decision-log.md (planned deliverable;
-      * not present at this milestone), row: flat VSAM payload capture.
+      * See modernization/docs/decision-log.md, row D-67: flat VSAM
+      * payload capture.
            03 HC-VSAM-RECORD.
       *
       * Key half of the record image, 1 + 10 + 10 = 21 bytes, matching
@@ -911,9 +911,9 @@
       * once, from the From operand, so the record image and the key
       * operand remain two independent readings of the write.
       * Item order follows WF-Policy-Key [base/src/lgapvs01.cbl:26-29].
-      * See modernization/docs/decision-log.md (planned deliverable;
-      * not present at this milestone), row: Ridfld operand captured
-      * apart from the record image.
+      * See modernization/docs/decision-log.md,
+      * row D-68: Ridfld operand captured apart from the record
+      * image.
            03 HC-VSAM-RIDFLD.
       *
       * Request-type letter of the key operand.

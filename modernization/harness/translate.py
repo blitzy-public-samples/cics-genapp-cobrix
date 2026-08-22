@@ -6012,9 +6012,9 @@ def build_report(
 
     The per-program application lists and the per-rule totals account for
     every rewritten construct and for every source line carried through
-    unchanged. That coverage is what the planned
-    ``modernization/docs/traceability-matrix.md``, not present at this
-    milestone, will consume once it is created.
+    unchanged. That coverage is what
+    ``modernization/docs/traceability-matrix.md``
+    consumes.
     ``chain_link_contract`` publishes the nested link events - target program,
     COMMAREA operand and length per site - for the runner to cross-check.
     ``order_metadata`` publishes the validated ordering contract of the

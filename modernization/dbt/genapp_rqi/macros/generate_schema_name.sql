@@ -11,10 +11,9 @@
     canonical_issued_policy and canonical_preissued_rating with the property
     file beside each model subtree, and the three singular tests under tests/.
     The schema-name contract stated below is the contract every model of the
-    project resolves under. No run against Amazon Redshift and no run against
-    DuckDB is claimed here; per-target run status will be recorded in
-    modernization/validation/validation-evidence.md (planned deliverable; not
-    present at this milestone).
+    project resolves under. This file claims no run of its own; per-target run
+    status is recorded in modernization/validation/validation-evidence.md,
+    which records the DuckDB local_substitute run and no Amazon Redshift run.
 
     Returned value:
       A model that declares no custom schema resolves to the default schema of
@@ -47,8 +46,7 @@
     Execution against real Amazon Redshift has not yet happened.
     Diagram reference: Figure 4 — dbt Transformation DAG and Field Allocation
     in modernization/docs/architecture.md.
-    Rationale for every choice in this file: modernization/docs/decision-log.md,
-    a planned deliverable not present at this milestone.
+    Rationale for every choice in this file: modernization/docs/decision-log.md
 #}
 {% macro generate_schema_name(custom_schema_name, node) -%}
 

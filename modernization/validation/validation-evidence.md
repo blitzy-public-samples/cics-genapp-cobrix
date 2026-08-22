@@ -89,6 +89,15 @@ the resolved compiler dialect chain, the numeric-store keys of that chain and on
 harness relies on. The decision-log rows that cover version pinning and the accepted deviations are D-45 and D-48 in
 `modernization/docs/decision-log.md`.
 
+**Standing restriction on this dependency set.** These pins resolve the transitive package `sqlparse` at 0.5.5, and the
+release that fixes its published advisories is excluded by the declared constraint of both `dbt-core` 1.12.2 and
+`dbt-redshift` 1.11.0, so **this dependency set is not approved for production use**. Every result recorded in this
+document was produced under that restriction: the dbt CLI was run as a bounded batch invocation over the authored model
+and test set of `modernization/dbt/genapp_rqi`, with no dbt server, no RPC mode and no process accepting SQL from a
+caller. The exception, its owner and its review trigger are recorded as D-75 in
+`modernization/docs/decision-log.md`. It is independent of the formal AWS diff of section 12: neither closes or lifts
+the other.
+
 ## 3. AWS precondition gate
 
 Measurements taken on the ambient environment of this checkout, with no project variable exported:
@@ -211,23 +220,24 @@ awk 'length($0)>72 {c++} END {print "lines longer than 72:", c+0}' \
 `modernization/validation/artifacts/compile-modules.log`:
 
 ```text
-compile: cobc -std=ibm -ffold-copy=LOWER -ext cpy
+compile: cobc -std=ibm -fbinary-truncate -ffold-copy=LOWER -ext cpy
 cobc (GnuCOBOL) 3.2.0
 ```
 
 | Compilation | Command form | Count | Return code | Status |
 |---|---|---|---|---|
-| Translated programs | `cobc -std=ibm -ffold-copy=LOWER -ext cpy -m -I harness/build/src -o <module>.so <source>` | 3 | 0 for each | validated against local substitute, not AWS |
-| Harness stubs | `cobc -std=ibm -ffold-copy=LOWER -ext cpy -m -I harness/build/src -o <module>.so <source>` | 12 | 0 for each | validated against local substitute, not AWS |
-| Driver | `cobc -std=ibm -ffold-copy=LOWER -ext cpy -x -I harness/build/src -o harness/build/compile/driver harness/driver.cbl` | 1 | 0 | validated against local substitute, not AWS |
+| Translated programs | `cobc -std=ibm -fbinary-truncate -ffold-copy=LOWER -ext cpy -m -I harness/build/src -o <module>.so <source>` | 3 | 0 for each | validated against local substitute, not AWS |
+| Harness stubs | `cobc -std=ibm -fbinary-truncate -ffold-copy=LOWER -ext cpy -m -I harness/build/src -o <module>.so <source>` | 12 | 0 for each | validated against local substitute, not AWS |
+| Driver | `cobc -std=ibm -fbinary-truncate -ffold-copy=LOWER -ext cpy -x -I harness/build/src -o harness/build/compile/driver harness/driver.cbl` | 1 | 0 | validated against local substitute, not AWS |
 
 The stage ended with `compile: 15 modules and one driver, compiler output in validation/artifacts/compile-modules.log`
 and requires every expected module and the driver to exist. Retained warnings: 16 occurrences of the host-toolchain
 warning that `_FORTIFY_SOURCE` is redefined on the command line, each with its paired `note:` line locating the previous
 definition, and no COBOL diagnostic.
 
-The `execute` stage compiles the same set through `modernization/harness/run_harness.sh`, which pins the compiler
-environment and adds `-fbinary-truncate` to the option list. `modernization/validation/artifacts/compile.log` records
+The `execute` stage compiles the same set through `modernization/harness/run_harness.sh`, under the same four mandated
+options and with the compiler environment pinned, which the `compile` stage does not do.
+`modernization/validation/artifacts/compile.log` records
 for that build: compiler `3.2.0 (cobc)`; options `-std=ibm -fbinary-truncate -ffold-copy=LOWER -ext cpy`;
 `COB_CONFIG_DIR: /usr/share/gnucobol/config (pinned)`; `COB_RUNTIME_CONFIG: unset (pinned)`; `COB_CFLAGS` pinned to the
 values `cobc --info` reports; `ambient compiler environment ignored: none`; the dialect chain `ibm.conf`,
@@ -235,8 +245,9 @@ values `cobc --info` reports; `ambient compiler environment ignored: none`; the 
 `binary-truncate no`, `binary-byteorder big-endian`, `hostsign yes` and `defaultbyte 0`;
 `binary truncation in force: yes`; twelve stub modules and three program modules built with `cobc -m` and the driver
 with `cobc -x`; and zero warnings. Module lookup for execution used
-`COB_LIBRARY_PATH=<repository root>/modernization/harness/build/bin`. The added compile option is recorded as D-23 in
-`modernization/docs/decision-log.md`.
+`COB_LIBRARY_PATH=<repository root>/modernization/harness/build/bin`. The four mandated compile options, including the
+added `-fbinary-truncate`, are recorded as D-23 in `modernization/docs/decision-log.md`, and the pinned compiler
+environment of this build as D-71.
 
 ## 6. Execution evidence, per case
 
@@ -352,7 +363,7 @@ landing/source_system_key=GENAPP_CLASS_EXEMPLAR/entity=policy_issue/extract_date
 ```
 
 The writer reported `run mode 'local_substitute' from --run-mode, addressing the loopback endpoint` for both cases, a
-243-byte COPY manifest beside each data object, and — for the second case — its documented warning that the key already
+269-byte COPY manifest beside each data object, and — for the second case — its documented warning that the key already
 carried an object which that landing replaced. No credential, bucket or endpoint value is echoed by the writer, and the
 stage created no bucket.
 
@@ -483,6 +494,23 @@ including `CA_RETURN_CODE=00`, `ABEND_PRESENT=N`, `DIAG_LINK_COUNT=0000` and the
 SQL capture group — and the VSAM corroboration passed with length 64, key length 21 and the composite key of each case.
 The 43-byte product payload of the VSAM record is mapped to no canonical column and was not compared.
 
+**The gate's failure verdicts are exercised, not inferred.** A run in which nothing fails demonstrates only the passing
+path, so the comparison tool carries its own self-test, which drives the comparison functions in process against
+constructed values and needs no warehouse, no S3 endpoint and no harness output:
+
+```bash
+.venv/bin/python validation/diff_harness_vs_warehouse.py --self-test
+```
+
+Observed: `self-test summary cases=27 passed=27 failed=0`, exit status 0. Among the verdicts those cases reach — none of
+which the passing run above produces — are a mismatched non-amount value reaching the failure status and the
+comparison-failure exit status 1, an absolute amount delta of exactly 0.01 reaching the in-tolerance pass status with the
+anomaly recorded, a delta above 0.01 failing, an absent harness authority reaching the missing status and exit status 2,
+a warehouse amount carried at a scale the canonical type does not declare raising the scale anomaly, and the exit-status
+precedence the tool applies when more than one condition holds. The self-test writes only inside a private directory it
+creates and removes, and returns exit status 5 when one of its own cases does not hold — a status no comparison run
+returns. It is recorded here because it is what makes the PASS above meaningful: the gate is known to be able to fail.
+
 Reports: `modernization/validation/artifacts/diff-report.md` and
 `modernization/validation/artifacts/diff-report.json`.
 
@@ -513,6 +541,10 @@ target.
 Outstanding item, one: the formal AWS diff. Its disposition is **OPEN**. Production-grade validation requires re-running
 the same dbt models unmodified against real S3 and Amazon Redshift, and this has not yet happened. Nothing in this
 document may be read as closing that requirement.
+
+One standing restriction stands beside it and is not a validation item: the dependency set of this environment is **not
+approved for production use** while the transitive `sqlparse` exception of section 2 stands (D-75). It is not closed by
+this runbook, and closing the formal AWS diff does not lift it.
 
 The ordered steps that close it, none of which edits a model file:
 

@@ -12,13 +12,12 @@
 -- runs on the real branch; that has not yet happened, no branch of this bridge having
 -- reached a real Amazon Redshift target.
 -- Milestone status: every modernization path named below is authored and present at this
--- milestone. An executed result is recorded in
--- modernization/validation/validation-evidence.md, a planned deliverable not present at
--- this milestone.
+-- milestone. Executed results are recorded in
+-- modernization/validation/validation-evidence.md, which records the DuckDB application of
+-- the two statements of this file and no Amazon Redshift application.
 -- Diagram reference: Figure 4 — dbt Transformation DAG and Field Allocation
 -- in modernization/docs/architecture.md.
--- Rationale for every choice in this file:
--- modernization/docs/decision-log.md (planned deliverable; not present at this milestone)
+-- Rationale for every choice in this file: modernization/docs/decision-log.md
 
 -- Schema raw holds the landed policy-issue record exactly as extracted, every column VARCHAR.
 -- Its relation is raw.genapp_policy_issue, created by 02_raw_genapp_policy_issue.sql, which

@@ -257,7 +257,7 @@ WHERE THIS STEP SITS
     Figure 5 — Validation Harness Control Flow, both in
     modernization/docs/architecture.md.
 
-Decision rationale: see modernization/docs/decision-log.md, a planned deliverable not present at this milestone.
+Decision rationale: see modernization/docs/decision-log.md.
 """
 
 from __future__ import annotations
@@ -413,8 +413,8 @@ DDL_SCRIPT_NAMES = ("01_schemas.sql", "02_raw_genapp_policy_issue.sql")
 
 # Names in DATABASE_DIRECTORY that a database path may never resolve to: the authored
 # files of that directory, which this tool must not open as a database or overwrite.
-# diff_harness_vs_warehouse.py and validation-evidence.md are planned deliverables
-# not present at this milestone, and are reserved here before they are authored.
+# All three are present: diff_harness_vs_warehouse.py, validation-evidence.md and
+# verify_readonly.sh sit beside the database file this tool opens.
 RESERVED_DATABASE_NAMES = (
     "diff_harness_vs_warehouse.py",
     "validation-evidence.md",
@@ -3560,15 +3560,14 @@ def build_delete_statement(
     """Return the statement removing the rows carrying one natural key.
 
     The predicate names every field of ``NATURAL_KEY_FIELDS`` and binds each
-    value, so a row carrying any other natural key is out of its reach and no
-    whole-relation form is ever issued.
+    value as a parameter, so a row carrying any other natural key is out of its
+    reach and no whole-relation form is ever issued. Every field is compared with
+    ``IS NOT DISTINCT FROM``, which matches null to null and agrees with ``=``
+    against a value: the predicate is written once for the whole
+    ``NATURAL_KEY_FIELDS`` tuple, whose members are nullable columns of
+    ``raw.genapp_policy_issue``, so it is null-safe by construction.
 
-    Each field is compared with ``IS NOT DISTINCT FROM`` rather than with ``=``,
-    which matches null to null. A landed failure record carries a null
-    ``policy_number``, since the chain assigns it only after the policy insert
-    succeeds, and ``=`` yields unknown against null: the earlier row would survive
-    and the load would leave two rows where one belongs. Against a value the two
-    operators agree, so a successful row is replaced exactly as before.
+    Decision rationale: modernization/docs/decision-log.md, row D-38.
     """
     predicate = " AND ".join(
         f"{field} IS NOT DISTINCT FROM ?" for field in NATURAL_KEY_FIELDS
@@ -7031,7 +7030,6 @@ def build_arg_parser() -> argparse.ArgumentParser:
             "produces are local-substitute results and establish nothing about a "
             "real-target run.\n"
             "Decision rationale: modernization/docs/decision-log.md"
-            " (planned deliverable; not present at this milestone)"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )

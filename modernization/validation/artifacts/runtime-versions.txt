@@ -9,8 +9,7 @@ host_release: Ubuntu 25.10
 apt_suites: questing questing-updates questing-backports questing-security
 status_label: validated against local substitute, not AWS
 aws_branch: formal AWS validation remains OPEN; this report covers versions only
-rationale: see modernization/docs/decision-log.md (planned deliverable; not
-        present at this milestone)
+rationale: see modernization/docs/decision-log.md
 
 system runtimes (required, measured, verdict):
   python (venv interpreter)  required=3.12.3 (apt 3.12.3-1ubuntu0.15)    measured=3.12.14   DEVIATION

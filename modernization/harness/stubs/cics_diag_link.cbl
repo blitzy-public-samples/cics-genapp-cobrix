@@ -55,8 +55,8 @@
       * modernization/harness/translation-rules.md,
       * modernization/validation/diff_harness_vs_warehouse.py,
       * modernization/docs/decision-log.md and
-      * modernization/docs/traceability-matrix.md are planned
-      * artifacts and are not present in the tree.
+      * modernization/docs/traceability-matrix.md all stand in the
+      * tree.
       *
       * modernization/harness/run_harness.sh compiles this file as a
       * callable module with cobc -m -std=ibm -fbinary-truncate
@@ -114,7 +114,7 @@
       * of modernization/harness/stubs/. The group is EXTERNAL and
       * carries no VALUE clause. This module adds 1 to
       * HC-DIAG-LINK-COUNT, declared at
-      * modernization/harness/copybooks/hcapture.cpy:819, and reads,
+      * modernization/harness/copybooks/hcapture.cpy:1019, and reads,
       * writes or initialises no other item of the group. It performs
       * no INITIALIZE and never zeroes the counter. The values
       * modernization/harness/driver.cbl set before the case, and the

@@ -255,10 +255,12 @@ DEBIAN_FRONTEND=noninteractive apt-get install --reinstall -y gnucobol3=3.1.2-5.
 ```
 
 `modernization/Makefile` carries a second, independent compile check in its `compile` target. It is not the
-harness build and does not feed the evidence: its `COBFLAGS` are `-std=ibm -ffold-copy=LOWER -ext cpy`,
-without `-fbinary-truncate`, and it writes modules named after their **source file** into
-`modernization/harness/build/compile/`. The Makefile's `execute` target delegates to `run_harness.sh`, so the
-four mandated options govern every module the chain actually runs.
+harness build and does not feed the evidence: it writes modules named after their **source file** into
+`modernization/harness/build/compile/`. Its `COBFLAGS` are the same four mandated options,
+`-std=ibm -fbinary-truncate -ffold-copy=LOWER -ext cpy`, so both build paths compile under the configuration
+D-23 mandates; the harness build additionally pins the compiler environment, which that target does not. The
+Makefile's `execute` target delegates to `run_harness.sh`, so the modules the chain actually runs are the ones
+that build carries.
 
 ### 5.2 Harness environment contract
 
@@ -445,6 +447,9 @@ installation's EBCDIC CCSID instead; no byte of this harness's output carries an
 | D-16 | One map covering `INCLUDE` and DML blocks alike |
 | D-22 | Source halfword receivers preserved exactly as declared |
 | D-23 | The fixed compile options, including `-fbinary-truncate` |
+| D-69 | `EIB surrogate storage scope` |
+| D-70 | `EIBCALEN binary representation` |
+| D-71 | `compiler environment pinned for the harness compile and execution` |
 | D-33 | `WRITE length operands as 5-digit literals` |
 | D-21 | `abend sites unexercised by the two passing samples`; `unexercised diagnostic paths` |
 | D-20 | `deterministic failure injection through shared harness state` |
@@ -454,10 +459,12 @@ installation's EBCDIC CCSID instead; no byte of this harness's output carries an
 | D-48 | Measured runtime versions accepted, each difference from a pin reported as a deviation |
 | D-58 | The stable GnuCOBOL 3 series as the compiler |
 
-Two conventions this document records carry **no row** in that log at this milestone: the `PIC S9(4) COMP-5`
-declaration of the `EIBCALEN` surrogate, whose shared declaration falls under D-26 and whose truncation
-semantics fall under D-22 and D-23; and the `COB_LS_FIXED` fixed-length line-sequential requirement, whose
-contract is stated in `modernization/harness/driver.cbl` and `modernization/harness/run_harness.sh`.
+The `PIC S9(4) COMP-5` declaration of the `EIBCALEN` surrogate is covered by D-70, the scope and seeding of the
+five-field surrogate by D-69, and the truncation the source's own receivers retain by D-22 and D-23. One
+convention this document records carries **no row** in that log, because it is a runtime requirement rather
+than a choice: the `COB_LS_FIXED` fixed-length line-sequential setting, without which the 32,500-character
+post-chain record is not written in full. Its contract is stated in `modernization/harness/driver.cbl` and
+`modernization/harness/run_harness.sh`.
 
 ---
 

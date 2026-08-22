@@ -195,8 +195,8 @@
       * modules and asserts that each one is present before it runs this
       * program.
       *
-      * Rationale is recorded in modernization/docs/decision-log.md
-      * (planned deliverable; not present at this milestone).
+      * Rationale is recorded in
+      * modernization/docs/decision-log.md.
       *
       * Harness topology: Figure 5 — Validation Harness Control Flow
       * in modernization/docs/architecture.md.

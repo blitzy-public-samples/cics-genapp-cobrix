@@ -25,10 +25,10 @@
       *  seeds all five procedurally before it calls the chain, and    *
       *  the translated programs refresh EIBCALEN before each CALL.    *
       *                                                                *
-      *  Rationale is to be recorded in                                *
-      *  modernization/docs/decision-log.md (planned deliverable; not  *
-      *  present at this milestone), rows: EIB surrogate storage       *
-      *  scope; EIBCALEN binary representation.                        *
+      *  Rationale is recorded in                                      *
+      *  modernization/docs/decision-log.md, rows D-69: EIB            *
+      *  surrogate storage scope; D-70: EIBCALEN binary                *
+      *  representation.                                               *
       *                                                                *
       *  Harness topology:                                             *
       *  Figure 5 — Validation Harness Control Flow                  *
@@ -82,7 +82,8 @@
       *   WS-CALEN at base/src/lgapol01.cbl:33 and
       *   base/src/lgapdb01.cbl:33; WS-Commarea-Len at
       *   base/src/lgapvs01.cbl:23.
-      *   See planned decision-log row: EIBCALEN binary representation.
+      *   See modernization/docs/decision-log.md, row D-70: EIBCALEN
+      *   binary representation.
            03 EIBCALEN                 PIC S9(4) COMP-5.
       *
       * EIBRESP2 - secondary response code of the most recent CICS

@@ -104,8 +104,8 @@
       * on every call and EIBRESP2 is written on the injected-failure
       * path alone.
       *
-      * Rationale is recorded in modernization/docs/decision-log.md
-      * (planned deliverable; not present at this milestone).
+      * Rationale is recorded in
+      * modernization/docs/decision-log.md.
       *
       * Harness topology: Figure 5 — Validation Harness Control Flow
       * in modernization/docs/architecture.md.

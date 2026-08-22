@@ -74,8 +74,10 @@
 -- it to the comparison of each amount of this relation with the value
 -- ref('int_policy_issue_decoded') carries for the same key, alongside its assertions of the
 -- presence pattern, the non-negative domain and the source-domain magnitude of each amount,
--- and modernization/validation/diff_harness_vs_warehouse.py will apply it to the harness
--- capture; that tool is a planned deliverable and is not present at this milestone.
+-- and modernization/validation/diff_harness_vs_warehouse.py applies it to the harness
+-- capture; that comparison is recorded in
+-- modernization/validation/artifacts/diff-report.md under the disposition
+-- validated against local substitute, not AWS.
 -- It re-derives no product null pattern: the pattern arrives from the intermediate model
 -- and is carried through. It adds no column: no return_code column, no premium formula,
 -- rating factor, derived factor, commission, provenance, audit, surrogate key, hash or load

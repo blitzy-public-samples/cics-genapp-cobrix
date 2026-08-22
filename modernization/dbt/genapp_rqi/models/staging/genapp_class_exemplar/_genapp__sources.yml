@@ -14,10 +14,10 @@
 # stg_genapp__policy_issue.sql with _genapp__models.yml beside it, the intermediate model
 # int_policy_issue_decoded.sql with _int__models.yml beside it, the two mart models
 # canonical_issued_policy.sql and canonical_preissued_rating.sql with
-# _canonical__models.yml beside them, and the three singular tests under tests/. No run
-# against Amazon Redshift and no run against DuckDB is claimed here; per-target run status
-# will be recorded in modernization/validation/validation-evidence.md (planned deliverable;
-# not present at this milestone).
+# _canonical__models.yml beside them, and the three singular tests under tests/. This file
+# claims no run of its own; per-target run status is recorded in
+# modernization/validation/validation-evidence.md, which records the DuckDB local_substitute
+# run and no Amazon Redshift run.
 # The 17 columns declared below carry the column names, column order and VARCHAR widths of
 # modernization/warehouse/ddl/02_raw_genapp_policy_issue.sql, which are the 17 landing keys
 # of modernization/landing/landing-schema.json ordered by the landing.field_order block of

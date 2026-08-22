@@ -132,9 +132,10 @@
 -- comparison tolerance modernization/extraction/copybook_field_map.yml records under
 -- comparison.amount_tolerance_abs, the non-negative domain and the source-domain magnitude
 -- of each amount are asserted by tests/assert_product_premium_nullability.sql, and the
--- harness-to-warehouse comparison will be applied by
--- modernization/validation/diff_harness_vs_warehouse.py, a planned deliverable that is not
--- present at this milestone. It asserts no relation inventory:
+-- harness-to-warehouse comparison is applied by
+-- modernization/validation/diff_harness_vs_warehouse.py, whose comparison is recorded in
+-- modernization/validation/artifacts/diff-report.md under the disposition
+-- validated against local substitute, not AWS. It asserts no relation inventory:
 -- tests/assert_issued_policy_unique_key.sql asserts that the schema holding the two marts
 -- carries exactly issued_policy and preissued_rating. The accepted values of policy_type and
 -- the null behaviour of every column are asserted by the built-in tests of

@@ -17,9 +17,10 @@
 #   The two tools listed under `current_consumers` read this file at run time. The artifacts
 #   listed under `derived_artifacts` stand in the tree and carry the layout, typing and lineage
 #   facts of this file in their authored text; each was authored from it and none of them reads
-#   it. The artifacts under `planned_consumers` will carry the same facts once they are
-#   processed; none of them is present at this milestone. Byte layout is expressed only as
-#   `offset`, `length` and `pic` values.
+#   it. The four artifacts under `planned_consumers` all stand in the tree and carry the same
+#   facts: three state them as prose and modernization/validation/diff_harness_vs_warehouse.py
+#   reads this file at run time. Byte layout is expressed only as `offset`, `length` and `pic`
+#   values.
 #
 # EVIDENCE BOUNDARY
 #   Every locator in this file resolves to one of the five authorised source artifacts:
@@ -1570,7 +1571,7 @@ derived_samples:
       numeric class of a display item.
     rationale: >-
       see modernization/docs/decision-log.md,
-      row: house fixture derived from the motor record
+      row: D-74, house fixture derived from the motor record
 
 samples_not_generated:
   request_ids: ["01AEND"]
@@ -1857,8 +1858,8 @@ length_constants:
 # modernization/landing/load_redshift.sql and modernization/landing/load_local.py for the load
 # into it, so this section states a contract in force rather than one awaiting its artifacts.
 # `field_order` is the column order every one of them uses. This section records no
-# execution against any target. modernization/landing/partition-layout.md, which will document
-# the prefix in prose, is a planned deliverable and is not present at this milestone.
+# execution against any target. modernization/landing/partition-layout.md, which documents the
+# prefix in prose, stands in the tree at this milestone.
 landing:
   entity: policy_issue
   raw_relation: raw.genapp_policy_issue
@@ -2006,8 +2007,8 @@ product_premium_nullability:
 # modernization/dbt/genapp_rqi/, and the enforced column contract of both relations is held by
 # modernization/dbt/genapp_rqi/models/marts/canonical/_canonical__models.yml, which declares the
 # same names, order and types recorded below. No build result of either relation is recorded in
-# the repository: modernization/validation/validation-evidence.md, the consolidated execution
-# record, is a planned deliverable and is not present at this milestone.
+# this map: modernization/validation/validation-evidence.md, the consolidated execution record,
+# carries them.
 targets:
 
   canonical.issued_policy:
@@ -2130,9 +2131,9 @@ canonical_relation_count: 2
 # Both inputs of the comparison are represented at this milestone: the harness captures under
 # modernization/validation/artifacts/ and the two canonical models under
 # modernization/dbt/genapp_rqi/models/marts/canonical/. `planned_implementation` names the tool
-# that applies it; that tool is a planned deliverable and is not present at this milestone, so no
-# comparison has been run against this contract yet, and the run status of any comparison is
-# recorded in modernization/validation/validation-evidence.md and not here.
+# that applies it; that tool stands in the tree at this milestone and reads this block at run
+# time. The run status of any comparison is recorded in
+# modernization/validation/validation-evidence.md and not here.
 comparison:
   planned_implementation: modernization/validation/diff_harness_vs_warehouse.py
   amount_tolerance_abs: 0.01
@@ -2174,9 +2175,10 @@ counts:
 # Consumers of this map. `current_consumers` names the tools that read this file at run time.
 # `derived_artifacts` names the artifacts that stand in the tree at this milestone and whose
 # layout, typing and lineage facts come from it; each was authored from this map and none of them
-# reads it at run time. `planned_consumers` names the artifacts that will carry the same facts
-# once they are processed; every path listed there is a planned deliverable and is not present at
-# this milestone.
+# reads it at run time. `planned_consumers` names four more artifacts that carry the same facts,
+# every one of which stands in the tree at this milestone: the three Markdown documents listed
+# there state those facts as prose, and modernization/validation/diff_harness_vs_warehouse.py
+# reads this file at run time as the tools under `current_consumers` do.
 current_consumers:
   - modernization/extraction/build_sample_commarea.py
   - modernization/extraction/extract_commarea.py

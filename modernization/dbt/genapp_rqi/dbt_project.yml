@@ -15,13 +15,12 @@
 # The connection values of the profile named below are held by profiles.example.yml.
 # No adapter-specific value is declared here; the same model SQL and the same text serve
 # the Amazon Redshift and the DuckDB output of profiles.example.yml. Execution against
-# real Amazon Redshift has not yet happened; per-target run status will be recorded in
-# modernization/validation/validation-evidence.md (planned deliverable; not present at
-# this milestone).
+# real Amazon Redshift has not yet happened; per-target run status is recorded in
+# modernization/validation/validation-evidence.md, which records the local_substitute run
+# and no Amazon Redshift run.
 # Diagram reference: Figure 4 — dbt Transformation DAG and Field Allocation
 # in modernization/docs/architecture.md.
-# Rationale for every choice in this file: modernization/docs/decision-log.md,
-# a planned deliverable not present at this milestone.
+# Rationale for every choice in this file: modernization/docs/decision-log.md
 
 name: genapp_rqi
 version: '1.0.0'

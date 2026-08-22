@@ -1,4 +1,4 @@
-compile: cobc -std=ibm -ffold-copy=LOWER -ext cpy
+compile: cobc -std=ibm -fbinary-truncate -ffold-copy=LOWER -ext cpy
 cobc (GnuCOBOL) 3.2.0
 === module harness/build/compile/lgapol01.so from harness/build/src/lgapol01.cbl
 <command-line>: warning: ‘_FORTIFY_SOURCE’ redefined

@@ -47,7 +47,7 @@ s3://<bucket>/landing/source_system_key=<SOURCE_SYSTEM_KEY>/entity=<ENTITY>/extr
 | Object | Object name | What it holds | Which loader reads it |
 | --- | --- | --- | --- |
 | Landed record | `part-0000.json` | The 17-key landing record | [`load_local.py`](load_local.py) downloads it and writes one raw row |
-| `COPY` manifest | `part-0000.manifest.json` | One entry naming the landed record's own `s3://` URI, its mandatory flag and its byte count | [`load_redshift.sql`](load_redshift.sql) names it as the `COPY` location and sets `MANIFEST`, so exactly the one validated object is read |
+| `COPY` manifest | `part-0000.manifest.json` | One entry naming the landed record's own `s3://` URI, its mandatory flag and, under a nested `meta` member as Amazon Redshift's manifest schema places it, that object's byte count | [`load_redshift.sql`](load_redshift.sql) names it as the `COPY` location and sets `MANIFEST`, so exactly the one validated object is read |
 
 Both objects sit under the same landing prefix, differ only in object name, and carry
 `ContentType: application/json`. [`land_to_s3.py`](land_to_s3.py) writes the record first and the manifest second, on

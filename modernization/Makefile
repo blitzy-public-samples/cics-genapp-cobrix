@@ -101,7 +101,7 @@ PIP := $(VENV)/bin/pip
 DBT := $(VENV)/bin/dbt
 ABS_PY := $(PROJECT_DIR)/$(PY)
 COBC := cobc
-COBFLAGS := -std=ibm -ffold-copy=LOWER -ext cpy
+COBFLAGS := -std=ibm -fbinary-truncate -ffold-copy=LOWER -ext cpy
 
 # Pinned runtime and package versions verify-env measures against.
 PYTHON_PIN := 3.12.3

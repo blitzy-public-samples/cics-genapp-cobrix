@@ -151,7 +151,7 @@ WHERE THIS STEP SITS
     Figure 5 — Validation Harness Control Flow, both in
     modernization/docs/architecture.md.
 
-Decision rationale: see modernization/docs/decision-log.md, a planned deliverable not present at this milestone.
+Decision rationale: see modernization/docs/decision-log.md.
 """
 
 from __future__ import annotations
@@ -5816,7 +5816,6 @@ def build_arg_parser() -> argparse.ArgumentParser:
             "input, a refused output or a usage error, 5 for a failed self-test case, "
             "6 for a capture the chain did not complete, or 130 for an interrupt.\n"
             "Decision rationale: modernization/docs/decision-log.md"
-            " (planned deliverable; not present at this milestone)"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )

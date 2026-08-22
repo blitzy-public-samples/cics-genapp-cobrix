@@ -7,10 +7,11 @@
 # other than the generated evidence files the exempt inventory names has been
 # modified.
 #
-# Milestone status: this script runs standalone and is invoked by
-# modernization/harness/run_harness.sh at four points of a harness run. The
-# modernization/Makefile that will also invoke it and the decision log
-# referenced below are planned deliverables, not present at this milestone.
+# Invocation: this script runs standalone, is invoked by
+# modernization/harness/run_harness.sh at four points of a harness run, and is
+# invoked by the verify-readonly target of modernization/Makefile, which
+# "make all" runs after each generating stage and as its final gate. The
+# decision log referenced below is modernization/docs/decision-log.md.
 #
 # Stages, in execution order:
 #   preflight  "git", "sha256sum", "wc", "date", "mkdir", "stat" and "flock"
@@ -154,8 +155,8 @@
 #      failed append to the evidence log
 #   5  --self-test recorded at least one failing case
 #
-# Any non-zero code will stop the planned fail-fast modernization/Makefile once
-# that Makefile invokes this script.
+# Any non-zero code stops the fail-fast modernization/Makefile, which invokes
+# this script through its verify-readonly target.
 #
 # Accepted argument values:
 #   --stage  one to 64 characters, starting with a letter or a digit and

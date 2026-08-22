@@ -33,9 +33,8 @@
       * Harness topology: Figure 5 — Validation Harness Control Flow
       * in modernization/docs/architecture.md.
       *
-      * See modernization/docs/decision-log.md (planned deliverable;
-      * not present at this milestone):
-      * "normal-response constant representation".
+      * See modernization/docs/decision-log.md, row D-77:
+      * normal-response constant representation.
       *
       *----------------------------------------------------------------*
       * DFHRESP-NORMAL - value of the CICS NORMAL response             *

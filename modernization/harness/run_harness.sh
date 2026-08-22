@@ -93,9 +93,9 @@
 # "-fbinary-truncate" the length subtraction of
 # [base/src/lgapdb01.cbl:339-340] stays inside its PIC S9(4) COMP item, and a
 # direct call of the translated LGAPDB01 on request id 01AEND at
-# EIBCALEN=32500 returns '00' and writes the VSAM record under an "E" key. See
-# modernization/docs/decision-log.md (planned deliverable; not present at this
-# milestone), row: endowment route not executed.
+# EIBCALEN=32500 returns '00' and writes the VSAM record under an "E" key.
+# See modernization/docs/decision-log.md, row: endowment route not
+# executed.
 #
 # Two runtime properties of the chain the case table exercises but does not
 # assert by name:
@@ -442,8 +442,8 @@ readonly PYTHON_SERIES="3.12"
 # table asserts changes under the option: every count, length and amount of the
 # two success cases is a display numeric, a PIC S9(4) COMP-5 item, or a value
 # that already fits its picture.
-# See planned decision-log row: IBM binary truncation pinned for the harness
-# compile.
+# See modernization/docs/decision-log.md, row D-23: the fixed compile options
+# including "-fbinary-truncate".
 readonly -a COBC_FLAGS_MANDATED=("-std=ibm" "-fbinary-truncate"
   "-ffold-copy=LOWER" "-ext" "cpy")
 
@@ -502,8 +502,8 @@ readonly -a COBC_FLAGS_CONFLICTING=(
 #                       the host toolchain reduced to the one definition that
 #                       takes effect. Every COBOL diagnostic is still reported
 #                       and still counted
-# See planned decision-log row: compiler environment pinned for the harness
-# compile and execution.
+# See modernization/docs/decision-log.md, row D-71: compiler environment
+# pinned for the harness compile and execution.
 readonly -a COBC_PINNED_ENVIRONMENT=("COB_CONFIG_DIR" "COB_RUNTIME_CONFIG"
   "COB_CFLAGS")
 
@@ -931,8 +931,8 @@ readonly SOURCE_DIR="base/src"
 # carries the four blocks of one run rather than the accumulated blocks of
 # every run of the checkout. Every gate asks the guard for its reproducible
 # block, so those four blocks hold the same bytes in any checkout.
-# See planned decision-log row: read-only gate log published with the evidence
-# set.
+# See modernization/docs/decision-log.md, row D-72: read-only gate log
+# published with the evidence set.
 readonly SOURCE_GUARD="modernization/validation/verify_readonly.sh"
 readonly SOURCE_GUARD_LOG_NAME="readonly-check.log"
 readonly SOURCE_GUARD_LOG="modernization/harness/build/logs/readonly-check.log"
@@ -2054,8 +2054,8 @@ install_signal_traps() {
 # inside a pipeline ends it under "set -o pipefail". The first signal is the one
 # recorded and the one reported; a second one of the three is held the same way
 # and adds nothing.
-# See planned decision-log row: the three signals deferred for the replacement
-# of the published evidence set.
+# See modernization/docs/decision-log.md, row D-73: the three signals
+# deferred for the replacement of the published evidence set.
 defer_signal() {
   local signal="$1"
 

@@ -202,12 +202,12 @@ is reported as unexpected. `validation/artifacts/diff-report.md` and `diff-repor
 
 ### 4.4 Compile facts
 
-The compiler flags are `-std=ibm -ffold-copy=LOWER -ext cpy`. The three translated programs and the twelve
-stubs are compiled as callable modules with `cobc -m`, `harness/driver.cbl` is compiled as an executable with
-`cobc -x`, and `COB_LIBRARY_PATH` is set to the module directory before execution. `harness/run_harness.sh`,
-which `make execute` invokes, builds the modules it runs and adds `-fbinary-truncate` to the mandated flag set
-for that build. The rewrites the translated copies carry are documented in
-[`harness/translation-rules.md`](harness/translation-rules.md).
+The compiler flags are the four mandated options `-std=ibm -fbinary-truncate -ffold-copy=LOWER -ext cpy`. The
+three translated programs and the twelve stubs are compiled as callable modules with `cobc -m`,
+`harness/driver.cbl` is compiled as an executable with `cobc -x`, and `COB_LIBRARY_PATH` is set to the module
+directory before execution. `harness/run_harness.sh`, which `make execute` invokes, builds the modules it runs
+under the same four options and additionally pins the compiler environment for that build. The rewrites the
+translated copies carry are documented in [`harness/translation-rules.md`](harness/translation-rules.md).
 
 ## 5. Configuration contract and the AWS gate
 
@@ -227,6 +227,8 @@ or password appears in any file of this tree, and no stage prints one.
 | `REDSHIFT_PORT`, `REDSHIFT_CONNECT_TIMEOUT`, `REDSHIFT_RETRIES` | the dbt profile | default to 5439, 30 seconds and 1 retry |
 | `REDSHIFT_CLUSTER_ID`, `REDSHIFT_IAM_PROFILE` | the dbt profile under IAM authentication | read only while the IAM keys of the profile are uncommented |
 | `REDSHIFT_IAM_ROLE` | `landing/load_redshift.sql` | the role the real-target `COPY` assumes |
+| `WAREHOUSE_TARGET` | `validation/diff_harness_vs_warehouse.py` | `duckdb` or `redshift`, read only when `--target` is absent; the `diff` target of the Makefile always passes `--target`, so this applies to a direct invocation of the comparison gate. Defaults to `duckdb` |
+| `GENAPP_SHOW_IDENTIFIERS` | `extraction/extract_commarea.py` | `1`, `true`, `yes` or `on` — any case, surrounding spaces ignored — carries the business identifiers onto the summary line and record values into diagnostics, the same effect as `--show-identifiers`. Any other value, an empty value and an absent variable leave `policy_number`, `customer_number`, `broker_id` and `brokers_reference` withheld, with the policy number reported as a `sha256-` digest. The extractor is the only tool that reads it; see `docs/project-guide.md` §9.3 |
 
 The template that resolves these is [`dbt/genapp_rqi/profiles.example.yml`](dbt/genapp_rqi/profiles.example.yml).
 Copy it unchanged to `profiles.yml` in the directory dbt reads profiles from; the copy needs no edit and carries

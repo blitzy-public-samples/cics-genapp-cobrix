@@ -45,8 +45,8 @@
       * modernization/harness/translation-rules.md,
       * modernization/validation/diff_harness_vs_warehouse.py,
       * modernization/docs/decision-log.md and
-      * modernization/docs/traceability-matrix.md are planned
-      * artifacts and are not present in the tree.
+      * modernization/docs/traceability-matrix.md all stand in the
+      * tree.
       *
       * modernization/harness/run_harness.sh compiles this file as a
       * callable module with cobc -m -std=ibm -fbinary-truncate
