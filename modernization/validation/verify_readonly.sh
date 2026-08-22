@@ -32,10 +32,11 @@
 #   gate C     "git diff --name-only HEAD" reports no tracked path other than
 #              the generated evidence files the exempt inventory names. Every
 #              reported path is evaluated, wherever in the repository it lies. A
-#              path that equals one entry of that inventory - twelve exact paths
-#              under "modernization/validation/artifacts/", each one a file
-#              modernization/harness/run_harness.sh republishes on every run -
-#              is recorded as exempt and is not counted; every other reported
+#              path that equals one entry of that inventory - fourteen exact
+#              paths under "modernization/validation/artifacts/", each one a
+#              file modernization/harness/run_harness.sh or the diff stage
+#              republishes on every run - is recorded as exempt and is not
+#              counted; every other reported
 #              path, an authored path under "modernization/" included, is named
 #              in the block, counted and fails the gate. The block records the
 #              exempt inventory in full, then the exempt paths this run found
@@ -344,14 +345,17 @@ readonly BASELINE=(
   "base/src/lgpolicy.cpy|107|717c8f5c50738a2ef4d432e4b397e21bdc0423a9fc789246eb3360aa3f99eaa5"
 )
 
-# Repository-relative paths gate C exempts, one exact path each, in the order
-# modernization/harness/run_harness.sh publishes them: its five stage files
-# (PUBLISHED_STAGE_ARTIFACTS), the manifest of the run
-# (EVIDENCE_MANIFEST_NAME), and the driver log, the capture file and the
-# post-chain record of each of its two success cases (SUCCESS_CASES). Every run
-# of that script replaces these twelve tracked files. A reported path is exempt
-# only when it equals one of these strings: no prefix, no directory and no
-# pattern is exempt, so every other tracked path under
+# Repository-relative paths gate C exempts, one exact path each. The first
+# twelve are the ones modernization/harness/run_harness.sh publishes, in the
+# order it publishes them: its five stage files (PUBLISHED_STAGE_ARTIFACTS), the
+# manifest of the run (EVIDENCE_MANIFEST_NAME), and the driver log, the capture
+# file and the post-chain record of each of its two success cases
+# (SUCCESS_CASES). Every run of that script replaces those twelve tracked files.
+# The last two are the comparison reports
+# modernization/validation/diff_harness_vs_warehouse.py rewrites on every run of
+# the diff stage, each one carrying the time of the run it reports. A reported
+# path is exempt only when it equals one of these strings: no prefix, no
+# directory and no pattern is exempt, so every other tracked path under
 # modernization/validation/artifacts/ - runtime-versions.txt, which no harness
 # run writes, included - is evaluated by gate C like any other tracked path.
 readonly GENERATED_EVIDENCE_EXEMPT=(
@@ -367,6 +371,8 @@ readonly GENERATED_EVIDENCE_EXEMPT=(
   "modernization/validation/artifacts/driver_01acom.log"
   "modernization/validation/artifacts/captures_01acom.txt"
   "modernization/validation/artifacts/commarea_post_01acom.dat"
+  "modernization/validation/artifacts/diff-report.md"
+  "modernization/validation/artifacts/diff-report.json"
 )
 
 # The only directory an evidence log may live in, relative to the repository
@@ -376,8 +382,7 @@ readonly GENERATED_EVIDENCE_EXEMPT=(
 # modernization/validation/artifacts/readonly-check.log, one entry of the
 # evidence set it replaces in one step once every gate has passed.
 # Decisions taken for this script are recorded in
-# modernization/docs/decision-log.md (planned deliverable; not present at this
-# milestone).
+# modernization/docs/decision-log.md.
 readonly LOG_DIR_REL="modernization/harness/build/logs"
 
 # Evidence log used when --log is not supplied, relative to the repository root.
@@ -389,8 +394,7 @@ readonly DEFAULT_LOG_REL="${LOG_DIR_REL}/readonly-check.log"
 # are relative to; no block records the absolute path of a checkout. A
 # diagnostic that rejects a path names the root it resolved.
 # Decisions taken for this script are recorded in
-# modernization/docs/decision-log.md (planned deliverable; not present at this
-# milestone).
+# modernization/docs/decision-log.md.
 readonly REPO_ROOT_DISPLAY=". (every path of this block is relative to the repository root)"
 
 # Longest a run waits for the exclusive lock on the evidence log, in seconds. A
@@ -559,10 +563,11 @@ Stages, in execution order:
   gate C     "git diff --name-only HEAD" reports no tracked path other than the
              generated evidence files the exempt inventory names. Every reported
              path is evaluated, wherever in the repository it lies. A path that
-             equals one entry of that inventory - twelve exact paths under
+             equals one entry of that inventory - fourteen exact paths under
              modernization/validation/artifacts/, each one a file
-             modernization/harness/run_harness.sh republishes on every run - is
-             recorded as exempt and is not counted; every other reported path,
+             modernization/harness/run_harness.sh or the diff stage republishes
+             on every run - is recorded as exempt and is not counted; every
+             other reported path,
              an authored path under modernization/ included, is named in the
              block, counted and fails the gate. The block records the exempt
              inventory in full, then the exempt paths this run found modified,
@@ -1391,8 +1396,7 @@ evidence_exempt_path() {
 # while that state is unchanged, and a run whose checkout carries a tracked
 # modification records that path.
 # Decisions taken for this gate are recorded in
-# modernization/docs/decision-log.md (planned deliverable; not present at this
-# milestone).
+# modernization/docs/decision-log.md.
 gate_c() {
   local output="" line="" entry="" count=0 exempt_count=0
   local exempted=() named=()
@@ -3124,8 +3128,8 @@ st_case_evidence_exempt() {
 # inventory does not name - the environment record no harness run writes, and a
 # name below a subdirectory of that directory - modifies both and nothing else,
 # and runs the gate. Both are named and counted, no exempt path is recorded as
-# modified, and the run fails: the exemption holds for the twelve exact paths of
-# the inventory and for no other path of that directory.
+# modified, and the run fails: the exemption holds for the exact paths of the
+# inventory and for no other path of that directory.
 st_case_evidence_not_exempt() {
   local versions_rel="modernization/validation/artifacts/runtime-versions.txt"
   local nested_rel="modernization/validation/artifacts/nested/compile.log"
