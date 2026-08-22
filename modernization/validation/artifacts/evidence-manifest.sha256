@@ -1,7 +1,7 @@
 # run_harness.sh evidence manifest: one run, one published set
 # status label:        validated against local substitute, not AWS
-# run identifier:      20260822T100454Z-2024850
-# written (UTC):       2026-08-22T10:05:07Z
+# run identifier:      20260822T130713Z-2212302
+# written (UTC):       2026-08-22T13:07:26Z
 # case selection:      01AMOT, 01ACOM, 01AMOT-RC70, 01AMOT-RC90, 01AMOT-LGSQ, 01ACOM-LGSQ, 01AMOT-RC80, 01AMOT-RC98, 01AMOT-LGCA, 01AXXX-RC99, 01AHOU-ROUTE, 01AHOU-LGSQ
 # success captures:    01AMOT, 01ACOM
 # policy number seed:  1000001
