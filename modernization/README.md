@@ -90,6 +90,13 @@ python -m pip install --upgrade pip==25.3
 python -m pip install -r modernization/requirements.txt
 ```
 
+On the host of this checkout — Ubuntu 25.10 "questing" — the four apt pins of that block do not resolve: the
+package set carries no `python3.12` and no `python3.12-venv`, and the pinned `gnucobol3` and `git` versions are
+absent from its archive, so the `apt-get install` line ends in the resolver with exit status 100 and installs
+nothing. *Measured state of this checkout*, below, records what this host carries instead, and `make verify-env`
+records each of these as a deviation and still passes. The `apt-get update` line and the four
+virtual-environment lines of the block run unchanged here.
+
 `modernization/requirements.txt` carries ten exact `==` pins: dbt-core 1.12.2, dbt-duckdb 1.11.0,
 dbt-redshift 1.11.0, duckdb 1.5.5, redshift-connector 2.1.16, boto3 1.43.74, botocore 1.43.74,
 moto[s3,server] 5.2.2, PyYAML 6.0.3 and jsonschema 4.26.0. After installation, `pip check` reports no broken
@@ -131,7 +138,9 @@ make -C modernization verify-env   # one stage
 ```
 
 The `land` and `load` stages address an S3 API and an existing bucket. §5.1 supplies both on the
-local-substitute branch, and `make all` reaches `land` only with them in place.
+local-substitute branch — through the optional `local-endpoint` target or the manual equivalent beside it — and
+`make all` reaches `land` only with them in place. With the bucket or the endpoint setting missing on that
+branch, `make land` and `make load` each end the run naming the missing setting and naming `local-endpoint`.
 
 | Target | What it does |
 |---|---|
@@ -139,18 +148,31 @@ local-substitute branch, and `make all` reaches `land` only with them in place.
 | `gate` | Runs the two real-target probes, selects `redshift` when both pass and `local_substitute` otherwise, and records the selection and probe results in `validation/artifacts/gate-selection.json`, which `land`, `load`, `dbt` and `diff` read. Provisions nothing. |
 | `translate` | Writes the two 32,500-character sample records and translates read-only copies of the three programs, with the two verbatim copybooks, into `harness/build`. |
 | `compile` | Compiles the three translated programs and the twelve stubs as callable modules and `harness/driver.cbl` as an executable, keeping the compiler output including warnings in `validation/artifacts/compile-modules.log`. |
-| `execute` | Runs `harness/run_harness.sh` for the two success cases, then asserts the per-case pass conditions of §4.3. |
+| `execute` | Runs `harness/run_harness.sh` for the case selection named by `CASES_MODE` — by default every case of the authored table — then asserts the per-case pass conditions of §4.3 and that the harness executed the selection it was asked for. |
 | `extract` | Decodes the post-chain COMMAREA of each case into one landing record under `harness/build/landing`. |
-| `land` | Writes the landing record of the case named by `CASE` as one S3 object under the landing prefix, through the endpoint the selected run mode requires. |
-| `load` | Loads the landed object of the case named by `CASE` into `raw.genapp_policy_issue`. The only target-specific stage; it edits no dbt model file. |
+| `land` | Writes the landing record of the case named by `CASE` as one S3 object under the landing prefix, at the part number this Makefile records for that case, through the endpoint the selected run mode requires. |
+| `load` | Loads the landed object of the case named by `CASE`, at that same part number, into `raw.genapp_policy_issue`. The only target-specific stage; it edits no dbt model file. |
 | `dbt` | Cleans the dbt project, then runs and tests it against the selected target, keeping the output under `validation/artifacts`. |
 | `diff` | Compares the harness captures of both cases with the two canonical rows and writes `validation/artifacts/diff-report.md` and `diff-report.json`. |
 | `verify-readonly` | Runs `validation/verify_readonly.sh` for the stage named by `STAGE`: the five source hashes, an empty `git status --porcelain -- base/` and no tracked modification. |
 | `all` | Runs every stage above in the recorded order and stops at the first failure. |
+| `local-endpoint` | Optional, local-substitute branch only, and no stage of `all`: starts the pinned `moto` server of the virtual environment at `S3_ENDPOINT_URL` when nothing answers there, keeping its log under `harness/build/logs`, then creates the bucket named by `S3_BUCKET` when that bucket is absent. Both settings are required; the endpoint has to be a loopback `http://` URL on a port of 1024 or above, and a non-loopback endpoint or a `DBT_TARGET` of `redshift` ends the run. Re-running it changes nothing once the endpoint answers and the bucket exists, and it provisions nothing on AWS. |
 
-Overridable variables: `CASE`, `CASES`, `SOURCE_SYSTEM_KEY`, `EXTRACT_DATE`, `STAGE`, `COBC`, `DBT_TARGET`,
-`DBT_PROFILES_DIR`, `HARNESS_STRICT_TOOL_VERSIONS`. Connection settings are read from the environment alone
-(§5). No recipe is interactive, none installs a package and none provisions an AWS resource.
+Overridable variables: `CASE`, `CASES`, `CASES_MODE`, `SOURCE_SYSTEM_KEY`, `EXTRACT_DATE`, `STAGE`, `COBC`,
+`DBT_TARGET`, `DBT_PROFILES_DIR`, `HARNESS_STRICT_TOOL_VERSIONS`. Connection settings are read from the
+environment alone (§5). No recipe is interactive, none installs a package and none provisions an AWS resource.
+
+`CASES_MODE` selects what the `execute` stage runs. It accepts two values and refuses any other, naming both:
+
+| Value | What runs | Measured here |
+|---|---|---|
+| `all` (default) | every case of the authored table — the two success cases plus the ten return-code, abend and route characterisation cases | 12 cases, 902 assertions |
+| `success-only` | the two success cases `01AMOT` and `01ACOM` alone, the fast path | 2 cases, 243 assertions |
+
+Both values publish the same evidence set, because only a success case carries a capture file, a driver log and
+a post-chain record. `make all` inherits the default, so the observed return-code contract — `00`, `70`, `80`,
+`90`, `98`, `99` and the `LGSQ` abend — is exercised by the one documented entry point rather than only by a
+direct invocation of the script.
 
 ### 4.1 Executable order
 
@@ -183,6 +205,49 @@ generating stage, under the stage labels `baseline`, `translate`, `compile`, `ex
 No endowment sample exists. Sample values and the record-length facts are documented in
 [`extraction/sample_input/README.md`](extraction/sample_input/README.md).
 
+These two are the cases the extraction, landing, warehouse and comparison stages consume. The remaining ten
+cases of the authored table are characterisation cases: they assert the return code, the abend and the routing
+the chain produces on a path that issues no policy, so they publish no landing record. `CASES_MODE=all` runs
+all twelve; `CASES_MODE=success-only` runs these two.
+
+### 4.2.1 Identity and timestamp seeds, and the capture snapshots
+
+The harness assigns each case a deterministic policy number and timestamp. `HARNESS_POLICY_NUMBER` overrides the
+identity seed of the first case — parallel checkouts of this repository each take their own seed — and
+`HARNESS_LASTCHANGED` overrides the timestamp seed. Both are supported on any run, including `make all`:
+
+```bash
+HARNESS_POLICY_NUMBER=1000101 make -C modernization all
+```
+
+The per-case capture snapshots under `validation/expected/` are **seed-independent**. Each records the run's
+assigned identity and timestamp as a symbol — `<policy-number:10>` where the ten-digit `CA-POLICY-NUM` form
+stands, `<policy-number>` for the digits alone, `<last-changed>` for the 26-character timestamp, and the
+composite VSAM key as its literal type letter and customer digits followed by the padded symbol — and every
+other captured value literally. A run under any seed therefore matches the committed snapshot, leaves it
+byte-identical, and still fails the diff stage on any other drift.
+
+A snapshot needs re-baselining only when the harness output legitimately changes shape — a new capture key, a
+renamed window, a changed fixture value. That is an explicit action, never a side effect of a run:
+
+```bash
+# from modernization/, after a clean `make all`
+make --dry-run diff        # prints the argument list the stage uses
+.venv/bin/python validation/diff_harness_vs_warehouse.py --cases 01AMOT,01ACOM \
+  --run-dir modernization/harness/build/run \
+  --field-map modernization/extraction/copybook_field_map.yml \
+  --target duckdb --database modernization/validation/local.duckdb \
+  --source-system-key GENAPP_CLASS_EXEMPLAR \
+  --report modernization/validation/artifacts/diff-report.md \
+  --json modernization/validation/artifacts/diff-report.json \
+  --expected-dir modernization/validation/expected --refresh-snapshot
+```
+
+`--refresh-snapshot` rewrites the snapshot of each compared case, reports it as `refreshed` and compares nothing
+for that case; review `git diff modernization/validation/expected` and commit the result. Without the option a
+present snapshot is compared and never rewritten, an absent one is written, and a difference fails the stage
+naming every differing key.
+
 ### 4.3 Pass conditions to expect
 
 Per executed case:
@@ -212,7 +277,11 @@ translated copies carry are documented in [`harness/translation-rules.md`](harne
 ## 5. Configuration contract and the AWS gate
 
 Every connection value is supplied by the environment. No credential, bucket name, host name, role identifier
-or password appears in any file of this tree, and no stage prints one.
+or password appears in any file of this tree, and no stage prints a credential, an endpoint URL, a host name, a
+role identifier or a password. Two stages do print the destination they address: `land` names the bucket and its
+region in its `addressing bucket` line and repeats the bucket name in the `s3://` object URI it prints last, and
+`load` names the same bucket and region in its `reading bucket` line while redacting the object URI, the
+source-system key and the policy number.
 
 | Setting | Read by | Notes |
 |---|---|---|
@@ -222,7 +291,7 @@ or password appears in any file of this tree, and no stage prints one.
 | `S3_ENDPOINT_URL` | the landing tooling | the loopback S3-compatible endpoint of the local-substitute branch; unset for AWS S3 |
 | `SOURCE_SYSTEM_KEY` | every stage from extraction onward | defaults to `GENAPP_CLASS_EXEMPLAR` |
 | `DBT_TARGET` | dbt, the landing writer and the raw loader | `local_substitute` or `redshift`; defaults to `local_substitute` |
-| `LOCAL_DUCKDB_PATH`, or `DUCKDB_DATABASE` | the local raw loader and the dbt profile | defaults to the exact path `validation/local.duckdb` |
+| `LOCAL_DUCKDB_PATH`, and `DUCKDB_DATABASE` when the first carries no value | the local raw loader and the dbt profile | with neither set, the database is the repository-relative path `modernization/validation/local.duckdb`. Either variable is accepted carrying that relative form — `modernization/validation/<file>` — or an absolute path ending in those same three components; any other value, including one with a `..` component or one naming a directory below `modernization/validation`, ends the run naming the variable it came from, the accepted forms and the value supplied. A relative value resolves against the working directory of the process that reads it, so dbt is invoked from the repository root, naming the project with `--project-dir modernization/dbt/genapp_rqi`; the `dbt` and `load` targets of the Makefile pass the absolute form themselves |
 | `REDSHIFT_HOST`, `REDSHIFT_DATABASE`, `REDSHIFT_USER`, `REDSHIFT_PASSWORD`, `REDSHIFT_SCHEMA` | the dbt profile and `redshift-connector` | no default; an unset value ends the run before a connection is opened |
 | `REDSHIFT_PORT`, `REDSHIFT_CONNECT_TIMEOUT`, `REDSHIFT_RETRIES` | the dbt profile | default to 5439, 30 seconds and 1 retry |
 | `REDSHIFT_CLUSTER_ID`, `REDSHIFT_IAM_PROFILE` | the dbt profile under IAM authentication | read only while the IAM keys of the profile are uncommented |
@@ -232,21 +301,38 @@ or password appears in any file of this tree, and no stage prints one.
 
 The template that resolves these is [`dbt/genapp_rqi/profiles.example.yml`](dbt/genapp_rqi/profiles.example.yml).
 Copy it unchanged to `profiles.yml` in the directory dbt reads profiles from; the copy needs no edit and carries
-no credential. Do not create a `profiles.yml` inside this repository tree.
+no credential. That directory is `~/.dbt` by default, and dbt ends the run with `Invalid value for
+'--profiles-dir': Path '<home>/.dbt' does not exist` when it is not there; `DBT_PROFILES_DIR` names a different
+directory instead, and the `dbt` target passes the directory it names on to dbt. Do not create a `profiles.yml`
+inside this repository tree.
 
 ### 5.1 Local-substitute prerequisites
 
 `land` and `load` address an S3 API and an existing bucket on either branch, and this bridge creates no bucket.
 On the local-substitute branch, supply both from the pinned `moto` of the virtual environment before running
-`make all`. From the repository root, with `<port>` a free loopback port and `<bucket>` a name of your choosing:
+`make all`. From the repository root, with `<port>` a free loopback port of 1024 or above and `<bucket>` a name
+of your choosing:
 
 ```bash
-setsid nohup modernization/.venv/bin/python -m moto.server -H 127.0.0.1 -p <port> \
-    > /tmp/moto.log 2>&1 < /dev/null &
 export AWS_ACCESS_KEY_ID=<any-non-empty-value> AWS_SECRET_ACCESS_KEY=<any-non-empty-value>
 export AWS_REGION=<region-name> AWS_DEFAULT_REGION="$AWS_REGION"
 export S3_ENDPOINT_URL=http://127.0.0.1:<port>
 export S3_BUCKET=<bucket>
+make -C modernization local-endpoint
+make -C modernization all
+```
+
+`local-endpoint` starts the endpoint only when nothing answers at `S3_ENDPOINT_URL` and creates the bucket only
+when it is absent, so running it again over a live endpoint changes nothing; the server log stays under
+`modernization/harness/build/logs`. It serves the local-substitute branch alone: a non-loopback endpoint, or
+`DBT_TARGET` naming `redshift`, ends the run, and it provisions nothing on AWS. It is no stage of `all`.
+
+The explicit alternative starts the same server and creates the same bucket by hand, with the four exports above
+already in place:
+
+```bash
+setsid nohup modernization/.venv/bin/python -m moto.server -H 127.0.0.1 -p <port> \
+    > "${TMPDIR:-/tmp}/moto-$$.log" 2>&1 < /dev/null &
 modernization/.venv/bin/python - <<'PY'
 import os, boto3
 boto3.client("s3", endpoint_url=os.environ["S3_ENDPOINT_URL"],
@@ -254,10 +340,14 @@ boto3.client("s3", endpoint_url=os.environ["S3_ENDPOINT_URL"],
 PY
 ```
 
+The log path carries the process id of the shell that starts the server, so parallel operators and parallel
+clones on one host each keep their own log instead of overwriting one shared file.
+
 The endpoint holds its objects in memory: restarting it discards every bucket and object, and the bucket has to
 be created again. Placeholder credentials are what the loopback endpoint accepts; they reach no AWS service, and
-the gate treats them as the local branch. `make land` and `make load` each end the run with the setting named
-when `S3_BUCKET` is unset, or when `S3_ENDPOINT_URL` is unset on the local-substitute branch.
+the gate treats them as the local branch. `make land` and `make load` each end the run with the setting named,
+and with `local-endpoint` named, when `S3_BUCKET` is unset, or when `S3_ENDPOINT_URL` is unset on the
+local-substitute branch.
 
 **Gate behaviour.** `make gate` re-runs before build work and is the one selector of the run:
 
@@ -284,10 +374,14 @@ The step-by-step runbook for closing the AWS validation, once real values exist,
 **One landed object per case**, under an S3 key prefix of exactly this shape:
 
 ```text
-s3://<bucket>/landing/source_system_key=GENAPP_CLASS_EXEMPLAR/entity=policy_issue/extract_date=YYYY-MM-DD/part-0000.json
+s3://<bucket>/landing/source_system_key=GENAPP_CLASS_EXEMPLAR/entity=policy_issue/extract_date=YYYY-MM-DD/part-<NNNN>.json
 ```
 
-Partitioning applies to the S3 key prefix only; no warehouse object is partitioned. The full key contract is in
+`part-<NNNN>` is the part element of the object name, four zero-padded digits selected by `--part` on the landing and
+loading tools and `0000` when no part is named, so a single-record landing writes exactly `part-0000.json`. `make all`
+lands `01amot` at part `0000` and `01acom` at part `0001`, each with its own `part-<NNNN>.manifest.json` beside it, so
+both objects of a two-sample run coexist and either can be reloaded on its own. Partitioning applies to the S3 key
+prefix only; no warehouse object is partitioned. The full key contract is in
 [`landing/partition-layout.md`](landing/partition-layout.md).
 
 **One raw relation.** `raw.genapp_policy_issue` holds every landed field as `VARCHAR`.
@@ -309,6 +403,27 @@ Raw loading is the only target-specific stage. The dbt model files, the source d
 and `macros/generate_schema_name.sql` are identical for both targets, and the models are what create the
 canonical tables. Column-level allocation is drawn in **Figure 4 — dbt Transformation DAG and Field
 Allocation** in [`docs/architecture.md`](docs/architecture.md).
+
+### 6.1 Each tool proves its own gates
+
+Every command-line tool of this tree carries a `--self-test` that drives its checks in process against
+constructed inputs. It needs no warehouse, no S3 endpoint and no harness output, writes only inside a directory
+it creates and removes, and returns its own exit status when one of its own cases does not hold — a status no
+ordinary run returns. These are the case counts measured in this checkout:
+
+| Command | Cases |
+|---|---:|
+| `bash validation/verify_readonly.sh --self-test` | 52 |
+| `.venv/bin/python extraction/build_sample_commarea.py --self-test` | 114 |
+| `.venv/bin/python extraction/extract_commarea.py --self-test` | 213 |
+| `.venv/bin/python harness/translate.py --self-test` | 93 |
+| `.venv/bin/python landing/land_to_s3.py --self-test` | 44 |
+| `.venv/bin/python landing/load_local.py --self-test` | 38 |
+| `.venv/bin/python validation/diff_harness_vs_warehouse.py --self-test` | 34 |
+
+The dbt project's own gates are its four enforced contracts and its 64 data tests, run by `make dbt`. `make all`
+runs the pipeline rather than the self-tests: a self-test proves that a gate can fail, and the pipeline proves
+that it does not fail on the delivered tree.
 
 ## 7. Where everything is documented
 
@@ -334,7 +449,12 @@ content only.
 These paths are produced by a stage that owns them and are ignored by `modernization/.gitignore`:
 
 - `.venv/` — the virtual environment
-- `harness/build/` — samples, translated copies, compiled modules, run output
+- `harness/build/` — samples, translated copies, compiled modules, run output. `harness/build/evidence/` keeps
+  the newest staged evidence directories only, the staging directory of the running run included: five of them
+  by default, or the count `HARNESS_EVIDENCE_RETAIN` names, which is a whole number from 1 to 1000 — a value
+  outside that range ends the run in its preflight, naming the value and the range. `harness/run_harness.sh`
+  prunes the superseded ones in that preflight while it holds the harness lock, and only an entry standing
+  directly in that directory, which is a directory and carries a run-identifier name, is eligible.
 - `dbt/genapp_rqi/target/` and `dbt/genapp_rqi/logs/` — dbt output
 - `validation/local.duckdb` — the local-substitute database
 

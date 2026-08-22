@@ -1868,16 +1868,21 @@ landing:
   record_format: one JSON object per object file, serialized as a single line terminated by LF
   additional_keys_permitted: false
   json_schema: modernization/landing/landing-schema.json
-  # The object name is the literal `part-0000.json`, so one key carries one object per
-  # source system, entity and extract date: a second record landed for the same source
-  # system and extract date addresses this same key and replaces the object it carries.
+  # The object name carries the part number of the record being landed, written
+  # `part-NNNN.json` with the number zero-padded to four digits; `part-0000.json` is the
+  # name a landing that names no part writes. One key therefore carries one object per
+  # source system, entity, extract date and part: two records of the same source system
+  # and extract date coexist under distinct parts, and only a second record landed at the
+  # same part addresses one key twice and replaces the object it carries.
   # modernization/landing/land_to_s3.py head-requests the key before it writes and names
-  # an object already there in one warning line, which fails no landing. The sequence a
-  # run follows is therefore land one record, load it into raw_relation above, then land
-  # the next; the S3 landing zone holds the record landed last for each key rather than
-  # every record landed under it.
+  # an object already there in one warning line, which fails no landing. The S3 landing
+  # zone holds every record landed under distinct parts of one key prefix, so the prefix
+  # can be replayed - each part loaded into raw_relation above, in any order and with no
+  # further landing - to rebuild every raw row of that extract date. The part is an
+  # element of the object name and no fourth Hive-style segment: `partitioning_scope`
+  # below is unchanged by it.
   s3_prefix_template: >-
-    landing/source_system_key=<source_system_key>/entity=policy_issue/extract_date=YYYY-MM-DD/part-0000.json
+    landing/source_system_key=<source_system_key>/entity=policy_issue/extract_date=YYYY-MM-DD/part-NNNN.json
   partitioning_scope: S3 key prefix only
   field_order:
     - source_system_key
@@ -1900,7 +1905,8 @@ landing:
 
 # Which amount fields carry a value for each policy type. Inapplicable product premiums are null.
 # `enforcement` names the dbt singular test that asserts this pattern on
-# canonical.preissued_rating, and that test stands in the tree at this milestone.
+# canonical.preissued_rating and on the landed relation raw.genapp_policy_issue, and that test
+# stands in the tree at this milestone.
 # modernization/extraction/extract_commarea.py applies the pattern to the landed record, the
 # models of modernization/dbt/genapp_rqi/models/ carry it through, and
 # modernization/extraction/build_sample_commarea.py reads that member and checks it against the

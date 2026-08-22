@@ -54,6 +54,11 @@
 --       ${EXTRACT_DATE}          \A[0-9]{4}-[0-9]{2}-[0-9]{2}\Z
 --                                extract-date segment of the landed object key, and a
 --                                real calendar date
+--       ${LANDING_PART}          \A[0-9]{4}\Z
+--                                part element of the landed object name, which
+--                                distinguishes the objects of one source system,
+--                                entity and extract date from one another; the
+--                                executor supplies 0000 when the caller names no part
 --       ${REDSHIFT_IAM_ROLE}     \Aarn:aws[a-z\-]*:iam::[0-9]{12}:role/[A-Za-z0-9+=,.@_/\-]{1,512}\Z
 --                                role authorising this load to read that bucket
 --       ${AWS_REGION}            \A[a-z]{2}(-[a-z]+){1,3}-[0-9]\Z
@@ -80,11 +85,13 @@
 --     the object the COPY reads.
 --
 -- (4) EXACT OBJECT. The COPY below names a one-entry manifest, so exactly the one
---     validated object is read and no sibling key sharing its prefix is loaded.
+--     validated object is read and no sibling key sharing its prefix is loaded. One
+--     prefix carries one record per part, so a prefix holding several parts is read one
+--     part per load, each through the manifest of its own part.
 --     modernization/landing/land_to_s3.py writes that manifest beside the landed
 --     object, in the same landing run and after the object itself, at the landing
---     prefix with the object name replaced:
---       landing/source_system_key=<key>/entity=policy_issue/extract_date=<date>/part-0000.manifest.json
+--     prefix with the object name replaced, <NNNN> being the part the object carries:
+--       landing/source_system_key=<key>/entity=policy_issue/extract_date=<date>/part-<NNNN>.manifest.json
 --     The manifest holds one JSON object naming one entry, in the shape Amazon
 --     Redshift's manifest schema fixes: url is the validated object, the mandatory flag
 --     is true, so an absent object fails the COPY instead of loading nothing, and the
@@ -98,7 +105,7 @@
 --       {
 --         "entries": [
 --           {
---             "url": "s3://<bucket>/landing/source_system_key=<key>/entity=policy_issue/extract_date=<date>/part-0000.json",
+--             "url": "s3://<bucket>/landing/source_system_key=<key>/entity=policy_issue/extract_date=<date>/part-<NNNN>.json",
 --             "mandatory": true,
 --             "meta": {
 --               "content_length": <bytes>
@@ -167,13 +174,13 @@
 -- value would carry into a SQL string literal, refuses a placeholder in this template
 -- that is not on the allowlist, and refuses a placeholder it holds no value for. It
 -- then refuses to emit anything unless the object key rendered below is exactly the key
--- the record's own source_system_key with the run's entity and extract date produce,
--- the policy number rendered below is exactly the record's own policy_number, the COPY
--- column list is exactly the 17 landed column names in the landing order, the rendered
--- text carries no remaining placeholder token, and its statement sequence is the
--- authored one: SET, BEGIN, CREATE, COPY, SELECT, SELECT, DELETE, INSERT, SELECT, DROP,
--- COMMIT, with every statement between the opening BEGIN and the closing COMMIT and
--- exactly one COPY and one DELETE among them. The delete is keyed by the two bound
+-- the record's own source_system_key with the run's entity, extract date and part
+-- produce, the policy number rendered below is exactly the record's own policy_number,
+-- the COPY column list is exactly the 17 landed column names in the landing order, the
+-- rendered text carries no remaining placeholder token, and its statement sequence is
+-- the authored one: SET, BEGIN, CREATE, COPY, SELECT, SELECT, DELETE, INSERT, SELECT,
+-- DROP, COMMIT, with every statement between the opening BEGIN and the closing COMMIT
+-- and exactly one COPY and one DELETE among them. The delete is keyed by the two bound
 -- markers %(source_system_key)s and %(policy_number)s named in the execution contract
 -- above, not by substituted text. No secret, account identifier, role identifier,
 -- bucket name, endpoint or region literal is written into this file.
@@ -193,6 +200,13 @@
 --                          same shape as SOURCE_SYSTEM_KEY
 --   EXTRACT_DATE           extract date segment of the landed object key: a real
 --                          calendar date written YYYY-MM-DD
+--   LANDING_PART           part element of the landed object name: exactly four
+--                          decimal digits, 0000 through 9999, written into both the
+--                          object name and the manifest name. One prefix carries one
+--                          object per part, so the records of one source system,
+--                          entity and extract date coexist and each is loaded by its
+--                          own rendering of this file. The renderer supplies 0000 for
+--                          a run that names no part
 --   POLICY_NUMBER          policy number of the landed record, matched by the delete
 --                          guard below: 1 to 10 digits, the width of CA-POLICY-NUM
 --                          PIC 9(10), base/src/lgcmarea.cpy:35
@@ -217,7 +231,7 @@
 -- so the object list is the one the landing writer produced and no sibling key sharing
 -- the prefix is read. That manifest is already on the bucket: a successful
 --     modernization/landing/land_to_s3.py --record <record>
--- writes it as part-0000.manifest.json beside the record under the same landing prefix,
+-- writes it as part-<NNNN>.manifest.json beside the record under the same landing prefix,
 -- with one entry carrying the landed object's URL, "mandatory": true and a nested
 -- "meta" member whose "content_length" is the byte count recorded below, which is where
 -- Amazon Redshift's manifest schema places it. "mandatory": true makes a removed object
@@ -232,7 +246,7 @@
 -- the SHA-256 digest is the digest of the bytes the landing step validated.
 --
 -- Validated object bound to this load:
---   key        landing/source_system_key=${SOURCE_SYSTEM_KEY}/entity=${ENTITY}/extract_date=${EXTRACT_DATE}/part-0000.json
+--   key        landing/source_system_key=${SOURCE_SYSTEM_KEY}/entity=${ENTITY}/extract_date=${EXTRACT_DATE}/part-${LANDING_PART}.json
 --   bytes      ${OBJECT_CONTENT_LENGTH}
 --   sha256     ${OBJECT_SHA256}
 --   etag       ${OBJECT_ETAG}
@@ -312,7 +326,7 @@ COPY genapp_policy_issue_load (
     -- base/src/lgapdb01.cbl:495. Populated on commercial rows only, null otherwise.
     weather_premium_amount
 )
-FROM 's3://${S3_BUCKET}/landing/source_system_key=${SOURCE_SYSTEM_KEY}/entity=${ENTITY}/extract_date=${EXTRACT_DATE}/part-0000.manifest.json'
+FROM 's3://${S3_BUCKET}/landing/source_system_key=${SOURCE_SYSTEM_KEY}/entity=${ENTITY}/extract_date=${EXTRACT_DATE}/part-${LANDING_PART}.manifest.json'
 IAM_ROLE '${REDSHIFT_IAM_ROLE}'
 FORMAT AS JSON 'auto'
 MANIFEST

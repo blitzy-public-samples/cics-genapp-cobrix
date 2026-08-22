@@ -1,13 +1,17 @@
 -- assert_issued_policy_unique_key.sql
 -- Singular data test of the GenApp Policy-Issue cloud-warehouse bridge, and one of the
--- three singular tests of modernization/dbt/genapp_rqi/tests/. dbt discovers this file
+-- four singular tests of modernization/dbt/genapp_rqi/tests/. dbt discovers this file
 -- through the test-paths entry of modernization/dbt/genapp_rqi/dbt_project.yml; nothing
 -- imports it and no other file of the project reads it.
--- The other two singular tests of that directory are
+-- The other three singular tests of that directory are
 -- tests/assert_preissued_rating_unique_key.sql, which asserts the same key and population
 -- rules on the rating mart together with the parity of the key sets of the two relations,
--- and tests/assert_product_premium_nullability.sql, which asserts the product premium null
--- pattern and the amount values of that mart. Neither reads this file.
+-- tests/assert_product_premium_nullability.sql, which asserts the product premium null
+-- pattern and the amount values of that mart at the canonical layer and the product premium
+-- allocation of the landed record at the landed layer, and
+-- tests/assert_canonical_column_widths.sql, which asserts the declared type and declared
+-- width of every column of both canonical relations from the parsed project, on an adapter
+-- reporting no width as well. None of the three reads this file.
 --
 -- Relation under test. The model canonical_issued_policy, of
 -- models/marts/canonical/canonical_issued_policy.sql, which materializes the relation
@@ -102,7 +106,11 @@
 --     each with the type family and the nullability declared there. The declared width of
 --     a text column is compared where the adapter reports one: Amazon Redshift reports
 --     character_maximum_length and DuckDB reports none for VARCHAR, and the width of every
---     value is asserted by the two value rules above on both adapters.
+--     value is asserted by the two value rules above on both adapters. The declared width
+--     itself, and the width the select list of the model casts to, are compared with the
+--     width the canonical contract fixes by tests/assert_canonical_column_widths.sql, which
+--     reads the parsed project rather than the catalog and therefore compares a width on an
+--     adapter reporting none.
 --     The type family folds the spellings the two adapters report onto one name: DuckDB
 --     reports VARCHAR, BIGINT, DATE, TIMESTAMP and DECIMAL(p,s), and Amazon Redshift reports
 --     character varying, character, bigint, date, timestamp without time zone and numeric.

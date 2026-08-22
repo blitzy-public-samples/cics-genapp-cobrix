@@ -14,8 +14,10 @@
 #                 Python interpreter, the COBOL compiler and every harness
 #                 input, pins the compiler environment the compile and the
 #                 execution stages run under, creates the build directories,
-#                 empties the evidence log the source guard appends its blocks
-#                 to so that log holds the gates of this run alone, and runs
+#                 keeps the newest staged evidence directories of the build
+#                 tree and removes the superseded ones, empties the evidence
+#                 log the source guard appends its blocks to so that log holds
+#                 the gates of this run alone, and runs
 #                 modernization/validation/verify_readonly.sh before any
 #                 generated output is produced. Every gate of the run asks that
 #                 script for its reproducible block, so the published log holds
@@ -210,6 +212,17 @@
 #                 the checkout before it gives up, one to 3600. A wait that
 #                 runs out ends the run with exit 9 and leaves every shared
 #                 path untouched. Default: 300.
+#   HARNESS_EVIDENCE_RETAIN
+#                 Staged evidence directories the preflight of a run keeps
+#                 under modernization/harness/build/evidence, the staging
+#                 directory of that run included: a whole number of directories
+#                 from one to 1000. The newest are kept, ordered by the run
+#                 identifier their names carry, and every superseded one is
+#                 removed. Only an entry of that directory that is a directory
+#                 and carries a name of the run-identifier shape is eligible;
+#                 every other entry is left as it stands and counted in the
+#                 step line the preflight prints. A value outside that range is
+#                 a preflight failure naming the value. Default: 5.
 #
 # The three handles the driver is started with. This script opens all three,
 # checks each opened descriptor rather than the name it came from, hands them
@@ -748,8 +761,8 @@ declare -rA CAPTURE_KEY_NAMES=(
   [house_seq]="SQL_HOUSE_SEQ SQL_HOUSE_ORDINAL"
   [vsam_seq]="VSAM_SEQ VSAM_ORDINAL"
   [order_violation]="ORDER_VIOLATION HC_ORDER_VIOLATION SQL_ORDER_VIOLATION"
-  [link_db2_calen]="LINK_DB2_CALEN CHAIN_DB2_CALEN"
-  [link_vsam_calen]="LINK_VSAM_CALEN CHAIN_VSAM_CALEN"
+  [db2_insert_calen]="DB2_POLICY_INSERT_EIBCALEN LINK_DB2_CALEN CHAIN_DB2_CALEN"
+  [vsam_write_calen]="VSAM_WRITE_EIBCALEN LINK_VSAM_CALEN CHAIN_VSAM_CALEN"
   [vsam_record]="VSAM_RECORD VSAM_RECORD_IMAGE"
 )
 
@@ -942,6 +955,25 @@ readonly SOURCE_GUARD_LOG="modernization/harness/build/logs/readonly-check.log"
 readonly BUILD_DIR_RELATIVE="modernization/harness/build"
 readonly ARTIFACTS_DIR_RELATIVE="modernization/validation/artifacts"
 
+# The evidence directory of the build tree, and the retention the preflight of
+# a run applies to it. Every run stages its evidence in a directory of that
+# directory named after its run identifier, and the preflight keeps the newest
+# EVIDENCE_RETAIN_DEFAULT of those directories - the staging directory of the
+# run included - unless HARNESS_EVIDENCE_RETAIN names another count from 1 to
+# EVIDENCE_RETAIN_MAX, and removes the ones the count supersedes.
+#
+# EVIDENCE_RUN_ID_PATTERN is the shape of the names this script forms for those
+# directories: the "%Y%m%dT%H%M%SZ" moment the run started and the process
+# number of the run. Only an entry that carries a name of that shape and is a
+# directory rather than a link or a file is eligible for removal, and the name
+# orders those directories chronologically without reading a modification time.
+# See modernization/docs/decision-log.md, row: published evidence retained for
+# a bounded number of runs.
+readonly EVIDENCE_DIR_NAME="evidence"
+readonly EVIDENCE_RETAIN_DEFAULT=5
+readonly EVIDENCE_RETAIN_MAX=1000
+readonly EVIDENCE_RUN_ID_PATTERN="^[0-9]{8}T[0-9]{6}Z-[0-9]+$"
+
 # Report the translator publishes, and the two link sites this script asserts
 # in it, as "<program>|<target program>".
 readonly TRANSLATION_REPORT_NAME="translation-report.json"
@@ -1020,6 +1052,11 @@ RUN_DIR=""
 LOGS_DIR=""
 ARTIFACTS_DIR=""
 STAGING_DIR=""
+
+# The evidence directory the staging directory of this run stands in, and the
+# number of staged evidence directories this run keeps there, its own included.
+EVIDENCE_DIR=""
+EVIDENCE_RETAIN=""
 
 # The exclusive harness lock of this run: the file it is taken on, the
 # descriptor it is held through until the run ends, and the seconds the run
@@ -1299,6 +1336,17 @@ Environment items honoured:
                          Seconds this run waits for the exclusive harness lock
                          of the checkout, one to 3600. A wait that runs out
                          ends the run with exit 9. Default: 300
+  HARNESS_EVIDENCE_RETAIN
+                         Staged evidence directories the preflight keeps under
+                         modernization/harness/build/evidence, the staging
+                         directory of this run included, one to 1000. The
+                         newest are kept, ordered by the run identifier their
+                         names carry, and every superseded one is removed. An
+                         entry of that directory that is not a directory of
+                         that name shape is left as it stands and counted in
+                         the step line the preflight prints. A value outside
+                         that range is a preflight failure naming it.
+                         Default: 5
 
 Environment items exported to the driver:
   COB_LIBRARY_PATH, COB_LS_FIXED, COB_PRE_LOAD,
@@ -1357,7 +1405,11 @@ Generated output:
   modernization/harness/build/run/<probe>/    driver.log of each probe
   modernization/harness/build/probe/          directories the probes need
   modernization/harness/build/evidence/       staged evidence of this run and
-                                              the publication check it runs
+                                              the publication check it runs, in
+                                              a directory per run named after
+                                              the run identifier, kept for the
+                                              newest HARNESS_EVIDENCE_RETAIN
+                                              runs
 Published evidence, replaced as one set only after every selected case, every
 probe and the final source guard passed. The set is the five stage files, the
 manifest of the run, and the driver log, the capture file and the post-chain
@@ -1583,11 +1635,20 @@ resolve_paths() {
   ARTIFACTS_DIR="${REPO_ROOT}/${ARTIFACTS_DIR_RELATIVE}"
 
   # One identifier per run, from the start time and the process number, names
-  # the staging directory the evidence of this run is collected in.
+  # the staging directory the evidence of this run is collected in. The
+  # identifier carries the shape EVIDENCE_RUN_ID_PATTERN names, so the staging
+  # directory of a run is recognisable to the retention the preflight applies
+  # to the evidence directory holding it.
+  EVIDENCE_DIR="${BUILD_DIR}/${EVIDENCE_DIR_NAME}"
   if ! RUN_ID="$(date -u '+%Y%m%dT%H%M%SZ')-$$" || [[ -z "$RUN_ID" ]]; then
     die "$EXIT_PREFLIGHT" "unable to read the current time for the run identifier"
   fi
-  STAGING_DIR="${BUILD_DIR}/evidence/${RUN_ID}"
+  if [[ ! "$RUN_ID" =~ $EVIDENCE_RUN_ID_PATTERN ]]; then
+    die "$EXIT_PREFLIGHT" \
+      "the run identifier ${RUN_ID} does not carry the form YYYYmmddTHHMMSSZ-<process number>" \
+      "check that date -u '+%Y%m%dT%H%M%SZ' reports that form on this host"
+  fi
+  STAGING_DIR="${EVIDENCE_DIR}/${RUN_ID}"
 
   # Every repository-relative path below resolves from here, and the baseline
   # the translator writes lists its entries relative to this directory.
@@ -3412,15 +3473,125 @@ preflight_seeds() {
   emit_step "seeds: first case policy ${POLICY_NUMBER_BASE}, last case policy $((POLICY_NUMBER_BASE + ${#HARNESS_CASES[@]} - 1)), lastchanged ${LASTCHANGED_SEED}"
 }
 
+# Reads HARNESS_EVIDENCE_RETAIN into EVIDENCE_RETAIN: the number of staged
+# evidence directories this run keeps under the evidence directory of the build
+# tree, the staging directory of this run included. A whole number of
+# directories from 1 to EVIDENCE_RETAIN_MAX is accepted, and every other value -
+# a value that is not a run of digits, zero, a negative value, a value carrying
+# a space and a value above that bound - ends the run as a preflight failure
+# naming the value and the range. Runs before the staging directory of this run
+# is created, so a rejected value leaves no directory of this run behind.
+resolve_evidence_retention() {
+  local supplied=""
+
+  supplied="${HARNESS_EVIDENCE_RETAIN:-$EVIDENCE_RETAIN_DEFAULT}"
+  if [[ ! "$supplied" =~ ^[0-9]{1,4}$ ]] || ((10#$supplied < 1)) ||
+    ((10#$supplied > EVIDENCE_RETAIN_MAX)); then
+    die "$EXIT_PREFLIGHT" \
+      "HARNESS_EVIDENCE_RETAIN holds ${supplied}; a whole number of staged evidence directories from 1 to ${EVIDENCE_RETAIN_MAX} is accepted" \
+      "unset it to keep the newest ${EVIDENCE_RETAIN_DEFAULT} directories of ${EVIDENCE_DIR}, or set it to a value in that range"
+  fi
+  EVIDENCE_RETAIN="$((10#$supplied))"
+}
+
+# Keeps the newest EVIDENCE_RETAIN staged evidence directories of the evidence
+# directory of the build tree and removes the ones that count supersedes, so
+# that directory holds the staged evidence of a bounded number of runs.
+#
+# The staging directory of this run is retained whatever its name orders as, and
+# counts as one of the EVIDENCE_RETAIN directories the run keeps. Every other
+# entry of that directory is eligible only when it stands directly in it, is a
+# directory rather than a symbolic link or a file, and carries a name of the
+# run-identifier shape EVIDENCE_RUN_ID_PATTERN names; every entry that is not is
+# left exactly as it stands and counted in the step line. The eligible
+# directories are ordered newest first by that name, which orders them
+# chronologically, so no modification time is read; the first EVIDENCE_RETAIN
+# minus one of them are kept and the rest are removed.
+#
+# Each removal is refused unless the directory still resolves to itself below
+# the evidence directory, which no symbolic link on the way to it can satisfy,
+# and a removal that does not complete, or that leaves the entry standing, ends
+# the run as a preflight failure naming the directory. Runs once per run, after
+# the harness lock is held and the staging directory of the run exists, and
+# before the first gate, so the removal of one run cannot overlap the staging of
+# another and a run that fails at a later stage has already applied the
+# retention.
+# See modernization/docs/decision-log.md, row: published evidence retained for
+# a bounded number of runs.
+prune_staged_evidence() {
+  local name="" path="" resolved=""
+  local removed=0 retained=1 other=0 index=0
+  local -a present=() candidates=()
+
+  mapfile -t present < <(directory_entry_names "$EVIDENCE_DIR")
+  for name in "${present[@]}"; do
+    if [[ -z "$name" ]]; then
+      continue
+    fi
+    path="${EVIDENCE_DIR}/${name}"
+    if [[ "$path" == "$STAGING_DIR" ]]; then
+      continue
+    fi
+    if [[ -L "$path" || ! -d "$path" ]] ||
+      [[ ! "$name" =~ $EVIDENCE_RUN_ID_PATTERN ]]; then
+      other=$((other + 1))
+      continue
+    fi
+    candidates+=("$name")
+  done
+
+  for ((index = ${#candidates[@]} - 1; index >= 0; index--)); do
+    name="${candidates[index]}"
+    path="${EVIDENCE_DIR}/${name}"
+    if ((retained < EVIDENCE_RETAIN)); then
+      retained=$((retained + 1))
+      continue
+    fi
+    if ! resolved="$(cd -P -- "$path" 2>/dev/null && printf '%s' "$PWD")" ||
+      [[ "$resolved" != "$path" ]]; then
+      die "$EXIT_PREFLIGHT" \
+        "the staged evidence directory ${path} resolves to ${resolved:-nothing}" \
+        "remove the entry that redirects it and run this script again"
+    fi
+    if [[ "$resolved" != "${EVIDENCE_DIR}/"* ]]; then
+      die "$EXIT_PREFLIGHT" \
+        "the staged evidence directory to remove resolves outside ${EVIDENCE_DIR}: ${resolved}" \
+        "remove that entry by hand and run this script again"
+    fi
+    if ! rm -rf -- "$resolved"; then
+      die "$EXIT_PREFLIGHT" \
+        "unable to remove the superseded staged evidence directory: ${resolved}" \
+        "remove it by hand, or grant write permission on ${EVIDENCE_DIR}, and run this script again"
+    fi
+    if [[ -e "$resolved" || -L "$resolved" ]]; then
+      die "$EXIT_PREFLIGHT" \
+        "the superseded staged evidence directory still stands after its removal: ${resolved}" \
+        "remove it by hand and run this script again"
+    fi
+    removed=$((removed + 1))
+  done
+
+  if ((other > 0)); then
+    emit_step "evidence retention ${EVIDENCE_RETAIN}: ${removed} superseded run directories removed, ${retained} retained, ${other} entries this script does not own left as they stand"
+  else
+    emit_step "evidence retention ${EVIDENCE_RETAIN}: ${removed} superseded run directories removed, ${retained} retained"
+  fi
+}
+
 # Creates the build directories of this run, the run directory of every
 # selected case, the staging directory of this run and the validation
 # artifacts directory. Each is created one component at a time under the
 # physical repository root, and each is confirmed to resolve to the path it
-# names, so no link can move an output tree.
+# names, so no link can move an output tree. The retention of the evidence
+# directory is read before the first of them is created and applied once the
+# staging directory of this run stands, so the run keeps its own staged evidence
+# and the newest of the earlier runs and removes the rest.
 prepare_directories() {
   local label="" name="" entry=""
   local -a wanted=("$BUILD_DIR" "$SRC_DIR" "$BIN_DIR" "$SAMPLES_DIR" "$RUN_DIR"
-    "$LOGS_DIR" "$ARTIFACTS_DIR" "$STAGING_DIR")
+    "$LOGS_DIR" "$ARTIFACTS_DIR" "$EVIDENCE_DIR" "$STAGING_DIR")
+
+  resolve_evidence_retention
 
   for label in "${SELECTED_CASES[@]}"; do
     name="$(case_lower "$label")"
@@ -3432,6 +3603,7 @@ prepare_directories() {
   done
   emit_step "directories ready under ${BUILD_DIR}"
   emit_step "staging directory of this run: ${STAGING_DIR}"
+  prune_staged_evidence
   emit_step "evidence directory ready at ${ARTIFACTS_DIR}"
 }
 
@@ -4142,7 +4314,7 @@ assert_probe_output_absent() {
 }
 
 # Ends the run unless the capture file of a probe records that no part of the
-# chain ran: every capture group absent, every count, link witness and
+# chain ran: every capture group absent, every count, chain witness length and
 # diagnostic-link count zero, and the driver's own verdict a failure carrying
 # the status the probe asserted. The driver writes its failure surface after a
 # call it could not make, so this is what that surface is required to say.
@@ -4155,8 +4327,8 @@ assert_probe_no_chain_evidence() {
     "ABEND_PRESENT")
   local -a zero=("policy_count" "identity_count" "lastchanged_count"
     "motor_count" "commercial_count" "endowment_count" "house_count"
-    "vsam_count" "abend_count" "DIAG_LINK_COUNT" "link_db2_calen"
-    "link_vsam_calen")
+    "vsam_count" "abend_count" "DIAG_LINK_COUNT" "db2_insert_calen"
+    "vsam_write_calen")
 
   if [[ ! -s "$capt" ]]; then
     die "$EXIT_EXECUTE" \
@@ -5005,7 +5177,7 @@ assert_case_keys() {
     "lastchanged_count" "motor_count" "commercial_count" "endowment_count"
     "house_count" "vsam_count" "abend_count" "policy_seq" "identity_seq"
     "lastchanged_seq" "motor_seq" "commercial_seq" "endowment_seq" "house_seq"
-    "vsam_seq" "order_violation" "link_db2_calen" "link_vsam_calen")
+    "vsam_seq" "order_violation" "db2_insert_calen" "vsam_write_calen")
 
   if [[ "$CASE_EXPECT_VALUES" == "Y" ]]; then
     keys_wanted+=("${CAPTURE_KEYS_VALUES[@]}")
@@ -5194,15 +5366,21 @@ assert_case_outcome() {
     assert_capture_at_least "$label" "$capt" "DIAG_LINK_COUNT" 1
   fi
 
+  # The COMMAREA length each of the two witnessing services observed inside its
+  # own program: the POLICY insert inside LGAPDB01 and the KSDSPOLY write inside
+  # LGAPVS01. Both links state LENGTH(32500) [base/src/lgapol01.cbl:121-124;
+  # base/src/lgapdb01.cbl:243-246], so a case that reaches a service is asserted
+  # at that length and states the length its link carried, and a case that
+  # reaches neither is asserted at zero.
   if [[ "$CASE_EXPECT_POLICY_SQL" == "Y" ]]; then
-    assert_capture_number "$label" "$capt" "link_db2_calen" "$COMMAREA_LENGTH"
+    assert_capture_number "$label" "$capt" "db2_insert_calen" "$COMMAREA_LENGTH"
   else
-    assert_capture_number "$label" "$capt" "link_db2_calen" 0
+    assert_capture_number "$label" "$capt" "db2_insert_calen" 0
   fi
   if [[ "$CASE_EXPECT_VSAM" == "Y" ]]; then
-    assert_capture_number "$label" "$capt" "link_vsam_calen" "$COMMAREA_LENGTH"
+    assert_capture_number "$label" "$capt" "vsam_write_calen" "$COMMAREA_LENGTH"
   else
-    assert_capture_number "$label" "$capt" "link_vsam_calen" 0
+    assert_capture_number "$label" "$capt" "vsam_write_calen" 0
   fi
 
   assert_case_ordinals "$label" "$capt"

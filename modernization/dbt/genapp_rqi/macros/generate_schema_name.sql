@@ -9,7 +9,7 @@
     dbt_project.yml, profiles.example.yml, the dbt source declaration, the four
     models stg_genapp__policy_issue, int_policy_issue_decoded,
     canonical_issued_policy and canonical_preissued_rating with the property
-    file beside each model subtree, and the three singular tests under tests/.
+    file beside each model subtree, and the four singular tests under tests/.
     The schema-name contract stated below is the contract every model of the
     project resolves under. This file claims no run of its own; per-target run
     status is recorded in modernization/validation/validation-evidence.md,

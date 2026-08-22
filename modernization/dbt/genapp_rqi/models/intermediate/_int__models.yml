@@ -34,13 +34,15 @@
 # Nullability follows modernization/landing/landing-schema.json: seven columns are never null
 # in a landed record and ten accept null. Each key of a landed record is always present; a key
 # present with a null value reaches its column as SQL NULL. Nullability is asserted by the
-# not_null data tests below. No column constraint is declared: this model materializes as a
-# view, and dbt reports Constraint types are not supported for view materializations.
+# not_null data tests below and by no column constraint: this model declares no constraints
+# block, so its columns carry the name and data type declared below and no DDL constraint. The
+# not_null constraints of the two canonical relations are declared in
+# models/marts/canonical/_canonical__models.yml and assert nullability at that layer.
 # Landed contract: only a successful record is landed.
 # modernization/extraction/extract_commarea.py rejects every returned CA-RETURN-CODE other
 # than 00, so every row this model reads carries return code 00 and each column documented
 # below as never null holds a value.
-# The view materialization and the intermediate schema come from the models/intermediate key
+# The table materialization and the intermediate schema come from the models/intermediate key
 # of dbt_project.yml and are not restated here; macros/generate_schema_name.sql returns that
 # schema name verbatim. No relation alias is set.
 # Landed rows are successful executions only: modernization/extraction/extract_commarea.py
@@ -55,12 +57,13 @@
 # asserted by the relationships tests below: each compares the typed value of this model with
 # the landed string of the same column in stg_genapp__policy_issue, cast to the same type, so a
 # typed value that is any other expression of the same type fails its test. Those nine tests
-# also read every date, timestamp and amount cast of the model, which a view materialization
-# evaluates only when a consumer reads it: a landed value outside the landing contract, such as
-# 2026-02-30, fails the cast while these tests run, and dbt then skips both models of
-# models/marts/canonical, so the row reaches no canonical relation. The product-specific
-# pattern is asserted from both sides: the not_null tests scoped by policy type below require
-# the applicable premium of a motor row and of a commercial row, and
+# read the built relation, because this model materializes as a table: dbt evaluates every date,
+# timestamp and amount cast of the model once, while the model builds, ahead of both models of
+# models/marts/canonical. A landed value outside the landing contract, such as 2026-02-30, fails
+# its cast and fails this model itself; dbt then skips both marts together, the row reaches no
+# canonical relation, and both canonical relations keep the state of the last run that built
+# them both. The product-specific pattern is asserted from both sides: the not_null tests scoped
+# by policy type below require the applicable premium of a motor row and of a commercial row, and
 # modernization/dbt/genapp_rqi/tests/assert_product_premium_nullability.sql requires every
 # inapplicable premium to be null.
 # Applied unchanged on Amazon Redshift and DuckDB.

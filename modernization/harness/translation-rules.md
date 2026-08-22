@@ -198,6 +198,23 @@ map, the copybook and the driver's order table disagree.
 The ordered gates these commands sit in are
 **Figure 5 — Validation Harness Control Flow** in [`modernization/docs/architecture.md`](../docs/architecture.md).
 
+### 5.0 Proving the rules of this document
+
+`translate.py --self-test` drives the rules and guards of this document in process, against synthetic fragments,
+documents and byte strings, and needs no build tree and no compiler:
+
+```
+.venv/bin/python harness/translate.py --self-test
+```
+
+It reports `self-test summary cases=<n> passed=<n> failed=0` and exits 0 — 93 cases in this checkout — and it exits
+**5**, naming the case, when one of its own cases does not hold. Its cases cover each rewrite rule of §4 with both a
+shipped-input case and a contradicting fixture, the column-72 layout bound of §3, the statement-map contract of §4
+(entry counts, arity, duplicate and unmapped blocks) and the pinned source-digest guard of §1. A failing self-test means
+a rule of this document is no longer enforced as written; a failing translation run means an input violates one.
+`--quiet` reduces the output to the summary line. The option reads only the pinned locations of the checkout and refuses
+a supplied `--source-dir`, `--build-dir`, `--statement-map`, `--copybook-dir` or `--report`.
+
 ### 5.1 Compile recipe
 
 `modernization/harness/run_harness.sh` is the authoritative build: it translates, compiles, executes and

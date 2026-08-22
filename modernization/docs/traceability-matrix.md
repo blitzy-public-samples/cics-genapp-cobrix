@@ -36,7 +36,7 @@ cited here by name only.
 | Warehouse-assigned column instances | **2** | `source_system_key`, once on each relation |
 | Total canonical column instances | **20** | 11 columns of `canonical.issued_policy` plus 9 of `canonical.preissued_rating` |
 | Canonical relations | **2** | `canonical.issued_policy` and `canonical.preissued_rating`, and no third relation |
-| Created artifacts | **61** | authored files beneath `modernization/`; generated paths are excluded and named in [§C.9](#c9-generated-paths-excluded-from-the-authored-count) |
+| Created artifacts | **62** | authored files beneath `modernization/`; generated paths are excluded and named in [§C.9](#c9-generated-paths-excluded-from-the-authored-count) |
 | Referenced read-only source files | **5** | `lgapol01.cbl` 169 lines · `lgapdb01.cbl` 595 · `lgapvs01.cbl` 188 · `lgcmarea.cpy` 103 · `lgpolicy.cpy` 107 |
 | Pre-existing files modified | **0** | there is no UPDATE row in this project; the five sources are REFERENCE only |
 | Unmapped items | **0** | in either direction — see [Part E](#part-e--coverage-assertion-and-gap-statement) |
@@ -457,12 +457,12 @@ run fails. Rationale: [`decision-log.md`](decision-log.md), rows **D-15** and **
 
 # Part C — REVERSE direction: every created artifact
 
-All **61** authored artifacts of this work, each with the requirement, source construct or user rule that justifies it.
+All **62** authored artifacts of this work, each with the requirement, source construct or user rule that justifies it.
 Paths are relative to `modernization/`. Group sizes are stated per section and checked in
 [§C.8](#c8-artifact-count-check).
 
 **No row of this part names a pre-existing repository file as a target.** The mode distribution of this work is
-REFERENCE 5, CREATE 61, UPDATE 0: the five source artifacts are read-only and byte-identical, and no other pre-existing
+REFERENCE 5, CREATE 62, UPDATE 0: the five source artifacts are read-only and byte-identical, and no other pre-existing
 file is modified. Rationale: [`decision-log.md`](decision-log.md), row **D-01**.
 
 ## C.1 Scaffolding — 4 artifacts
@@ -471,7 +471,7 @@ file is modified. Rationale: [`decision-log.md`](decision-log.md), row **D-01**.
 |---:|---|---|
 | 1 | `README.md` | The requirement for a discoverable entry point: environment setup, the precondition gate and the one-phase `make all` workflow, sited inside the new tree under the read-only boundary (**D-01**) |
 | 2 | `requirements.txt` | The requirement to pin every direct Python and dbt dependency exactly, with both adapters and both drivers installed on either branch (**D-45**) |
-| 3 | `Makefile` | The requirement for a non-interactive one-phase execution order — `verify-env`, `gate`, `translate`, `compile`, `execute`, `extract`, `land`, `load`, `dbt`, `diff`, `verify-readonly`, `all` — that stops at the first failing gate |
+| 3 | `Makefile` | The requirement for a non-interactive one-phase execution order — `verify-env`, `gate`, `translate`, `compile`, `execute`, `extract`, `land`, `load`, `dbt`, `diff`, `verify-readonly`, `all` — that stops at the first failing gate. Its one further target, the optional `local-endpoint`, is no stage of that order and is justified by **D-115** alone; the containment of its generated paths by **D-112** and the refusal of an unaccepted `DBT_TARGET` by **D-113** |
 | 4 | `.gitignore` | The requirement to exclude only generated bridge artifacts, from a nested file that touches no pre-existing ignore file (**D-47**) |
 
 ## C.2 Extraction — 7 artifacts
@@ -496,7 +496,7 @@ file is modified. Rationale: [`decision-log.md`](decision-log.md), row **D-01**.
 | 15 | `harness/copybooks/dfheiblk.cpy` | The five referenced EIB fields of [§B.5](#b5-eib-fields), which the compiler does not supply, shared as `EXTERNAL` state (**D-26**) |
 | 16 | `harness/copybooks/dfhresp.cpy` | The `DFHRESP(NORMAL)` test at [base/src/lgapvs01.cbl:142], which needs a named constant rather than a CICS macro |
 | 17 | `harness/copybooks/hsqlca.cpy` | The `SQLCODE` usage of the Db2 program [base/src/lgapdb01.cbl:124-126,290-305,389,427,473,547] |
-| 18 | `harness/copybooks/hcapture.cpy` | The requirement for an independent capture of the values handed to the inserts, the VSAM write and any abend, shared across modules with a monotonic ordering witness (**D-26**, **D-27**) |
+| 18 | `harness/copybooks/hcapture.cpy` | The requirement for an independent capture of the values handed to the inserts, the VSAM write and any abend, shared across modules with a monotonic ordering witness (**D-26**, **D-27**), published under the name of the service that records it (**D-79**) |
 | 19 | `harness/stubs/cics_abend.cbl` | The 6 `ABEND` sites of [§B.3](#b3-statement-census--rewrite-and-stub-inventory) (**D-30**) |
 | 20 | `harness/stubs/cics_write.cbl` | The single `WRITE FILE('KSDSPOLY')` site [base/src/lgapvs01.cbl:135-141] and the 64-byte record and 21-byte key capture (**D-33**) |
 | 21 | `harness/stubs/cics_asktime.cbl` | The 3 `ASKTIME` sites of the error paths, needing deterministic time |
@@ -509,32 +509,32 @@ file is modified. Rationale: [`decision-log.md`](decision-log.md), row **D-01**.
 | 28 | `harness/stubs/sql_insert_house.cbl` | The HOUSE insert [base/src/lgapdb01.cbl:409-425], so the routed program is complete and compilable |
 | 29 | `harness/stubs/sql_set_identity.cbl` | `SET :DB2-POLICYNUM-INT = IDENTITY_VAL_LOCAL()` [base/src/lgapdb01.cbl:308-310] |
 | 30 | `harness/stubs/sql_select_lastchanged.cbl` | The `LASTCHANGED` read-back [base/src/lgapdb01.cbl:316-321] |
-| 31 | `harness/driver.cbl` | The requirement for an authorized caller: it supplies the shared COMMAREA the entry program expects [base/src/lgapol01.cbl:70-77], sets the EIB surrogate values and reports the post-chain record and the captures |
-| 32 | `harness/run_harness.sh` | The requirement to build, translate, compile the modules with `cobc -m` and the driver with `cobc -x`, execute the cases and retain the logs (**D-20**, **D-23**, **D-24**, **D-25**) |
+| 31 | `harness/driver.cbl` | The requirement for an authorized caller: it supplies the shared COMMAREA the entry program expects [base/src/lgapol01.cbl:70-77], sets the EIB surrogate values and reports the post-chain record and the captures, each chain witness published under the service that records it (**D-79**) |
+| 32 | `harness/run_harness.sh` | The requirement to build, translate, compile the modules with `cobc -m` and the driver with `cobc -x`, execute the cases and retain the logs (**D-20**, **D-23**, **D-24**, **D-25**), reading each capture key under the current name or an earlier spelling (**D-79**) |
 
 ## C.4 Landing and warehouse bootstrap — 7 artifacts
 
 | # | Created artifact | Justified by |
 |---:|---|---|
 | 33 | `landing/landing-schema.json` | The landed-record contract: `source_system_key` plus the 16 runtime values, every field a string, no additional key (**D-52**) |
-| 34 | `landing/land_to_s3.py` | The requirement to land one post-chain record in S3 under a `source_system_key` prefix before transformation, through the same client on both endpoints (**D-56**, **D-57**) |
-| 35 | `landing/load_redshift.sql` | The real-target raw load: a `COPY` into `raw.genapp_policy_issue` from a manifest object (**D-40**), key-scoped so a re-run is idempotent (**D-38**) |
-| 36 | `landing/load_local.py` | The local-substitute raw load of the same landed object into DuckDB, producing the identical raw shape so the dbt models need no edit (**D-09**) |
-| 37 | `landing/partition-layout.md` | The user requirement for an S3 prefix partitioned by source system, entity and extract date, distinct from warehouse table design (**D-10**) |
+| 34 | `landing/land_to_s3.py` | The requirement to land one post-chain record in S3 under a `source_system_key` prefix before transformation, through the same client on both endpoints (**D-56**, **D-57**), one object per part so both objects of a two-sample run coexist and the prefix can be replayed (**D-80**, **D-81**) |
+| 35 | `landing/load_redshift.sql` | The real-target raw load: a `COPY` into `raw.genapp_policy_issue` from a manifest object (**D-40**) named by its part (**D-80**), key-scoped so a re-run is idempotent (**D-38**) |
+| 36 | `landing/load_local.py` | The local-substitute raw load of the same landed object into DuckDB, producing the identical raw shape so the dbt models need no edit (**D-09**), addressing the part its caller names (**D-80**) |
+| 37 | `landing/partition-layout.md` | The user requirement for an S3 prefix partitioned by source system, entity and extract date, distinct from warehouse table design (**D-10**), and the part element that gives each landed record its own object (**D-80**, **D-81**) |
 | 38 | `warehouse/ddl/01_schemas.sql` | The requirement to bootstrap the `raw` and `canonical` schemas where the target needs it explicitly (**D-43**) |
 | 39 | `warehouse/ddl/02_raw_genapp_policy_issue.sql` | The all-`VARCHAR` raw relation that preserves exactly what landed; canonical tables are owned by dbt instead (**D-41**, **D-42**) |
 
-## C.5 dbt project — 14 artifacts
+## C.5 dbt project — 15 artifacts
 
 | # | Created artifact | Justified by |
 |---:|---|---|
-| 40 | `dbt/genapp_rqi/dbt_project.yml` | The requirement for one portable dbt project: model paths, clean targets and per-layer materialisation defaults |
+| 40 | `dbt/genapp_rqi/dbt_project.yml` | The requirement for one portable dbt project: model paths, clean targets and per-layer materialisation defaults, the intermediate materialized as a table so a bad value fails upstream of both marts (**D-84**, **D-85**) |
 | 41 | `dbt/genapp_rqi/profiles.example.yml` | The environment contract for both targets from environment variables, with no committed credential (**D-44**) |
 | 42 | `dbt/genapp_rqi/models/staging/genapp_class_exemplar/_genapp__sources.yml` | The requirement that `raw.genapp_policy_issue` is the sole dbt source and that staging reads it through `source()` |
 | 43 | `dbt/genapp_rqi/models/staging/genapp_class_exemplar/_genapp__models.yml` | The staging column contract, descriptions and generic tests carried from the field map |
 | 44 | `dbt/genapp_rqi/models/staging/genapp_class_exemplar/stg_genapp__policy_issue.sql` | The requirement to standardise names and trim fixed-width whitespace while preserving the 1:1 grain |
-| 45 | `dbt/genapp_rqi/models/intermediate/int_policy_issue_decoded.sql` | The requirement to type one record once, in engine-common SQL, and to apply the product-specific NULL logic (**D-41**, **D-54**) |
-| 46 | `dbt/genapp_rqi/models/intermediate/_int__models.yml` | The typed intermediate contract and its data tests |
+| 45 | `dbt/genapp_rqi/models/intermediate/int_policy_issue_decoded.sql` | The requirement to type one record once, in engine-common SQL, and to apply the product-specific NULL logic (**D-41**, **D-54**), evaluated once at build time (**D-84**) |
+| 46 | `dbt/genapp_rqi/models/intermediate/_int__models.yml` | The typed intermediate contract and its data tests, declared over the table materialization of **D-84** |
 | 47 | `dbt/genapp_rqi/models/marts/canonical/canonical_issued_policy.sql` | The requested relation `canonical.issued_policy`, successful rows only (**D-51**) |
 | 48 | `dbt/genapp_rqi/models/marts/canonical/canonical_preissued_rating.sql` | The requested relation `canonical.preissued_rating`, successful rows only |
 | 49 | `dbt/genapp_rqi/models/marts/canonical/_canonical__models.yml` | The single declaration of both canonical column sets, enforced as a contract, and the per-column lineage metadata (**D-42**, **D-49**) |
@@ -542,24 +542,25 @@ file is modified. Rationale: [`decision-log.md`](decision-log.md), row **D-01**.
 | 51 | `dbt/genapp_rqi/tests/assert_issued_policy_unique_key.sql` | The requirement of one row per `(source_system_key, policy_number)` on the issued relation (**D-46**) |
 | 52 | `dbt/genapp_rqi/tests/assert_preissued_rating_unique_key.sql` | The same grain requirement on the rating relation (**D-46**) |
 | 53 | `dbt/genapp_rqi/tests/assert_product_premium_nullability.sql` | The requirement that a motor row carries only the motor premium, a commercial row only the four commercial premiums, and any other product no product premium — NULL, never zero (**D-54**) |
+| 54 | `dbt/genapp_rqi/tests/assert_canonical_column_widths.sql` | The requirement that the enforced canonical contract fixes the declared column widths, asserted on an adapter that reports no width as well as on one that does (**D-103**, **D-105**) |
 
 ## C.6 Validation — 3 artifacts
 
 | # | Created artifact | Justified by |
 |---:|---|---|
-| 54 | `validation/validation-evidence.md` | The requirement to record the commands, versions, results, the visible local-versus-AWS status and the open items of every gate |
-| 55 | `validation/diff_harness_vs_warehouse.py` | The requirement to compare both canonical rows field by field against the independent harness captures, exactly except for the ±0.01 amount tolerance (**D-04**, **D-37**, **D-59**) |
-| 56 | `validation/verify_readonly.sh` | The scope guarantee itself: the five-file SHA-256 baseline, an empty `git status --porcelain -- base/` and no tracked modification (**D-01**, **D-65**) |
+| 55 | `validation/validation-evidence.md` | The requirement to record the commands, versions, results, the visible local-versus-AWS status and the open items of every gate |
+| 56 | `validation/diff_harness_vs_warehouse.py` | The requirement to compare both canonical rows field by field against the independent harness captures, exactly except for the ±0.01 amount tolerance (**D-04**, **D-37**, **D-59**), and to publish no verdict over a state whose transform is not established as successful (**D-82**, **D-83**) |
+| 57 | `validation/verify_readonly.sh` | The scope guarantee itself: the five-file SHA-256 baseline, an empty `git status --porcelain -- base/` and no tracked modification (**D-01**, **D-65**) |
 
 ## C.7 Documentation — 5 artifacts
 
 | # | Created artifact | Justified by |
 |---:|---|---|
-| 57 | `docs/project-guide.md` | The requested project guide: the no-formula finding, the built and proposed architectures cited by figure name, the outstanding-AWS status and the repeatable future-RQI onboarding procedure |
-| 58 | `docs/field-level-lineage.md` | The requirement that every source-derived canonical column trace to a named COBOL item and locator, with `source_system_key` marked as the sole user-mandated warehouse-assigned exception |
-| 59 | `docs/decision-log.md` | **User Rule 1 — Explainability.** The rule requires a Markdown decision log stating what was decided, the alternatives, the rationale and the risk, and makes it the single source of "why" |
-| 60 | `docs/traceability-matrix.md` — this file | **User Rule 1 — Explainability.** The rule requires, for a migration or refactor, a bidirectional traceability matrix mapping source constructs to target implementations with 100% coverage and no gaps |
-| 61 | `docs/architecture.md` | **User Rule 2 — Visual Architecture Documentation.** The rule requires Mermaid figures with descriptive names and visible legends, referenced by name, and both the before and the after state of a modified architecture |
+| 58 | `docs/project-guide.md` | The requested project guide: the no-formula finding, the built and proposed architectures cited by figure name, the outstanding-AWS status and the repeatable future-RQI onboarding procedure |
+| 59 | `docs/field-level-lineage.md` | The requirement that every source-derived canonical column trace to a named COBOL item and locator, with `source_system_key` marked as the sole user-mandated warehouse-assigned exception |
+| 60 | `docs/decision-log.md` | **User Rule 1 — Explainability.** The rule requires a Markdown decision log stating what was decided, the alternatives, the rationale and the risk, and makes it the single source of "why" |
+| 61 | `docs/traceability-matrix.md` — this file | **User Rule 1 — Explainability.** The rule requires, for a migration or refactor, a bidirectional traceability matrix mapping source constructs to target implementations with 100% coverage and no gaps |
+| 62 | `docs/architecture.md` | **User Rule 2 — Visual Architecture Documentation.** The rule requires Mermaid figures with descriptive names and visible legends, referenced by name, and both the before and the after state of a modified architecture |
 
 **These three documents exist because of the user rules, not because of a technical need.** Nothing in the bridge
 imports them, and the pipeline runs without them; they are deliverables the rules define. `decision-log.md` and
@@ -574,17 +575,20 @@ resolutions that produced them are rows **D-61** through **D-64**.
 | Extraction | 7 | 5-11 |
 | Harness | 21 | 12-32 |
 | Landing and warehouse bootstrap | 7 | 33-39 |
-| dbt project | 14 | 40-53 |
-| Validation | 3 | 54-56 |
-| Documentation | 5 | 57-61 |
-| **Total** | **61** | 1-61, numbered consecutively with no gap and no repeat |
+| dbt project | 15 | 40-54 |
+| Validation | 3 | 55-57 |
+| Documentation | 5 | 58-62 |
+| **Total** | **62** | 1-62, numbered consecutively with no gap and no repeat |
 
-**4 + 7 + 21 + 7 + 14 + 3 + 5 = 61.** The group sizes sum to the stated total and to the CREATE count of this work,
-and every one of the 61 carries a justification row above.
+**4 + 7 + 21 + 7 + 15 + 3 + 5 = 62.** The group sizes sum to the stated total, and every one of the 62 carries a
+justification row above. The plan of this work enumerated 61 authored artifacts; the 62nd,
+`dbt/genapp_rqi/tests/assert_canonical_column_widths.sql`, was added when the final test-infrastructure QA pass found
+the declared column widths unasserted on the local adapter, and that departure from the enumerated inventory is recorded
+in [`decision-log.md`](decision-log.md) row **D-105**.
 
 ## C.9 Generated paths excluded from the authored count
 
-These are produced by a run rather than authored, and are deliberately outside the 61. Only trailing wildcards are
+These are produced by a run rather than authored, and are deliberately outside the 62. Only trailing wildcards are
 used, and the DuckDB database is named exactly.
 
 | # | Generated path | Produced by |
@@ -703,7 +707,7 @@ column` rather than left out.
 
 | Reverse scope | Where recorded | Outcome |
 |---|---|---|
-| 61 created artifacts | [§C.1](#c1-scaffolding--4-artifacts)-[§C.7](#c7-documentation--5-artifacts) | each with the requirement, source construct or user rule that justifies it; 4 + 7 + 21 + 7 + 14 + 3 + 5 = 61 |
+| 62 created artifacts | [§C.1](#c1-scaffolding--4-artifacts)-[§C.7](#c7-documentation--5-artifacts) | each with the requirement, source construct or user rule that justifies it; 4 + 7 + 21 + 7 + 15 + 3 + 5 = 62 |
 | 3 rule-forced documents | [§C.7](#c7-documentation--5-artifacts) | `decision-log.md` → Rule 1, `traceability-matrix.md` → Rule 1, `architecture.md` → Rule 2 |
 | 7 generated paths | [§C.9](#c9-generated-paths-excluded-from-the-authored-count) | deliberately outside the authored count, each attributed to the run step that produces it |
 | 20 canonical column instances | [§D.1](#d1-canonicalissued_policy--11-column-instances)-[§D.2](#d2-canonicalpreissued_rating--9-column-instances) | 18 to a named COBOL item and locator, 2 to the stated warehouse assignment |

@@ -175,7 +175,10 @@ WHAT --self-test CHECKS
     one directory a database may sit in refused as a setting before any request
     is made, SQL statement splitting, the physical shape of
     raw.genapp_policy_issue as the catalog reports it, one load, a repeated load
-    of the same record, a load of a second record, a failure mid-transaction with
+    of the same record, a load of a second record, the part option over every
+    accepted and refused value with a key of another part refused, two parts of
+    one extract date replayed out of one prefix into two coexisting rows, a
+    failure mid-transaction with
     the rollback that follows it, an interrupt reported as one line and status 130
     from the command line and from an interrupted statement, the row counts the
     tool reports against the relation, redaction of business identifiers in both
@@ -448,11 +451,29 @@ REAL_MODE_LOADER = "modernization/landing/load_redshift.sql"
 CREDENTIAL_VARIABLES = ("AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY")
 
 # Landing prefix parts. The key is LANDING_KEY_ROOT, then one Hive-style segment
-# per entry of PARTITION_FIELDS in this order, then OBJECT_NAME.
+# per entry of PARTITION_FIELDS in this order, then the object name of the part being
+# loaded. PARTITION_FIELDS is the whole of the partitioning: the part is an element of
+# the object name and never a fourth Hive-style segment.
 LANDING_KEY_ROOT = "landing"
 PARTITION_FIELDS = ("source_system_key", "entity", "extract_date")
-OBJECT_NAME = "part-0000.json"
 KEY_SEPARATOR = "/"
+
+# Object name of one landed part, in the form modernization/landing/land_to_s3.py
+# writes. One prefix carries one object per part, so the records of one source system,
+# entity and extract date coexist under distinct part numbers and each is loaded by its
+# own run of this tool; DEFAULT_PART_NUMBER applies when no part is named, which makes
+# OBJECT_NAME the name a run that names no part reads.
+OBJECT_NAME_TEMPLATE = "part-{part}.json"
+PART_NUMBER_DIGITS = 4
+MIN_PART_NUMBER = 0
+MAX_PART_NUMBER = 10 ** PART_NUMBER_DIGITS - 1
+DEFAULT_PART_NUMBER = 0
+_PART_NUMBER_SHAPE = re.compile(r"\A[0-9]{1,%d}\Z" % PART_NUMBER_DIGITS)
+_OBJECT_NAME_SHAPE = re.compile(
+    r"\Apart-[0-9]{%d}\.json\Z" % PART_NUMBER_DIGITS
+)
+DEFAULT_PART_TEXT = f"{DEFAULT_PART_NUMBER:0{PART_NUMBER_DIGITS}d}"
+OBJECT_NAME = OBJECT_NAME_TEMPLATE.format(part=DEFAULT_PART_TEXT)
 
 # Value used when the matching option and environment variable are both absent.
 DEFAULT_SOURCE_SYSTEM_KEY = "GENAPP_CLASS_EXEMPLAR"
@@ -1557,6 +1578,61 @@ def resolve_extract_date(supplied: str | None) -> datetime.date:
     return parsed
 
 
+def part_number_text(part: int) -> str:
+    """Return ``part`` as the digits the object name of that part carries.
+
+    The value is written zero-padded to ``PART_NUMBER_DIGITS`` digits, which is the
+    width modernization/landing/land_to_s3.py writes, so the name rebuilt here is the
+    name that step wrote.
+
+    Raises ``ConfigurationError`` when ``part`` is not a whole number between
+    ``MIN_PART_NUMBER`` and ``MAX_PART_NUMBER``.
+    """
+    if isinstance(part, bool) or not isinstance(part, int):
+        raise ConfigurationError(
+            f"the landing part is {_display(part)}; a whole number between "
+            f"{MIN_PART_NUMBER} and {MAX_PART_NUMBER} is required"
+        )
+    if not (MIN_PART_NUMBER <= part <= MAX_PART_NUMBER):
+        raise ConfigurationError(
+            f"the landing part is {part}; {MIN_PART_NUMBER} to {MAX_PART_NUMBER} are "
+            f"accepted, which is what {PART_NUMBER_DIGITS} digits of the object name "
+            "carry"
+        )
+    return f"{part:0{PART_NUMBER_DIGITS}d}"
+
+
+def object_name(part: int = DEFAULT_PART_NUMBER) -> str:
+    """Return the object name of the landed record of ``part``.
+
+    Raises ``ConfigurationError`` when ``part`` is not an accepted part number.
+    """
+    return OBJECT_NAME_TEMPLATE.format(part=part_number_text(part))
+
+
+def resolve_part(supplied: str | None) -> int:
+    """Return the part element of the landed object name, as a number.
+
+    ``supplied`` is the ``--part`` value, written as 1 to ``PART_NUMBER_DIGITS``
+    decimal digits with or without leading zeros; ``DEFAULT_PART_NUMBER`` applies when
+    it is absent, so a run that names no part reads the object a landing that named no
+    part wrote. The number reaches the object name zero-padded to
+    ``PART_NUMBER_DIGITS`` digits, so ``1`` and ``0001`` name the same object.
+
+    Raises ``ConfigurationError`` when ``supplied`` is not such a number.
+    """
+    if supplied is None:
+        return DEFAULT_PART_NUMBER
+    if not _PART_NUMBER_SHAPE.fullmatch(supplied):
+        raise ConfigurationError(
+            f"the landing part from --part is not 1 to {PART_NUMBER_DIGITS} decimal "
+            f"digits: {_shown(supplied)}; {MIN_PART_NUMBER} to {MAX_PART_NUMBER} are "
+            f"accepted and the value reaches the object name as "
+            f"{OBJECT_NAME_TEMPLATE.format(part='NNNN')}"
+        )
+    return int(supplied, 10)
+
+
 def _is_loopback_host(host: str) -> bool:
     """Return whether ``host`` is a loopback literal or exactly the loopback name.
 
@@ -1915,20 +1991,25 @@ def resolve_ddl_paths(apply_ddl: bool) -> tuple[Path, ...]:
 
 
 def build_landing_key(
-    source_system_key: str, entity: str, extract_date: datetime.date
+    source_system_key: str,
+    entity: str,
+    extract_date: datetime.date,
+    part: int = DEFAULT_PART_NUMBER,
 ) -> str:
-    """Return the landing object key for one extract.
+    """Return the landing object key for one part of one extract.
 
     The key is ``LANDING_KEY_ROOT``, then one Hive-style ``field=value`` segment
-    per entry of ``PARTITION_FIELDS`` in that order, then ``OBJECT_NAME``, with
-    no leading separator, no empty segment and no percent-encoding of the equals
-    sign. The date is written as ``EXTRACT_DATE_FORM``. This is the key
-    land_to_s3.py writes for the same three values. ``entity`` must be
+    per entry of ``PARTITION_FIELDS`` in that order, then the object name of
+    ``part``, with no leading separator, no empty segment and no percent-encoding
+    of the equals sign. The date is written as ``EXTRACT_DATE_FORM``. This is the
+    key land_to_s3.py writes for the same values, and with no part supplied it is
+    the key that step writes for a landing that named no part. ``entity`` must be
     ``LANDING_ENTITY``, so every key this function returns addresses the canonical
     policy-issue prefix.
 
     Raises ``ConfigurationError`` when a supplied value cannot form one path
-    segment or when ``entity`` is not ``LANDING_ENTITY``.
+    segment, when ``entity`` is not ``LANDING_ENTITY``, or when ``part`` is not an
+    accepted part number.
     """
     if entity != LANDING_ENTITY:
         raise ConfigurationError(
@@ -1944,7 +2025,7 @@ def build_landing_key(
     }
     segments = [LANDING_KEY_ROOT]
     segments.extend(f"{field}={values[field]}" for field in PARTITION_FIELDS)
-    segments.append(OBJECT_NAME)
+    segments.append(object_name(part))
     return KEY_SEPARATOR.join(segments)
 
 
@@ -2020,17 +2101,20 @@ def confirm_landing_key(
     entity: str,
     extract_date: datetime.date,
     origin: str,
+    part: int = DEFAULT_PART_NUMBER,
 ) -> str:
     """Confirm ``key`` is the landing key the resolved settings describe, and return it.
 
     The key is split on ``KEY_SEPARATOR`` and matched against the landing template
     segment by segment: ``LANDING_KEY_ROOT``, one ``field=value`` segment per entry
-    of ``PARTITION_FIELDS`` in that order, and ``OBJECT_NAME``. Each field name
-    must be the expected one and each value must equal the resolved
-    ``source_system_key``, ``entity`` or ``extract_date``. The key therefore
+    of ``PARTITION_FIELDS`` in that order, and the object name of ``part``. Each
+    field name must be the expected one and each value must equal the resolved
+    ``source_system_key``, ``entity`` or ``extract_date``, and the object name must
+    be the name of one landed record - ``part-<NNNN>.json`` - carrying the resolved
+    part. The key therefore
     confirms the settings rather than replacing them: a key naming another
-    source system, another entity or another day is refused, so a row can never be
-    loaded from an object the run's own source-system key, entity and date do not
+    source system, another entity, another day or another part is refused, so a row
+    can never be loaded from an object the run's own settings do not
     describe, and the prefix the row came from is always the prefix the run
     resolved.
 
@@ -2045,7 +2129,7 @@ def confirm_landing_key(
         "entity": entity,
         "extract_date": extract_date.isoformat(),
     }
-    template = build_landing_key(source_system_key, entity, extract_date)
+    template = build_landing_key(source_system_key, entity, extract_date, part)
     segments = key.split(KEY_SEPARATOR)
     wanted = len(PARTITION_FIELDS) + 2
     if len(segments) != wanted:
@@ -2085,12 +2169,20 @@ def confirm_landing_key(
                 f"matching --{field.replace('_', '-')} or omit {origin} to build "
                 "the key from the resolved settings"
             )
-    if segments[-1] != OBJECT_NAME:
+    carried_name = segments[-1]
+    if not _OBJECT_NAME_SHAPE.fullmatch(carried_name):
         raise ConfigurationError(
-            f"the object from {origin} is named {_shown(segments[-1])} rather than "
-            f"{_shown(OBJECT_NAME)}: "
-            f"{_shown(key, MAX_DIAGNOSTIC_PATH_CHARACTERS)}; one landing object is "
-            "written per prefix"
+            f"the object from {origin} is named {_shown(carried_name)}, which is not "
+            f"the name of a landed record: "
+            f"{_shown(key, MAX_DIAGNOSTIC_PATH_CHARACTERS)}; one record is written per "
+            f"part, as {OBJECT_NAME_TEMPLATE.format(part='NNNN')}"
+        )
+    if carried_name != object_name(part):
+        raise ConfigurationError(
+            f"the object from {origin} is named {_shown(carried_name)} while the "
+            f"resolved part names {_shown(object_name(part))}: "
+            f"{_shown(key, MAX_DIAGNOSTIC_PATH_CHARACTERS)}; supply the matching "
+            f"--part or omit {origin} to build the key from the resolved settings"
         )
     return key
 
@@ -2101,33 +2193,39 @@ def resolve_object_key(
     source_system_key: str,
     entity: str,
     extract_date: datetime.date,
+    part: int = DEFAULT_PART_NUMBER,
 ) -> str:
     """Return the key of the object to download.
 
     The key is always the one ``build_landing_key`` rebuilds from
-    ``source_system_key``, ``entity`` and ``extract_date``, which is the key
-    land_to_s3.py wrote for those three values. ``supplied`` is the ``--key``
+    ``source_system_key``, ``entity``, ``extract_date`` and ``part``, which is the
+    key land_to_s3.py wrote for those values. ``supplied`` is the ``--key``
     value, accepted as a bare key or as the ``s3://`` URI that step printed, and it
     must equal that rebuilt key: it confirms which object is being loaded rather
-    than selecting a different one, so no stale object, sibling object or object of
-    another entity can be loaded under this run's settings.
+    than selecting a different one, so no stale object, object of another part or
+    object of another entity can be loaded under this run's settings. A key naming
+    another part of the same prefix is refused here rather than loaded, and the
+    diagnostic names ``--part``, which is the setting that selects it.
 
     Raises ``ConfigurationError`` when ``supplied`` is not a usable object
     reference, when it does not equal the rebuilt key, or when a rebuilt segment is
     not usable.
     """
-    rebuilt = build_landing_key(source_system_key, entity, extract_date)
+    rebuilt = build_landing_key(source_system_key, entity, extract_date, part)
     if supplied is None:
         return rebuilt
     requested = parse_object_reference(supplied, bucket)
     if requested != rebuilt:
+        confirm_landing_key(
+            requested, source_system_key, entity, extract_date, "--key", part
+        )
         raise ConfigurationError(
             "the object from --key is not the object this run's settings name: "
             f"--key asks for {_shown(requested, MAX_DIAGNOSTIC_PATH_CHARACTERS)} and "
-            f"the landing prefix for this run is "
+            f"this run names "
             f"{_shown(rebuilt, MAX_DIAGNOSTIC_PATH_CHARACTERS)}; supply the "
-            "--source-system-key, --extract-date and bucket the object was landed "
-            "with, or omit --key"
+            "--source-system-key, --extract-date, --part and bucket the object was "
+            "landed with, or omit --key"
         )
     return rebuilt
 
@@ -3014,15 +3112,18 @@ def confirm_source_system_key(
 
 
 def confirm_object_key(
-    record: Mapping[str, Any], key: str, extract_date: datetime.date
+    record: Mapping[str, Any],
+    key: str,
+    extract_date: datetime.date,
+    part: int = DEFAULT_PART_NUMBER,
 ) -> None:
     """Confirm ``key`` is the key ``record``'s own source-system key rebuilds.
 
     The key is rebuilt from the value the validated object carries, the fixed
-    ``LANDING_ENTITY`` literal and ``extract_date``, and must equal the key that was
-    downloaded, so the row written comes from the exact object the landing contract
-    names rather than from any other object that answered. Returns None when the two
-    agree.
+    ``LANDING_ENTITY`` literal, ``extract_date`` and ``part``, and must equal the key
+    that was downloaded, so the row written comes from the exact object the landing
+    contract names rather than from any other object that answered, including any
+    other part of the same prefix. Returns None when the two agree.
 
     Raises ``ObjectError`` when they do not, and ``ConfigurationError`` when the
     object's own source-system key cannot form a path segment.
@@ -3035,7 +3136,7 @@ def confirm_object_key(
             f"{_display(carried)} as {_shown(field)}; the landing key is rebuilt from "
             "it"
         )
-    rebuilt = build_landing_key(carried, LANDING_ENTITY, extract_date)
+    rebuilt = build_landing_key(carried, LANDING_ENTITY, extract_date, part)
     if rebuilt != key:
         raise ObjectError(
             f"the landed object {_shown(key, MAX_DIAGNOSTIC_PATH_CHARACTERS)} is not "
@@ -3719,6 +3820,7 @@ def load_record(
     database_path: Path,
     ddl_paths: Sequence[Path],
     *,
+    part: int = DEFAULT_PART_NUMBER,
     region: str | None = None,
     endpoint_url: str | None = None,
     schema_path: Path = DEFAULT_SCHEMA,
@@ -3737,9 +3839,9 @@ def load_record(
     every constraint of that schema including its asserted date format, a real
     last_changed moment, exactly the declared keys as text or null and in the order
     the schema fixes, the canonical one-line bytes of the object it parses to, the
-    run's source-system key, and a key equal to the one its own source-system key
-    and ``extract_date`` rebuild. Every one of those checks runs before the database
-    is opened, so a rejected object reaches neither the database file nor a
+    run's source-system key, and a key equal to the one its own source-system key,
+    ``extract_date`` and ``part`` rebuild. Every one of those checks runs before the
+    database is opened, so a rejected object reaches neither the database file nor a
     statement. The two shared scripts in ``ddl_paths`` are then applied inside the
     same transaction that writes the row.
 
@@ -3771,7 +3873,7 @@ def load_record(
     confirm_key_order(record, columns, key)
     confirm_canonical_bytes(downloaded.body, record, key)
     confirm_source_system_key(record, source_system_key, key)
-    confirm_object_key(record, key, extract_date)
+    confirm_object_key(record, key, extract_date, part)
     key_values = natural_key_values(record, key)
     values = record_values(record, columns)
     _note(
@@ -5705,6 +5807,226 @@ def _case_second_key_coexists(scratch: _Scratch) -> str:
     return "2 distinct natural keys coexist with the product-specific null pattern"
 
 
+def _case_part_option_resolved() -> str:
+    """The part element resolves, rebuilds its own key and refuses every other value.
+
+    The key a run that names no part rebuilds is required to equal the key of the
+    default part character for character, so a run that names no part reads the object
+    modernization/landing/land_to_s3.py writes when it is given no part either. A
+    ``--key`` naming another part of the same prefix is refused rather than loaded, and
+    the diagnostic names the setting that selects it.
+    """
+    _assert_equal(resolve_part(None), DEFAULT_PART_NUMBER, "the part of no setting")
+    _assert_equal(
+        build_landing_key(
+            DEFAULT_SOURCE_SYSTEM_KEY, LANDING_ENTITY, _SELF_TEST_EXTRACT_DATE
+        ),
+        build_landing_key(
+            DEFAULT_SOURCE_SYSTEM_KEY,
+            LANDING_ENTITY,
+            _SELF_TEST_EXTRACT_DATE,
+            DEFAULT_PART_NUMBER,
+        ),
+        "the key of a run naming no part",
+    )
+    for supplied, expected in (("0", 0), ("0000", 0), ("1", 1), ("0001", 1),
+                              ("9999", MAX_PART_NUMBER)):
+        _assert_equal(resolve_part(supplied), expected, f"the part from {supplied!r}")
+    _assert_equal(object_name(0), OBJECT_NAME, "the object name of the default part")
+    _assert_equal(object_name(1), "part-0001.json", "the object name of part 1")
+    refused_settings = ("-1", "1.0", "00001", "10000", " 1", "", "one", "+1")
+    for supplied in refused_settings:
+        _assert_raises(
+            f"the part setting {supplied!r}",
+            ConfigurationError,
+            "--part",
+            lambda supplied=supplied: resolve_part(supplied),
+        )
+    for value in (-1, MAX_PART_NUMBER + 1, True, "0000", None):
+        _assert_raises(
+            f"the part number {value!r}",
+            ConfigurationError,
+            "",
+            lambda value=value: build_landing_key(
+                DEFAULT_SOURCE_SYSTEM_KEY,
+                LANDING_ENTITY,
+                _SELF_TEST_EXTRACT_DATE,
+                value,
+            ),
+        )
+    # Every part addresses its own key, and --key confirms the resolved settings
+    # rather than selecting an object of its own.
+    for part in (DEFAULT_PART_NUMBER, 1, MAX_PART_NUMBER):
+        key = build_landing_key(
+            DEFAULT_SOURCE_SYSTEM_KEY, LANDING_ENTITY, _SELF_TEST_EXTRACT_DATE, part
+        )
+        _assert(
+            key.endswith(f"{KEY_SEPARATOR}{object_name(part)}"),
+            f"the key of part {part} is named {key.rsplit(KEY_SEPARATOR, 1)[-1]!r}",
+        )
+        _assert_equal(
+            confirm_landing_key(
+                key,
+                DEFAULT_SOURCE_SYSTEM_KEY,
+                LANDING_ENTITY,
+                _SELF_TEST_EXTRACT_DATE,
+                "--key",
+                part,
+            ),
+            key,
+            f"the confirmed key of part {part}",
+        )
+        _assert_equal(
+            resolve_object_key(
+                build_object_uri(_SELF_TEST_BUCKET, key),
+                _SELF_TEST_BUCKET,
+                DEFAULT_SOURCE_SYSTEM_KEY,
+                LANDING_ENTITY,
+                _SELF_TEST_EXTRACT_DATE,
+                part,
+            ),
+            key,
+            f"the key resolved from the URI of part {part}",
+        )
+    other_part = build_landing_key(
+        DEFAULT_SOURCE_SYSTEM_KEY, LANDING_ENTITY, _SELF_TEST_EXTRACT_DATE, 1
+    )
+    _assert_raises(
+        "a --key naming another part of the same prefix",
+        ConfigurationError,
+        "--part",
+        lambda: resolve_object_key(
+            other_part,
+            _SELF_TEST_BUCKET,
+            DEFAULT_SOURCE_SYSTEM_KEY,
+            LANDING_ENTITY,
+            _SELF_TEST_EXTRACT_DATE,
+            DEFAULT_PART_NUMBER,
+        ),
+    )
+    prefix = other_part.rsplit(KEY_SEPARATOR, 1)[0]
+    for name, fragment in (
+        ("part-0000.manifest.json", "not the name of a landed record"),
+        ("part-000.json", "not the name of a landed record"),
+        ("part-00001.json", "not the name of a landed record"),
+        ("record.json", "not the name of a landed record"),
+    ):
+        _assert_raises(
+            f"a --key named {name!r}",
+            ConfigurationError,
+            fragment,
+            lambda name=name: confirm_landing_key(
+                f"{prefix}{KEY_SEPARATOR}{name}",
+                DEFAULT_SOURCE_SYSTEM_KEY,
+                LANDING_ENTITY,
+                _SELF_TEST_EXTRACT_DATE,
+                "--key",
+                DEFAULT_PART_NUMBER,
+            ),
+        )
+    _assert_raises(
+        "a --key naming another extract date",
+        ConfigurationError,
+        "extract_date",
+        lambda: confirm_landing_key(
+            build_landing_key(
+                DEFAULT_SOURCE_SYSTEM_KEY,
+                LANDING_ENTITY,
+                _SELF_TEST_EXTRACT_DATE + datetime.timedelta(days=1),
+            ),
+            DEFAULT_SOURCE_SYSTEM_KEY,
+            LANDING_ENTITY,
+            _SELF_TEST_EXTRACT_DATE,
+            "--key",
+        ),
+    )
+    return (
+        f"{len(refused_settings)} part settings refused, every part addressing its "
+        "own key and a key of another part refused"
+    )
+
+
+def _case_parts_replayed(scratch: _Scratch) -> str:
+    """Two parts of one prefix are replayed out of object storage into two rows.
+
+    One bucket is seeded with the two objects a two-sample run lands - the motor
+    record at the default part and the commercial record at part 1 - and nothing else.
+    Both are then loaded, in one database, from object storage alone: no landing runs
+    between the two loads. The relation is required to hold both rows, each carrying the
+    values of its own object, which is the replay the landing zone now supports.
+    """
+    database = scratch.database("parts-replayed.duckdb")
+    columns = read_column_names(load_schema())
+    bodies = {
+        DEFAULT_PART_NUMBER: _record_bytes(),
+        1: _record_bytes(_COMMERCIAL_RECORD_MEMBERS),
+    }
+    ddl_paths = resolve_ddl_paths(True)
+    mock_aws, _, _ = _test_collaborators()
+    outcomes: dict[int, LoadOutcome] = {}
+    with mock_aws():
+        client = _stubbed_client()
+        client.create_bucket(
+            Bucket=_SELF_TEST_BUCKET,
+            CreateBucketConfiguration={"LocationConstraint": _SELF_TEST_REGION},
+        )
+        for part, body in bodies.items():
+            client.put_object(
+                Bucket=_SELF_TEST_BUCKET,
+                Key=build_landing_key(
+                    DEFAULT_SOURCE_SYSTEM_KEY,
+                    LANDING_ENTITY,
+                    _SELF_TEST_EXTRACT_DATE,
+                    part,
+                ),
+                Body=body,
+            )
+        listing = client.list_objects_v2(Bucket=_SELF_TEST_BUCKET)
+        _assert_equal(listing.get("KeyCount"), 2, "objects seeded under one prefix")
+        with _controlled_environment(scratch, **_SELF_TEST_CREDENTIALS):
+            for part in bodies:
+                with _captured_stderr():
+                    outcomes[part] = load_record(
+                        _SELF_TEST_BUCKET,
+                        build_landing_key(
+                            DEFAULT_SOURCE_SYSTEM_KEY,
+                            LANDING_ENTITY,
+                            _SELF_TEST_EXTRACT_DATE,
+                            part,
+                        ),
+                        DEFAULT_SOURCE_SYSTEM_KEY,
+                        _SELF_TEST_EXTRACT_DATE,
+                        database,
+                        ddl_paths,
+                        part=part,
+                        region=_SELF_TEST_REGION,
+                    )
+    _assert_equal(outcomes[DEFAULT_PART_NUMBER].removed, 0, "rows the first load removed")
+    _assert_equal(outcomes[1].removed, 0, "rows the second load removed")
+    _assert_equal(outcomes[DEFAULT_PART_NUMBER].written, 1, "rows the first load wrote")
+    _assert_equal(outcomes[1].written, 1, "rows the second load wrote")
+    _assert(
+        outcomes[DEFAULT_PART_NUMBER].key_values != outcomes[1].key_values,
+        "both parts carry the same natural key, so nothing distinguishes them",
+    )
+    connection = duckdb.connect(str(database))
+    try:
+        _assert_equal(_row_count(connection), 2, "the rows two replayed parts left")
+        _assert_equal(
+            _rows_for_key(connection, columns, outcomes[1].key_values)[0],
+            tuple(value for _, value in _COMMERCIAL_RECORD_MEMBERS),
+            "the row of part 1 as stored",
+        )
+        _assert_equal(
+            _rows_for_key(connection, columns, outcomes[DEFAULT_PART_NUMBER].key_values)[0],
+            tuple(value for _, value in _MOTOR_RECORD_MEMBERS),
+            "the row of the default part as stored",
+        )
+    finally:
+        connection.close()
+    return "2 parts of one prefix replayed into 2 coexisting rows"
+
+
 def _case_rollback_restores_state(scratch: _Scratch) -> str:
     """A failure between the removal and the write leaves the earlier state intact."""
     database = scratch.database("rollback.duckdb")
@@ -6531,7 +6853,48 @@ def _case_cli_loads_and_redacts(scratch: _Scratch) -> str:
             **_SELF_TEST_CREDENTIALS,
         )
     _assert_equal(by_uri.status, EXIT_OK, "the status of a load naming the URI")
-    return "2 command line loads left 1 row, and the URI form named the same object"
+    # A part the bucket does not carry is an absent object, not a rejected setting:
+    # the key is built from --part and the download is what does not answer.
+    with _served_bucket(body) as endpoint:
+        absent_part = _run_cli(
+            scratch,
+            _arguments(endpoint, "--part", "1", "--no-ddl"),
+            **_SELF_TEST_CREDENTIALS,
+        )
+    _assert_equal(
+        absent_part.status,
+        EXIT_S3_UNAVAILABLE,
+        "the status of a load naming a part the bucket does not carry",
+    )
+    _assert_in(
+        "part-0001.json",
+        _assert_one_diagnostic(absent_part.stderr),
+        "the diagnostic naming the part that was addressed",
+    )
+    refused_part = _run_cli(
+        scratch, _arguments("http://127.0.0.1:5112", "--part", "10000")
+    )
+    _assert_equal(
+        refused_part.status,
+        EXIT_CONFIGURATION_REJECTED,
+        "the status of a load naming a part outside the accepted range",
+    )
+    _assert_in(
+        "--part",
+        _assert_one_diagnostic(refused_part.stderr),
+        "the diagnostic naming the part setting",
+    )
+    connection = duckdb.connect(str(database))
+    try:
+        _assert_equal(
+            _row_count(connection), 1, "the rows after the two refused runs"
+        )
+    finally:
+        connection.close()
+    return (
+        "2 command line loads left 1 row, the URI form named the same object, and a "
+        "part the bucket does not carry and a part outside the range were refused"
+    )
 
 
 def _case_leaked_identifier_still_caught(scratch: _Scratch) -> str:
@@ -6872,6 +7235,13 @@ def run_self_test(*, quiet: bool = False, stream: Any = None) -> int:
             lambda: _case_second_key_coexists(scratch),
         )
         _run_case(
+            results, out, quiet, "part_option_resolved", _case_part_option_resolved
+        )
+        _run_case(
+            results, out, quiet, "parts_replayed",
+            lambda: _case_parts_replayed(scratch),
+        )
+        _run_case(
             results, out, quiet, "rollback_restores_state",
             lambda: _case_rollback_restores_state(scratch),
         )
@@ -6974,7 +7344,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
             f"source_system_key=<{SOURCE_SYSTEM_KEY_VARIABLE}>",
             f"entity={LANDING_ENTITY}",
             f"extract_date=<{EXTRACT_DATE_FORM}>",
-            OBJECT_NAME,
+            OBJECT_NAME_TEMPLATE.format(part="N" * PART_NUMBER_DIGITS),
         )
     )
     parser = _CommandLineParser(
@@ -7014,6 +7384,10 @@ def build_arg_parser() -> argparse.ArgumentParser:
             "write of that object as one row. A repeated run leaves one row, a row "
             "loaded from an earlier object survives, and a failure withdraws every "
             "change the transaction made.\n"
+            f"One key carries one object per source system, entity, extract date and "
+            f"part: --part names the part and {DEFAULT_PART_TEXT} applies when it is "
+            "omitted, so a landing prefix holding several parts is replayed into the "
+            "raw relation by running this loader once per part.\n"
             "stdout carries exactly one line, naming the relation written, the "
             "rows removed and written and the digest of the object loaded; the "
             "natural-key values are carried only under --show-identifiers. Every "
@@ -7067,8 +7441,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
             "object to download, given as a bare key or as the "
             f"{SERVICE_NAME}{URI_SCHEME_SEPARATOR} URI land_to_s3.py printed, whose "
             "bucket must match --bucket. It must equal the key --source-system-key, "
-            "the fixed entity literal and --extract-date rebuild, so it confirms the "
-            "object rather than selecting another; omitted, that rebuilt key is used"
+            "the fixed entity literal, --extract-date and --part rebuild, so it "
+            "confirms the object rather than selecting another; omitted, that rebuilt "
+            "key is used"
         ),
     )
     parser.add_argument(
@@ -7101,6 +7476,21 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help=(
             "extract-date element of the landing prefix, written exactly "
             f"{EXTRACT_DATE_FORM}; defaults to the current UTC date"
+        ),
+    )
+    parser.add_argument(
+        "--part",
+        default=None,
+        metavar="NUMBER",
+        help=(
+            "part element of the landed object name, written as 1 to "
+            f"{PART_NUMBER_DIGITS} decimal digits between {MIN_PART_NUMBER} and "
+            f"{MAX_PART_NUMBER} and reaching the name zero-padded to "
+            f"{PART_NUMBER_DIGITS} digits; omitted, part {DEFAULT_PART_TEXT} applies "
+            f"and the object read is {OBJECT_NAME}. One prefix carries one record per "
+            "part, so a prefix holding several parts is replayed by running this "
+            "loader once per part; each load writes its own row and removes no row of "
+            "another part"
         ),
     )
     parser.add_argument(
@@ -7252,9 +7642,12 @@ def _run(args: argparse.Namespace) -> str:
     source_system_key = resolve_source_system_key(args.source_system_key)
     entity = resolve_entity(args.entity)
     extract_date = resolve_extract_date(args.extract_date)
+    part = resolve_part(args.part)
     database_path = resolve_database_path(args.database)
     ddl_paths = resolve_ddl_paths(args.apply_ddl)
-    key = resolve_object_key(args.key, bucket, source_system_key, entity, extract_date)
+    key = resolve_object_key(
+        args.key, bucket, source_system_key, entity, extract_date, part
+    )
     relation = qualified_relation_name()
     outcome = load_record(
         bucket,
@@ -7263,6 +7656,7 @@ def _run(args: argparse.Namespace) -> str:
         extract_date,
         database_path,
         ddl_paths,
+        part=part,
         region=region,
         endpoint_url=endpoint_url,
         show_identifiers=args.show_identifiers,

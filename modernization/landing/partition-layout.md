@@ -17,7 +17,7 @@ the contract and nothing else.
 ## The landing key
 
 ```text
-s3://<bucket>/landing/source_system_key=<SOURCE_SYSTEM_KEY>/entity=<ENTITY>/extract_date=<YYYY-MM-DD>/part-0000.json
+s3://<bucket>/landing/source_system_key=<SOURCE_SYSTEM_KEY>/entity=<ENTITY>/extract_date=<YYYY-MM-DD>/part-<NNNN>.json
 ```
 
 ### Key segments
@@ -29,12 +29,14 @@ s3://<bucket>/landing/source_system_key=<SOURCE_SYSTEM_KEY>/entity=<ENTITY>/extr
 | `source_system_key=<KEY>` | `source_system_key=GENAPP_CLASS_EXEMPLAR` | `<KEY>` matches `[A-Za-z0-9_.-]{1,64}`, so it carries no `/`, no whitespace and no `=` — it becomes one path segment. It must equal the `source_system_key` value the record itself carries | `SOURCE_SYSTEM_KEY` or `--source-system-key`, defaulting to `GENAPP_CLASS_EXEMPLAR`; the segment written is the value the validated record carries |
 | `entity=<ENTITY>` | `entity=policy_issue` | The fixed literal `policy_issue`. `--entity` is accepted only when it repeats that literal; any other value is refused | The landing contract |
 | `extract_date=<YYYY-MM-DD>` | one value per run | A strict ISO calendar date, four digits, month `01`-`12` and a day the named month really has | `--extract-date`, defaulting to the current UTC date. `make` passes its `EXTRACT_DATE` variable, itself defaulting to the current UTC date |
-| `part-0000.json` | `part-0000.json` | The fixed object name of the record. It is not configurable | The landing contract |
+| `part-<NNNN>.json` | `part-0000.json` for a landing that names no part | `<NNNN>` is the part number of the record being landed, written as exactly four decimal digits, `0000` to `9999`. `--part` accepts one to four digits with or without leading zeros, so `1` and `0001` name the same object; the root `part-`, the four-digit width and the `.json` suffix are fixed | `--part`, defaulting to `0000`. `make` passes the part its `CASE_PART_<case>` line records for the case being landed: `0000` for `01amot` and `0001` for `01acom` |
 
 ### Mechanical rules
 
 - The key is the root segment `landing`, then one Hive-style `key=value` segment per partition field in the order
   `source_system_key`, `entity`, `extract_date`, then the object name.
+- The part is an element of the object name and never a fourth Hive-style segment. The partition fields are
+  `source_system_key`, `entity` and `extract_date`, and that set is unchanged by the part.
 - The key carries no leading slash, no trailing slash and no empty segment, so `//` never appears within it.
 - The `=` of each partition segment is a literal `=`; it is not URL-encoded, and neither is any other character of the
   key.
@@ -46,17 +48,20 @@ s3://<bucket>/landing/source_system_key=<SOURCE_SYSTEM_KEY>/entity=<ENTITY>/extr
 
 | Object | Object name | What it holds | Which loader reads it |
 | --- | --- | --- | --- |
-| Landed record | `part-0000.json` | The 17-key landing record | [`load_local.py`](load_local.py) downloads it and writes one raw row |
-| `COPY` manifest | `part-0000.manifest.json` | One entry naming the landed record's own `s3://` URI, its mandatory flag and, under a nested `meta` member as Amazon Redshift's manifest schema places it, that object's byte count | [`load_redshift.sql`](load_redshift.sql) names it as the `COPY` location and sets `MANIFEST`, so exactly the one validated object is read |
+| Landed record | `part-<NNNN>.json` | The 17-key landing record of that part | [`load_local.py`](load_local.py) downloads it and writes one raw row. `--part` selects which part it reads |
+| `COPY` manifest | `part-<NNNN>.manifest.json` | One entry naming that same part's record by its own `s3://` URI, its mandatory flag and, under a nested `meta` member as Amazon Redshift's manifest schema places it, that object's byte count | [`load_redshift.sql`](load_redshift.sql) names it as the `COPY` location and sets `MANIFEST`, so exactly the one validated object of that part is read |
 
-Both objects sit under the same landing prefix, differ only in object name, and carry
-`ContentType: application/json`. [`land_to_s3.py`](land_to_s3.py) writes the record first and the manifest second, on
-the local branch and on the real branch alike.
+The two objects of one landing sit under the same landing prefix, carry the same part number, differ only in object name,
+and carry `ContentType: application/json`. [`land_to_s3.py`](land_to_s3.py) writes the record first and the manifest
+second, on the local branch and on the real branch alike. A prefix holds one such pair per part landed under it, so the
+records and manifests of distinct parts coexist and each manifest binds a `COPY` to its own object alone.
 
 ## Worked examples
 
 Both examples use the placeholder bucket name `example-bucket-not-real`, which names no bucket that exists. Both are
-resolved for one run whose extract date is `2026-08-22`.
+resolved for one run whose extract date is `2026-08-22`, and they carry the parts `make` records for those two cases:
+`0000` for the motor sample and `0001` for the commercial sample. All four objects coexist under the one extract-date
+prefix.
 
 ### Motor sample `01AMOT`
 
@@ -80,8 +85,8 @@ The record this key carries populates `payment_amount` and `motor_premium_amount
 ### Commercial sample `01ACOM`
 
 ```text
-s3://example-bucket-not-real/landing/source_system_key=GENAPP_CLASS_EXEMPLAR/entity=policy_issue/extract_date=2026-08-22/part-0000.json
-s3://example-bucket-not-real/landing/source_system_key=GENAPP_CLASS_EXEMPLAR/entity=policy_issue/extract_date=2026-08-22/part-0000.manifest.json
+s3://example-bucket-not-real/landing/source_system_key=GENAPP_CLASS_EXEMPLAR/entity=policy_issue/extract_date=2026-08-22/part-0001.json
+s3://example-bucket-not-real/landing/source_system_key=GENAPP_CLASS_EXEMPLAR/entity=policy_issue/extract_date=2026-08-22/part-0001.manifest.json
 ```
 
 The record this key carries populates `payment_amount` and all four commercial premium fields. Its
@@ -168,21 +173,29 @@ any commission field; any source-system registry; and any provenance column beyo
 canonical layer holds exactly two relations, `canonical.issued_policy` and `canonical.preissued_rating`; no Quote domain
 and no Loss domain is built.
 
-## Landing and loading order
+## Landing, loading and replay
 
-The contract fixes one object name under one prefix, so one key carries one record per source system, entity and extract
-date. The operational consequences are these:
+The contract names one object per part, so one key carries one record per source system, entity, extract date and part.
+The operational consequences are these:
 
-- A second landing for the same source system, entity and extract date addresses that same key and replaces the object
-  it carries. The two landed objects of a two-sample run do not coexist.
+- Two records landed under the same source system, entity and extract date at distinct parts occupy distinct keys, and
+  both objects coexist. The two landed objects of a two-sample run coexist: `make all` lands `01amot` at part `0000` and
+  `01acom` at part `0001`, leaving four objects — two records and two manifests — under the one extract-date prefix.
+- Only a second landing at the *same* part addresses one key twice, and that landing replaces the object the key
+  carries. Repeating a landing of one part is therefore idempotent, and landing another record means naming another
+  part.
 - [`land_to_s3.py`](land_to_s3.py) head-requests the key before it writes and names an object already there in one
   warning line. That warning fails no landing.
-- The order a run follows is: land one record, load it into `raw.genapp_policy_issue`, then land the next. `make all`
-  runs `land CASE=01amot`, `load CASE=01amot`, `land CASE=01acom`, `load CASE=01acom` in that order.
-- Both raw rows survive that sequence. Each load removes only a row already carrying the natural key
+- `make all` runs `land CASE=01amot`, `load CASE=01amot`, `land CASE=01acom`, `load CASE=01acom` in that order, and the
+  landing zone it leaves holds both records rather than the record landed last.
+- The landing prefix can be replayed. With no further landing, loading each part of one prefix in turn rebuilds every
+  raw row of that extract date from object storage alone: `load_local.py --part 0000` then `load_local.py --part 0001`
+  on the local-substitute branch, and one `COPY` per rendered part manifest on the real branch. Order does not matter,
+  and a part may be reloaded on its own.
+- Both raw rows survive any of those sequences. Each load removes only a row already carrying the natural key
   `(source_system_key, policy_number)` of the object it just downloaded, then writes that object as one row; no
   statement removes a row carrying any other natural key.
-- A landing whose `extract_date` differs yields a distinct key, and the objects under those two keys do coexist.
+- A landing whose `extract_date` differs yields a distinct prefix, and the objects under those prefixes coexist as well.
 
 ## Provisioning
 

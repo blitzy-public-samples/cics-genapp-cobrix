@@ -14,7 +14,7 @@ Two conventions govern everything below, and both are deliberate.
 
 - **Facts here, reasons elsewhere.** This guide states findings, facts, status and procedures. Every "why" belongs to
   [`decision-log.md`](decision-log.md), which is the single rationale source for the whole `modernization/` tree; where
-  a reader would ask why a choice was made, this guide names the row that answers it (`D-01` … `D-78`). Construct-level
+  a reader would ask why a choice was made, this guide names the row that answers it (`D-01` … `D-115`). Construct-level
   and artifact-level source-to-target coverage belongs to [`traceability-matrix.md`](traceability-matrix.md) and
   column-level coverage to [`field-level-lineage.md`](field-level-lineage.md); neither is reproduced here.
 - **Topology by figure, never by prose.** All five figures live in [`architecture.md`](architecture.md) and are cited
@@ -78,6 +78,21 @@ Redshift once access is granted, and **this has not yet happened**. Until it has
 
 The ordered steps that close it are in [section 7](#7-outstanding-aws-status-and-the-closure-runbook). None of them
 edits a model file.
+
+**The test infrastructure has since been audited in its own right.** A dedicated pass executed every authored gate and
+then mutated each gate's inputs to prove it fails for the defect it claims to catch; twenty-four of twenty-five mutation
+families failed at the intended gate. The eight findings it raised — four MEDIUM, four LOW, none blocking, and none an
+AAP-compliance, user-rule or security defect — were closed by adding assertions and orchestration, not by changing what
+the bridge produces: the orchestrated `execute` stage now runs the whole authored case table so the return-code contract
+of [section 5.4](#54-the-return-code-contract) is exercised by `make all` itself; the field map's recorded overlay
+geometry and field census are now refused when they contradict the declarations they summarise; a product premium
+standing in the raw relation where its policy type forbids one now fails the dbt suite; the declared canonical column
+widths are now asserted on an adapter that reports no width; the capture snapshots are seed-independent, so a
+per-checkout identity seed no longer fails a gate; the translator carries a self-test like every sibling tool; and the
+published environment report no longer names the checkout it was produced in. Per-finding before-and-after evidence is
+in [`../validation/validation-evidence.md`](../validation/validation-evidence.md) section 15, and the choices are rows
+**D-86** through **D-105** of [`decision-log.md`](decision-log.md). None of this changes the AWS disposition, which stays
+**OPEN**.
 
 ## 2. What this is, and what it is not
 
@@ -255,24 +270,26 @@ interchanged: 64 is the record, 21 is the key.
 
 ### 5.4 The return-code contract
 
-| Code | Observed meaning | Source sites | Exercised by the two executed samples |
+| Code | Observed meaning | Source sites | Exercised by `make all` |
 |---|---|---|---|
-| `00` | Success | [base/src/lgapol01.cbl:105; base/src/lgapdb01.cbl:172,293] | Yes, both cases |
-| `70` | Policy insert returned SQLCODE −530 | [base/src/lgapdb01.cbl:296] | No |
-| `80` | VSAM write response was not normal | [base/src/lgapvs01.cbl:144] | No |
-| `90` | SQL failure; a subtype insert failure also abends `LGSQ` | [base/src/lgapdb01.cbl:301,390,428,474,548] | No |
-| `98` | COMMAREA too short | [base/src/lgapol01.cbl:114; base/src/lgapdb01.cbl:211] | No |
-| `99` | Unsupported request id | [base/src/lgapdb01.cbl:204,239] | No |
+| `00` | Success | [base/src/lgapol01.cbl:105; base/src/lgapdb01.cbl:172,293] | Yes — the two success cases |
+| `70` | Policy insert returned SQLCODE −530 | [base/src/lgapdb01.cbl:296] | Yes — case `01AMOT-RC70` |
+| `80` | VSAM write response was not normal | [base/src/lgapvs01.cbl:144] | Yes — case `01AMOT-RC80` |
+| `90` | SQL failure; a subtype insert failure also abends `LGSQ` | [base/src/lgapdb01.cbl:301,390,428,474,548] | Yes — case `01AMOT-RC90`, and the abend in `01AMOT-LGSQ`, `01ACOM-LGSQ`, `01AHOU-LGSQ` |
+| `98` | COMMAREA too short | [base/src/lgapol01.cbl:114; base/src/lgapdb01.cbl:211] | Yes — cases `01AMOT-RC98` and `01AMOT-LGCA` |
+| `99` | Unsupported request id | [base/src/lgapdb01.cbl:204,239] | Yes — case `01AXXX-RC99` |
 
 Two abend codes complete the contract: `LGCA` on a zero-length COMMAREA [base/src/lgapol01.cbl:101;
 base/src/lgapdb01.cbl:168] and `LGSQ` on a subtype insert failure [base/src/lgapdb01.cbl:393,431,477,551].
 
-**Coverage, stated plainly.** The two executed samples exercise `00` only. Every SQL stub of those two cases reported
-`SQLCODE 0` and the VSAM write reported the normal response, so `70`, `90`, `98`, `99`, `80` and both `LGSQ` abend sites
-are **documented from source but unexercised** by them. The harness case table carries ten further cases that reach the
-remaining codes and both abends through deterministic injection (`D-20`), and the pipeline's `execute` stage does not
-select them. The **endowment route is not executed** at all (`D-18`), and the **house route compiles but is not
-executed**. No behaviour is claimed for an unexercised path.
+**Coverage, stated plainly.** The two success samples exercise `00` only: every SQL stub of those two cases reported
+`SQLCODE 0` and the VSAM write reported the normal response. The remaining codes and both abend sites are reached by the
+ten characterisation cases of the harness table through deterministic injection (`D-20`), and the pipeline's `execute`
+stage selects the whole table by default — `CASES_MODE=all`, twelve cases and 902 assertions — so `make all` itself
+exercises every code above (`D-95`). `CASES_MODE=success-only` narrows the stage to the two success cases as a fast path.
+Only a success case carries a landing record, so the ten characterisation cases feed nothing downstream. The
+**endowment route is not executed** at all (`D-18`) because no endowment sample exists, and the **house route is
+exercised for its routing and its abend path but issues no policy**. No behaviour is claimed for an unexercised path.
 
 ### 5.5 The two post-chain values, and the record extraction reads
 
@@ -323,8 +340,19 @@ invoked as `make -C modernization <target>`; its targets, in sequence, are:
 `verify-readonly`, and `all`, which runs that sequence end to end.
 
 `make all` runs every stage in the order above, interleaves `verify-readonly` between the stages, and **stops at the
-first failure**. Callers may override `CASE`, `CASES`, `SOURCE_SYSTEM_KEY`, `EXTRACT_DATE`, `STAGE`, `COBC`, `DBT_TARGET`,
-`DBT_PROFILES_DIR` and `HARNESS_STRICT_TOOL_VERSIONS`.
+first failure**. Callers may override `CASE`, `CASES`, `CASES_MODE`, `SOURCE_SYSTEM_KEY`, `EXTRACT_DATE`, `STAGE`,
+`COBC`, `DBT_TARGET`, `DBT_PROFILES_DIR` and `HARNESS_STRICT_TOOL_VERSIONS`; `DBT_TARGET` carries `local_substitute`,
+`redshift` or an empty value, and any other value ends the invocation naming it. `CASES_MODE` selects what the `execute`
+stage runs — `all`, the default, for every case of the harness table, or `success-only` for the two success cases — and
+the identity and timestamp seeds are overridable per run with `HARNESS_POLICY_NUMBER` and `HARNESS_LASTCHANGED`, which
+no gate of the order depends on: the capture snapshots record those two values as symbols and are therefore
+seed-independent.
+
+One further target stands outside that sequence and is no stage of it: `local-endpoint`, which brings up the
+local-substitute S3 API surface `land` and `load` address — the pinned `moto` server of the virtual environment at the
+loopback endpoint `S3_ENDPOINT_URL` names, and the bucket `S3_BUCKET` names — and which `land` and `load` name in their
+refusal when either setting is missing on that branch. It addresses no AWS endpoint and provisions nothing on AWS; §5.1
+of `modernization/README.md` records its use, and the decision log records why it exists.
 
 ### 6.4 The compile contract
 
@@ -356,7 +384,9 @@ it unchanged into the directory dbt reads profiles from, and supply values throu
 | Selection and identity | `DBT_TARGET` (`local_substitute` or `redshift`), `DBT_PROFILES_DIR`, `SOURCE_SYSTEM_KEY` |
 
 **No secret, credential, account identifier, ARN or real bucket name is committed to this repository**, and no recipe
-prints one. Every value shown anywhere in this tree is a placeholder.
+prints a credential, an endpoint URL, a host name, a role identifier or a password. The `land` and `load` stages do print
+the bucket name and the region they address on the console, and `load` redacts the object URI, the source-system key and
+the policy number (`D-108`). Every value shown anywhere in this tree is a placeholder.
 
 ## 7. Outstanding AWS status and the closure runbook
 

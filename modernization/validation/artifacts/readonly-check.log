@@ -47,19 +47,11 @@ gate C no tracked modification outside the generated evidence set:
     modernization/validation/artifacts/dbt-run.log
     modernization/validation/artifacts/dbt-test.log
   git diff --name-only HEAD, exempt paths modified:
-    modernization/validation/artifacts/dbt-clean.log
-    modernization/validation/artifacts/dbt-run.log
-    modernization/validation/artifacts/dbt-test.log
-    modernization/validation/artifacts/diff-report.json
-    modernization/validation/artifacts/diff-report.md
-    modernization/validation/artifacts/evidence-manifest.sha256
     modernization/validation/artifacts/execute-harness.log
     modernization/validation/artifacts/gate-selection.json
-    modernization/validation/artifacts/readonly-check.log
-    modernization/validation/artifacts/translation-report.json
   git diff --name-only HEAD, tracked modifications:
     (no tracked modification)
-  exempt generated evidence paths modified: 10
+  exempt generated evidence paths modified: 2
   tracked modifications: 0
 gate C result: PASS
 verdict: PASS
@@ -115,19 +107,11 @@ gate C no tracked modification outside the generated evidence set:
     modernization/validation/artifacts/dbt-run.log
     modernization/validation/artifacts/dbt-test.log
   git diff --name-only HEAD, exempt paths modified:
-    modernization/validation/artifacts/dbt-clean.log
-    modernization/validation/artifacts/dbt-run.log
-    modernization/validation/artifacts/dbt-test.log
-    modernization/validation/artifacts/diff-report.json
-    modernization/validation/artifacts/diff-report.md
-    modernization/validation/artifacts/evidence-manifest.sha256
     modernization/validation/artifacts/execute-harness.log
     modernization/validation/artifacts/gate-selection.json
-    modernization/validation/artifacts/readonly-check.log
-    modernization/validation/artifacts/translation-report.json
   git diff --name-only HEAD, tracked modifications:
     (no tracked modification)
-  exempt generated evidence paths modified: 10
+  exempt generated evidence paths modified: 2
   tracked modifications: 0
 gate C result: PASS
 verdict: PASS
@@ -183,19 +167,11 @@ gate C no tracked modification outside the generated evidence set:
     modernization/validation/artifacts/dbt-run.log
     modernization/validation/artifacts/dbt-test.log
   git diff --name-only HEAD, exempt paths modified:
-    modernization/validation/artifacts/dbt-clean.log
-    modernization/validation/artifacts/dbt-run.log
-    modernization/validation/artifacts/dbt-test.log
-    modernization/validation/artifacts/diff-report.json
-    modernization/validation/artifacts/diff-report.md
-    modernization/validation/artifacts/evidence-manifest.sha256
     modernization/validation/artifacts/execute-harness.log
     modernization/validation/artifacts/gate-selection.json
-    modernization/validation/artifacts/readonly-check.log
-    modernization/validation/artifacts/translation-report.json
   git diff --name-only HEAD, tracked modifications:
     (no tracked modification)
-  exempt generated evidence paths modified: 10
+  exempt generated evidence paths modified: 2
   tracked modifications: 0
 gate C result: PASS
 verdict: PASS
@@ -251,19 +227,11 @@ gate C no tracked modification outside the generated evidence set:
     modernization/validation/artifacts/dbt-run.log
     modernization/validation/artifacts/dbt-test.log
   git diff --name-only HEAD, exempt paths modified:
-    modernization/validation/artifacts/dbt-clean.log
-    modernization/validation/artifacts/dbt-run.log
-    modernization/validation/artifacts/dbt-test.log
-    modernization/validation/artifacts/diff-report.json
-    modernization/validation/artifacts/diff-report.md
-    modernization/validation/artifacts/evidence-manifest.sha256
     modernization/validation/artifacts/execute-harness.log
     modernization/validation/artifacts/gate-selection.json
-    modernization/validation/artifacts/readonly-check.log
-    modernization/validation/artifacts/translation-report.json
   git diff --name-only HEAD, tracked modifications:
     (no tracked modification)
-  exempt generated evidence paths modified: 10
+  exempt generated evidence paths modified: 2
   tracked modifications: 0
 gate C result: PASS
 verdict: PASS

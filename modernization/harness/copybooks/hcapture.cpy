@@ -299,33 +299,48 @@
       * program calls on its success path. Both read EIBCALEN through
       * modernization/harness/copybooks/dfheiblk.cpy.
       *
-      * A case that returns '98' or '99' before any service runs leaves
-      * both pairs at 'N' and zero; the returned CA-RETURN-CODE is then
-      * the witness of how far the chain travelled.
+      * Each pair therefore witnesses that its own service ran, which
+      * is a sufficient condition for the program that calls it having
+      * been entered and not a necessary one. A case that returns '98'
+      * or '99' before any service runs leaves both pairs at 'N' and
+      * zero even where the code it returns was written inside
+      * LGAPDB01 [base/src/lgapdb01.cbl:184-207], so 'N' states that
+      * the service did not run and states nothing about entry; the
+      * returned CA-RETURN-CODE is then the witness of how far the
+      * chain travelled. The driver publishes each pair under the name
+      * of the service that sets it, never under the name of a link.
       *
       * See modernization/docs/decision-log.md,
-      * row: chain traversal witnessed through the emulated
-      * services.
+      * rows: chain traversal witnessed through the emulated
+      * services; capture keys named for the service that
+      * witnesses them.
            03 HC-CHAIN.
       *
       * Set to 'Y' by sql_insert_policy.cbl when the translated
-      * LGAPDB01 reaches the POLICY insert.
+      * LGAPDB01 reaches the POLICY insert. Published by
+      * modernization/harness/driver.cbl under the capture key
+      * DB2_POLICY_INSERT_REACHED.
               05 HC-CHAIN-DB2-PRESENT     PIC X.
-                 88 HC-CHAIN-DB2-ENTERED  VALUE 'Y'.
-                 88 HC-CHAIN-DB2-ABSENT   VALUE 'N'.
+                 88 HC-CHAIN-DB2-CAPTURED  VALUE 'Y'.
+                 88 HC-CHAIN-DB2-MISSING   VALUE 'N'.
       *
-      * EIBCALEN as observed inside the translated LGAPDB01. 32500 for
-      * every case whose chain reached the POLICY insert.
+      * EIBCALEN as observed inside the translated LGAPDB01 at that
+      * insert. 32500 for every case whose chain reached it, zero for
+      * every case that did not. Published under the capture key
+      * DB2_POLICY_INSERT_EIBCALEN.
               05 HC-CHAIN-DB2-CALEN       PIC 9(5).
       *
       * Set to 'Y' by cics_write.cbl when the translated LGAPVS01
-      * reaches the KSDSPOLY write.
+      * reaches the KSDSPOLY write. Published under the capture key
+      * VSAM_WRITE_REACHED.
               05 HC-CHAIN-VSAM-PRESENT    PIC X.
-                 88 HC-CHAIN-VSAM-ENTERED VALUE 'Y'.
-                 88 HC-CHAIN-VSAM-ABSENT  VALUE 'N'.
+                 88 HC-CHAIN-VSAM-CAPTURED VALUE 'Y'.
+                 88 HC-CHAIN-VSAM-MISSING  VALUE 'N'.
       *
-      * EIBCALEN as observed inside the translated LGAPVS01. 32500 for
-      * every case whose chain reached the write.
+      * EIBCALEN as observed inside the translated LGAPVS01 at that
+      * write. 32500 for every case whose chain reached it, zero for
+      * every case that did not. Published under the capture key
+      * VSAM_WRITE_EIBCALEN.
               05 HC-CHAIN-VSAM-CALEN      PIC 9(5).
       *
       *================================================================*

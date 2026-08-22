@@ -13,7 +13,12 @@
 # Nullability follows modernization/landing/landing-schema.json: seven columns are never null
 # in a landed record and ten accept null. Each key of a landed record is always present; a key
 # present with a null value reaches its column as SQL NULL. Nullability is asserted by the
-# not_null data tests below. No column constraint is declared: this model materializes as a
+# not_null data tests below. Which of the five product premium columns carries a value is
+# fixed by policy_type, as the allOf rules of that schema state; the landed rules of
+# modernization/dbt/genapp_rqi/tests/assert_product_premium_nullability.sql assert that
+# allocation on the landed relation this model reads, where a premium the policy type does not
+# carry is still present, and read a value as absent through the same nullif(trim(value), '')
+# reading this model applies. No column constraint is declared: this model materializes as a
 # view, and dbt reports Constraint types are not supported for view materializations.
 # Landed contract: only a successful record is landed.
 # modernization/extraction/extract_commarea.py rejects every returned CA-RETURN-CODE other

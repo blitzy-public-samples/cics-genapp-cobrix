@@ -1,4 +1,4 @@
-verify-env report of /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4_93f37d/modernization
+verify-env report of modernization in this checkout
 strict tool versions: no, from HARNESS_STRICT_TOOL_VERSIONS
 python3.12: pinned 3.12.3 measured 3.12.14
 verify-env: DEVIATION python3.12: pinned 3.12.3, measured 3.12.14
@@ -11,7 +11,7 @@ verify-env: DEVIATION apt package python3.12-venv: pinned 3.12.3-1ubuntu0.15, no
 verify-env: DEVIATION apt package gnucobol3: pinned 3.1.2-5.1ubuntu1, measured 3.2-4
 verify-env: DEVIATION apt package git: pinned 1:2.43.0-1ubuntu7.3, measured 1:2.51.0-1ubuntu1
 virtual environment interpreter .venv/bin/python: measured 3.12.14
-interpreter: /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4_93f37d/modernization/.venv/bin/python
+interpreter: modernization/.venv/bin/python
 interpreter version: 3.12.14
 pip: pinned 25.3 measured 25.3
 dbt-core: pinned 1.12.2 measured 1.12.2

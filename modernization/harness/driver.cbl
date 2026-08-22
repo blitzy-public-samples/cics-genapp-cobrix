@@ -742,8 +742,13 @@
        01  WS-STMT-EXPECTED            PIC X.
       *
       * COMMAREA length observed inside the program being examined by
-      * CHECK-ONE-CHAIN-WITNESS.
+      * CHECK-ONE-CHAIN-WITNESS, and the name of the emulated service
+      * that observed it: 'insert_policy' inside LGAPDB01 and
+      * 'cics_write' inside LGAPVS01, spelled as
+      * modernization/harness/copybooks/hcapture.cpy records them in
+      * HC-ORDER-LAST-STMT.
        01  WS-CHAIN-CALEN              PIC 9(5).
+       01  WS-CHAIN-SITE               PIC X(24).
       *
       *----------------------------------------------------------------*
       * Execution order under test                                     *
@@ -2475,22 +2480,34 @@
            PERFORM EMIT-INTEGER.
       *
       * The chain-traversal witness of each program the chain reaches
-      * beyond the first: whether the program was entered and the
-      * COMMAREA length in force inside it, as the first emulated
-      * service that program calls observed it. The two links state
-      * LENGTH(32500) at [base/src/lgapol01.cbl:121-124] and
-      * [base/src/lgapdb01.cbl:243-246].
+      * beyond the first, published under the name of the emulated
+      * service that records it: the POLICY insert inside LGAPDB01 and
+      * the KSDSPOLY write inside LGAPVS01. Each _REACHED key holds 'Y'
+      * once that service ran and 'N' until it does, and each _EIBCALEN
+      * key holds the COMMAREA length that service observed, zero while
+      * it has not run. Because both links state LENGTH(32500) at
+      * [base/src/lgapol01.cbl:121-124] and
+      * [base/src/lgapdb01.cbl:243-246], a service reporting 32500 is
+      * the evidence that the link into its program carried that
+      * length. A service that did not run reports 'N' and zero, which
+      * states nothing about whether its program was entered: a case
+      * that returns '99' from the routing at
+      * [base/src/lgapdb01.cbl:184-207] entered LGAPDB01 and reached no
+      * service in it.
+      *
+      * See modernization/docs/decision-log.md, row: capture keys
+      * named for the service that witnesses them.
        EMIT-CHAIN-CAPTURES.
-           MOVE 'LINK_DB2_PRESENT' TO WS-KEY-NAME
+           MOVE 'DB2_POLICY_INSERT_REACHED' TO WS-KEY-NAME
            MOVE HC-CHAIN-DB2-PRESENT TO WS-VALUE
            PERFORM EMIT-VALUE
-           MOVE 'LINK_DB2_CALEN' TO WS-KEY-NAME
+           MOVE 'DB2_POLICY_INSERT_EIBCALEN' TO WS-KEY-NAME
            MOVE HC-CHAIN-DB2-CALEN TO WS-INT-VALUE
            PERFORM EMIT-INTEGER
-           MOVE 'LINK_VSAM_PRESENT' TO WS-KEY-NAME
+           MOVE 'VSAM_WRITE_REACHED' TO WS-KEY-NAME
            MOVE HC-CHAIN-VSAM-PRESENT TO WS-VALUE
            PERFORM EMIT-VALUE
-           MOVE 'LINK_VSAM_CALEN' TO WS-KEY-NAME
+           MOVE 'VSAM_WRITE_EIBCALEN' TO WS-KEY-NAME
            MOVE HC-CHAIN-VSAM-CALEN TO WS-INT-VALUE
            PERFORM EMIT-INTEGER.
       *
@@ -3443,17 +3460,22 @@
       *----------------------------------------------------------------*
       * Chain traversal                                                *
       *----------------------------------------------------------------*
-      * Each program the chain reaches beyond the first was entered
-      * where the case requires it and observed the COMMAREA length its
-      * caller states. The POLICY insert witnesses LGAPDB01 and the
-      * write witnesses LGAPVS01.
+      * The emulated service that witnesses each program the chain
+      * reaches beyond the first ran where the case requires it and
+      * observed the COMMAREA length its caller states. The POLICY
+      * insert witnesses LGAPDB01 and the KSDSPOLY write witnesses
+      * LGAPVS01, and each check is named for that service. A service
+      * that did not run leaves the witness at 'N' whether or not its
+      * program was entered.
        CHECK-CHAIN-WITNESS.
            MOVE 'LGAPDB01' TO WS-STMT-LABEL
+           MOVE 'insert_policy' TO WS-CHAIN-SITE
            MOVE HC-CHAIN-DB2-PRESENT TO WS-STMT-PRESENT
            MOVE HC-CHAIN-DB2-CALEN TO WS-CHAIN-CALEN
            MOVE WS-WANT-POLICY-SQL TO WS-STMT-EXPECTED
            PERFORM CHECK-ONE-CHAIN-WITNESS
            MOVE 'LGAPVS01' TO WS-STMT-LABEL
+           MOVE 'cics_write' TO WS-CHAIN-SITE
            MOVE HC-CHAIN-VSAM-PRESENT TO WS-STMT-PRESENT
            MOVE HC-CHAIN-VSAM-CALEN TO WS-CHAIN-CALEN
            MOVE WS-WANT-VSAM TO WS-STMT-EXPECTED
@@ -3462,20 +3484,24 @@
        CHECK-ONE-CHAIN-WITNESS.
            MOVE SPACES TO WS-CHECK-NAME
            STRING FUNCTION TRIM(WS-STMT-LABEL) DELIMITED BY SIZE
-                  '-LINK-WITNESS' DELIMITED BY SIZE
+                  '-CHAIN-WITNESS' DELIMITED BY SIZE
                INTO WS-CHECK-NAME
            END-STRING
            IF WS-STMT-EXPECTED = 'Y'
                IF WS-STMT-PRESENT NOT = 'Y'
                    PERFORM REPORT-CAPTURE-FAILURE
-                   DISPLAY 'DRIVER:   program '
+                   DISPLAY 'DRIVER:   '
+                           FUNCTION TRIM(WS-CHAIN-SITE)
+                           ' of program '
                            FUNCTION TRIM(WS-STMT-LABEL)
-                           ' was not entered'
+                           ' did not run'
                    END-DISPLAY
                ELSE
                    IF WS-CHAIN-CALEN NOT = WS-LINK-LEN-EXPECTED
                        PERFORM REPORT-CAPTURE-FAILURE
-                       DISPLAY 'DRIVER:   program '
+                       DISPLAY 'DRIVER:   '
+                               FUNCTION TRIM(WS-CHAIN-SITE)
+                               ' of program '
                                FUNCTION TRIM(WS-STMT-LABEL)
                                ' observed COMMAREA length '
                                WS-CHAIN-CALEN ' expected '
@@ -3487,11 +3513,13 @@
                IF WS-STMT-PRESENT NOT = 'N'
                        OR WS-CHAIN-CALEN NOT = ZERO
                    PERFORM REPORT-CAPTURE-FAILURE
-                   DISPLAY 'DRIVER:   program '
+                   DISPLAY 'DRIVER:   '
+                           FUNCTION TRIM(WS-CHAIN-SITE)
+                           ' of program '
                            FUNCTION TRIM(WS-STMT-LABEL)
-                           ' was entered with COMMAREA length '
+                           ' ran with COMMAREA length '
                            WS-CHAIN-CALEN
-                           ' and the case reaches no service there'
+                           ' where the case requires that it does not'
                    END-DISPLAY
                END-IF
            END-IF.

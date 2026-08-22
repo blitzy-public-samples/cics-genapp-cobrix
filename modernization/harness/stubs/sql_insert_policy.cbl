@@ -102,7 +102,12 @@
       * that program calls after the routing at
       * [base/src/lgapdb01.cbl:218-223], and the translated LGAPOL01
       * links that program with LENGTH(32500) at
-      * [base/src/lgapol01.cbl:121-124].
+      * [base/src/lgapol01.cbl:121-124]. The pair therefore witnesses
+      * this insert, and modernization/harness/driver.cbl publishes it
+      * under the capture keys DB2_POLICY_INSERT_REACHED and
+      * DB2_POLICY_INSERT_EIBCALEN. A case that leaves LGAPDB01 before
+      * the routing reaches this block leaves the pair at 'N' and zero
+      * whether or not that program was entered.
       *
       * HC-SEED-POLICYNUM and HC-SEED-LASTCHANGED are resolved in this
       * order and are left holding the resolved pair:
@@ -364,12 +369,12 @@
            END-IF.
       *
       *----------------------------------------------------------------*
-      * Reports that the translated LGAPDB01 was entered and records   *
-      * the COMMAREA length in force there, set from LENGTH(32500) at  *
-      * [base/src/lgapol01.cbl:121-124].                               *
+      * Reports this insert as reached inside the translated LGAPDB01  *
+      * and records the COMMAREA length in force there, set from       *
+      * LENGTH(32500) at [base/src/lgapol01.cbl:121-124].              *
       *----------------------------------------------------------------*
        RECORD-CHAIN-WITNESS.
-           SET HC-CHAIN-DB2-ENTERED TO TRUE
+           SET HC-CHAIN-DB2-CAPTURED TO TRUE
            MOVE EIBCALEN TO HC-CHAIN-DB2-CALEN.
       *
       *----------------------------------------------------------------*

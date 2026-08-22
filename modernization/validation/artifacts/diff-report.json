@@ -2348,7 +2348,7 @@
     "note": "read opportunistically; the target recorded below is the one used",
     "target_named": "redshift"
   },
-  "generated_at": "2026-08-22T19:21:34Z",
+  "generated_at": "2026-08-22T22:52:21Z",
   "python_version": "3.12.14",
   "requested_cases": [
     "01AMOT",
@@ -2378,5 +2378,41 @@
   },
   "target": "duckdb",
   "tool": "diff_harness_vs_warehouse",
+  "transform_freshness": {
+    "accepted_statuses": [
+      "success",
+      "pass"
+    ],
+    "invocation": {
+      "command": "test",
+      "dbt_target": "local_substitute",
+      "dbt_version": "1.12.2",
+      "elapsed_time": "1.438537359237671",
+      "generated_at": "2026-08-22T22:52:20.810327Z",
+      "invocation_id": "b66a1492-202c-491b-b88f-a91b855f4fd2",
+      "schema_version": "https://schemas.getdbt.com/dbt/run-results/v6.json"
+    },
+    "nodes": {
+      "accepted": 64,
+      "refused": 0,
+      "total": 64,
+      "warned": 0
+    },
+    "note": "dbt test recorded 64 nodes, 64 of them successful and 0 warned",
+    "path": "modernization/dbt/genapp_rqi/target/run_results.json",
+    "refusals": [],
+    "refused_nodes": [],
+    "refused_statuses": [
+      "error",
+      "fail",
+      "skipped",
+      "runtime error"
+    ],
+    "verdict": "FRESH",
+    "warned_nodes": [],
+    "warned_statuses": [
+      "warn"
+    ]
+  },
   "verdict": "PASS"
 }

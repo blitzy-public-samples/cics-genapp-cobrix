@@ -1,11 +1,13 @@
 # Makefile - the executable order of the GenApp Policy-Issue cloud-warehouse bridge.
 #
 # Working directory: the directory holding this file, modernization/. Every recipe path
-# is written relative to it and every path a recipe writes stays inside it. The only
-# paths outside it that a recipe reaches are the five authorized source artifacts
-# base/src/lgapol01.cbl, base/src/lgapdb01.cbl, base/src/lgapvs01.cbl,
-# base/src/lgcmarea.cpy and base/src/lgpolicy.cpy, all read-only, and the
-# repository-root git queries validation/verify_readonly.sh runs.
+# is written relative to it and every path a recipe writes stays inside it, which this
+# file enforces: each generated path variable below is resolved before any recipe runs
+# and a value resolving outside this directory, or an empty value, ends the invocation
+# naming the variable. The only paths outside it that a recipe reaches are the five
+# authorized source artifacts base/src/lgapol01.cbl, base/src/lgapdb01.cbl,
+# base/src/lgapvs01.cbl, base/src/lgcmarea.cpy and base/src/lgpolicy.cpy, all
+# read-only, and the repository-root git queries validation/verify_readonly.sh runs.
 #
 # Targets:
 #   verify-env       Measures python3.12, cobc, git, the virtual environment, pip and
@@ -32,23 +34,30 @@
 #                    the compiler output including warnings in
 #                    validation/artifacts/compile-modules.log, and requires every
 #                    expected module and the driver.
-#   execute          Runs harness/run_harness.sh for the two success cases 01AMOT and
-#                    01ACOM, then requires of each case CA_RETURN_CODE 00, the policy
-#                    and product SQL captures, an assigned policy number and timestamp
-#                    in the returned COMMAREA, a 64-byte VSAM record whose key is the
-#                    request-type letter followed by the customer number and the policy
-#                    number, and no abend.
+#   execute          Runs harness/run_harness.sh for the cases CASES_MODE selects:
+#                    every row of that script's case table with the default
+#                    CASES_MODE=all, and the two success cases 01AMOT and 01ACOM alone
+#                    with CASES_MODE=success-only. It then requires the case selection
+#                    the harness
+#                    reports to be the one asked for, one executed case per label the
+#                    harness lists, the executed-case count to match that list, and of
+#                    each success case CA_RETURN_CODE 00, the policy and product SQL
+#                    captures, an assigned policy number and timestamp in the returned
+#                    COMMAREA, a 64-byte VSAM record whose key is the request-type
+#                    letter followed by the customer number and the policy number, and
+#                    no abend.
 #   extract          Decodes the post-chain COMMAREA of each case into one landing
 #                    record under harness/build/landing.
 #   land             Writes the landing record of the case named by CASE as one S3
-#                    object under the landing prefix, through the endpoint the selected
-#                    run mode requires.
-#   load             Loads the landed object of the case named by CASE into
-#                    raw.genapp_policy_issue: landing/load_local.py on the
-#                    local_substitute branch, and the two warehouse DDL files followed
-#                    by the rendered statements of landing/load_redshift.sql on the
-#                    redshift branch. It is the only target-specific stage, and it
-#                    edits no dbt model file.
+#                    object under the landing prefix, at the part number this file
+#                    records for that case, through the endpoint the selected run mode
+#                    requires.
+#   load             Loads the landed object of the case named by CASE, at that same
+#                    part number, into raw.genapp_policy_issue:
+#                    landing/load_local.py on the local_substitute branch, and the two
+#                    warehouse DDL files followed by the rendered statements of
+#                    landing/load_redshift.sql on the redshift branch. It is the only
+#                    target-specific stage, and it edits no dbt model file.
 #   dbt              Cleans the dbt project, then runs and tests it against the
 #                    selected target, keeping the output under validation/artifacts.
 #   diff             Compares the harness captures of both cases with the two canonical
@@ -60,13 +69,25 @@
 #                    script exempts.
 #   all              Runs every stage above in the order this file records and stops at
 #                    the first failure.
+#   local-endpoint   Optional, and outside the order all runs: brings up the
+#                    local_substitute S3 API surface land and load address. It accepts
+#                    only a loopback http endpoint from S3_ENDPOINT_URL, starts the moto
+#                    server of this virtual environment when nothing answers there,
+#                    keeping its output in harness/build/logs/moto-<port>.log, and
+#                    creates the bucket S3_BUCKET names at that endpoint only when the
+#                    endpoint does not already hold it. It addresses no AWS endpoint and
+#                    provisions nothing on AWS, and it refuses to run when DBT_TARGET
+#                    names redshift.
 #
-# Variables a caller may override: CASE, CASES, SOURCE_SYSTEM_KEY, EXTRACT_DATE, STAGE,
-# COBC, DBT_TARGET, DBT_PROFILES_DIR, HARNESS_STRICT_TOOL_VERSIONS.
+# Variables a caller may override: CASE, CASES, CASES_MODE, SOURCE_SYSTEM_KEY,
+# EXTRACT_DATE, STAGE, COBC, DBT_TARGET, DBT_PROFILES_DIR,
+# HARNESS_STRICT_TOOL_VERSIONS. DBT_TARGET carries local_substitute, redshift or an
+# empty value, and any other value ends the invocation naming it before a recipe runs.
 # Connection settings - AWS credentials, AWS_REGION, S3_BUCKET, S3_ENDPOINT_URL, the
 # REDSHIFT_* settings and REDSHIFT_IAM_ROLE - are read from the environment alone. No
 # credential, bucket, host, role or password value is written into this file, and no
-# recipe prints one.
+# recipe prints a credential, an endpoint URL, a host, a role or a password. The land
+# and load stages do print the bucket name and the region they address on the console.
 #
 # Every recipe is non-interactive: it reads no input, opens no pager, installs no
 # package and provisions no AWS resource.
@@ -82,9 +103,12 @@ SHELL := /bin/bash
 
 # Location of this file, the project directory every relative recipe path is written
 # against, and the repository root holding the read-only source directory.
+# PROJECT_REL is the project directory in the repository-relative form a published
+# report names it by.
 MAKEFILE_PATH := $(abspath $(lastword $(MAKEFILE_LIST)))
 PROJECT_DIR := $(patsubst %/,%,$(dir $(MAKEFILE_PATH)))
 REPO_ROOT := $(patsubst %/,%,$(dir $(PROJECT_DIR)))
+PROJECT_REL := $(notdir $(PROJECT_DIR))
 
 ifneq ($(CURDIR),$(PROJECT_DIR))
 $(error this Makefile runs with $(PROJECT_DIR) as the working directory; invoke it as "make -C $(PROJECT_DIR) <target>")
@@ -131,6 +155,25 @@ ABS_BUILD := $(PROJECT_DIR)/$(BUILD)
 ABS_ARTIFACTS := $(PROJECT_DIR)/$(ARTIFACTS)
 ABS_EXPECTED := $(PROJECT_DIR)/$(EXPECTED)
 
+# Containment of one generated path. $(1) names the variable and the value is read
+# through that name, so a value carrying a comma is measured whole. The value is
+# resolved with $(abspath ...), which resolves a relative value against this working
+# directory - $(CURDIR) equals $(PROJECT_DIR) above - and folds away every . and ..
+# element. Every resolved word must be $(PROJECT_DIR) itself or stand beneath it; a word
+# resolving elsewhere and an empty value each end the invocation before a recipe runs,
+# naming the variable, the supplied value, the resolved path and the boundary. These
+# variables are internal to this file and carry no documented override.
+check_generated_path = $(if $(strip $($(1))),\
+    $(if $(filter-out $(PROJECT_DIR) $(PROJECT_DIR)/%,$(abspath $($(1)))),\
+        $(error $(1) is set to "$($(1))", which resolves to $(abspath $($(1))) \
+outside the project directory $(PROJECT_DIR); every path a recipe of this file \
+writes stays inside that directory)),\
+    $(error $(1) is set to an empty value, and it names a generated path inside the \
+project directory $(PROJECT_DIR)))
+
+# The generated directories, measured now so no recipe can write outside the project.
+$(foreach generated_path,BUILD ARTIFACTS EXPECTED COMPILE_DIR ABS_BUILD ABS_ARTIFACTS ABS_EXPECTED,$(call check_generated_path,$(generated_path)))
+
 # Authored inputs the recipes name.
 FIELD_MAP := $(PROJECT_DIR)/extraction/copybook_field_map.yml
 SAMPLE_INPUT := $(PROJECT_DIR)/extraction/sample_input
@@ -157,6 +200,10 @@ DIFF_REPORT := $(ABS_ARTIFACTS)/diff-report.md
 DIFF_JSON := $(ABS_ARTIFACTS)/diff-report.json
 LOCAL_DUCKDB := $(PROJECT_DIR)/validation/local.duckdb
 
+# The generated files and the dbt project directory dbt clean, run and test write under,
+# measured by the same containment check as the generated directories above.
+$(foreach generated_path,VERSION_REPORT GATE_SELECTION GATE_LOG_S3 GATE_LOG_REDSHIFT COMPILE_LOG EXECUTE_LOG DBT_CLEAN_LOG DBT_RUN_LOG DBT_TEST_LOG DIFF_REPORT DIFF_JSON LOCAL_DUCKDB DBT_PROJECT,$(call check_generated_path,$(generated_path)))
+
 # Run identity. The landing prefix and both canonical relations carry the source-system
 # key. The extract date is fixed once per invocation and reaches the landing writer and
 # the raw loader alike, which address one object key.
@@ -167,11 +214,24 @@ LOCAL_DUCKDB_PATH := $(LOCAL_DUCKDB)
 export SOURCE_SYSTEM_KEY EXTRACT_DATE LOCAL_DUCKDB_PATH
 
 # Cases. CASES is the set translate, execute, extract and diff cover; CASE names the one
-# case land and load address. One landing key carries one object per source system,
-# entity and extract date.
+# case land and load address. CASES_MODE selects what the execute stage hands
+# harness/run_harness.sh: all, every row of that script's case table, or success-only,
+# the two success cases alone.
 CASES := 01amot 01acom
 CASE ?= 01amot
+CASES_MODE ?= all
 DIFF_CASES := 01AMOT,01ACOM
+
+# Part element of the landed object name, one value per case. One landing key carries
+# one object per source system, entity, extract date and part, so each case of a run
+# lands as its own object beside the others and the landing prefix can be replayed to
+# rebuild every raw row of that extract date. CASE_PART is the part of the case CASE
+# names; a CASE with no line here resolves to nothing and land and load end the run
+# rather than address another case's object.
+CASE_PART_01amot := 0000
+CASE_PART_01acom := 0001
+CASE_PART := $(CASE_PART_$(CASE))
+CASE_PARTS := $(foreach case,$(CASES),$(case)=$(CASE_PART_$(case)))
 
 # Stage label verify-readonly records.
 STAGE ?= unspecified
@@ -197,11 +257,70 @@ DBT_PROFILES_DIR ?=
 DBT_TARGET ?=
 DBT_PROFILES_FLAG := $(if $(strip $(DBT_PROFILES_DIR)),--profiles-dir $(strip $(DBT_PROFILES_DIR)),)
 
+# The target names a caller may ask for, measured before any recipe runs so a value this
+# file does not carry ends the invocation of every target rather than resolving to a
+# branch nobody asked for. DBT_TARGET_REFUSED collects every word outside the accepted
+# set and the word count of a value naming more than one target.
+DBT_TARGET_ACCEPTED := local_substitute redshift
+DBT_TARGET_NAMED := $(strip $(DBT_TARGET))
+DBT_TARGET_REFUSED := $(strip $(filter-out $(DBT_TARGET_ACCEPTED),$(DBT_TARGET_NAMED)) $(filter-out 0 1,$(words $(DBT_TARGET_NAMED))))
+ifneq ($(DBT_TARGET_REFUSED),)
+$(error DBT_TARGET is set to "$(DBT_TARGET)", and this file accepts one of local_substitute or redshift, or an empty value; the gate records the target every stage addresses, in $(GATE_SELECTION))
+endif
+
 # Whether the caller asked for the real target by name, which makes a probe that does
 # not pass a gate failure.
-REAL_TARGET_REQUESTED := $(if $(filter redshift,$(strip $(DBT_TARGET))),yes,no)
+REAL_TARGET_REQUESTED := $(if $(filter redshift,$(DBT_TARGET_NAMED)),yes,no)
 
-.PHONY: all verify-env gate translate compile execute extract land load dbt diff verify-readonly
+.PHONY: all verify-env gate translate compile execute extract land load dbt diff verify-readonly local-endpoint
+
+# Reads the target name out of the selection the gate wrote, given the selection path and
+# the stage reading it. A file that cannot be read, does not hold JSON, does not hold a
+# JSON object, carries no selected_target or carries one that is not a non-empty text
+# value each end this program with one line on stderr naming the stage, the path, the
+# element that was refused and the remediation. The reason is stripped of control
+# characters, so the diagnostic is one line whatever the file holds, and a successful
+# read prints the target name alone on stdout.
+define SELECTION_READER_PROGRAM
+import json
+import re
+import sys
+
+selection_path, stage_name = sys.argv[1], sys.argv[2]
+CONTROL_CHARACTERS = re.compile(r"[\x00-\x1f\x7f-\x9f]")
+
+
+def refuse(reason):
+    sys.stderr.write(
+        '%s: %s is not a readable target selection: %s; run "make gate" first\n'
+        % (stage_name, selection_path, CONTROL_CHARACTERS.sub(" ", reason).strip())
+    )
+    raise SystemExit(1)
+
+
+try:
+    with open(selection_path, encoding="utf-8") as handle:
+        selection = json.load(handle)
+except OSError as failure:
+    refuse("it cannot be read: %s" % (failure.strerror or type(failure).__name__))
+except UnicodeDecodeError:
+    refuse("it does not hold UTF-8 text")
+except ValueError as failure:
+    refuse("it does not hold valid JSON: %s" % failure)
+if not isinstance(selection, dict):
+    refuse("it does not hold a JSON object")
+if "selected_target" not in selection:
+    refuse('it carries no "selected_target" key')
+selected = selection["selected_target"]
+if not isinstance(selected, str):
+    refuse('it records a "selected_target" that is not a text value')
+if not selected.strip():
+    refuse('it records an empty "selected_target"')
+if CONTROL_CHARACTERS.search(selected):
+    refuse('it records a "selected_target" carrying a control character')
+sys.stdout.write("%s\n" % selected)
+endef
+export SELECTION_READER_PROGRAM
 
 # Reads the target the gate selected. Every caller sets stage_name first, and receives
 # the selection in the shell variable "selected".
@@ -210,7 +329,7 @@ if [ ! -f '$(GATE_SELECTION)' ]; then
   printf '%s: no target selection at %s; run "make gate" first\n' "$$stage_name" '$(GATE_SELECTION)' >&2
   exit 1
 fi
-selected="$$($(PY) -c 'import json,sys; print(json.load(open(sys.argv[1]))["selected_target"])' '$(GATE_SELECTION)')"
+selected="$$($(PY) -c "$$SELECTION_READER_PROGRAM" '$(GATE_SELECTION)' "$$stage_name")"
 case "$$selected" in
   local_substitute | redshift) ;;
   *)
@@ -232,13 +351,21 @@ require_capture_line() {
 endef
 
 # Confirms every pin of requirements.txt is installed at that exact version in the
-# interpreter running this program, and prints one report line per distribution.
+# interpreter running this program, and prints one report line per distribution. The
+# interpreter is named relative to the repository root of the fourth argument while it
+# stands inside that root, and by its absolute path otherwise, so a report of an
+# in-checkout interpreter carries the same text in every checkout.
 define PIN_CHECK_PROGRAM
+import os
 import re
 import sys
 from importlib import metadata
 
 requirements_path, pip_pin, pip_measured = sys.argv[1], sys.argv[2], sys.argv[3]
+repository_root = os.path.join(os.path.abspath(sys.argv[4]), "")
+interpreter = os.path.abspath(sys.executable)
+if interpreter.startswith(repository_root):
+    interpreter = os.path.relpath(interpreter, repository_root)
 pin_pattern = re.compile(r"([A-Za-z0-9._-]+)(\[[^\]]*\])?==([^\s#]+)")
 pins = []
 with open(requirements_path, encoding="utf-8") as handle:
@@ -258,7 +385,7 @@ if not pins:
     sys.stderr.write("verify-env: FATAL %s declares no pin\n" % requirements_path)
     raise SystemExit(1)
 lines = [
-    "interpreter: %s" % sys.executable,
+    "interpreter: %s" % interpreter,
     "interpreter version: %s" % sys.version.split()[0],
     "pip: pinned %s measured %s" % (pip_pin, pip_measured),
 ]
@@ -268,13 +395,13 @@ for name, pinned in pins:
     except metadata.PackageNotFoundError:
         sys.stderr.write(
             "verify-env: FATAL %s: pinned %s, not installed in %s\n"
-            % (name, pinned, sys.executable)
+            % (name, pinned, interpreter)
         )
         raise SystemExit(1)
     if measured != pinned:
         sys.stderr.write(
             "verify-env: FATAL %s: pinned %s, measured %s in %s\n"
-            % (name, pinned, measured, sys.executable)
+            % (name, pinned, measured, interpreter)
         )
         raise SystemExit(1)
     lines.append("%s: pinned %s measured %s" % (name, pinned, measured))
@@ -349,7 +476,8 @@ import sys
     source_system_key,
     entity,
     extract_date,
-) = sys.argv[1:10]
+    part,
+) = sys.argv[1:11]
 
 AUTHORED_SEQUENCE = [
     "SET",
@@ -407,6 +535,8 @@ def render(document):
             entity,
             "--extract-date",
             extract_date,
+            "--part",
+            part,
         ],
         capture_output=True,
         text=True,
@@ -522,6 +652,422 @@ finally:
 endef
 export REDSHIFT_LOAD_PROGRAM
 
+# Brings up the local_substitute S3 API surface land and load address, given the
+# interpreter the server runs under, the endpoint, the bucket and the directory the
+# server log stands in. The endpoint is confirmed to be http on a loopback host with an
+# explicit port of 1024 or above before anything is started, and every request this
+# program makes carries that endpoint, so no AWS endpoint is addressed and nothing is
+# created on AWS. The server is started only when nothing answers there, in a session of
+# its own so it outlives this run, and the bucket is created only when the endpoint does
+# not already hold it: a second invocation reports both as standing and ends with status
+# 0. Credentials come from the environment and the region from AWS_REGION or
+# AWS_DEFAULT_REGION; an unresolved one is named, and no credential, secret or token
+# value is read beyond confirming one is present or ever printed.
+define LOCAL_ENDPOINT_PROGRAM
+import os
+import re
+import socket
+import subprocess
+import sys
+import time
+import urllib.parse
+from datetime import datetime, timezone
+
+interpreter, endpoint, bucket, log_directory = sys.argv[1:5]
+
+ACCEPTED_SCHEME = "http"
+ACCEPTED_HOSTS = ("127.0.0.1", "::1", "localhost")
+PORT_FLOOR = 1024
+MAX_ENDPOINT_CHARACTERS = 256
+MIN_BUCKET_CHARACTERS = 3
+MAX_BUCKET_CHARACTERS = 63
+BUCKET_SHAPE = re.compile(r"\A[a-z0-9][a-z0-9.\-]{1,61}[a-z0-9]\Z")
+BUCKET_IPV4_SHAPE = re.compile(r"\A[0-9]{1,3}(\.[0-9]{1,3}){3}\Z")
+BUCKET_ADJACENT_DOTS = ".."
+BUCKET_RESERVED_PREFIXES = ("xn--", "sthree-", "amzn-s3-demo-")
+BUCKET_RESERVED_SUFFIXES = ("-s3alias", "--ol-s3", ".mrap", "--x-s3", "--table-s3")
+READY_TIMEOUT_SECONDS = 30.0
+READY_POLL_SECONDS = 0.25
+CONNECT_TIMEOUT_SECONDS = 1.0
+STOP_TIMEOUT_SECONDS = 5.0
+REQUEST_CONNECT_TIMEOUT_SECONDS = 5
+REQUEST_READ_TIMEOUT_SECONDS = 15
+REGION_VARIABLES = ("AWS_REGION", "AWS_DEFAULT_REGION")
+CREDENTIAL_VARIABLES = ("AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY")
+LOCAL_CREDENTIAL_METHODS = ("env", "explicit")
+GLOBAL_REGION = "us-east-1"
+BUCKET_ABSENT_CODES = ("404", "NoSuchBucket", "NotFound")
+BUCKET_PRESENT_CODES = ("BucketAlreadyOwnedByYou", "BucketAlreadyExists")
+CONTROL_CHARACTERS = re.compile(r"[\x00-\x1f\x7f-\x9f]")
+ENDPOINT_POLICY = (
+    "a local endpoint is %s on a loopback host (%s) with an explicit port of %d or "
+    "above, no embedded credentials, no path, no query and no fragment"
+    % (ACCEPTED_SCHEME, ", ".join(ACCEPTED_HOSTS), PORT_FLOOR)
+)
+
+
+def report(message):
+    """Write one progress line naming what stands, and flush it in order."""
+    sys.stdout.write("local-endpoint: %s\n" % message)
+    sys.stdout.flush()
+
+
+def refuse(reason, status=1):
+    """Write one control-free line naming what was refused, and end this program."""
+    sys.stderr.write(
+        "local-endpoint: %s\n" % CONTROL_CHARACTERS.sub(" ", reason).strip()
+    )
+    raise SystemExit(status)
+
+
+def refuse_endpoint(fault):
+    """Refuse the endpoint naming the element that failed, never the value."""
+    refuse(
+        "the endpoint from S3_ENDPOINT_URL is not accepted: %s; %s. The value is not "
+        "echoed" % (fault, ENDPOINT_POLICY)
+    )
+
+
+def endpoint_address(value):
+    """Return the (host, port) an accepted local endpoint names.
+
+    Every element is measured before a server, a client or a credential exists, so a
+    value that is not a loopback endpoint reaches nothing at all.
+    """
+    if len(value) > MAX_ENDPOINT_CHARACTERS:
+        refuse_endpoint(
+            "it holds %d characters, and at most %d are accepted"
+            % (len(value), MAX_ENDPOINT_CHARACTERS)
+        )
+    if any(character.isspace() for character in value) or CONTROL_CHARACTERS.search(
+        value
+    ):
+        refuse_endpoint("it carries whitespace or a control character")
+    try:
+        parsed = urllib.parse.urlsplit(value)
+    except ValueError:
+        refuse_endpoint("it cannot be parsed as a URL")
+    if parsed.scheme != ACCEPTED_SCHEME:
+        refuse_endpoint("its scheme is not %s" % ACCEPTED_SCHEME)
+    if "@" in parsed.netloc:
+        refuse_endpoint("it carries embedded credentials before the host")
+    if parsed.path not in ("", "/"):
+        refuse_endpoint("it carries a path")
+    if parsed.query:
+        refuse_endpoint("it carries a query")
+    if parsed.fragment:
+        refuse_endpoint("it carries a fragment")
+    try:
+        host, port = parsed.hostname, parsed.port
+    except ValueError:
+        refuse_endpoint("its port is not a number")
+    if not host:
+        refuse_endpoint("it names no host")
+    if host.casefold() not in ACCEPTED_HOSTS:
+        refuse_endpoint("its host is not one of %s" % ", ".join(ACCEPTED_HOSTS))
+    if port is None:
+        refuse_endpoint("it names no port")
+    if port < PORT_FLOOR:
+        refuse_endpoint("its port is below %d" % PORT_FLOOR)
+    return host, port
+
+
+def confirm_bucket_name(value):
+    """Refuse a bucket name the landing writer and the raw loader could not address.
+
+    The general-purpose bucket naming rules hold whichever endpoint serves the name, so
+    a name refused here is a name land and load would refuse as well, and it is refused
+    before a server is started or a request is sent.
+    """
+    if not (MIN_BUCKET_CHARACTERS <= len(value) <= MAX_BUCKET_CHARACTERS):
+        refuse(
+            "the bucket name from S3_BUCKET holds %d characters: '%s'; between %d and "
+            "%d are accepted"
+            % (len(value), value, MIN_BUCKET_CHARACTERS, MAX_BUCKET_CHARACTERS)
+        )
+    if not BUCKET_SHAPE.fullmatch(value):
+        refuse(
+            "the bucket name from S3_BUCKET is not a general-purpose bucket name: "
+            "'%s'; it carries lowercase letters, digits, dot and hyphen only, and "
+            "begins and ends with a letter or a digit" % value
+        )
+    if BUCKET_ADJACENT_DOTS in value:
+        refuse(
+            "the bucket name from S3_BUCKET carries two adjacent dots: '%s'; a "
+            "general-purpose bucket name does not" % value
+        )
+    if BUCKET_IPV4_SHAPE.fullmatch(value):
+        refuse(
+            "the bucket name from S3_BUCKET is written as an IPv4 address: '%s'; a "
+            "general-purpose bucket name is not" % value
+        )
+    for prefix in BUCKET_RESERVED_PREFIXES:
+        if value.startswith(prefix):
+            refuse(
+                "the bucket name from S3_BUCKET begins with the reserved prefix '%s': "
+                "'%s'" % (prefix, value)
+            )
+    for suffix in BUCKET_RESERVED_SUFFIXES:
+        if value.endswith(suffix):
+            refuse(
+                "the bucket name from S3_BUCKET ends with the reserved suffix '%s': "
+                "'%s'" % (suffix, value)
+            )
+
+
+def answers(host, port):
+    """Return whether something accepts a connection on that loopback address."""
+    try:
+        with socket.create_connection((host, port), CONNECT_TIMEOUT_SECONDS):
+            return True
+    except OSError:
+        return False
+
+
+def stop(process):
+    """End a started server that never answered, and wait for it to go."""
+    process.terminate()
+    try:
+        process.wait(STOP_TIMEOUT_SECONDS)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.wait(STOP_TIMEOUT_SECONDS)
+
+
+def start_server(host, port, log_path):
+    """Start the moto server of this virtual environment and wait for it to answer.
+
+    The server is started in a session of its own with its input closed and both output
+    streams appended to log_path, so it survives the make invocation that started it and
+    every diagnostic it writes is kept. A server that ends, or that never answers within
+    READY_TIMEOUT_SECONDS, ends this program naming the log.
+    """
+    command = [interpreter, "-m", "moto.server", "-H", host, "-p", str(port)]
+    try:
+        os.makedirs(log_directory, exist_ok=True)
+        log = open(log_path, "a", encoding="utf-8")
+    except OSError as failure:
+        refuse(
+            "the server log %s cannot be opened: %s"
+            % (log_path, failure.strerror or type(failure).__name__)
+        )
+    try:
+        log.write(
+            "=== %s starting %s\n"
+            % (datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"), " ".join(command))
+        )
+        log.flush()
+        process = subprocess.Popen(
+            command,
+            stdin=subprocess.DEVNULL,
+            stdout=log,
+            stderr=log,
+            start_new_session=True,
+            close_fds=True,
+        )
+    except OSError as failure:
+        log.close()
+        refuse(
+            "the local substitute server cannot be started: %s"
+            % (failure.strerror or type(failure).__name__)
+        )
+    log.close()
+    started = time.monotonic()
+    deadline = started + READY_TIMEOUT_SECONDS
+    while time.monotonic() < deadline:
+        if process.poll() is not None:
+            refuse(
+                "the local substitute server ended with status %d before it answered on "
+                "%s:%d; its output stands in %s"
+                % (process.returncode, host, port, log_path),
+                4,
+            )
+        if answers(host, port):
+            report(
+                "the local substitute answers at %s:%d after %.1f seconds, process %d, "
+                "output in %s" % (host, port, time.monotonic() - started, process.pid, log_path)
+            )
+            return
+        time.sleep(READY_POLL_SECONDS)
+    stop(process)
+    refuse(
+        "the local substitute server did not answer on %s:%d within %.0f seconds and was "
+        "ended; its output stands in %s"
+        % (host, port, READY_TIMEOUT_SECONDS, log_path),
+        4,
+    )
+
+
+def resolved_region():
+    """Return the region the bucket is created in, from the environment alone."""
+    for name in REGION_VARIABLES:
+        value = os.environ.get(name, "")
+        if value.strip():
+            if any(character.isspace() for character in value) or CONTROL_CHARACTERS.search(value):
+                refuse(
+                    "the region from %s carries whitespace or a control character" % name
+                )
+            return value
+    refuse(
+        "no region is resolved: set %s in the environment, which names the region the "
+        "local endpoint holds the bucket in" % " or ".join(REGION_VARIABLES)
+    )
+
+
+def resolved_credentials(session):
+    """Confirm one set of environment credentials the loopback endpoint is signed with.
+
+    The session's own providers do the resolving, so a variable whose name merely begins
+    with AWS is never taken for a credential, and the provenance they record is then
+    confirmed: only credentials that came from the environment or were passed to the
+    session directly are signed against a loopback port, because a credential resolved
+    from a profile, single sign-on, an assumed role, container metadata or instance
+    metadata belongs to a real account. No value is read beyond confirming one is
+    present, and none is printed here or anywhere else.
+    """
+    try:
+        credentials = session.get_credentials()
+    except botocore.exceptions.PartialCredentialsError:
+        refuse(
+            "the resolved credentials are incomplete: set %s together in the "
+            "environment; no value is printed" % " and ".join(CREDENTIAL_VARIABLES)
+        )
+    except botocore.exceptions.NoCredentialsError:
+        refuse(
+            "no credentials are resolved: set %s in the environment, which the local "
+            "substitute accepts as throwaway values; no value is printed"
+            % " and ".join(CREDENTIAL_VARIABLES)
+        )
+    except botocore.exceptions.BotoCoreError as failure:
+        refuse("credentials cannot be resolved: %s" % type(failure).__name__)
+    if credentials is None or not credentials.access_key:
+        refuse(
+            "no credentials are resolved: set %s in the environment, which the local "
+            "substitute accepts as throwaway values; no value is printed"
+            % " and ".join(CREDENTIAL_VARIABLES)
+        )
+    method = getattr(credentials, "method", "") or "an unnamed provider"
+    if method not in LOCAL_CREDENTIAL_METHODS:
+        refuse(
+            "the resolved credentials came from %s, and only credentials from the "
+            "environment are signed against a loopback endpoint: set %s in the "
+            "environment; no value is printed"
+            % (method, " and ".join(CREDENTIAL_VARIABLES))
+        )
+    return credentials
+
+
+def error_code(failure):
+    """Return the error code an S3 client failure reports, or an empty string."""
+    response = getattr(failure, "response", None) or {}
+    code = str(response.get("Error", {}).get("Code", ""))
+    if not code:
+        status = response.get("ResponseMetadata", {}).get("HTTPStatusCode")
+        code = str(status) if status else ""
+    return code
+
+
+def bucket_present(client, host, port, log_path):
+    """Return whether the local endpoint already holds the bucket."""
+    try:
+        client.head_bucket(Bucket=bucket)
+        return True
+    except botocore.exceptions.EndpointConnectionError:
+        refuse(
+            "the local endpoint at %s:%d refused the connection while the bucket was "
+            "measured; a server log stands in %s when this target started one"
+            % (host, port, log_path),
+            4,
+        )
+    except botocore.exceptions.ClientError as failure:
+        code = error_code(failure)
+        if code in BUCKET_ABSENT_CODES:
+            return False
+        refuse(
+            "the local endpoint refused a head-bucket request for bucket '%s': %s"
+            % (bucket, code or "no error code"),
+            4,
+        )
+    except botocore.exceptions.BotoCoreError as failure:
+        refuse(
+            "the bucket cannot be measured at the local endpoint: %s"
+            % type(failure).__name__,
+            4,
+        )
+
+
+def create_bucket(client, region):
+    """Create the bucket at the local endpoint, reporting one already standing."""
+    request = {"Bucket": bucket}
+    if region != GLOBAL_REGION:
+        request["CreateBucketConfiguration"] = {"LocationConstraint": region}
+    try:
+        client.create_bucket(**request)
+    except botocore.exceptions.ClientError as failure:
+        code = error_code(failure)
+        if code in BUCKET_PRESENT_CODES:
+            report("bucket '%s' is already present at the local endpoint" % bucket)
+            return
+        refuse(
+            "the local endpoint refused to create bucket '%s': %s"
+            % (bucket, code or "no error code"),
+            4,
+        )
+    except botocore.exceptions.BotoCoreError as failure:
+        refuse(
+            "bucket '%s' cannot be created at the local endpoint: %s"
+            % (bucket, type(failure).__name__),
+            4,
+        )
+    report(
+        "bucket '%s' created at the local endpoint in region %s" % (bucket, region)
+    )
+
+
+host, port = endpoint_address(endpoint)
+confirm_bucket_name(bucket)
+log_path = os.path.join(log_directory, "moto-%d.log" % port)
+
+import boto3
+import botocore.config
+import botocore.exceptions
+
+if answers(host, port):
+    report(
+        "the local substitute already answers at %s:%d, so no server was started"
+        % (host, port)
+    )
+else:
+    report(
+        "nothing answers at %s:%d; starting the moto server of this virtual environment"
+        % (host, port)
+    )
+    start_server(host, port, log_path)
+
+region = resolved_region()
+session = boto3.session.Session()
+resolved_credentials(session)
+client = session.client(
+    "s3",
+    endpoint_url=endpoint,
+    region_name=region,
+    config=botocore.config.Config(
+        connect_timeout=REQUEST_CONNECT_TIMEOUT_SECONDS,
+        read_timeout=REQUEST_READ_TIMEOUT_SECONDS,
+        retries={"max_attempts": 1},
+    ),
+)
+if bucket_present(client, host, port, log_path):
+    report("bucket '%s' is already present at the local endpoint" % bucket)
+else:
+    create_bucket(client, region)
+report(
+    "the local substitute stands at %s:%d with bucket '%s'; this target addresses that "
+    "loopback endpoint alone and provisions nothing on AWS" % (host, port, bucket)
+)
+endef
+export LOCAL_ENDPOINT_PROGRAM
+
 # ---------------------------------------------------------------------------------
 # Stage 1. Runtime and dependency measurement.
 # ---------------------------------------------------------------------------------
@@ -547,7 +1093,7 @@ verify-env:
 	  say "verify-env: DEVIATION $$1"
 	  deviations=$$((deviations + 1))
 	}
-	say "verify-env report of $(PROJECT_DIR)"
+	say "verify-env report of $(PROJECT_REL) in this checkout"
 	say "strict tool versions: $$strict, from HARNESS_STRICT_TOOL_VERSIONS"
 	command -v python3.12 > /dev/null 2>&1 || fail 'python3.12 is not on PATH' '$(APT_REMEDIATION)'
 	measured_python="$$(python3.12 --version 2>&1 | awk '{print $$2}')"
@@ -603,7 +1149,7 @@ verify-env:
 	measured_pip="$$($(PIP) --version 2>&1 | awk '{print $$2}')"
 	[ "$$measured_pip" = '$(PIP_PIN)' ] || fail "pip: pinned $(PIP_PIN), measured $$measured_pip" '$(VENV_REMEDIATION)'
 	[ -x '$(DBT)' ] || fail 'no dbt at $(PROJECT_DIR)/$(DBT)' '$(VENV_REMEDIATION)'
-	$(PY) -c "$$PIN_CHECK_PROGRAM" requirements.txt '$(PIP_PIN)' "$$measured_pip" 2>&1 | tee -a "$$report"
+	$(PY) -c "$$PIN_CHECK_PROGRAM" requirements.txt '$(PIP_PIN)' "$$measured_pip" '$(REPO_ROOT)' 2>&1 | tee -a "$$report"
 	if [ "$$deviations" -gt 0 ] && [ "$$strict" = 'yes' ]; then
 	  fail "$$deviations version deviation(s) recorded while HARNESS_STRICT_TOOL_VERSIONS is set" 'install the pinned versions, or leave HARNESS_STRICT_TOOL_VERSIONS unset to accept a reported deviation'
 	fi
@@ -697,12 +1243,48 @@ compile:
 	printf 'compile: %s modules and one driver, compiler output in %s\n' "$$built" '$(COMPILE_LOG)'
 
 # ---------------------------------------------------------------------------------
-# Stage 5. Execution of the two success cases through the harness, which builds the
-# modules it runs, sets COB_LIBRARY_PATH for them and publishes the evidence set.
+# Stage 5. Execution of the cases CASES_MODE selects through the harness, which builds
+# the modules it runs, sets COB_LIBRARY_PATH for them and publishes the evidence set.
+# The whole case table runs by default; CASES_MODE=success-only runs the two success
+# cases alone. Whichever selection runs, the two success cases are executed, so the
+# stages below this one read the same evidence in either mode.
 # ---------------------------------------------------------------------------------
 execute:
 	@mkdir -p '$(ARTIFACTS)'
-	PY='$(ABS_PY)' COBC='$(COBC)' bash harness/run_harness.sh --success-only 2>&1 | tee '$(EXECUTE_LOG)'
+	case '$(strip $(CASES_MODE))' in
+	  all) selection='all' ;;
+	  success-only) selection='--success-only' ;;
+	  *)
+	    printf 'execute: CASES_MODE is "%s"; it names all, for every case of harness/run_harness.sh, or success-only, for the two success cases 01AMOT and 01ACOM\n' '$(strip $(CASES_MODE))' >&2
+	    exit 1
+	    ;;
+	esac
+	PY='$(ABS_PY)' COBC='$(COBC)' bash harness/run_harness.sh "$$selection" 2>&1 | tee '$(EXECUTE_LOG)'
+	reported_selection="$$(sed -n 's/^[[:space:]]*case selection:[[:space:]]*//p' '$(EXECUTE_LOG)' | tail -n 1)"
+	if [ "$$reported_selection" != '$(strip $(CASES_MODE))' ]; then
+	  printf 'execute: CASES_MODE names %s and the harness reports the case selection "%s"\n' '$(strip $(CASES_MODE))' "$$reported_selection" >&2
+	  exit 1
+	fi
+	reported_labels="$$(sed -n 's/^[[:space:]]*cases:[[:space:]]*//p' '$(EXECUTE_LOG)' | tail -n 1 | tr ',' ' ')"
+	if [ -z "$$reported_labels" ]; then
+	  printf 'execute: %s names no executed case\n' '$(EXECUTE_LOG)' >&2
+	  exit 1
+	fi
+	selected=0
+	for label in $$reported_labels; do
+	  if ! grep -q -E "^[[:space:]]+case $$label: return code " '$(EXECUTE_LOG)'; then
+	    printf 'execute: the harness selected case %s and reported no execution of it in %s\n' "$$label" '$(EXECUTE_LOG)' >&2
+	    exit 1
+	  fi
+	  selected=$$((selected + 1))
+	done
+	executed="$$(sed -n 's/^run_harness.sh:[[:space:]]*cases executed: \([0-9][0-9]*\);.*/\1/p' '$(EXECUTE_LOG)' | tail -n 1)"
+	assertions="$$(sed -n 's/^run_harness.sh:[[:space:]]*cases executed: [0-9][0-9]*; assertions passed: \([0-9][0-9]*\).*/\1/p' '$(EXECUTE_LOG)' | tail -n 1)"
+	if [ "$$executed" != "$$selected" ]; then
+	  printf 'execute: the harness selected %s case(s) and reports "%s" executed\n' "$$selected" "$$executed" >&2
+	  exit 1
+	fi
+	printf 'execute: CASES_MODE %s, %s case(s) executed with %s assertion(s) passed, harness output in %s\n' '$(strip $(CASES_MODE))' "$$executed" "$$assertions" '$(EXECUTE_LOG)'
 	$(require_capture_line)
 	for case in $(CASES); do
 	  captures="$(BUILD)/run/$$case/captures.txt"
@@ -781,18 +1363,25 @@ land:
 	  exit 1
 	fi
 	if [ -z "$${S3_BUCKET:-}" ]; then
-	  printf 'land: no destination bucket is set: set S3_BUCKET to an existing bucket, which this bridge never creates; README.md records the setup\n' >&2
+	  printf 'land: no destination bucket is set: set S3_BUCKET to an existing bucket, which this bridge never creates; on the local_substitute branch "make local-endpoint" creates it at the loopback endpoint; README.md records the setup\n' >&2
 	  exit 1
 	fi
 	if [ "$$selected" = 'local_substitute' ] && [ -z "$${S3_ENDPOINT_URL:-}" ]; then
-	  printf 'land: run mode local_substitute addresses a loopback endpoint: set S3_ENDPOINT_URL to the local S3-compatible endpoint; README.md records the setup\n' >&2
+	  printf 'land: run mode local_substitute addresses a loopback endpoint: set S3_ENDPOINT_URL to the local S3-compatible endpoint, which "make local-endpoint" brings up; README.md records the setup\n' >&2
 	  exit 1
 	fi
-	$(PY) landing/land_to_s3.py --record "$(PROJECT_DIR)/$$record" --run-mode "$$selected" --source-system-key '$(SOURCE_SYSTEM_KEY)' --entity '$(ENTITY)' --extract-date '$(EXTRACT_DATE)'
+	part='$(CASE_PART)'
+	if [ -z "$$part" ]; then
+	  printf 'land: CASE=%s names no landing part: this file records one part per case (%s), and landing a case with no part of its own would address another case object; add a CASE_PART_%s line or name a recorded case\n' '$(CASE)' '$(CASE_PARTS)' '$(CASE)' >&2
+	  exit 1
+	fi
+	$(PY) landing/land_to_s3.py --record "$(PROJECT_DIR)/$$record" --run-mode "$$selected" --source-system-key '$(SOURCE_SYSTEM_KEY)' --entity '$(ENTITY)' --extract-date '$(EXTRACT_DATE)' --part "$$part"
 
 # ---------------------------------------------------------------------------------
-# Stage 8. Raw load of the landed object, for the case named by CASE. The only stage
-# whose commands differ by target, and it touches no dbt model file.
+# Stage 8. Raw load of the object standing at the landing prefix, one object per source
+# system, entity and extract date; CASE names the landing record this stage requires to
+# be present. The only stage whose commands differ by target, and it touches no dbt
+# model file.
 # ---------------------------------------------------------------------------------
 load:
 	@stage_name='load'
@@ -803,17 +1392,22 @@ load:
 	  exit 1
 	fi
 	if [ -z "$${S3_BUCKET:-}" ]; then
-	  printf 'load: no source bucket is set: set S3_BUCKET to the bucket holding the landed object\n' >&2
+	  printf 'load: no source bucket is set: set S3_BUCKET to the bucket holding the landed object; on the local_substitute branch "make local-endpoint" brings up the endpoint holding it; README.md records the setup\n' >&2
+	  exit 1
+	fi
+	part='$(CASE_PART)'
+	if [ -z "$$part" ]; then
+	  printf 'load: CASE=%s names no landing part: this file records one part per case (%s), and loading a case with no part of its own would read another case object; add a CASE_PART_%s line or name a recorded case\n' '$(CASE)' '$(CASE_PARTS)' '$(CASE)' >&2
 	  exit 1
 	fi
 	if [ "$$selected" = 'local_substitute' ]; then
 	  if [ -z "$${S3_ENDPOINT_URL:-}" ]; then
-	    printf 'load: run mode local_substitute addresses a loopback endpoint: set S3_ENDPOINT_URL to the local S3-compatible endpoint\n' >&2
+	    printf 'load: run mode local_substitute addresses a loopback endpoint: set S3_ENDPOINT_URL to the local S3-compatible endpoint, which "make local-endpoint" brings up; README.md records the setup\n' >&2
 	    exit 1
 	  fi
-	  $(PY) landing/load_local.py --run-mode local_substitute --database '$(LOCAL_DUCKDB)' --source-system-key '$(SOURCE_SYSTEM_KEY)' --entity '$(ENTITY)' --extract-date '$(EXTRACT_DATE)'
+	  $(PY) landing/load_local.py --run-mode local_substitute --database '$(LOCAL_DUCKDB)' --source-system-key '$(SOURCE_SYSTEM_KEY)' --entity '$(ENTITY)' --extract-date '$(EXTRACT_DATE)' --part "$$part"
 	else
-	  $(PY) -c "$$REDSHIFT_LOAD_PROGRAM" "$(PROJECT_DIR)/$$record" '$(DDL_SCHEMAS)' '$(DDL_RAW)' '$(ABS_PY)' '$(LANDER)' '$(REDSHIFT_TEMPLATE)' '$(SOURCE_SYSTEM_KEY)' '$(ENTITY)' '$(EXTRACT_DATE)'
+	  $(PY) -c "$$REDSHIFT_LOAD_PROGRAM" "$(PROJECT_DIR)/$$record" '$(DDL_SCHEMAS)' '$(DDL_RAW)' '$(ABS_PY)' '$(LANDER)' '$(REDSHIFT_TEMPLATE)' '$(SOURCE_SYSTEM_KEY)' '$(ENTITY)' '$(EXTRACT_DATE)' "$$part"
 	fi
 
 # ---------------------------------------------------------------------------------
@@ -849,6 +1443,26 @@ diff:
 verify-readonly:
 	@mkdir -p '$(BUILD)/logs'
 	bash validation/verify_readonly.sh --stage '$(STAGE)'
+
+# ---------------------------------------------------------------------------------
+# The local substitute land and load address. Optional, and outside the order all
+# runs: it addresses the loopback endpoint S3_ENDPOINT_URL names and nothing on AWS.
+# ---------------------------------------------------------------------------------
+local-endpoint:
+	@if [ '$(REAL_TARGET_REQUESTED)' = 'yes' ]; then
+	  printf 'local-endpoint: DBT_TARGET names redshift, and this target serves the local_substitute branch alone: it brings up a loopback endpoint and provisions nothing on AWS; README.md records the real-target setup\n' >&2
+	  exit 1
+	fi
+	if [ -z "$${S3_ENDPOINT_URL:-}" ]; then
+	  printf 'local-endpoint: no local endpoint is set: set S3_ENDPOINT_URL to the loopback endpoint the local substitute answers on; README.md records the setup\n' >&2
+	  exit 1
+	fi
+	if [ -z "$${S3_BUCKET:-}" ]; then
+	  printf 'local-endpoint: no bucket is named: set S3_BUCKET to the bucket this target creates at the local endpoint when the endpoint does not already hold it; README.md records the setup\n' >&2
+	  exit 1
+	fi
+	mkdir -p '$(BUILD)/logs'
+	$(PY) -c "$$LOCAL_ENDPOINT_PROGRAM" '$(ABS_PY)' "$$S3_ENDPOINT_URL" "$$S3_BUCKET" '$(ABS_BUILD)/logs'
 
 # ---------------------------------------------------------------------------------
 # The whole order, in one invocation, stopping at the first failure. land and load run

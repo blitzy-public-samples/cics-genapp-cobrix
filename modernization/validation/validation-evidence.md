@@ -31,20 +31,28 @@ document.
 |---|---|---|---|---|
 | 1 | `verify-env` | PASS with 7 deviation(s) | `modernization/validation/artifacts/verify-env.txt` | validated against local substitute, not AWS |
 | 2 | `gate` | selected target `local_substitute`; both real-target probes exited 3 | `modernization/validation/artifacts/gate-selection.json` | validated against local substitute, not AWS |
-| 3 | `verify-readonly` `baseline` | verdict PASS, exit_code 0 | `modernization/validation/artifacts/readonly-check.log` | validated against local substitute, not AWS |
+| 3 | `verify-readonly` `baseline` | verdict PASS, exit_code 0 | the `make all` console, block `stage: baseline`; no file retains it after the run | validated against local substitute, not AWS |
 | 4 | `translate` | 2 sample records and the translated tree under `modernization/harness/build` | `modernization/validation/artifacts/translate.log` | validated against local substitute, not AWS |
-| 5 | `verify-readonly` `translate` | verdict PASS, exit_code 0 | `modernization/validation/artifacts/readonly-check.log` | validated against local substitute, not AWS |
+| 5 | `verify-readonly` `translate` | verdict PASS, exit_code 0 | the `make all` console, block `stage: translate`; no file retains it after the run | validated against local substitute, not AWS |
 | 6 | `compile` | 15 modules and one driver | `modernization/validation/artifacts/compile-modules.log` | validated against local substitute, not AWS |
-| 7 | `verify-readonly` `compile` | verdict PASS, exit_code 0 | `modernization/validation/artifacts/readonly-check.log` | validated against local substitute, not AWS |
+| 7 | `verify-readonly` `compile` | verdict PASS, exit_code 0 | the `make all` console, block `stage: compile`; no file retains it after the run | validated against local substitute, not AWS |
 | 8 | `execute` | both cases returned `00` with the policy, product and VSAM captures present | `modernization/validation/artifacts/execute-harness.log` | validated against local substitute, not AWS |
-| 9 | `verify-readonly` `execute` | verdict PASS, exit_code 0 | `modernization/validation/artifacts/readonly-check.log` | validated against local substitute, not AWS |
+| 9 | `verify-readonly` `execute` | verdict PASS, exit_code 0 | the `make all` console, block `stage: execute`, retained in `modernization/harness/build/logs/readonly-check.log` | validated against local substitute, not AWS |
 | 10 | `extract` | one landing record per case, 17 keys each | the landing records `modernization/harness/build/landing/landing_01amot.json` and `landing_01acom.json`; the stage's console output is not separately retained | validated against local substitute, not AWS |
 | 11 | `land` and `load`, twice | one object plus its COPY manifest per case; `raw.genapp_policy_issue` carries 2 rows | the loaded relation in `modernization/validation/local.duckdb`; the stage's console output is not separately retained | validated against local substitute, not AWS |
-| 12 | `verify-readonly` `load` | verdict PASS, exit_code 0 | `modernization/validation/artifacts/readonly-check.log` | validated against local substitute, not AWS |
+| 12 | `verify-readonly` `load` | verdict PASS, exit_code 0 | the `make all` console, block `stage: load`, retained in `modernization/harness/build/logs/readonly-check.log` | validated against local substitute, not AWS |
 | 13 | `dbt` | `dbt run` PASS=4, `dbt test` PASS=63, no warning and no error | `modernization/validation/artifacts/dbt-run.log`, `modernization/validation/artifacts/dbt-test.log` | validated against local substitute, not AWS |
-| 14 | `verify-readonly` `dbt` | verdict PASS, exit_code 0 | `modernization/validation/artifacts/readonly-check.log` | validated against local substitute, not AWS |
+| 14 | `verify-readonly` `dbt` | verdict PASS, exit_code 0 | the `make all` console, block `stage: dbt`, retained in `modernization/harness/build/logs/readonly-check.log` | validated against local substitute, not AWS |
 | 15 | `diff` | PASS, 2 cases, 40 of 40 canonical column instances compared, 0 failed | `modernization/validation/artifacts/diff-report.md` | validated against local substitute, not AWS |
-| 16 | `verify-readonly` `final` | verdict PASS, exit_code 0, 0 tracked modifications | `modernization/validation/artifacts/readonly-check.log` | validated against local substitute, not AWS |
+| 16 | `verify-readonly` `final` | verdict PASS, exit_code 0, 0 tracked modifications | the `make all` console, block `stage: final`, retained in `modernization/harness/build/logs/readonly-check.log` | validated against local substitute, not AWS |
+
+Where the seven `verify-readonly` blocks of rows 3, 5, 7, 9, 12, 14 and 16 stand: the gate prints each block on the
+console of the run and appends it to `modernization/harness/build/logs/readonly-check.log`, a generated path
+`modernization/.gitignore` ignores, inside the only directory the gate accepts a log in. The preflight of
+`modernization/harness/run_harness.sh` empties that log once per run, inside the `execute` stage, so at the end of a full
+`make all` the `execute`, `load`, `dbt` and `final` blocks stand in it and the `baseline`, `translate` and `compile`
+blocks do not. The published `modernization/validation/artifacts/readonly-check.log` carries the four `harness-*` blocks
+of the run recorded in section 4 and no Makefile stage block (`D-72`, `D-106`).
 
 ## 2. Environment and versions
 
@@ -162,25 +170,34 @@ measurement equalled the embedded baseline:
 `gate A result: PASS (5 of 5 baseline entries matched)`, `gate B result: PASS` with
 `git status --porcelain -- base/ produced no output`, and `gate C result: PASS`:
 
-| Gate run | Stage label | Timestamp (UTC) | Verdict | Exit code | Status |
+| Gate run | Stage label | Where the block stands | Verdict | Exit code | Status |
 |---|---|---|---|---|---|
-| 1 | `baseline` | 2026-08-22T15:20:59Z | PASS | 0 | validated against local substitute, not AWS |
-| 2 | `translate` | 2026-08-22T15:21:00Z | PASS | 0 | validated against local substitute, not AWS |
-| 3 | `compile` | 2026-08-22T15:21:02Z | PASS | 0 | validated against local substitute, not AWS |
-| 4 | `execute` | 2026-08-22T15:21:10Z | PASS | 0 | validated against local substitute, not AWS |
-| 5 | `load` | 2026-08-22T15:21:13Z | PASS | 0 | validated against local substitute, not AWS |
-| 6 | `dbt` | 2026-08-22T15:21:24Z | PASS | 0 | validated against local substitute, not AWS |
-| 7 | `final` | 2026-08-22T15:21:24Z | PASS | 0 | validated against local substitute, not AWS |
+| 1 | `baseline` | the `make all` console; emptied from the gate's git-ignored log by the harness preflight | PASS | 0 | validated against local substitute, not AWS |
+| 2 | `translate` | the `make all` console; emptied from the gate's git-ignored log by the harness preflight | PASS | 0 | validated against local substitute, not AWS |
+| 3 | `compile` | the `make all` console; emptied from the gate's git-ignored log by the harness preflight | PASS | 0 | validated against local substitute, not AWS |
+| 4 | `execute` | the `make all` console and `modernization/harness/build/logs/readonly-check.log` | PASS | 0 | validated against local substitute, not AWS |
+| 5 | `load` | the `make all` console and `modernization/harness/build/logs/readonly-check.log` | PASS | 0 | validated against local substitute, not AWS |
+| 6 | `dbt` | the `make all` console and `modernization/harness/build/logs/readonly-check.log` | PASS | 0 | validated against local substitute, not AWS |
+| 7 | `final` | the `make all` console and `modernization/harness/build/logs/readonly-check.log` | PASS | 0 | validated against local substitute, not AWS |
 
 `modernization/harness/run_harness.sh` ran the same gate at four further points inside the `execute` stage — labels
 `harness-preflight`, `harness-compile`, `harness-execute` and `harness-final` — and reported
-`source guard: PASS at 4 of 4 points`. Eleven gate runs passed in this pipeline in total.
+`source guard: PASS at 4 of 4 points`. Eleven gate runs passed in this pipeline in total. The published
+`modernization/validation/artifacts/readonly-check.log` is the copy the harness publishes after its own last gate, so it
+carries those four `harness-*` blocks and none of the seven Makefile stage blocks above (`D-72`, `D-106`). The harness
+runs the gate with `--reproducible`, which puts `not recorded (--reproducible)` in the `timestamp_utc` record of each
+published block: the time of a run is read from the artifacts that carry it, not transcribed into this table (`D-107`).
 
-At the final gate, `git diff --name-only HEAD` reported `(no tracked modification)` and
-`tracked modifications: 0`; 7 of the 23 exact paths of the exempt generated-evidence inventory were reported modified,
-each recorded as exempt and none counted. No pre-existing repository file was modified by this work: every authored file
-of the bridge lives under `modernization/`, and the five source artifacts above are byte-identical to their baseline.
-The exempt inventory and its extension to the Makefile stage records are recorded as D-47 and D-65 in
+At the final gate, the `git diff --name-only HEAD, tracked modifications:` record read `(no tracked modification)` and
+the count below it read `tracked modifications: 0`: every path that command named was recorded as exempt and none was
+counted against the gate. Every block of the published `modernization/validation/artifacts/readonly-check.log` records
+that same `tracked modifications: 0`, which is what a passing gate C means, and each block carries beside it the exempt
+inventory in full — 23 exact paths — the exempt paths that block itself found modified, and its own
+`exempt generated evidence paths modified:` count. That count is not transcribed here: it follows the tracked state the
+gate read, naming the published files the run had already rewritten when that gate ran, so it is read from the block
+that recorded it (`D-106`, `D-107`). No pre-existing repository file was modified by this work: every authored file of the
+bridge lives under `modernization/`, and the five source artifacts above are byte-identical to their baseline. The
+exempt inventory and its extension to the Makefile stage records are recorded as D-47 and D-65 in
 `modernization/docs/decision-log.md`.
 
 ## 5. Translate and compile
@@ -309,21 +326,27 @@ exercised it:
 
 | Code | Observed meaning | Source locator | Exercised by this run |
 |---|---|---|---|
-| `00` | Success | [base/src/lgapol01.cbl:104-126], [base/src/lgapdb01.cbl:290-294] | Yes — both executed cases |
-| `70` | Policy insert returned SQLCODE −530 | [base/src/lgapdb01.cbl:290-299] | No |
-| `80` | VSAM write response was not normal | [base/src/lgapvs01.cbl:142-147] | No |
-| `90` | SQL failure; subtype insert failures also abend `LGSQ` | [base/src/lgapdb01.cbl:300-303,389-395,427-433,473-479,547-553] | No |
-| `98` | COMMAREA too short | [base/src/lgapol01.cbl:108-116], [base/src/lgapdb01.cbl:181-213] | No |
-| `99` | Unsupported request id | [base/src/lgapdb01.cbl:184-207] | No |
+| `00` | Success | [base/src/lgapol01.cbl:104-126], [base/src/lgapdb01.cbl:290-294] | Yes — the two success cases `01AMOT` and `01ACOM` |
+| `70` | Policy insert returned SQLCODE −530 | [base/src/lgapdb01.cbl:290-299] | Yes — case `01AMOT-RC70` |
+| `80` | VSAM write response was not normal | [base/src/lgapvs01.cbl:142-147] | Yes — case `01AMOT-RC80` |
+| `90` | SQL failure; subtype insert failures also abend `LGSQ` | [base/src/lgapdb01.cbl:300-303,389-395,427-433,473-479,547-553] | Yes — case `01AMOT-RC90`, with the abend path in `01AMOT-LGSQ`, `01ACOM-LGSQ` and `01AHOU-LGSQ` |
+| `98` | COMMAREA too short | [base/src/lgapol01.cbl:108-116], [base/src/lgapdb01.cbl:181-213] | Yes — cases `01AMOT-RC98` and `01AMOT-LGCA` |
+| `99` | Unsupported request id | [base/src/lgapdb01.cbl:184-207] | Yes — case `01AXXX-RC99` |
 
-In the two cases this pipeline executed the captures record `INJECT_POLICY_SQLCODE=0`, `INJECT_SUBTYPE_SQLCODE=0`,
-`SQLCODE_LAST=0` and `INJECT_VSAM_RESP=0`: every SQL stub reported SQLCODE 0 and the VSAM write reported the normal
-response, so the `70`, `90`, `98`, `99`, `80` and `LGSQ` paths are documented here and were **not exercised** by this
-run. The endowment route was **not executed**, and the house route was compiled and **not exercised** by this run. The
-`execute` stage selects the two success cases through `run_harness.sh --success-only`; the case table of
-`modernization/harness/run_harness.sh` carries ten further cases that this stage does not select, and this record claims
-no result for them. The unexercised routes and paths are recorded as D-18, D-20 and D-21 in
-`modernization/docs/decision-log.md`.
+The `execute` stage runs the case selection named by `CASES_MODE`, and its default `all` selects the whole authored
+table: **12 cases, 902 assertions**, observed as `execute: CASES_MODE all, 12 case(s) executed with 902 assertion(s)
+passed`. Every code of the contract above is therefore exercised by `make all` itself, together with the `LGSQ` abend
+path and the house route (`01AHOU-ROUTE`, `01AHOU-LGSQ`). `CASES_MODE=success-only` selects the two success cases alone
+— 2 cases, 243 assertions — and remains available as the fast path. Both selections publish the same evidence set,
+because only a success case carries a capture file, a driver log and a post-chain record; the ten characterisation cases
+assert a return code, an abend or a route and land nothing.
+
+In the two success cases the captures record `INJECT_POLICY_SQLCODE=0`, `INJECT_SUBTYPE_SQLCODE=0`, `SQLCODE_LAST=0` and
+`INJECT_VSAM_RESP=0`: every SQL stub reported SQLCODE 0 and the VSAM write reported the normal response, so those two
+cases traverse the success path only, and the non-`00` codes are exercised by the characterisation cases named beside
+them. The endowment route was **not executed** — no endowment sample exists — and the house route is exercised for its
+routing and its abend path but issues no policy. The unexercised routes and paths that remain are recorded as D-18,
+D-20 and D-21, and the orchestrated selection as D-95 and D-96, in `modernization/docs/decision-log.md`.
 
 The interface this work preserves was reproduced without a source change: the shared 32,500-byte COMMAREA, the call
 order `LGAPOL01`, `LGAPDB01`, `LGAPVS01`, both links at `LENGTH(32500)` [base/src/lgapol01.cbl:121-124;
@@ -360,16 +383,34 @@ into the bucket named by the `S3_BUCKET` environment variable:
 ```text
 landing/source_system_key=GENAPP_CLASS_EXEMPLAR/entity=policy_issue/extract_date=2026-08-22/part-0000.json
 landing/source_system_key=GENAPP_CLASS_EXEMPLAR/entity=policy_issue/extract_date=2026-08-22/part-0000.manifest.json
+landing/source_system_key=GENAPP_CLASS_EXEMPLAR/entity=policy_issue/extract_date=2026-08-22/part-0001.json
+landing/source_system_key=GENAPP_CLASS_EXEMPLAR/entity=policy_issue/extract_date=2026-08-22/part-0001.manifest.json
 ```
 
-The writer reported `run mode 'local_substitute' from --run-mode, addressing the loopback endpoint` for both cases, a
-269-byte COPY manifest beside each data object, and — for the second case — its documented warning that the key already
-carried an object which that landing replaced. No credential, bucket or endpoint value is echoed by the writer, and the
-stage created no bucket.
+The object name carries a part element: `make all` lands `01amot` at part `0000` and `01acom` at part `0001`, so the two
+records of a run stand side by side under one extract-date prefix rather than one replacing the other. A listing of that
+prefix returned four objects — the 499-byte motor record and the 508-byte commercial record, each with its own 269-byte
+COPY manifest naming that record and its byte count. Rationale: `modernization/docs/decision-log.md`, rows **D-80** and
+**D-81**.
 
-`make load` used `modernization/landing/load_local.py` on this branch. Per case it bound the download to the exact
-object length (499 and 508 bytes), reported `17 landed columns` with the SHA-256 of the object, applied 2 statements
-from `modernization/warehouse/ddl/01_schemas.sql` and 1 statement from
+The writer reported `run mode 'local_substitute' from --run-mode, addressing the loopback endpoint` for both cases and a
+269-byte COPY manifest beside each data object. Neither case reported a replacement of the other's object, because each
+addresses its own part; a re-run of one case does report its documented warning that that part's key already carries an
+object, which that landing replaces. No credential, endpoint URL, host, role or password value is echoed by the writer.
+It does name the destination on the console, in the form
+`land_to_s3: addressing bucket '<bucket>' in region '<region>' through a loopback endpoint`, and the `s3://` object URI
+it prints as its last line carries the same bucket name. The stage created no bucket.
+
+Replay was measured rather than assumed: with every row of `raw.genapp_policy_issue` deleted and no landing performed,
+`make load CASE=01amot` followed by `make load CASE=01acom` rebuilt both raw rows from object storage alone, each
+reporting `removed=0 written=1`, leaving the relation at 2 rows carrying policies 1000001 (`M`, `01AMOT`) and 1000002
+(`C`, `01ACOM`) — validated against local substitute, not AWS.
+
+`make load` used `modernization/landing/load_local.py` on this branch. It names the source bucket and its region on the
+console in the same form as the writer — `load_local: reading bucket '<bucket>' in region '<region>' through a loopback
+endpoint` — and redacts the object URI as `s3://<redacted>`, the source-system key and the policy number (`D-108`). Per
+case it bound the download to the exact object length (499 and 508 bytes), reported `17 landed columns` with the SHA-256
+of the object, applied 2 statements from `modernization/warehouse/ddl/01_schemas.sql` and 1 statement from
 `modernization/warehouse/ddl/02_raw_genapp_policy_issue.sql`, then loaded the row on the natural key with
 `keys=2 removed=1 written=1`. `modernization/landing/load_redshift.sql` is authored and was **not executed** on this
 branch.
@@ -389,21 +430,21 @@ unchanged. The load stage is the only target-specific stage of the pipeline; no 
 ```text
 Running with dbt=1.12.2
 Registered adapter: duckdb=1.11.0
-Found 4 models, 63 data tests, 1 source, 501 macros
+Found 4 models, 64 data tests, 1 source, 501 macros
 ```
 
 | Model | Materialization | Relation created | Result | Status |
 |---|---|---|---|---|
 | `stg_genapp__policy_issue` | view | `staging.stg_genapp__policy_issue` | OK | validated against local substitute, not AWS |
-| `int_policy_issue_decoded` | view | `intermediate.int_policy_issue_decoded` | OK | validated against local substitute, not AWS |
+| `int_policy_issue_decoded` | table | `intermediate.int_policy_issue_decoded` | OK | validated against local substitute, not AWS |
 | `canonical_issued_policy` | table | `canonical.issued_policy` | OK | validated against local substitute, not AWS |
 | `canonical_preissued_rating` | table | `canonical.preissued_rating` | OK | validated against local substitute, not AWS |
 
 `dbt run` finished `Completed successfully` with `Done. PASS=4 WARN=0 ERROR=0 SKIP=0 NO-OP=0 REUSED=0 TOTAL=4`.
-`dbt test` finished `Completed successfully` with `Done. PASS=63 WARN=0 ERROR=0 SKIP=0 NO-OP=0 REUSED=0 TOTAL=63`, the
-63 data tests comprising the generic tests declared in the model YAML files — the enforced contracts, `not_null`,
-`accepted_values` and `relationships` — and the three singular tests `assert_issued_policy_unique_key`,
-`assert_preissued_rating_unique_key` and `assert_product_premium_nullability`. Output retained in
+`dbt test` finished `Completed successfully` with `Done. PASS=64 WARN=0 ERROR=0 SKIP=0 NO-OP=0 REUSED=0 TOTAL=64`, the
+64 data tests comprising the generic tests declared in the model YAML files — the enforced contracts, `not_null`,
+`accepted_values` and `relationships` — and the four singular tests `assert_issued_policy_unique_key`,
+`assert_preissued_rating_unique_key`, `assert_product_premium_nullability` and `assert_canonical_column_widths`. Output retained in
 `modernization/validation/artifacts/dbt-clean.log`, `dbt-run.log` and `dbt-test.log`.
 
 Catalog check against `modernization/validation/local.duckdb` after the run:
@@ -445,10 +486,22 @@ This is the last gate of the order named in **Figure 5 — Validation Harness Co
   --expected-dir <repository root>/modernization/validation/expected
 ```
 
-Run metadata recorded in the report: generated at 2026-08-22T15:21:24Z; target `duckdb`; adapter `duckdb 1.5.5`;
-python 3.12.14; connection `modernization/validation/local.duckdb`; source-system key `GENAPP_CLASS_EXEMPLAR`; amount
-tolerance `0.01`; expected amount scale 2; capture snapshots under `modernization/validation/expected` matched for both
-cases.
+Before it opens the warehouse the gate reads the dbt run artifact of that project,
+`modernization/dbt/genapp_rqi/target/run_results.json`, and publishes no verdict unless every node dbt recorded there
+carries a successful status; `warn` passes and is named, and an absent or unusable artifact is a refusal. This run
+recorded `transform freshness | FRESH — dbt test recorded 64 nodes, 64 of them successful and 0 warned`. The refusal
+path was measured, not inferred: with a raw row carrying the non-numeric payment amount `ABCDEF`, `make dbt` ended at
+the intermediate model with both marts skipped, and the gate invoked directly over that state returned exit status 3
+naming `model.genapp_rqi.int_policy_issue_decoded` `[error]` with dbt's own conversion message and both mart models
+`[skipped]`, where before this precondition existed the same invocation returned PASS. Rationale:
+`modernization/docs/decision-log.md`, rows **D-82** and **D-83**.
+
+Run metadata recorded in the report: the time of the run, carried by the `generated_at` key of
+`modernization/validation/artifacts/diff-report.json` and the `generated at (UTC)` row of
+`modernization/validation/artifacts/diff-report.md` and read from there rather than transcribed here (`D-107`); target
+`duckdb`; adapter `duckdb 1.5.5`; python 3.12.14; connection `modernization/validation/local.duckdb`; source-system key
+`GENAPP_CLASS_EXEMPLAR`; amount tolerance `0.01`; expected amount scale 2; capture snapshots under
+`modernization/validation/expected` matched for both cases.
 
 Coverage: all 20 canonical column instances were compared for each case — 11 of `canonical.issued_policy` and 9 of
 `canonical.preissued_rating` — together with the chain-completion assertions and the VSAM key corroboration. Across the
@@ -502,12 +555,14 @@ constructed values and needs no warehouse, no S3 endpoint and no harness output:
 .venv/bin/python validation/diff_harness_vs_warehouse.py --self-test
 ```
 
-Observed: `self-test summary cases=27 passed=27 failed=0`, exit status 0. Among the verdicts those cases reach — none of
+Observed: `self-test summary cases=34 passed=34 failed=0`, exit status 0. Among the verdicts those cases reach — none of
 which the passing run above produces — are a mismatched non-amount value reaching the failure status and the
 comparison-failure exit status 1, an absolute amount delta of exactly 0.01 reaching the in-tolerance pass status with the
 anomaly recorded, a delta above 0.01 failing, an absent harness authority reaching the missing status and exit status 2,
-a warehouse amount carried at a scale the canonical type does not declare raising the scale anomaly, and the exit-status
-precedence the tool applies when more than one condition holds. The self-test writes only inside a private directory it
+a warehouse amount carried at a scale the canonical type does not declare raising the scale anomaly, the exit-status
+precedence the tool applies when more than one condition holds, and the four transform-freshness cases — a healthy dbt
+run artifact accepted, a warned node accepted and named, a failed or skipped node refused, an absent or malformed
+artifact refused, and the refusal itself carried into both published reports. The self-test writes only inside a private directory it
 creates and removes, and returns exit status 5 when one of its own cases does not hold — a status no comparison run
 returns. It is recorded here because it is what makes the PASS above meaningful: the gate is known to be able to fail.
 
@@ -524,7 +579,7 @@ target.
 |---|---|---|---|---|
 | Extraction spec covers both entities | `modernization/extraction/extraction-spec.md` against the `counts` block of `modernization/extraction/copybook_field_map.yml` and the enforced dbt contracts | 17 logical field entries, 15 active, 1 derived, 1 declaration-only, 16 runtime business values, 18 source-derived column instances, 11 and 9 total columns, 17 landing fields; the no-formula finding stated explicitly | Closed on the local branch | validated against local substitute, not AWS |
 | Exactly two canonical relations | Catalog query of `modernization/validation/local.duckdb` plus the enforced contracts of `_canonical__models.yml` | Schema `canonical` holds `issued_policy` and `preissued_rating` and nothing else | Closed on the local branch | validated against local substitute, not AWS |
-| Both relations populated correctly | Row counts, contract tests, 63 data tests and the comparison gate | 2 rows and 2 distinct natural keys per relation; one matching row per sample and relation | Closed on the local branch | validated against local substitute, not AWS |
+| Both relations populated correctly | Row counts, contract tests, 64 data tests and the comparison gate | 2 rows and 2 distinct natural keys per relation; one matching row per sample and relation | Closed on the local branch | validated against local substitute, not AWS |
 | 100% field lineage | Per-column item and locator of the comparison report, for every compared instance | 18 of 20 instances per case carry a named COBOL item with its locator; the 2 remaining instances are `source_system_key`, the sole warehouse-assigned column, one per relation | Closed on the local branch | validated against local substitute, not AWS |
 | Three programs compile and execute | Compiler logs and harness captures | 15 modules and one driver compiled with return code 0 each; both cases returned `00` with complete captures | Closed on the local branch | validated against local substitute, not AWS |
 | Currency comparison | Comparison report, tolerance `0.01` | Six amount comparisons across the two cases, every absolute delta 0.00; no non-zero in-tolerance delta to disclose | Closed on the local branch | validated against local substitute, not AWS |
@@ -580,7 +635,7 @@ Tracked evidence, committed in this repository:
 | `modernization/validation/artifacts/gate-probe-s3.log` | real-S3 probe output | `make gate` |
 | `modernization/validation/artifacts/gate-probe-redshift.log` | real-Redshift probe output | `make gate` |
 | `modernization/validation/artifacts/source-baseline.sha256` | the five source hashes of the run | `run_harness.sh` |
-| `modernization/validation/artifacts/readonly-check.log` | every read-only gate block of the run | `run_harness.sh` |
+| `modernization/validation/artifacts/readonly-check.log` | the four read-only gate blocks the harness runs inside the `execute` stage — `harness-preflight`, `harness-compile`, `harness-execute` and `harness-final` | `run_harness.sh` |
 | `modernization/validation/artifacts/translate.log` | per-program translation summary | `run_harness.sh` |
 | `modernization/validation/artifacts/translation-report.json` | per-rule, per-site translation record | `run_harness.sh` |
 | `modernization/validation/artifacts/compile.log` | pinned compiler environment, dialect chain and compile commands | `run_harness.sh` |
@@ -599,6 +654,7 @@ Generated and ignored, present only in a working checkout:
 | Path | Content |
 |---|---|
 | `modernization/harness/build/logs/translate.log`, `compile.log`, `source-baseline.sha256`, `translation-report.json` | the stage files the harness collects before publishing them |
+| `modernization/harness/build/logs/readonly-check.log` | the read-only gate log every gate run of the pipeline appends to, emptied by the harness preflight and published once per run; at the end of a full `make all` it carries the four `harness-*` blocks and the `execute`, `load`, `dbt` and `final` stage blocks |
 | `modernization/harness/build/run/<case>/commarea_post.dat`, `captures.txt`, `driver.log` | per-case returned record, captures and driver log, for every case the run selected |
 | `modernization/harness/build/src`, `bin`, `compile`, `samples`, `landing`, `evidence` | translated copies, modules and driver, generated samples, landing records and staged evidence |
 | `modernization/validation/local.duckdb` | the local warehouse of this branch |
@@ -615,3 +671,40 @@ artifact files and 2 expected-capture files are tracked in this repository.
 The local harness reads and writes the workstation character set of this host; a real z/OS extract would decode the
 installation's EBCDIC CCSID, documented as 285 by default, and that assumption is recorded in
 `modernization/docs/project-guide.md`.
+
+## 15. Test-infrastructure remediation after the final QA pass
+
+> **Status — validated against local substitute, not AWS.** Every observation in this section was made on the
+> local-substitute branch. The formal AWS diff requirement is **OPEN** and nothing here closes it.
+
+The dedicated final QA pass over this project's own test infrastructure executed every authored gate, then mutated each
+gate's inputs to prove it fails for the defect it claims to catch. Twenty-four of twenty-five mutation families failed at
+the intended gate. The eight findings it raised — four MEDIUM, four LOW, none blocking, none an AAP-compliance,
+user-rule or security defect — were gaps in that assertion surface, and each is recorded below with the behaviour
+measured before the fix and the behaviour measured after it. Rationale for each choice is in
+`modernization/docs/decision-log.md`, rows **D-86** through **D-105**.
+
+| # | Gap the QA pass measured | Behaviour before | Behaviour now, observed | Where the assertion lives |
+|---|---|---|---|---|
+| 1 | The field map's overlay geometry was recorded and read by no tool, so the stale-length finding of D-08 had no runtime witness | `overlay_length` 77→65 and `overlay_end_byte` 177→165: builder exit **0**, extract exit 0, diff exit 0 | builder exit **3**, `field map layout group 'motor_overlay': 'overlay_length' must be 77, the summed length of the 9 item(s) declared before filler 'CA-M-FILLER', found 65`; the same contradiction ends `make translate` with exit 2. `length_constants.measured` mutated the same way: exit **3** naming the layout value it must equal | `_check_overlay_geometry` and `_check_measured_lengths`, `modernization/extraction/build_sample_commarea.py` |
+| 2 | The builder consumed the `fields` census without checking it | one of the 17 entries removed: builder exit **0** (the extractor and the comparison gate did catch it) | builder exit **3**, `field map fields declares 16 logical entries and the census this builder reads holds 17`; ten further census mutants each exit 3 naming the contradicted `counts` member | `_check_field_census`, `modernization/extraction/build_sample_commarea.py` |
+| 3 | `translate.py` was the only tool with no `--self-test` | no such option; the translator's rules and guards were provable only by mutating its inputs from outside | `--self-test` → `self-test summary cases=93 passed=93 failed=0`, exit 0; with rule R7 mutated (`GOBACK` → `CONTINUE`) → exit **5**, `self-test FAIL r7_return_becomes_goback`, 92 of 93 | `--self-test` in `modernization/harness/translate.py` |
+| 4 | `make all` exercised 2 of the 12 authored cases and 243 of 902 assertions; the return-code, abend and route characterisation had no orchestrated entry point | `execute` invoked `run_harness.sh --success-only` unconditionally | `make all` → `execute: CASES_MODE all, 12 case(s) executed with 902 assertion(s) passed`; `CASES_MODE=success-only` → 2 cases, 243 assertions; `CASES_MODE=Both` → exit 2 naming both accepted values | `CASES_MODE` and the `execute` recipe of `modernization/Makefile` |
+| 5 | No authored test saw an inapplicable product premium standing in the raw relation; the intermediate model nulled it and the suite stayed green | `update raw.genapp_policy_issue set fire_premium_amount='1000'` on an `M` row → `dbt build` **PASS**, value silently discarded | `dbt build` exit **1**, `FAIL 1 assert_product_premium_nullability`, row `landed_motor_row_premium_pattern … policy_type=M motor=450 fire=1000`; the same with all four commercial premiums set to `'0'` on the `M` row → 1 failing row; restored data → `PASS=68` | the landed leg of `modernization/dbt/genapp_rqi/tests/assert_product_premium_nullability.sql` |
+| 6 | The enforced contract compares the type family and not the width on the local adapter, so a width regression in a mart cast passed | `cast(policy_type as char(1))` → `varchar(20)`: `dbt build` **PASS** | `dbt build` exit **1**, `FAIL 1 assert_canonical_column_widths`, row `canonical_model_cast_type_differs_from_contract … declared data_type char(1); model casts to varchar(20)`; restored → `PASS=68` | `modernization/dbt/genapp_rqi/tests/assert_canonical_column_widths.sql` |
+| 7 | The capture snapshots pinned the default identity seed, so a documented per-checkout override failed the diff gate, and no re-baseline path existed | `HARNESS_POLICY_NUMBER=1000101 make all` → diff exit **2**, five differing keys per case, `make all` exit 2 | `HARNESS_POLICY_NUMBER=1000101 make all` → exit **0**, `PASS - 2 cases, 40 of 40 canonical column instances compared`, `git status --porcelain modernization/validation/expected` empty; the same with `HARNESS_POLICY_NUMBER=777000123 HARNESS_LASTCHANGED=1999-12-31-23.59.59.999999` → exit 0. A tampered non-seed value (`CA_CUSTOMER_NUM`) still ends the stage with exit 2 naming the key | `snapshot_seeds`, `_snapshot_value` and `--refresh-snapshot` in `modernization/validation/diff_harness_vs_warehouse.py`; the two files under `modernization/validation/expected/` |
+| 8 | `validation/artifacts/verify-env.txt` named the absolute checkout it was produced in, and the extraction tool followed a symlinked read input while the translator refused one | line 1 was `verify-env report of <absolute path>/modernization`, so every checkout dirtied the file for path reasons alone; `--commarea` and `--field-map` as symbolic links → exit 0 | line 1 is `verify-env report of modernization in this checkout` and the interpreter is named `modernization/.venv/bin/python`; symlinked `--commarea` → exit **4** `the COMMAREA capture is a symbolic link`, symlinked `--field-map` → exit **4**, real files → exit 0 | the `verify-env` recipe of `modernization/Makefile`; `_read_bounded_bytes` in `modernization/extraction/extract_commarea.py` |
+
+Two published artifacts still carry an absolute path: `dbt-clean.log` and `execute-harness.log`. Both are the verbatim
+output of their producer — the dbt CLI and `harness/run_harness.sh` — and both already differ between two runs of one
+checkout through clock times, a process identifier, a staging directory name and measured durations, so relativising
+their paths would not make either byte-stable. That scope choice is D-99.
+
+The read-input symlink refusal is scoped to `extraction/extract_commarea.py`, the tool the finding names.
+`landing/land_to_s3.py`, `landing/load_local.py` and the comparison tool's text reader still follow a symbolic link
+standing at a read input; no write in this tree traverses a link and every read input is content-validated, so no
+exposure was measured. That scope choice is D-100.
+
+One diagnostic imprecision is recorded and not changed: when a capture snapshot does not match, the comparison tool
+reports the coverage of that case as `0 of 40` although every column was compared before the snapshot was read. The
+verdict and the differing keys are correct; only the coverage figure of a failing run understates what ran.

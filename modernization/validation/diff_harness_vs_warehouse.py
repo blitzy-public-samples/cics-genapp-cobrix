@@ -37,6 +37,21 @@ WHICH VALUES IT COMPARES
     issued_policy and preissued_rating, each with the declared column names in
     the declared ordinal order.
 
+WHAT IT REQUIRES OF THE WAREHOUSE STATE BEFORE IT COMPARES ANYTHING
+    That the transform which produced that state is established as successful.
+    Before the first row is read, the dbt run artifact named by
+    --dbt-run-results is read and every node status it records is examined.
+    "success" and "pass" are accepted; "warn" passes and is named in both
+    reports; "error", "fail", "skipped", "runtime error" and any status this tool
+    does not know are refused, and so are an absent, unreadable, oversized,
+    non-UTF-8, non-JSON or non-object artifact, an artifact carrying no results
+    member, a results member that is not a list, an empty results list, a result
+    that is not an object and a result without a status. A refusal is recorded in
+    both reports, no case is read, no row is compared, the verdict is FAIL and
+    the run returns 3, so a warehouse state left behind by a dbt invocation that
+    did not succeed cannot be certified by this gate - whether the gate was
+    reached through the Makefile order or invoked on its own.
+
 HOW AMOUNTS ARE COMPARED
     The six amount values are read as digit strings and carried as
     decimal.Decimal; no amount ever passes through a binary float. The delta is
@@ -100,6 +115,18 @@ WHICH INPUTS IT ACCEPTS
                     modernization/validation/artifacts/diff-report.json.
     --expected-dir  directory of the per-case capture snapshots. Default
                     modernization/validation/expected.
+    --refresh-snapshot
+                    rewrite the capture snapshot of every compared case from this
+                    run instead of comparing it. The supported way to re-baseline
+                    a snapshot; without it a snapshot on disk is compared and a
+                    difference fails the run.
+    --dbt-run-results
+                    dbt run artifact holding the outcome of the transform that
+                    produced the warehouse state. Default, resolved against this
+                    file's own repository root like every other default,
+                    modernization/dbt/genapp_rqi/target/run_results.json, the
+                    target directory of the one dbt project of this bridge, so
+                    the caller of the diff stage names no path.
     --self-test     run the built-in case matrix and exit; it opens no warehouse,
                     reaches no endpoint, reads no harness output and writes
                     nothing outside one private temporary directory it creates
@@ -115,13 +142,25 @@ WHICH INPUTS IT ACCEPTS
     documented default applies.
 
 WHAT IT WRITES
-    A Markdown report and a JSON report, each replaced in full on every run, and
+    A Markdown report and a JSON report, each replaced in full on every run, both
+    carrying the transform freshness precondition - its verdict, the dbt
+    invocation the artifact records and every node status that refused it - and
     one capture snapshot per case at
     <expected-dir>/<case>/captures.normalized.json. A snapshot that is absent is
     written; a snapshot that is present is compared, and a difference is
-    reported key by key and fails the run. Nothing else is written: no database
-    is modified, no AWS resource is created and no path under base/ is opened
-    for writing.
+    reported key by key and fails the run; --refresh-snapshot rewrites it
+    instead, reports it as refreshed and names the cases it rewrote on the
+    summary. Nothing else is written: no database is modified, no AWS resource is
+    created and no path under base/ is opened for writing.
+
+    The snapshot carries a symbol where a value is one the seeds of the harness
+    run determine: the assigned policy number, in the zero-padded form of its
+    COMMAREA window, in the digits-alone form of the SQL capture and at the end
+    of the composite VSAM key, and the assigned 26-character timestamp. Both
+    seeds - HARNESS_POLICY_NUMBER and HARNESS_LASTCHANGED of
+    modernization/harness/run_harness.sh - therefore leave the document
+    unchanged, while every other value, and any of those values that is not the
+    one the run assigned, is carried as it stands and reported when it moves.
 
     No credential, password, token, IAM role, endpoint URL or environment
     listing reaches stdout, stderr, the Markdown report or the JSON report. A
@@ -139,6 +178,9 @@ WHAT --self-test CHECKS
     comparison functions in this process over built records: a non-amount value
     the warehouse carries differently, an amount delta of zero, one below the
     tolerance, one exactly at it, one just above it and one well above it, a
+    capture snapshot built under two identity seeds and two timestamp seeds, the
+    drift of a value no seed determines, the refusal of a tampered snapshot and
+    the rewrite --refresh-snapshot performs over one, a
     warehouse amount carrying another scale, an absent harness authority and a
     column with no authority at all, the NULL expectation of a product premium
     in both directions, the blank-window path of a nullable column in both
@@ -151,6 +193,16 @@ WHAT --self-test CHECKS
     line of a failing run, and the refusal of an output path resolving inside a
     protected tree. Every case asserts an observed value, and one case asserts
     that a failing case returns the self-test status.
+
+    It drives the transform freshness precondition over dbt run artifacts it
+    builds: a run of successful models, a test invocation of passing nodes and a
+    warned node, all accepted; a failed model with its skipped consumers, a
+    failed data test, a runtime error and an unrecognised status, all refused;
+    and an artifact that is absent, a directory, not JSON, not a JSON object,
+    without a results member, with a results member that is not a list, with an
+    empty results list, with a result that is not an object and with a result
+    without a status, all refused. One further case drives the refusal into both
+    reports and asserts the status it returns.
 
     The matrix opens no warehouse, reaches no endpoint, reads no harness output
     and reads no field map. It writes two reports and one document inside one
@@ -167,9 +219,16 @@ HOW IT FAILS
         declares, an unreadable capture line, a repeated capture key, an absent
         capture key a comparison needs, or a capture snapshot that differs from
         the one on disk.
-    3   the warehouse answered but its content is refused: a canonical relation
-        set or column set other than the declared one, or other than exactly one
-        row for the natural key of a case.
+    3   the warehouse content is refused. Either the transform freshness
+        precondition refused the state before any comparison was made - the dbt
+        run artifact is absent, unreadable, oversized, not UTF-8, not JSON, not a
+        JSON object, carries no results member, carries a results member that is
+        not a list, carries an empty results list, carries a result that is not
+        an object, carries a result without a status, or records a node whose
+        status is not "success", "pass" or "warn" - or the warehouse answered and
+        its content is refused: a canonical relation set or column set other than
+        the declared one, or other than exactly one row for the natural key of a
+        case. Both reports are written and state which of the two it was.
     4   a connection, configuration or usage failure: an unknown option, a
         target that cannot be opened, an absent Redshift setting, an adapter
         that is not installed, or a field map that disagrees with the byte grid
@@ -271,6 +330,39 @@ DEFAULT_JSON_REPORT = "modernization/validation/artifacts/diff-report.json"
 DEFAULT_EXPECTED_DIR = "modernization/validation/expected"
 ARTIFACTS_DIR = "modernization/validation/artifacts"
 
+# Artifact dbt-core writes at the end of every invocation that reaches its first
+# node, holding the status of each node of that invocation. It is the transform
+# outcome this tool reads before it publishes any verdict, and the default resolves
+# against REPO_ROOT like every other default above, so the target directory of the
+# one dbt project of this bridge is read without a caller naming it.
+DEFAULT_DBT_RUN_RESULTS = "modernization/dbt/genapp_rqi/target/run_results.json"
+
+# Largest dbt run artifact this tool reads. It carries one entry per executed node,
+# so it grows with the node count of the project rather than with the data, and this
+# bound is above the whole model and test tree of this project by a wide margin.
+MAX_RUN_RESULTS_BYTES = 16_777_216
+
+# Node statuses of a dbt run artifact, by what each one means for the transform
+# freshness precondition. dbt records "success" for a model that built and "pass"
+# for a data test that held; both are accepted. "warn" is a data test that held
+# under a warn-level severity: it passes the precondition and is named in both
+# reports. Every status below is refused, and so is a status outside all three
+# tuples, because a node that errored, failed, was skipped or recorded something
+# this tool does not know leaves the warehouse state unestablished.
+DBT_STATUSES_ACCEPTED = ("success", "pass")
+DBT_STATUSES_WARNED = ("warn",)
+DBT_STATUSES_REFUSED = ("error", "fail", "skipped", "runtime error")
+
+# Verdicts of the transform freshness precondition, carried into both reports.
+FRESHNESS_FRESH = "FRESH"
+FRESHNESS_REFUSED = "REFUSED"
+
+# Status a run returns when the precondition refuses. A warehouse state whose last
+# transform is not established as successful is warehouse content this tool refuses,
+# which is what EXIT_WAREHOUSE_REFUSED states; the precondition adds no status of
+# its own.
+FRESHNESS_REFUSED_STATUS = EXIT_WAREHOUSE_REFUSED
+
 # Source-system discriminator applied when neither the option nor the
 # environment names one.
 DEFAULT_SOURCE_SYSTEM_KEY = "GENAPP_CLASS_EXEMPLAR"
@@ -283,8 +375,14 @@ SAMPLES_DIR_NAME = "samples"
 SAMPLE_NAME_TEMPLATE = "commarea_{fixture}.dat"
 SAMPLE_PATH_VARIABLE = "DD_SAMPLEFILE"
 
-# Name of the per-case capture snapshot inside <expected-dir>/<case>.
+# Name of the per-case capture snapshot inside <expected-dir>/<case>, and the
+# three states one run leaves it in: written where none stood there, matched
+# where the one there holds this run's document, and refreshed where
+# --refresh-snapshot replaced it.
 SNAPSHOT_NAME = "captures.normalized.json"
+SNAPSHOT_STATE_WRITTEN = "written"
+SNAPSHOT_STATE_MATCHED = "matched"
+SNAPSHOT_STATE_REFRESHED = "refreshed"
 
 # Largest file this tool reads, applied to every input.
 MAX_INPUT_BYTES = 1_048_576
@@ -2686,14 +2784,136 @@ def read_harness_case(
     )
 
 
-def build_snapshot(result: CaseResult, harness: HarnessCase) -> dict[str, Any]:
+# COMMAREA items whose value the seeds of the run determine: the policy number
+# the chain assigns, seeded by HARNESS_POLICY_NUMBER, and the timestamp it reads
+# back, seeded by HARNESS_LASTCHANGED. Both seeds are documented in
+# modernization/harness/run_harness.sh and both carry a default.
+POLICY_NUMBER_ITEM = "CA-POLICY-NUM"
+LASTCHANGED_ITEM = "CA-LASTCHANGED"
+
+# Forms the assigned policy number stands in: zero-padded to the width of its
+# COMMAREA window, as the digits of the number alone, and at the end of the
+# composite VSAM key, behind the type letter and the customer number.
+SNAPSHOT_FORM_PADDED = "padded"
+SNAPSHOT_FORM_DECIMAL = "decimal"
+SNAPSHOT_FORM_TRAILING = "trailing"
+
+# Symbols a snapshot carries in place of a value the seeds of the run determine.
+# The padded symbol states the window width the run resolved for the policy
+# number, so the document records the width it was padded to.
+SNAPSHOT_POLICY_NUMBER_SYMBOL = "<policy-number>"
+SNAPSHOT_POLICY_NUMBER_PADDED_SYMBOL = "<policy-number:{width}>"
+SNAPSHOT_LASTCHANGED_SYMBOL = "<last-changed>"
+
+# Snapshot keys the assigned policy number reaches, with the form each one
+# carries it in, and the keys the assigned timestamp reaches. A capture key is
+# the COMMAREA item with its hyphens replaced, so the capture spelling and the
+# window spelling of one item are two distinct keys and one mapping covers the
+# capture keys, the COMMAREA windows and the driver-input windows of a document.
+# A key of either mapping is symbolised only where its value equals the value the
+# run assigned, so a window the request supplies - the driver input carries the
+# policy number as zeros before the chain assigns one - stays compared as it
+# stands.
+SNAPSHOT_IDENTITY_KEYS = {
+    POLICY_NUMBER_ITEM: SNAPSHOT_FORM_PADDED,
+    _capture_key_of(POLICY_NUMBER_ITEM): SNAPSHOT_FORM_PADDED,
+    VSAM_POLICY_NUM_KEY: SNAPSHOT_FORM_PADDED,
+    SQL_CAPTURE_KEYS["policy_number"]: SNAPSHOT_FORM_DECIMAL,
+    VSAM_KEY_KEY: SNAPSHOT_FORM_TRAILING,
+}
+SNAPSHOT_LASTCHANGED_KEYS = (
+    LASTCHANGED_ITEM,
+    _capture_key_of(LASTCHANGED_ITEM),
+    SQL_CAPTURE_KEYS["last_changed"],
+)
+
+
+class SnapshotSeeds(NamedTuple):
+    """The identity and the timestamp of one run, in the forms a snapshot holds.
+
+    ``padded`` and ``decimal`` are the assigned policy number of the run,
+    zero-padded to the width of its COMMAREA window and as its digits alone;
+    ``padded_symbol`` is the symbol that replaces the padded form and states that
+    width. ``last_changed`` is the timestamp the returned COMMAREA carries. A
+    member holding the empty string leaves the values of its keys as they stand.
+    """
+
+    padded: str
+    decimal: str
+    padded_symbol: str
+    last_changed: str
+
+
+def snapshot_seeds(
+    result: CaseResult, harness: HarnessCase, field_map: FieldMap
+) -> SnapshotSeeds:
+    """Return the seeded values of one compared case, read from its own output.
+
+    The identity is the policy number this run resolved from the returned
+    COMMAREA and compared against both canonical rows, and the timestamp is the
+    window of that same record. Both are the authority of the case: a capture or
+    a key that carries another value is left as it stands, so the snapshot still
+    reports it.
+    """
+    window = field_map.window(POLICY_NUMBER_ITEM)
+    padded, decimal = "", ""
+    if result.policy_number is not None:
+        decimal = str(result.policy_number)
+        padded = decimal.zfill(window.length)
+    return SnapshotSeeds(
+        padded=padded,
+        decimal=decimal,
+        padded_symbol=SNAPSHOT_POLICY_NUMBER_PADDED_SYMBOL.format(
+            width=window.length
+        ),
+        last_changed=slice_window(
+            harness.commarea, field_map.window(LASTCHANGED_ITEM), "returned COMMAREA"
+        ).strip(),
+    )
+
+
+def _snapshot_value(key: str, raw: str, seeds: SnapshotSeeds) -> str:
+    """Return the snapshot form of ``raw`` under ``key``.
+
+    A key of ``SNAPSHOT_IDENTITY_KEYS`` whose value is the assigned policy number
+    in the form that key carries yields the symbol of that form, and the
+    composite VSAM key yields its own leading characters followed by the symbol.
+    A key of ``SNAPSHOT_LASTCHANGED_KEYS`` whose value is the assigned timestamp
+    yields the timestamp symbol. Every other key, and every value that is not the
+    value this run assigned, is returned unchanged.
+    """
+    form = SNAPSHOT_IDENTITY_KEYS.get(key)
+    if form is not None and seeds.padded:
+        if form == SNAPSHOT_FORM_PADDED and raw == seeds.padded:
+            return seeds.padded_symbol
+        if form == SNAPSHOT_FORM_DECIMAL and raw == seeds.decimal:
+            return SNAPSHOT_POLICY_NUMBER_SYMBOL
+        if form == SNAPSHOT_FORM_TRAILING and raw.endswith(seeds.padded):
+            return f"{raw[: -len(seeds.padded)]}{seeds.padded_symbol}"
+    if key in SNAPSHOT_LASTCHANGED_KEYS and seeds.last_changed:
+        if raw == seeds.last_changed:
+            return SNAPSHOT_LASTCHANGED_SYMBOL
+    return raw
+
+
+def build_snapshot(
+    result: CaseResult, harness: HarnessCase, field_map: FieldMap
+) -> dict[str, Any]:
     """Return the normalised harness capture snapshot of one compared case.
 
     It carries every capture key this run read with the value it held, every
     COMMAREA and driver-input window this run sliced, and the case identity the
     comparison used. Keys and window names are sorted, so two runs of the same
     harness output write the same document.
+
+    A value the seeds of the run determine - the assigned policy number in each
+    of the three forms it appears in and the assigned timestamp - is carried as
+    the symbol of that position rather than as its digits, so a run under another
+    HARNESS_POLICY_NUMBER or HARNESS_LASTCHANGED writes the same document while
+    every other value, and any of those values that is not the one this run
+    assigned, is carried as it stands.
     """
+    seeds = snapshot_seeds(result, harness, field_map)
     captures: dict[str, str] = {}
     commarea_windows: dict[str, str] = {}
     driver_windows: dict[str, str] = {}
@@ -2701,19 +2921,22 @@ def build_snapshot(result: CaseResult, harness: HarnessCase) -> dict[str, Any]:
         for witness in comparison.witnesses:
             if witness.raw is None or witness.key is None:
                 continue
+            value = _snapshot_value(witness.key, witness.raw, seeds)
             if witness.family == "capture":
-                captures[witness.key] = witness.raw
+                captures[witness.key] = value
             elif witness.family == "commarea":
-                commarea_windows[witness.key] = witness.raw
+                commarea_windows[witness.key] = value
             elif witness.family == "driver-input":
-                driver_windows[witness.key] = witness.raw
+                driver_windows[witness.key] = value
     for assertion in result.assertions:
         if (
             assertion.group in (GROUP_CHAIN, GROUP_VSAM)
             and not assertion.missing
             and assertion.name in harness.captures
         ):
-            captures[assertion.name] = harness.captures[assertion.name]
+            captures[assertion.name] = _snapshot_value(
+                assertion.name, harness.captures[assertion.name], seeds
+            )
     return {
         "case": result.case,
         "fixture": result.fixture,
@@ -2754,17 +2977,28 @@ def _snapshot_differences(
     return differences
 
 
-def apply_snapshot(path: Path, document: Mapping[str, Any]) -> str:
+def apply_snapshot(
+    path: Path, document: Mapping[str, Any], *, refresh: bool = False
+) -> str:
     """Write the snapshot at ``path``, or compare it with the one already there.
 
     A path that carries nothing is written and reported as written. A path that
     carries a snapshot is read and compared, and a difference raises
     ``HarnessInputError`` naming every key that differs with both values.
+
+    ``refresh`` replaces the snapshot already there with ``document`` and reports
+    it as refreshed. The path it writes is the snapshot of the case inside the
+    expected directory of the run, and the write goes through the same guard every
+    output of this tool goes through, which refuses a path resolving inside a
+    protected tree.
     """
     rendered = json.dumps(document, indent=2, sort_keys=True, ensure_ascii=True) + "\n"
     if not path.exists():
         _write_output(path, rendered)
-        return "written"
+        return SNAPSHOT_STATE_WRITTEN
+    if refresh:
+        _write_output(path, rendered)
+        return SNAPSHOT_STATE_REFRESHED
     text = _read_text(path, "capture snapshot", HarnessInputError)
     try:
         stored = json.loads(text)
@@ -2785,7 +3019,7 @@ def apply_snapshot(path: Path, document: Mapping[str, Any]) -> str:
             f"{_path_shown(path)} in {len(differences)} place"
             f"{'' if len(differences) == 1 else 's'}: " + "; ".join(differences[:20])
         )
-    return "matched"
+    return SNAPSHOT_STATE_MATCHED
 
 
 
@@ -2827,6 +3061,7 @@ def compare_case(
     field_map: FieldMap,
     source_system_key: str,
     expected_dir: Path,
+    refresh_snapshot: bool = False,
 ) -> CaseResult:
     """Compare one case against both canonical relations and return its result.
 
@@ -2835,7 +3070,8 @@ def compare_case(
     natural key (source_system_key, policy_number). Every column of both relations
     is then compared, followed by the chain-completion assertions, the VSAM
     corroboration, the cross-relation identity of the three shared columns and the
-    capture snapshot.
+    capture snapshot. ``refresh_snapshot`` rewrites that snapshot instead of
+    comparing it; every other comparison of the case is made either way.
     """
     result = CaseResult(
         case=case,
@@ -2927,7 +3163,9 @@ def compare_case(
     snapshot_path = expected_dir / case.lower() / SNAPSHOT_NAME
     result.snapshot_path = _path_shown(snapshot_path)
     result.snapshot_state = apply_snapshot(
-        snapshot_path, build_snapshot(result, harness)
+        snapshot_path,
+        build_snapshot(result, harness, field_map),
+        refresh=refresh_snapshot,
     )
     return result
 
@@ -2953,6 +3191,7 @@ class RunReport:
     requested_cases: tuple[str, ...]
     local_substitute: bool
     inventory: dict[str, Any] = field(default_factory=dict)
+    transform_freshness: dict[str, Any] = field(default_factory=dict)
     gate_artifact: dict[str, Any] = field(default_factory=dict)
     return_codes: Mapping[str, str] = field(default_factory=dict)
     cases: list[CaseResult] = field(default_factory=list)
@@ -3022,6 +3261,7 @@ class RunReport:
             "expected_dir": self.expected_dir,
             "requested_cases": list(self.requested_cases),
             "canonical_inventory": self.inventory,
+            "transform_freshness": self.transform_freshness,
             "gate_artifact": self.gate_artifact,
             "return_code_vocabulary": dict(sorted(self.return_codes.items())),
             "figure_reference": (
@@ -3134,6 +3374,11 @@ def render_markdown(report: RunReport) -> str:
                 ("capture snapshots", report.expected_dir),
                 ("cases requested", ", ".join(report.requested_cases)),
                 (
+                    "transform freshness",
+                    f"{report.transform_freshness.get('verdict', '—')} — "
+                    f"{report.transform_freshness.get('note', 'not established')}",
+                ),
+                (
                     "gate artifact",
                     report.gate_artifact.get("name")
                     or report.gate_artifact.get("note", "none read"),
@@ -3178,6 +3423,7 @@ def render_markdown(report: RunReport) -> str:
             "",
         ]
     )
+    lines.extend(_render_transform_freshness(report, label))
     if report.errors:
         lines.extend(["## Reported failures", ""])
         lines.extend(f"- {_printable(message)}" for message in report.errors)
@@ -3299,6 +3545,118 @@ def render_markdown(report: RunReport) -> str:
     return "\n".join(lines) + "\n"
 
 
+def _render_transform_freshness(report: RunReport, label: str) -> list[str]:
+    """Return the Markdown section of the transform freshness precondition.
+
+    The section states the verdict of the precondition, the dbt invocation the
+    artifact records and the node statuses it holds, and it is rendered whichever
+    verdict the precondition reached, so a published report always states which
+    transform outcome the comparison stands on.
+    """
+    document = report.transform_freshness
+    lines = ["## Transform freshness precondition", ""]
+    if not document:
+        lines.extend(
+            [
+                (
+                    "The precondition was not evaluated on this run, so no dbt "
+                    f"transform outcome stands behind the values below — {label}."
+                ),
+                "",
+            ]
+        )
+        return lines
+    invocation = document.get("invocation", {})
+    counts = document.get("nodes", {})
+    lines.extend(
+        _table(
+            ("Item", "Value"),
+            (
+                ("verdict", document.get("verdict")),
+                ("dbt run artifact", document.get("path")),
+                ("dbt version", invocation.get("dbt_version")),
+                ("artifact schema", invocation.get("schema_version")),
+                ("invocation id", invocation.get("invocation_id")),
+                ("recorded at", invocation.get("generated_at")),
+                ("subcommand", invocation.get("command")),
+                ("dbt target", invocation.get("dbt_target")),
+                ("elapsed seconds", invocation.get("elapsed_time")),
+                ("nodes recorded", counts.get("total")),
+                ("nodes successful", counts.get("accepted")),
+                ("nodes warned", counts.get("warned")),
+                ("nodes refused", counts.get("refused")),
+                (
+                    "statuses accepted",
+                    ", ".join(document.get("accepted_statuses", ())),
+                ),
+                ("statuses warned", ", ".join(document.get("warned_statuses", ()))),
+                ("statuses refused", ", ".join(document.get("refused_statuses", ()))),
+            ),
+        )
+    )
+    lines.append("")
+    warned = list(document.get("warned_nodes", ()))
+    if warned:
+        lines.extend(["### Nodes dbt recorded as warned", ""])
+        lines.extend(
+            _table(
+                ("Node", "Status", "Message"),
+                (
+                    (node.get("unique_id"), node.get("status"), node.get("message"))
+                    for node in warned
+                ),
+            )
+        )
+        lines.extend(
+            [
+                "",
+                (
+                    "A warned node passes this precondition and is named here — "
+                    f"{label}."
+                ),
+                "",
+            ]
+        )
+    refused = list(document.get("refused_nodes", ()))
+    if refused:
+        lines.extend(["### Nodes dbt did not record as successful", ""])
+        lines.extend(
+            _table(
+                ("Node", "Status", "Message"),
+                (
+                    (node.get("unique_id"), node.get("status"), node.get("message"))
+                    for node in refused
+                ),
+            )
+        )
+        lines.append("")
+    if transform_is_fresh(document):
+        lines.extend(
+            [
+                (
+                    "Every node of the last dbt invocation recorded a successful "
+                    f"status, so the warehouse state below is the state that "
+                    f"invocation produced — {label}."
+                ),
+                "",
+            ]
+        )
+        return lines
+    lines.extend(
+        [
+            (
+                f"**The precondition refused this warehouse state** (exit status "
+                f"{FRESHNESS_REFUSED_STATUS}): no comparison was made and no "
+                f"verdict is published for it — {label}."
+            ),
+            "",
+        ]
+    )
+    lines.extend(f"- {_printable(reason)}" for reason in document.get("refusals", ()))
+    lines.append("")
+    return lines
+
+
 def _render_case(case: CaseResult, label: str) -> list[str]:
     """Return the Markdown section of one compared case."""
     lines = [
@@ -3409,6 +3767,254 @@ def _render_case(case: CaseResult, label: str) -> list[str]:
 
 
 # --------------------------------------------------------------------------
+# Transform freshness
+# --------------------------------------------------------------------------
+def _recorded(value: Any, limit: int = 200) -> str | None:
+    """Return ``value`` as one printable line of at most ``limit`` characters.
+
+    A value that is absent yields None, so a report records the absence rather
+    than a placeholder. Only the members named by ``read_transform_freshness`` are
+    passed through here; no other member of the artifact is read or reported.
+    """
+    if value is None:
+        return None
+    text = _printable(str(value).replace("\r", " ").replace("\n", " ")).strip()
+    if not text:
+        return None
+    return text if len(text) <= limit else f"{text[:limit]}...({len(text)} characters)"
+
+
+def _freshness_refused(document: dict[str, Any], reason: str) -> dict[str, Any]:
+    """Record ``reason`` against ``document``, note it and return it refused."""
+    document["verdict"] = FRESHNESS_REFUSED
+    document["refusals"].append(reason)
+    document["note"] = _freshness_note(document)
+    return document
+
+
+def read_transform_freshness(path: Path) -> dict[str, Any]:
+    """Return what dbt recorded for the transform that produced the warehouse state.
+
+    ``path`` names the run_results.json of the one dbt project of this bridge. The
+    document returned carries the verdict of the precondition, FRESHNESS_FRESH or
+    FRESHNESS_REFUSED, the reason of every refusal, the invocation dbt recorded and
+    the node statuses it holds. Nothing is raised and nothing is written: a caller
+    records this document in both reports whichever verdict it carries.
+
+    The verdict is FRESHNESS_REFUSED where the artifact is absent, cannot be
+    examined, is larger than MAX_RUN_RESULTS_BYTES, cannot be read, is not UTF-8
+    text, is not JSON, is not a JSON object, carries no results member, carries a
+    results member that is not a list, carries an empty results list, carries a
+    result that is not an object, carries a result without a usable status, or
+    carries a node whose status is not one of DBT_STATUSES_ACCEPTED. A node status
+    of DBT_STATUSES_WARNED passes and is named in the document and in both reports.
+
+    What the artifact establishes, and what it does not. dbt-core writes it at the
+    end of every invocation that reaches its first node, so it states the outcome
+    of that invocation and of no other; an invocation that ends before its first
+    node - a refused connection, a profile that does not render, a target name that
+    does not exist - leaves the previous artifact in place. The invocation
+    identifier, the recorded moment, the dbt version, the subcommand and the dbt
+    target name are therefore carried into both reports, and
+    modernization/dbt/genapp_rqi/dbt_project.yml states the "dbt clean" contract
+    that leaves no earlier artifact behind.
+
+    Only metadata.dbt_schema_version, metadata.dbt_version,
+    metadata.invocation_id, metadata.generated_at, elapsed_time, args.which,
+    args.target and the unique_id, status and message of each result are read. No
+    other member is read, so no connection value, credential or environment listing
+    of the artifact reaches a report.
+    """
+    document: dict[str, Any] = {
+        "path": _path_shown(path),
+        "verdict": FRESHNESS_FRESH,
+        "refusals": [],
+        "accepted_statuses": list(DBT_STATUSES_ACCEPTED),
+        "warned_statuses": list(DBT_STATUSES_WARNED),
+        "refused_statuses": list(DBT_STATUSES_REFUSED),
+        "invocation": {},
+        "nodes": {"total": 0, "accepted": 0, "warned": 0, "refused": 0},
+        "warned_nodes": [],
+        "refused_nodes": [],
+    }
+    shown = _path_shown(path)
+    try:
+        size = path.stat().st_size
+    except FileNotFoundError:
+        return _freshness_refused(
+            document,
+            f"no dbt run artifact stands at {shown}, so no transform outcome is "
+            f"recorded for the warehouse state this run would compare",
+        )
+    except OSError as error:
+        return _freshness_refused(
+            document,
+            f"the dbt run artifact at {shown} cannot be examined: "
+            f"{_printable(error.strerror or type(error).__name__)}",
+        )
+    if size > MAX_RUN_RESULTS_BYTES:
+        return _freshness_refused(
+            document,
+            f"the dbt run artifact at {shown} holds {size} bytes, beyond the "
+            f"{MAX_RUN_RESULTS_BYTES} bytes this tool reads",
+        )
+    try:
+        text = path.read_text(encoding="utf-8")
+    except UnicodeDecodeError as error:
+        return _freshness_refused(
+            document,
+            f"the dbt run artifact at {shown} is not UTF-8 text at byte "
+            f"{error.start}",
+        )
+    except OSError as error:
+        return _freshness_refused(
+            document,
+            f"the dbt run artifact at {shown} cannot be read: "
+            f"{_printable(error.strerror or type(error).__name__)}",
+        )
+    try:
+        loaded = json.loads(text)
+    except ValueError as error:
+        return _freshness_refused(
+            document,
+            f"the dbt run artifact at {shown} is not JSON: {_first_line(error)}",
+        )
+    if not isinstance(loaded, dict):
+        return _freshness_refused(
+            document,
+            f"the dbt run artifact at {shown} is not a JSON object but a "
+            f"{type(loaded).__name__}",
+        )
+    metadata = loaded.get("metadata")
+    metadata = metadata if isinstance(metadata, Mapping) else {}
+    arguments = loaded.get("args")
+    arguments = arguments if isinstance(arguments, Mapping) else {}
+    document["invocation"] = {
+        "schema_version": _recorded(metadata.get("dbt_schema_version")),
+        "dbt_version": _recorded(metadata.get("dbt_version")),
+        "invocation_id": _recorded(metadata.get("invocation_id")),
+        "generated_at": _recorded(metadata.get("generated_at")),
+        "command": _recorded(arguments.get("which")),
+        "dbt_target": _recorded(arguments.get("target")),
+        "elapsed_time": _recorded(loaded.get("elapsed_time")),
+    }
+    results = loaded.get("results")
+    if results is None:
+        return _freshness_refused(
+            document,
+            f"the dbt run artifact at {shown} carries no results member, so it "
+            f"records the outcome of no node",
+        )
+    if not isinstance(results, list):
+        return _freshness_refused(
+            document,
+            f"the results member of the dbt run artifact at {shown} is not a list "
+            f"but a {type(results).__name__}",
+        )
+    if not results:
+        return _freshness_refused(
+            document,
+            f"the dbt run artifact at {shown} records no node, so no transform "
+            f"outcome is established for the warehouse state this run would compare",
+        )
+    document["nodes"]["total"] = len(results)
+    for index, entry in enumerate(results):
+        if not isinstance(entry, Mapping):
+            document["nodes"]["refused"] += 1
+            _freshness_refused(
+                document,
+                f"result {index} of the dbt run artifact at {shown} is not an "
+                f"object but a {type(entry).__name__}",
+            )
+            continue
+        name = _recorded(entry.get("unique_id")) or f"result {index}"
+        message = _recorded(entry.get("message"))
+        raw_status = entry.get("status")
+        status = _recorded(raw_status)
+        if status is None:
+            document["nodes"]["refused"] += 1
+            document["refused_nodes"].append(
+                {"unique_id": name, "status": None, "message": message}
+            )
+            _freshness_refused(
+                document,
+                f"the node {name} of the dbt run artifact at {shown} records no "
+                f"status",
+            )
+            continue
+        folded = status.lower()
+        if folded in DBT_STATUSES_ACCEPTED:
+            document["nodes"]["accepted"] += 1
+            continue
+        if folded in DBT_STATUSES_WARNED:
+            document["nodes"]["warned"] += 1
+            document["warned_nodes"].append(
+                {"unique_id": name, "status": status, "message": message}
+            )
+            continue
+        document["nodes"]["refused"] += 1
+        document["refused_nodes"].append(
+            {"unique_id": name, "status": status, "message": message}
+        )
+        recognised = "" if folded in DBT_STATUSES_REFUSED else " unrecognised"
+        _freshness_refused(
+            document,
+            f"the node {name} of the dbt run artifact at {shown} recorded the"
+            f"{recognised} status {_shown(status)}"
+            + (f": {message}" if message else ""),
+        )
+    document["note"] = _freshness_note(document)
+    return document
+
+
+def _freshness_note(document: Mapping[str, Any]) -> str:
+    """Return the one-line summary of a freshness document, for the report tables."""
+    counts = document.get("nodes", {})
+    invocation = document.get("invocation", {})
+    refusals = list(document.get("refusals", ()))
+    if refusals:
+        head = refusals[0]
+        remainder = (
+            "" if len(refusals) == 1 else f" (and {len(refusals) - 1} further refusal"
+            f"{'' if len(refusals) == 2 else 's'})"
+        )
+        return f"{head}{remainder}"
+    command = invocation.get("command") or "an unnamed subcommand"
+    warned = counts.get("warned", 0)
+    return (
+        f"dbt {command} recorded {counts.get('total', 0)} node"
+        f"{'' if counts.get('total', 0) == 1 else 's'}, "
+        f"{counts.get('accepted', 0)} of them successful and {warned} warned"
+        + (
+            ""
+            if not warned
+            else ": "
+            + ", ".join(
+                str(node.get("unique_id")) for node in document.get("warned_nodes", ())
+            )
+        )
+    )
+
+
+def transform_is_fresh(document: Mapping[str, Any]) -> bool:
+    """Return whether ``document`` establishes a successful transform."""
+    return document.get("verdict") == FRESHNESS_FRESH
+
+
+def freshness_diagnostic(document: Mapping[str, Any]) -> str:
+    """Return the refusal one line, naming what the artifact recorded."""
+    refusals = list(document.get("refusals", ()))
+    named = "; ".join(refusals[:5])
+    remainder = (
+        "" if len(refusals) <= 5 else f"; and {len(refusals) - 5} further refusals"
+    )
+    return (
+        "the transform that produced this warehouse state is not established as "
+        f"successful, so no verdict is published: {named}{remainder}"
+    )
+
+
+# --------------------------------------------------------------------------
 # Gate artifact
 # --------------------------------------------------------------------------
 def read_gate_artifact(artifacts_dir: Path) -> dict[str, Any]:
@@ -3470,8 +4076,11 @@ exit statuses:
   1  a comparison failed
   2  a harness input is missing or incomplete, including an absent capture key a
      comparison needs and a capture snapshot the harness output differs from
-  3  the warehouse content was refused: a canonical relation or column set other
-     than the declared one, or other than exactly one row for a natural key
+  3  the warehouse content was refused: the transform freshness precondition
+     refused the state, because the dbt run artifact is absent, unreadable or
+     records a node dbt did not record as successful; or the warehouse answered a
+     canonical relation or column set other than the declared one, or other than
+     exactly one row for a natural key
   4  a connection, configuration or usage failure; nothing is written
   5  one case of --self-test did not hold; a comparison run never returns it
 """
@@ -3484,8 +4093,11 @@ def build_parser() -> _ArgumentParser:
         description=(
             "Compare the GnuCOBOL harness captures of a case with the two canonical "
             "warehouse rows for the same policy, column by column. Reads the harness "
-            "output alone: no driver is started, no program is compiled and no chain "
-            "is executed. Flow context: Figure 5 — Validation Harness Control Flow "
+            "output and the dbt run artifact alone: no driver is started, no program "
+            "is compiled, no chain is executed and no model is run. A warehouse state "
+            "whose last dbt invocation did not succeed is refused before any "
+            "comparison is made. Flow context: "
+            "Figure 5 — Validation Harness Control Flow "
             "in modernization/docs/architecture.md."
         ),
         epilog=_EXIT_HELP,
@@ -3595,6 +4207,29 @@ def build_parser() -> _ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--refresh-snapshot",
+        action="store_true",
+        help=(
+            f"rewrite the {SNAPSHOT_NAME} of every compared case from this run "
+            "instead of comparing it, and report each one as refreshed. Without it a "
+            "snapshot already on disk is compared and a difference fails the run. It "
+            "writes no path outside the per-case snapshot of the expected directory "
+            "and refuses a path resolving inside a protected tree, as every output of "
+            "this tool does."
+        ),
+    )
+    parser.add_argument(
+        "--dbt-run-results",
+        default=DEFAULT_DBT_RUN_RESULTS,
+        metavar="PATH",
+        help=(
+            "dbt run artifact naming the outcome of the transform that produced the "
+            "warehouse state. A run whose artifact is absent, unreadable or carrying "
+            "a node dbt did not record as successful publishes no verdict and returns "
+            f"{FRESHNESS_REFUSED_STATUS}. Default: {DEFAULT_DBT_RUN_RESULTS}."
+        ),
+    )
+    parser.add_argument(
         "--self-test",
         action="store_true",
         help=(
@@ -3634,6 +4269,8 @@ _RUN_OPTIONS = (
     ("report", "--report"),
     ("json_report", "--json"),
     ("expected_dir", "--expected-dir"),
+    ("refresh_snapshot", "--refresh-snapshot"),
+    ("dbt_run_results", "--dbt-run-results"),
 )
 
 
@@ -3673,6 +4310,8 @@ class Settings(NamedTuple):
     report: Path
     json_report: Path
     expected_dir: Path
+    refresh_snapshot: bool
+    dbt_run_results: Path
     quiet: bool
 
 
@@ -3741,6 +4380,8 @@ def resolve_settings(arguments: argparse.Namespace) -> Settings:
         report=_resolved(arguments.report),
         json_report=_resolved(arguments.json_report),
         expected_dir=_resolved(arguments.expected_dir),
+        refresh_snapshot=bool(arguments.refresh_snapshot),
+        dbt_run_results=_resolved(arguments.dbt_run_results),
         quiet=bool(arguments.quiet),
     )
 
@@ -3752,12 +4393,19 @@ def resolve_settings(arguments: argparse.Namespace) -> Settings:
 def run(settings: Settings) -> RunReport:
     """Compare every selected case and return the report of the run.
 
-    The field map is read and checked, the warehouse is opened, the canonical
-    inventory is asserted once, and each case is then read and compared. A failure
-    of one case is recorded against that case and the remaining cases are still
-    compared, so one run reports the whole selection.
+    The field map is read and checked, the transform freshness precondition is
+    evaluated, the warehouse is opened, the canonical inventory is asserted once,
+    and each case is then read and compared. A failure of one case is recorded
+    against that case and the remaining cases are still compared, so one run
+    reports the whole selection.
+
+    The precondition stands ahead of every comparison: where the dbt run artifact
+    does not establish that the transform which produced the warehouse state
+    succeeded, the refusal is recorded in the report, no case is read, no row is
+    compared and the run carries FRESHNESS_REFUSED_STATUS.
     """
     field_map = load_field_map(settings.field_map)
+    freshness = read_transform_freshness(settings.dbt_run_results)
     warehouse = open_warehouse(settings.target, settings.database)
     report = RunReport(
         generated_at=datetime.datetime.now(datetime.UTC).strftime(
@@ -3774,10 +4422,15 @@ def run(settings: Settings) -> RunReport:
         expected_dir=_path_shown(settings.expected_dir),
         requested_cases=settings.cases,
         local_substitute=warehouse.local_substitute,
+        transform_freshness=freshness,
         gate_artifact=read_gate_artifact(_resolved(ARTIFACTS_DIR)),
         return_codes=dict(field_map.return_codes),
     )
     try:
+        if not transform_is_fresh(freshness):
+            report.errors.append(freshness_diagnostic(freshness))
+            report.statuses.append(FRESHNESS_REFUSED_STATUS)
+            return report
         try:
             report.inventory = assert_canonical_inventory(warehouse)
         except WarehouseError as error:
@@ -3802,6 +4455,7 @@ def run(settings: Settings) -> RunReport:
                         field_map,
                         settings.source_system_key,
                         settings.expected_dir,
+                        refresh_snapshot=settings.refresh_snapshot,
                     )
                 )
             except DiffError as error:
@@ -3866,6 +4520,17 @@ def print_summary(report: RunReport, settings: Settings) -> None:
             )
         for message in case.errors:
             print(f"{_PROGRAM}:   {_printable(message)}", file=sys.stderr)
+    refreshed = [
+        case.case
+        for case in report.cases
+        if case.snapshot_state == SNAPSHOT_STATE_REFRESHED
+    ]
+    if refreshed:
+        print(
+            f"{_PROGRAM}: --refresh-snapshot rewrote the capture snapshot of "
+            f"{', '.join(refreshed)} under {_path_shown(settings.expected_dir)}; the "
+            f"snapshot of those cases was not compared"
+        )
     print(f"{_PROGRAM}: markdown report {_path_shown(settings.report)}")
     print(f"{_PROGRAM}: json report {_path_shown(settings.json_report)}")
     print(verdict)
@@ -4160,13 +4825,189 @@ def _built_case(
     )
 
 
+# Values the snapshot cases build one run's output from: the identity seed and
+# the timestamp seed of the default harness run, a second identity seed and a
+# second timestamp seed a caller may pass, and the customer number the VSAM key
+# of the built case carries in front of the policy number.
+_SELF_TEST_SEED_A = 1000001
+_SELF_TEST_SEED_B = 999999989
+_SELF_TEST_STAMP_A = "2026-08-19-12.00.00.000000"
+_SELF_TEST_STAMP_B = "2027-01-02-03.04.05.678901"
+_SELF_TEST_CUSTOMER = "0000001001"
+
+
+def _self_test_field_map() -> FieldMap:
+    """Return a field map holding the byte grid this module carries and nothing else.
+
+    Only the layout windows and the record length are filled: the snapshot cases
+    read the window of the policy number and of the timestamp and nothing else.
+    """
+    windows = {
+        item: Window(
+            item=item,
+            pic=pic,
+            offset=offset,
+            length=length,
+            kind="numeric_display" if pic.startswith("9") else "alphanumeric",
+            copybook="base/src/lgcmarea.cpy",
+            line=0,
+        )
+        for item, pic, offset, length in VERIFIED_WINDOWS
+    }
+    return FieldMap(
+        path=Path(_SELF_TEST_ORIGIN),
+        record_length=COMMAREA_RECORD_LENGTH,
+        windows=windows,
+        entries={},
+        source_system_entry=FieldEntry(
+            logical_entry="source_system_key",
+            concept=_SELF_TEST_ORIGIN,
+            runtime_status=_SELF_TEST_ORIGIN,
+            populated_by=None,
+            applicable_policy_types=(),
+            commarea_item=None,
+            commarea_locator=None,
+            db2_item=None,
+            db2_locator=None,
+            evidence=(),
+            targets=(),
+        ),
+        routing=dict(VERIFIED_ROUTING),
+        routing_locator="base/src/lgapdb01.cbl:184-207",
+        supported_request_ids=tuple(sorted(VERIFIED_ROUTING)),
+        return_codes={code: _SELF_TEST_ORIGIN for code in VERIFIED_RETURN_CODES},
+        relations={},
+        amount_columns=(),
+        populated_amounts={},
+        null_amounts={},
+        declared_tolerance=str(AMOUNT_TOLERANCE),
+    )
+
+
+def _built_run_output(
+    field_map: FieldMap,
+    policy_number: int,
+    last_changed: str,
+    *,
+    customer_number: str = _SELF_TEST_CUSTOMER,
+    capture_last_changed: str | None = None,
+) -> tuple[CaseResult, HarnessCase]:
+    """Return the result and the harness inputs of one run under these seeds.
+
+    The record carries the policy number and the timestamp in their windows, the
+    comparisons carry the authorities a run reads for those two columns and for
+    the customer number no seed determines, and the captures carry the VSAM key
+    the write of that policy composed. ``capture_last_changed`` gives the policy
+    insert capture a timestamp of its own, which is how a capture that disagrees
+    with the returned record reaches a snapshot.
+    """
+    policy_window = field_map.window(POLICY_NUMBER_ITEM)
+    padded = str(policy_number).zfill(policy_window.length)
+    captured_stamp = last_changed if capture_last_changed is None else (
+        capture_last_changed
+    )
+    record = [" "] * COMMAREA_RECORD_LENGTH
+    for item, value in (
+        (POLICY_NUMBER_ITEM, padded),
+        (LASTCHANGED_ITEM, last_changed),
+        ("CA-CUSTOMER-NUM", customer_number),
+        ("CA-REQUEST-ID", _SELF_TEST_CASE),
+    ):
+        window = field_map.window(item)
+        record[window.offset - 1 : window.offset - 1 + window.length] = list(value)
+    vsam_key = f"{VERIFIED_ROUTING[_SELF_TEST_CASE]}{customer_number}{padded}"
+    captures = {
+        CASE_KEY: _SELF_TEST_CASE,
+        FIXTURE_KEY: _SELF_TEST_CASE.lower(),
+        _capture_key_of(POLICY_NUMBER_ITEM): padded,
+        _capture_key_of(LASTCHANGED_ITEM): last_changed,
+        _capture_key_of("CA-CUSTOMER-NUM"): customer_number,
+        VSAM_KEY_KEY: vsam_key,
+        VSAM_POLICY_NUM_KEY: padded,
+        VSAM_CUSTOMER_NUM_KEY: customer_number,
+    }
+    echoed = "returned COMMAREA capture"
+    result = _built_case(
+        comparisons=[
+            _record(
+                KIND_INTEGER,
+                (
+                    _commarea_witness(padded, POLICY_NUMBER_ITEM),
+                    _capture_witness(
+                        captures, _capture_key_of(POLICY_NUMBER_ITEM), echoed
+                    ),
+                    _capture_authority(
+                        str(policy_number), SQL_CAPTURE_KEYS["policy_number"]
+                    ),
+                ),
+                column="policy_number",
+            ),
+            _record(
+                KIND_TIMESTAMP,
+                (
+                    _commarea_witness(last_changed, LASTCHANGED_ITEM),
+                    _capture_witness(
+                        captures, _capture_key_of(LASTCHANGED_ITEM), echoed
+                    ),
+                    _capture_authority(
+                        captured_stamp, SQL_CAPTURE_KEYS["last_changed"]
+                    ),
+                ),
+                column="last_changed",
+            ),
+            _record(
+                KIND_INTEGER,
+                (
+                    _commarea_witness(customer_number, "CA-CUSTOMER-NUM"),
+                    _capture_witness(
+                        captures, _capture_key_of("CA-CUSTOMER-NUM"), echoed
+                    ),
+                    _capture_authority(
+                        customer_number.lstrip("0"),
+                        SQL_CAPTURE_KEYS["customer_number"],
+                    ),
+                ),
+                column="customer_number",
+            ),
+        ],
+        assertions=[
+            Assertion(
+                group=GROUP_VSAM,
+                name=name,
+                expected=captures[name],
+                observed=captures[name],
+                locator="base/src/lgapvs01.cbl:99-101",
+            )
+            for name in (VSAM_KEY_KEY, VSAM_POLICY_NUM_KEY, VSAM_CUSTOMER_NUM_KEY)
+        ],
+    )
+    result.policy_number = policy_number
+    harness = HarnessCase(
+        case=_SELF_TEST_CASE,
+        fixture=_SELF_TEST_CASE.lower(),
+        captures=captures,
+        captures_path=Path(_SELF_TEST_ORIGIN),
+        commarea="".join(record),
+        commarea_path=Path(_SELF_TEST_ORIGIN),
+        sample=None,
+        sample_path=None,
+        sample_source=_SELF_TEST_ORIGIN,
+    )
+    return result, harness
+
+
 def _built_report(
     cases: Sequence[CaseResult] = (),
     *,
     statuses: Sequence[int] = (),
     local_substitute: bool = True,
+    freshness: Mapping[str, Any] | None = None,
 ) -> RunReport:
-    """Return one run report carrying the cases a self-test case built."""
+    """Return one run report carrying the cases a self-test case built.
+
+    ``freshness`` replaces the built fresh precondition document, so a case can
+    render and document the refusal as a comparison run would record it.
+    """
     return RunReport(
         generated_at="1970-01-01T00:00:00Z",
         target=TARGET_DUCKDB if local_substitute else TARGET_REDSHIFT,
@@ -4187,10 +5028,142 @@ def _built_report(
                 PREISSUED_RATING_ALIAS: list(PREISSUED_RATING_COLUMNS),
             },
         },
+        transform_freshness=(
+            dict(freshness) if freshness is not None else _built_freshness()
+        ),
         return_codes={code: _SELF_TEST_ORIGIN for code in VERIFIED_RETURN_CODES},
         cases=list(cases),
         statuses=list(statuses),
     )
+
+
+def _run_results_node(
+    unique_id: str, status: Any, message: str | None = None
+) -> dict[str, Any]:
+    """Return one result entry of a dbt run artifact, as dbt-core writes it."""
+    return {
+        "unique_id": unique_id,
+        "status": status,
+        "message": message,
+        "failures": None,
+        "execution_time": 0.0,
+        "adapter_response": {},
+        "timing": [],
+        "thread_id": "Thread-1",
+    }
+
+
+def _run_results_document(
+    results: Sequence[Any], *, command: str = "run", target: str = "local_substitute"
+) -> dict[str, Any]:
+    """Return one dbt run artifact carrying ``results``, in the v6 artifact shape."""
+    return {
+        "metadata": {
+            "dbt_schema_version": "https://schemas.getdbt.com/dbt/run-results/v6.json",
+            "dbt_version": "1.12.2",
+            "generated_at": "1970-01-01T00:00:00.000000Z",
+            "invocation_id": "00000000-0000-4000-8000-000000000000",
+            "env": {},
+        },
+        "results": list(results),
+        "elapsed_time": 0.0,
+        "args": {"which": command, "target": target},
+    }
+
+
+def _written_artifact(scratch: _Scratch, name: str, content: Any) -> Path:
+    """Write ``content`` as ``name`` inside the private directory and return its path.
+
+    A mapping or sequence is written as JSON and text is written as it stands, so
+    one helper builds both a well-formed artifact and a malformed one. Nothing is
+    written outside the private directory.
+    """
+    path = scratch.absent(name)
+    text = (
+        content
+        if isinstance(content, str)
+        else json.dumps(content, indent=2, sort_keys=True) + "\n"
+    )
+    path.write_text(text, encoding="utf-8")
+    return path
+
+
+def _built_freshness(
+    scratch: _Scratch | None = None, *, refused: bool = False
+) -> dict[str, Any]:
+    """Return one freshness document, read from an artifact or built in memory.
+
+    Without ``scratch`` the document is built directly, so a case that only renders
+    a report writes no file. With ``scratch`` the artifact is written inside the
+    private directory and read back through ``read_transform_freshness``, so the
+    document is the one a comparison run would carry.
+    """
+    if scratch is not None:
+        return read_transform_freshness(
+            _written_artifact(
+                scratch,
+                "run_results_refused.json" if refused else "run_results_fresh.json",
+                _run_results_document(
+                    [
+                        _run_results_node(
+                            "model.genapp_rqi.int_policy_issue_decoded",
+                            "error" if refused else "success",
+                            (
+                                'Conversion Error: Could not convert string "ABCDEF" '
+                                "to DECIMAL(8,2)"
+                                if refused
+                                else None
+                            ),
+                        ),
+                        _run_results_node(
+                            "model.genapp_rqi.canonical_preissued_rating",
+                            "skipped" if refused else "success",
+                        ),
+                    ]
+                ),
+            )
+        )
+    document: dict[str, Any] = {
+        "path": _SELF_TEST_ORIGIN,
+        "verdict": FRESHNESS_REFUSED if refused else FRESHNESS_FRESH,
+        "refusals": (
+            [f"the node built by --self-test recorded the status {_shown('error')}"]
+            if refused
+            else []
+        ),
+        "accepted_statuses": list(DBT_STATUSES_ACCEPTED),
+        "warned_statuses": list(DBT_STATUSES_WARNED),
+        "refused_statuses": list(DBT_STATUSES_REFUSED),
+        "invocation": {
+            "schema_version": _SELF_TEST_ORIGIN,
+            "dbt_version": "1.12.2",
+            "invocation_id": "00000000-0000-4000-8000-000000000000",
+            "generated_at": "1970-01-01T00:00:00.000000Z",
+            "command": "run",
+            "dbt_target": "local_substitute",
+            "elapsed_time": "0.0",
+        },
+        "nodes": {
+            "total": 1,
+            "accepted": 0 if refused else 1,
+            "warned": 0,
+            "refused": 1 if refused else 0,
+        },
+        "warned_nodes": [],
+        "refused_nodes": (
+            [
+                {
+                    "unique_id": "model.genapp_rqi.int_policy_issue_decoded",
+                    "status": "error",
+                    "message": None,
+                }
+            ]
+            if refused
+            else []
+        ),
+    }
+    document["note"] = _freshness_note(document)
+    return document
 
 
 def _failed_assertion() -> Assertion:
@@ -4247,6 +5220,8 @@ def _self_test_settings(scratch: _Scratch, *, quiet: bool = False) -> Settings:
         report=scratch.absent("diff-report.md"),
         json_report=scratch.absent("diff-report.json"),
         expected_dir=scratch.absent("expected"),
+        refresh_snapshot=False,
+        dbt_run_results=scratch.absent("run_results.json"),
         quiet=quiet,
     )
 
@@ -5248,6 +6223,192 @@ def _case_protected_trees_refused(scratch: _Scratch) -> str:
     )
 
 
+def _case_snapshot_symbolises_the_run_seeds() -> str:
+    """Every seeded position of a snapshot carries its symbol, and no other does."""
+    field_map = _self_test_field_map()
+    result, harness = _built_run_output(
+        field_map, _SELF_TEST_SEED_A, _SELF_TEST_STAMP_A
+    )
+    document = build_snapshot(result, harness, field_map)
+    padded_symbol = SNAPSHOT_POLICY_NUMBER_PADDED_SYMBOL.format(
+        width=field_map.window(POLICY_NUMBER_ITEM).length
+    )
+    for family, key, expected in (
+        ("captures", _capture_key_of(POLICY_NUMBER_ITEM), padded_symbol),
+        ("captures", VSAM_POLICY_NUM_KEY, padded_symbol),
+        (
+            "captures",
+            SQL_CAPTURE_KEYS["policy_number"],
+            SNAPSHOT_POLICY_NUMBER_SYMBOL,
+        ),
+        (
+            "captures",
+            VSAM_KEY_KEY,
+            f"{VERIFIED_ROUTING[_SELF_TEST_CASE]}{_SELF_TEST_CUSTOMER}"
+            f"{padded_symbol}",
+        ),
+        (
+            "captures",
+            SQL_CAPTURE_KEYS["last_changed"],
+            SNAPSHOT_LASTCHANGED_SYMBOL,
+        ),
+        (
+            "captures",
+            _capture_key_of(LASTCHANGED_ITEM),
+            SNAPSHOT_LASTCHANGED_SYMBOL,
+        ),
+        ("commarea_windows", POLICY_NUMBER_ITEM, padded_symbol),
+        ("commarea_windows", LASTCHANGED_ITEM, SNAPSHOT_LASTCHANGED_SYMBOL),
+        ("commarea_windows", "CA-CUSTOMER-NUM", _SELF_TEST_CUSTOMER),
+        (
+            "captures",
+            SQL_CAPTURE_KEYS["customer_number"],
+            _SELF_TEST_CUSTOMER.lstrip("0"),
+        ),
+        ("captures", VSAM_CUSTOMER_NUM_KEY, _SELF_TEST_CUSTOMER),
+    ):
+        _assert_equal(
+            document[family].get(key), expected, f"{family}.{key} of the snapshot"
+        )
+    rendered = json.dumps(document, sort_keys=True)
+    for digits in (str(_SELF_TEST_SEED_A), _SELF_TEST_STAMP_A):
+        _assert(
+            digits not in rendered,
+            f"the snapshot still carries the seeded value {digits}",
+        )
+    return (
+        f"5 identity positions and 3 timestamp positions carry their symbol, the "
+        f"customer number stands in 3 positions as it was captured, and neither "
+        f"seed appears in the {len(rendered)}-character document"
+    )
+
+
+def _case_snapshot_is_seed_independent() -> str:
+    """Two runs under different seeds write one document; a drift still differs."""
+    field_map = _self_test_field_map()
+    first = build_snapshot(
+        *_built_run_output(field_map, _SELF_TEST_SEED_A, _SELF_TEST_STAMP_A),
+        field_map,
+    )
+    second = build_snapshot(
+        *_built_run_output(field_map, _SELF_TEST_SEED_B, _SELF_TEST_STAMP_B),
+        field_map,
+    )
+    _assert_equal(
+        _snapshot_differences(first, second),
+        [],
+        "the differences between the snapshots of two seeds",
+    )
+    moved_customer = build_snapshot(
+        *_built_run_output(
+            field_map,
+            _SELF_TEST_SEED_B,
+            _SELF_TEST_STAMP_B,
+            customer_number="0000009009",
+        ),
+        field_map,
+    )
+    differences = _snapshot_differences(first, moved_customer)
+    _assert(
+        any("CA-CUSTOMER-NUM" in line for line in differences),
+        f"a changed customer number was not reported: {differences}",
+    )
+    _assert(
+        any(VSAM_KEY_KEY in line for line in differences),
+        f"the VSAM key of a changed customer number was not reported: {differences}",
+    )
+    offset_capture = build_snapshot(
+        *_built_run_output(
+            field_map,
+            _SELF_TEST_SEED_A,
+            _SELF_TEST_STAMP_A,
+            capture_last_changed="2026-08-19-12.00.00.000001",
+        ),
+        field_map,
+    )
+    timestamp_differences = _snapshot_differences(first, offset_capture)
+    _assert(
+        any(
+            SQL_CAPTURE_KEYS["last_changed"] in line
+            for line in timestamp_differences
+        ),
+        f"a capture timestamp one microsecond off the assigned one was not "
+        f"reported: {timestamp_differences}",
+    )
+    return (
+        f"seeds {_SELF_TEST_SEED_A} and {_SELF_TEST_SEED_B} with two timestamps "
+        f"write one document; a moved customer number is reported in "
+        f"{len(differences)} places and a capture timestamp one microsecond off "
+        f"the assigned one in {len(timestamp_differences)}"
+    )
+
+
+def _case_snapshot_compared_written_and_refreshed(scratch: _Scratch) -> str:
+    """A snapshot is written once, compared after that, and refreshed on request."""
+    field_map = _self_test_field_map()
+    path = scratch.absent("expected") / _SELF_TEST_CASE.lower() / SNAPSHOT_NAME
+    first = build_snapshot(
+        *_built_run_output(field_map, _SELF_TEST_SEED_A, _SELF_TEST_STAMP_A),
+        field_map,
+    )
+    _assert_equal(
+        apply_snapshot(path, first), SNAPSHOT_STATE_WRITTEN, "the state of a first run"
+    )
+    _assert_equal(
+        apply_snapshot(path, first),
+        SNAPSHOT_STATE_MATCHED,
+        "the state of a run over the snapshot it wrote",
+    )
+    drifted = build_snapshot(
+        *_built_run_output(
+            field_map,
+            _SELF_TEST_SEED_A,
+            _SELF_TEST_STAMP_A,
+            customer_number="0000009009",
+        ),
+        field_map,
+    )
+    _assert_raises(
+        "a snapshot the harness output differs from",
+        HarnessInputError,
+        "differs from the capture snapshot",
+        lambda: apply_snapshot(path, drifted),
+    )
+    _assert_equal(
+        json.loads(path.read_text(encoding="utf-8")),
+        first,
+        "the snapshot a refused comparison left on disk",
+    )
+    _assert_equal(
+        apply_snapshot(path, drifted, refresh=True),
+        SNAPSHOT_STATE_REFRESHED,
+        "the state of a run given --refresh-snapshot",
+    )
+    _assert_equal(
+        json.loads(path.read_text(encoding="utf-8")),
+        drifted,
+        "the snapshot a refresh left on disk",
+    )
+    _assert_equal(
+        apply_snapshot(path, drifted),
+        SNAPSHOT_STATE_MATCHED,
+        "the state of the comparison after that refresh",
+    )
+    protected = REPO_ROOT / PROTECTED_TREES[0] / _SELF_TEST_CASE.lower() / SNAPSHOT_NAME
+    _assert_raises(
+        "a refresh of a snapshot inside a protected tree",
+        ConfigurationError,
+        "this tool never writes",
+        lambda: apply_snapshot(protected, drifted, refresh=True),
+    )
+    _assert(not protected.exists(), f"the refused refresh created {protected}")
+    return (
+        f"written, matched, a drift refused with the snapshot left as it stood, "
+        f"refreshed on request, matched again, and a refresh into "
+        f"{PROTECTED_TREES[0]}/ refused"
+    )
+
+
 def _case_self_test_status_reachable() -> str:
     """A failing case returns EXIT_SELF_TEST_FAILED, which no comparison returns."""
     _assert_equal(
@@ -5318,6 +6479,303 @@ def _case_command_line_refusals() -> str:
         f"--self-test with --target -> {EXIT_CONFIGURATION} naming --target, an "
         f"unknown option -> {EXIT_CONFIGURATION}, and _RUN_OPTIONS names every "
         f"one of the {len(namespace)} destinations a command line carries"
+    )
+
+
+def _case_transform_freshness_accepts_success(scratch: _Scratch) -> str:
+    """A dbt run artifact of successful nodes passes the precondition."""
+    built = read_transform_freshness(
+        _written_artifact(
+            scratch,
+            "run_results_models.json",
+            _run_results_document(
+                [
+                    _run_results_node(f"model.genapp_rqi.{name}", "success")
+                    for name in (
+                        "stg_genapp__policy_issue",
+                        "int_policy_issue_decoded",
+                        "canonical_issued_policy",
+                        "canonical_preissued_rating",
+                    )
+                ]
+            ),
+        )
+    )
+    _assert_equal(built["verdict"], FRESHNESS_FRESH, "the verdict of a successful run")
+    _assert_equal(built["refusals"], [], "the refusals of a successful run")
+    _assert_equal(
+        built["nodes"],
+        {"total": 4, "accepted": 4, "warned": 0, "refused": 0},
+        "the node counts of a successful run",
+    )
+    _assert(transform_is_fresh(built), "a successful run did not read as fresh")
+    _assert_equal(
+        built["invocation"]["dbt_version"], "1.12.2", "the dbt version recorded"
+    )
+    _assert_equal(built["invocation"]["command"], "run", "the subcommand recorded")
+    tested = read_transform_freshness(
+        _written_artifact(
+            scratch,
+            "run_results_tests.json",
+            _run_results_document(
+                [
+                    _run_results_node("test.genapp_rqi.not_null_policy_number", "pass"),
+                    _run_results_node("test.genapp_rqi.unique_natural_key", "pass"),
+                ],
+                command="test",
+            ),
+        )
+    )
+    _assert_equal(
+        tested["verdict"], FRESHNESS_FRESH, "the verdict of a passing test invocation"
+    )
+    _assert_equal(
+        tested["nodes"]["accepted"], 2, "the accepted nodes of a test invocation"
+    )
+    warned = read_transform_freshness(
+        _written_artifact(
+            scratch,
+            "run_results_warned.json",
+            _run_results_document(
+                [
+                    _run_results_node("model.genapp_rqi.int_policy_issue_decoded",
+                                      "success"),
+                    _run_results_node(
+                        "test.genapp_rqi.warn_severity_check", "warn", "1 row warned"
+                    ),
+                ],
+                command="build",
+            ),
+        )
+    )
+    _assert_equal(
+        warned["verdict"], FRESHNESS_FRESH, "the verdict of a run carrying a warn"
+    )
+    _assert_equal(warned["nodes"]["warned"], 1, "the warned nodes counted")
+    _assert_equal(
+        [node["unique_id"] for node in warned["warned_nodes"]],
+        ["test.genapp_rqi.warn_severity_check"],
+        "the warned nodes named",
+    )
+    _assert_in(
+        "test.genapp_rqi.warn_severity_check",
+        warned["note"],
+        "the note of a run carrying a warn",
+    )
+    _assert(transform_is_fresh(warned), "a warned node refused the precondition")
+    markdown = render_markdown(_built_report(freshness=warned))
+    _assert_in(
+        "Nodes dbt recorded as warned", markdown, "the report of a warned run"
+    )
+    return (
+        f"4 successful models -> {FRESHNESS_FRESH}, 2 passing tests -> "
+        f"{FRESHNESS_FRESH}, one warn -> {FRESHNESS_FRESH} named in the note, in "
+        f"warned_nodes and in the Markdown report"
+    )
+
+
+def _case_transform_freshness_refuses_failed_transform(scratch: _Scratch) -> str:
+    """A dbt run artifact carrying a node that did not succeed refuses the state."""
+    failed = read_transform_freshness(
+        _written_artifact(
+            scratch,
+            "run_results_failed_run.json",
+            _run_results_document(
+                [
+                    _run_results_node("model.genapp_rqi.stg_genapp__policy_issue",
+                                      "success"),
+                    _run_results_node(
+                        "model.genapp_rqi.int_policy_issue_decoded",
+                        "error",
+                        'Conversion Error: Could not convert string "ABCDEF" to '
+                        "DECIMAL(8,2)",
+                    ),
+                    _run_results_node("model.genapp_rqi.canonical_issued_policy",
+                                      "skipped"),
+                    _run_results_node("model.genapp_rqi.canonical_preissued_rating",
+                                      "skipped"),
+                ]
+            ),
+        )
+    )
+    _assert_equal(failed["verdict"], FRESHNESS_REFUSED, "the verdict of a failed run")
+    _assert_equal(
+        failed["nodes"],
+        {"total": 4, "accepted": 1, "warned": 0, "refused": 3},
+        "the node counts of a failed run",
+    )
+    _assert(not transform_is_fresh(failed), "a failed run read as fresh")
+    diagnostic = freshness_diagnostic(failed)
+    for fragment in (
+        "not established as successful",
+        "model.genapp_rqi.int_policy_issue_decoded",
+        "error",
+        "model.genapp_rqi.canonical_preissued_rating",
+        "skipped",
+        "ABCDEF",
+    ):
+        _assert_in(fragment, diagnostic, "the refusal diagnostic of a failed run")
+    _assert_equal(
+        FRESHNESS_REFUSED_STATUS,
+        EXIT_WAREHOUSE_REFUSED,
+        "the status a refused precondition returns",
+    )
+    _assert(
+        FRESHNESS_REFUSED_STATUS in _EXIT_PRECEDENCE,
+        "the refusal status stands outside _EXIT_PRECEDENCE",
+    )
+    observed: list[tuple[str, str]] = []
+    for status in ("fail", "runtime error", "indeterminate"):
+        document = read_transform_freshness(
+            _written_artifact(
+                scratch,
+                f"run_results_{status.replace(' ', '_')}.json",
+                _run_results_document(
+                    [_run_results_node("test.genapp_rqi.assert_unique_key", status)],
+                    command="test",
+                ),
+            )
+        )
+        _assert_equal(
+            document["verdict"], FRESHNESS_REFUSED, f"the verdict of status {status}"
+        )
+        _assert_in(
+            "test.genapp_rqi.assert_unique_key",
+            freshness_diagnostic(document),
+            f"the refusal diagnostic of status {status}",
+        )
+        observed.append((status, document["verdict"]))
+    _assert_in(
+        "unrecognised",
+        freshness_diagnostic(
+            read_transform_freshness(scratch.absent("run_results_indeterminate.json"))
+        ),
+        "the refusal diagnostic of an unrecognised status",
+    )
+    return (
+        f"a failed model with its 2 skipped consumers -> {FRESHNESS_REFUSED} naming "
+        f"the node, the status and the message; "
+        + ", ".join(f"{status} -> {verdict}" for status, verdict in observed)
+        + f"; the refusal returns {FRESHNESS_REFUSED_STATUS}"
+    )
+
+
+def _case_transform_freshness_refuses_unusable_artifact(scratch: _Scratch) -> str:
+    """Every unusable dbt run artifact refuses the state and names why."""
+    absent = scratch.absent("run_results_absent.json")
+    _assert_in(
+        "no dbt run artifact stands at",
+        read_transform_freshness(absent)["note"],
+        "the note of an absent artifact",
+    )
+    directory = scratch.absent("run_results_directory.json")
+    directory.mkdir(exist_ok=True)
+    _assert_equal(
+        read_transform_freshness(directory)["verdict"],
+        FRESHNESS_REFUSED,
+        "the verdict of an artifact that is a directory",
+    )
+    cases: tuple[tuple[str, Any, str], ...] = (
+        ("not_json", "this is not JSON at all\n", "is not JSON"),
+        ("not_object", [1, 2, 3], "is not a JSON object"),
+        ("no_results", {"metadata": {"dbt_version": "1.12.2"}}, "carries no results"),
+        (
+            "results_not_list",
+            {"results": {"unique_id": "model.one", "status": "success"}},
+            "is not a list",
+        ),
+        ("results_empty", {"results": []}, "records no node"),
+        ("result_not_object", {"results": ["model.one"]}, "is not an object"),
+        (
+            "result_without_status",
+            {"results": [{"unique_id": "model.genapp_rqi.one"}]},
+            "records no status",
+        ),
+    )
+    observed: list[str] = []
+    for name, content, fragment in cases:
+        document = read_transform_freshness(
+            _written_artifact(scratch, f"run_results_{name}.json", content)
+        )
+        _assert_equal(document["verdict"], FRESHNESS_REFUSED, f"the verdict of {name}")
+        _assert_in(fragment, document["note"], f"the note of {name}")
+        _assert(
+            not transform_is_fresh(document), f"{name} read as a fresh transform"
+        )
+        observed.append(name)
+    return (
+        f"an absent artifact, a directory and {len(observed)} malformed artifacts "
+        f"({', '.join(observed)}) each refuse the state and name the cause"
+    )
+
+
+def _case_freshness_refusal_reported_in_both_reports(scratch: _Scratch) -> str:
+    """A refused precondition reaches both reports, the verdict and the status."""
+    before = _tracked_report_state()
+    refused = _built_freshness(scratch, refused=True)
+    report = _built_report(statuses=[FRESHNESS_REFUSED_STATUS], freshness=refused)
+    _assert_equal(
+        report.exit_status,
+        EXIT_WAREHOUSE_REFUSED,
+        "the status of a run whose precondition refused",
+    )
+    _assert_equal(report.verdict, "FAIL", "the verdict of a refused run")
+    settings = _self_test_settings(scratch)
+    write_reports(report, settings)
+    markdown = settings.report.read_text(encoding="utf-8")
+    document = json.loads(settings.json_report.read_text(encoding="utf-8"))
+    for fragment in (
+        "## Transform freshness precondition",
+        "The precondition refused this warehouse state",
+        FRESHNESS_REFUSED,
+        "model.genapp_rqi.int_policy_issue_decoded",
+        STATUS_LABEL_TEXT,
+        AWS_OPEN_TEXT,
+        "**Overall verdict: FAIL**",
+    ):
+        _assert_in(fragment, markdown, "the Markdown report of a refused run")
+    _assert_equal(
+        document["transform_freshness"]["verdict"],
+        FRESHNESS_REFUSED,
+        "the verdict the JSON report records",
+    )
+    _assert_equal(
+        document["exit_status"],
+        EXIT_WAREHOUSE_REFUSED,
+        "the status the JSON report records",
+    )
+    _assert_equal(
+        document["aws_diff_requirement"],
+        "OPEN",
+        "the AWS diff disposition the JSON report records",
+    )
+    _assert_equal(
+        [
+            (node["unique_id"], node["status"])
+            for node in document["transform_freshness"]["refused_nodes"]
+        ],
+        [
+            ("model.genapp_rqi.int_policy_issue_decoded", "error"),
+            ("model.genapp_rqi.canonical_preissued_rating", "skipped"),
+        ],
+        "the refused nodes the JSON report records",
+    )
+    _assert_equal(
+        _tracked_report_state(),
+        before,
+        "the size and modification time of the two default report paths",
+    )
+    unevaluated = render_markdown(_built_report(freshness={}))
+    _assert_in(
+        "The precondition was not evaluated on this run",
+        unevaluated,
+        "the section of a report carrying no precondition document",
+    )
+    return (
+        f"a refused precondition renders the section, the refusal, the disposition "
+        f"and the OPEN statement, records verdict {FRESHNESS_REFUSED} and status "
+        f"{EXIT_WAREHOUSE_REFUSED} in the JSON report, and leaves the two default "
+        f"report paths unchanged; an empty document renders as not evaluated"
     )
 
 
@@ -5500,6 +6958,34 @@ def run_self_test(*, quiet: bool = False, stream: Any = None) -> int:
         _run_case(
             results, out, quiet, "protected_trees_refused",
             lambda: _case_protected_trees_refused(scratch),
+        )
+        _run_case(
+            results, out, quiet, "snapshot_symbolises_the_run_seeds",
+            _case_snapshot_symbolises_the_run_seeds,
+        )
+        _run_case(
+            results, out, quiet, "snapshot_is_seed_independent",
+            _case_snapshot_is_seed_independent,
+        )
+        _run_case(
+            results, out, quiet, "snapshot_compared_written_and_refreshed",
+            lambda: _case_snapshot_compared_written_and_refreshed(scratch),
+        )
+        _run_case(
+            results, out, quiet, "transform_freshness_accepts_success",
+            lambda: _case_transform_freshness_accepts_success(scratch),
+        )
+        _run_case(
+            results, out, quiet, "transform_freshness_refuses_failed_transform",
+            lambda: _case_transform_freshness_refuses_failed_transform(scratch),
+        )
+        _run_case(
+            results, out, quiet, "transform_freshness_refuses_unusable_artifact",
+            lambda: _case_transform_freshness_refuses_unusable_artifact(scratch),
+        )
+        _run_case(
+            results, out, quiet, "freshness_refusal_reported_in_both_reports",
+            lambda: _case_freshness_refusal_reported_in_both_reports(scratch),
         )
         _run_case(
             results, out, quiet, "self_test_status_reachable",

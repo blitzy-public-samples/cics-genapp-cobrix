@@ -39,6 +39,10 @@ WHICH INPUTS IT ACCEPTS
                  at most ``MAX_FIELD_MAP_BYTES`` bytes (default:
                  ``copybook_field_map.yml`` beside this script; every working
                  directory resolves the same default).
+
+    Each read input is taken as the regular file its own name carries: a symbolic
+    link standing at either path is refused by name with the status an unreadable
+    input returns, and so is a name carrying anything other than a regular file.
     --output     destination path for the landing JSON record; missing parent
                  directories are created and an existing file is left in place unless
                  ``--overwrite`` is given.
@@ -300,6 +304,13 @@ _TRAILING_LINE_ENDINGS = ("\r\n", "\n", "\r")
 MAX_CAPTURE_BYTES = 64 * 1024
 MAX_FIELD_MAP_BYTES = 1024 * 1024
 READ_CHUNK_BYTES = 65536
+
+# Flags every read of an input is opened with: read-only, creating nothing, refusing a
+# symbolic link standing at the name, and failing rather than waiting on a name that
+# carries anything other than a regular file.
+_NOFOLLOW_READ_FLAGS = (
+    os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | getattr(os, "O_CLOEXEC", 0)
+)
 
 # Statuses this tool returns. EXIT_ENVIRONMENT_REJECTED and EXIT_INTERRUPTED are
 # declared with the environment check above, before the imports they cover.
@@ -1036,16 +1047,33 @@ def _blank_window_lands_null(
 def _read_bounded_bytes(path: Path, limit: int, what: str) -> bytes:
     """Return the bytes of one regular file, refusing anything past ``limit``.
 
-    ``what`` names the input inside every diagnostic. The file is opened read-only and
-    is never written, truncated or removed. Raises ``InputOutputError`` when the path
-    cannot be opened or read, when it is not a regular file, or when it carries more
-    than ``limit`` bytes.
+    ``what`` names the input inside every diagnostic. The entry is inspected without
+    following a symbolic link and is then opened read-only with ``O_NOFOLLOW``, so a
+    link standing at the name is refused rather than read through, and with
+    ``O_NONBLOCK``, so a name carrying anything that is not a regular file fails the
+    open or the file-type check instead of waiting on it. The file is never written,
+    truncated or removed. Raises ``InputOutputError`` when the path cannot be examined
+    or opened, which a path naming no file reports as an input that cannot be opened,
+    when the name carries a symbolic link, when the opened entry is not a regular file,
+    or when it carries more than ``limit`` bytes.
     """
     try:
-        descriptor = os.open(path, os.O_RDONLY)
+        inspected = os.stat(path, follow_symlinks=False)
     except OSError as error:
         raise InputOutputError(
             f"{what} cannot be opened: {_path_shown(path)}: {_reason(error)}"
+        ) from error
+    if stat.S_ISLNK(inspected.st_mode):
+        raise InputOutputError(
+            f"{what} is a symbolic link: {_path_shown(path)}; this tool reads an "
+            "input as the regular file the name itself carries"
+        )
+    try:
+        descriptor = os.open(path, _NOFOLLOW_READ_FLAGS)
+    except OSError as error:
+        raise InputOutputError(
+            f"{what} cannot be opened without following a link: "
+            f"{_path_shown(path)}: {_reason(error)}"
         ) from error
     try:
         try:
@@ -3265,6 +3293,20 @@ def _case_map_missing_refused(directory: Path) -> str:
     )
 
 
+def _case_map_symlink_refused(directory: Path, map_text: str) -> str:
+    """Confirm a field map reached through a symbolic link is refused, unread."""
+    target = _written(directory, "link-target.yml", map_text.encode("utf-8"))
+    link = directory / "link.yml"
+    link.symlink_to(target)
+    return _expect_raised(
+        InputOutputError,
+        EXIT_IO_ERROR,
+        ["the field map is a symbolic link"],
+        lambda: load_field_map(link),
+        "loading a field map through a symbolic link to a valid map",
+    )
+
+
 # ---------------------------------------------------------------------------
 # Self-test cases: capture reading
 # ---------------------------------------------------------------------------
@@ -3322,6 +3364,23 @@ def _case_capture_missing_refused(directory: Path, field_map: FieldMap) -> str:
         ["the COMMAREA capture cannot be opened"],
         lambda: read_commarea(path, field_map.record_length),
         "reading a capture that does not exist",
+    )
+
+
+def _case_capture_symlink_refused(directory: Path, field_map: FieldMap) -> str:
+    """Confirm a capture reached through a symbolic link is refused, unread."""
+    record = _rendered_record(field_map, _MOTOR_WINDOWS)
+    target = _written(
+        directory, "symlink-target.dat", record.encode(CAPTURE_ENCODING)
+    )
+    link = directory / "symlink.dat"
+    link.symlink_to(target)
+    return _expect_raised(
+        InputOutputError,
+        EXIT_IO_ERROR,
+        ["the COMMAREA capture is a symbolic link"],
+        lambda: read_commarea(link, field_map.record_length),
+        "reading a capture through a symbolic link to a complete record",
     )
 
 
@@ -4986,6 +5045,10 @@ def _field_map_cases(
         results, out, "field_map_missing_file_refused",
         lambda: _case_map_missing_refused(directory),
     )
+    _run_case(
+        results, out, "field_map_symlink_refused",
+        lambda: _case_map_symlink_refused(directory, map_text),
+    )
 
 
 def _capture_cases(
@@ -5064,6 +5127,10 @@ def _capture_cases(
     _run_case(
         results, out, "capture_missing_file_refused",
         lambda: _case_capture_missing_refused(directory, field_map),
+    )
+    _run_case(
+        results, out, "capture_symlink_refused",
+        lambda: _case_capture_symlink_refused(directory, field_map),
     )
 
 
@@ -5827,7 +5894,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help=(
             "post-chain COMMAREA capture written by the harness driver: "
             f"{COMMAREA_RECORD_LENGTH} characters and at most one trailing line "
-            "ending; required unless --self-test is given"
+            "ending; required unless --self-test is given. A symbolic link at this "
+            "path, and a path carrying anything other than a regular file, are "
+            "refused"
         ),
     )
     parser.add_argument(
@@ -5838,7 +5907,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help=(
             "field map supplying every offset, length, kind, routing entry, "
             "return-code meaning and landing key (default: "
-            f"{DEFAULT_FIELD_MAP.name} beside this script)"
+            f"{DEFAULT_FIELD_MAP.name} beside this script). A symbolic link at this "
+            "path, and a path carrying anything other than a regular file, are "
+            "refused"
         ),
     )
     parser.add_argument(

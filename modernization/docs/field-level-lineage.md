@@ -386,8 +386,11 @@ One nuance of the character columns, stated without argument: the enforced dbt c
 columns with their logical widths — `varchar(64)` for `source_system_key`, `char(1)` for `policy_type`, `varchar(6)`
 for `request_id`, `char(2)` for `return_code` and `varchar(10)` for `brokers_reference` — and contract enforcement of
 the declared **width** reaches Amazon Redshift only; DuckDB accepts each spelling, collapses it to `VARCHAR` and
-reports no maximum length. The same logical widths are stated in the contract's column descriptions and asserted from
-the value side by the project's own singular tests. Rationale: [`decision-log.md`](decision-log.md), row **D-49**.
+reports no maximum length. The same logical widths are stated in the contract's column descriptions, asserted from
+the value side by the project's own singular tests, and asserted as declarations on every adapter by
+[`../dbt/genapp_rqi/tests/assert_canonical_column_widths.sql`](../dbt/genapp_rqi/tests/assert_canonical_column_widths.sql),
+which compares each declared `data_type` with the cast the mart model performs and with the type this specification
+fixes. Rationale: [`decision-log.md`](decision-log.md), rows **D-49** and **D-103**.
 
 ---
 

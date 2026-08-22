@@ -1,7 +1,7 @@
 # dbt_project.yml
 # Project manifest for the GenApp Policy-Issue cloud-warehouse bridge.
 # Single dbt project of the bridge: the source declaration, the four models, the two
-# property files of each layer, macros/generate_schema_name.sql and the three singular
+# property files of each layer, macros/generate_schema_name.sql and the four singular
 # tests all resolve through this file, and the bridge declares no second project.
 # Project members this file binds, every one of them present at this milestone:
 #   models/staging/genapp_class_exemplar/  the source declaration and
@@ -10,7 +10,7 @@
 #   models/marts/canonical/                canonical_issued_policy and
 #                                          canonical_preissued_rating
 #   macros/                                generate_schema_name.sql
-#   tests/                                 the three singular tests of the two canonical
+#   tests/                                 the four singular tests of the two canonical
 #                                          relations
 # The connection values of the profile named below are held by profiles.example.yml.
 # No adapter-specific value is declared here; the same model SQL and the same text serve
@@ -32,7 +32,7 @@ profile: genapp_rqi
 
 # Authored directories of this project, all three present: models holds the source
 # declaration, the four models and their property files; macros holds
-# generate_schema_name.sql; tests holds the three singular tests. This project declares no
+# generate_schema_name.sql; tests holds the four singular tests. This project declares no
 # packages.yml, no seed and no snapshot, so no seed, snapshot or package path is declared
 # here.
 model-paths: ["models"]
@@ -69,6 +69,15 @@ require-dbt-version: [">=1.12.0", "<1.13.0"]
 # config block: canonical_issued_policy sets issued_policy and canonical_preissued_rating
 # sets preissued_rating, so the two tables of the canonical schema are named after those
 # aliases rather than after their model files.
+#
+# Where each cast of the bridge is evaluated. staging renames and trims and converts no
+# value, so it materializes as a view. models/intermediate/int_policy_issue_decoded.sql
+# applies every cast of the bridge and materializes as a table, so dbt evaluates those
+# casts once, while that model builds, ahead of either mart: a landed value the landing
+# contract does not admit - 2026-02-30, 2026-08-19T25:00:00.000000 or a non-numeric amount
+# - fails the intermediate model itself, dbt skips both models of models/marts/canonical,
+# and the two canonical relations keep the state of the last run that built them both.
+# Both marts materialize as tables, the two relations the canonical contract declares.
 models:
   genapp_rqi:
     staging:
@@ -76,7 +85,7 @@ models:
         +materialized: view
         +schema: staging
     intermediate:
-      +materialized: view
+      +materialized: table
       +schema: intermediate
     marts:
       canonical:

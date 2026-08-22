@@ -122,6 +122,11 @@ WHICH INPUTS IT ACCEPTS
     --entity        entity element of the landing prefix, which is the fixed literal
                     LANDING_ENTITY. Supplying any other value is refused rather than
                     landing the record outside the canonical prefix.
+    --part          part element of the landed object name, written as 1 to
+                    PART_NUMBER_DIGITS decimal digits and reaching the name zero-padded
+                    to that width. Omitted, DEFAULT_PART_NUMBER applies and the object
+                    name is OBJECT_NAME, so a caller that names no part writes the key
+                    this contract has always fixed.
     --endpoint-url  loopback S3 endpoint to address, defaulting to the S3_ENDPOINT_URL
                     environment variable. Required in run mode RUN_MODE_LOCAL and
                     refused in run mode RUN_MODE_REAL.
@@ -207,7 +212,9 @@ WHAT --self-test CHECKS
     failure, one successful upload of the record and of the COPY manifest beside it, the
     replacement notice over a key that already carries an object and a key that does
     not, a head request that does not answer leaving the landing successful and silent
-    about a replacement, the
+    about a replacement, two parts of one extract date landed as four coexisting objects
+    each bound by its own manifest, the part option over every accepted and refused
+    value, the
     upload failures botocore reports, the Redshift renderer over a byte-compared
     successful render and every rejected placeholder value, the rendered statement
     sequence and column list, the emitted manifest, the Redshift probe over every
@@ -222,20 +229,22 @@ WHAT --self-test CHECKS
 WHERE IT WRITES
     Two objects of one landing prefix, the record
 
-        landing/source_system_key=<KEY>/entity=policy_issue/extract_date=<YYYY-MM-DD>/part-0000.json
+        landing/source_system_key=<KEY>/entity=policy_issue/extract_date=<YYYY-MM-DD>/part-<NNNN>.json
 
     giving the URI s3://<bucket>/<key>, and beside it the COPY manifest
 
-        landing/source_system_key=<KEY>/entity=policy_issue/extract_date=<YYYY-MM-DD>/part-0000.manifest.json
+        landing/source_system_key=<KEY>/entity=policy_issue/extract_date=<YYYY-MM-DD>/part-<NNNN>.manifest.json
 
     that modernization/landing/load_redshift.sql binds its load to. The segments are
-    Hive-style key=value pairs in that order, both object names are literal, neither key
+    Hive-style key=value pairs in that order, <NNNN> is the part --part names written
+    zero-padded to four digits and 0000 with no part named, neither key
     carries a leading slash, an empty segment or percent-encoding, and both objects are
     written with content type application/json. The source-system element is the value
     the validated record itself carries, the entity element is the fixed literal, and no
-    part of either key is taken from a value that has not been validated. Partitioning
-    applies to this key prefix alone: this tool states no distribution, sort or
-    partition property for any warehouse relation.
+    element of either key is taken from a value that has not been validated.
+    Partitioning applies to this key prefix alone, in the three Hive-style segments and
+    no fourth: the part is an element of the object name, and this tool states no
+    distribution, sort or partition property for any warehouse relation.
 
     The record is written first and the manifest second, so a manifest on the bucket
     never names an object that was not written. The manifest holds one entry carrying
@@ -247,16 +256,16 @@ WHERE IT WRITES
     place by hand. A manifest write that does not succeed after the record was written
     fails the landing, names the manifest key and leaves the record object in place.
 
-    One key carries one object per source system, entity and extract date, so a second
-    landing for the same source system and extract date addresses that same key and
-    replaces the object it carries. The key is head-requested before the record is
-    written, and an object already there is named in one warning line stating that this
-    landing replaces it and that a landed record is loaded into the raw relation before
-    the next record is landed for that source system and extract date. A head request
-    that does not answer, whatever the reason, writes no line and changes nothing else:
-    the record and the manifest are written and the landing succeeds. The sequence a run
-    follows is therefore land one record, load it into the raw relation, then land the
-    next.
+    One key carries one object per source system, entity, extract date and part, so
+    every part of one extract date coexists under one prefix and the landing zone can be
+    replayed to rebuild every raw row of that date: a run that lands two records names
+    two parts and leaves two records and two manifests. A second landing of the same
+    part addresses that same key and replaces the object it carries. The key is
+    head-requested before the record is written, and an object already there is named in
+    one warning line stating that this landing replaces it and that each record of one
+    source system, entity and extract date is landed under its own part number. A head
+    request that does not answer, whatever the reason, writes no line and changes
+    nothing else: the record and the manifest are written and the landing succeeds.
 
     In landing mode stdout carries exactly one line, the s3:// URI of the object
     written. In probe mode stdout carries exactly one line, the probe verdict, and in
@@ -466,11 +475,30 @@ DEFAULT_RUN_MODE = RUN_MODE_LOCAL
 CREDENTIAL_VARIABLES = ("AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY")
 
 # Landing prefix parts. The key is LANDING_KEY_ROOT, then one Hive-style segment per
-# entry of PARTITION_FIELDS in this order, then OBJECT_NAME.
+# entry of PARTITION_FIELDS in this order, then the object name of the part being
+# landed. PARTITION_FIELDS is the whole of the partitioning: the part is an element of
+# the object name and never a fourth Hive-style segment.
 LANDING_KEY_ROOT = "landing"
 PARTITION_FIELDS = ("source_system_key", "entity", "extract_date")
-OBJECT_NAME = "part-0000.json"
 KEY_SEPARATOR = "/"
+
+# Object name of one landed part. One prefix carries one object per part, so two
+# records of the same source system, entity and extract date coexist under distinct
+# part numbers and the landing zone can be replayed to rebuild every raw row of that
+# extract date. The part is written zero-padded to PART_NUMBER_DIGITS digits, so the
+# name is the same width whatever the number; DEFAULT_PART_NUMBER applies when no part
+# is named, which makes OBJECT_NAME and MANIFEST_OBJECT_NAME below the names a landing
+# that names no part writes.
+OBJECT_NAME_TEMPLATE = "part-{part}.json"
+MANIFEST_OBJECT_NAME_TEMPLATE = "part-{part}.manifest.json"
+PART_NUMBER_DIGITS = 4
+MIN_PART_NUMBER = 0
+MAX_PART_NUMBER = 10 ** PART_NUMBER_DIGITS - 1
+DEFAULT_PART_NUMBER = 0
+_PART_NUMBER_SHAPE = re.compile(r"\A[0-9]{1,%d}\Z" % PART_NUMBER_DIGITS)
+_PART_TEXT_SHAPE = re.compile(r"\A[0-9]{%d}\Z" % PART_NUMBER_DIGITS)
+DEFAULT_PART_TEXT = f"{DEFAULT_PART_NUMBER:0{PART_NUMBER_DIGITS}d}"
+OBJECT_NAME = OBJECT_NAME_TEMPLATE.format(part=DEFAULT_PART_TEXT)
 
 # Value used when the matching option and environment variable are both absent.
 DEFAULT_SOURCE_SYSTEM_KEY = "GENAPP_CLASS_EXEMPLAR"
@@ -622,8 +650,9 @@ _PLACEHOLDER_SHAPE = re.compile(r"\$\{([^{}]*)\}")
 PLACEHOLDER_OPENER = "${"
 
 # Object name of the COPY manifest the Redshift load binds to, written beside the
-# landed object under the same landing prefix.
-MANIFEST_OBJECT_NAME = "part-0000.manifest.json"
+# landed object under the same landing prefix and carrying the same part number, so
+# each landed part is bound by its own manifest.
+MANIFEST_OBJECT_NAME = MANIFEST_OBJECT_NAME_TEMPLATE.format(part=DEFAULT_PART_TEXT)
 
 # Documents --render-redshift-load emits, and the value naming each of them.
 RENDER_DOCUMENT_SQL = "sql"
@@ -1964,6 +1993,68 @@ def resolve_extract_date(supplied: str | None) -> datetime.date:
     return parsed
 
 
+def part_number_text(part: int) -> str:
+    """Return ``part`` as the digits the object name of that part carries.
+
+    The value is written zero-padded to ``PART_NUMBER_DIGITS`` digits, so every object
+    name of a landing prefix carries the same width and sorts in part order.
+
+    Raises ``ConfigurationError`` when ``part`` is not a whole number between
+    ``MIN_PART_NUMBER`` and ``MAX_PART_NUMBER``.
+    """
+    if isinstance(part, bool) or not isinstance(part, int):
+        raise ConfigurationError(
+            f"the landing part is {_display(part)}; a whole number between "
+            f"{MIN_PART_NUMBER} and {MAX_PART_NUMBER} is required"
+        )
+    if not (MIN_PART_NUMBER <= part <= MAX_PART_NUMBER):
+        raise ConfigurationError(
+            f"the landing part is {part}; {MIN_PART_NUMBER} to {MAX_PART_NUMBER} are "
+            f"accepted, which is what {PART_NUMBER_DIGITS} digits of the object name "
+            "carry"
+        )
+    return f"{part:0{PART_NUMBER_DIGITS}d}"
+
+
+def object_name(part: int = DEFAULT_PART_NUMBER) -> str:
+    """Return the object name of the landed record of ``part``.
+
+    Raises ``ConfigurationError`` when ``part`` is not an accepted part number.
+    """
+    return OBJECT_NAME_TEMPLATE.format(part=part_number_text(part))
+
+
+def manifest_object_name(part: int = DEFAULT_PART_NUMBER) -> str:
+    """Return the object name of the COPY manifest of ``part``.
+
+    Raises ``ConfigurationError`` when ``part`` is not an accepted part number.
+    """
+    return MANIFEST_OBJECT_NAME_TEMPLATE.format(part=part_number_text(part))
+
+
+def resolve_part(supplied: str | None) -> int:
+    """Return the part element of the landed object name, as a number.
+
+    ``supplied`` is the ``--part`` value, written as 1 to ``PART_NUMBER_DIGITS``
+    decimal digits with or without leading zeros; ``DEFAULT_PART_NUMBER`` applies when
+    it is absent, and the key a run that names no part writes is therefore the one
+    ending in ``OBJECT_NAME``. The number reaches the object name zero-padded to
+    ``PART_NUMBER_DIGITS`` digits, so ``1`` and ``0001`` name the same object.
+
+    Raises ``ConfigurationError`` when ``supplied`` is not such a number.
+    """
+    if supplied is None:
+        return DEFAULT_PART_NUMBER
+    if not _PART_NUMBER_SHAPE.fullmatch(supplied):
+        raise ConfigurationError(
+            f"the landing part from --part is not 1 to {PART_NUMBER_DIGITS} decimal "
+            f"digits: {_shown(supplied)}; {MIN_PART_NUMBER} to {MAX_PART_NUMBER} are "
+            f"accepted and the value reaches the object name as "
+            f"{OBJECT_NAME_TEMPLATE.format(part='NNNN')}"
+        )
+    return int(supplied, 10)
+
+
 def resolve_iam_role(supplied: str | None) -> str:
     """Return the IAM role ARN written into the rendered Redshift load.
 
@@ -2443,20 +2534,17 @@ def resolve_redshift_settings() -> RedshiftSettings:
 # ---------------------------------------------------------------------------
 
 
-def build_landing_key(
+def build_landing_prefix(
     source_system_key: str, entity: str, extract_date: datetime.date
 ) -> str:
-    """Return the landing object key for one extract.
+    """Return the landing key prefix of one extract, ending in ``KEY_SEPARATOR``.
 
-    The key is
-
-        landing/source_system_key=<KEY>/entity=policy_issue/extract_date=<YYYY-MM-DD>/part-0000.json
-
-    with the Hive-style segments in the order ``PARTITION_FIELDS`` records, the literal
-    object name ``OBJECT_NAME``, no leading separator, no empty segment and no
-    percent-encoding of the equals sign. The date is written as
-    ``EXTRACT_DATE_FORM``. ``entity`` must be ``LANDING_ENTITY``, so every key this
-    function returns addresses the canonical policy-issue prefix.
+    The prefix is ``LANDING_KEY_ROOT`` followed by one Hive-style ``field=value``
+    segment per entry of ``PARTITION_FIELDS``, in that order, with no leading
+    separator, no empty segment and no percent-encoding of the equals sign. The date is
+    written as ``EXTRACT_DATE_FORM``. ``entity`` must be ``LANDING_ENTITY``, so every
+    prefix this function returns addresses the canonical policy-issue prefix. Every
+    object name of one extract sits directly under it.
 
     Raises ``ConfigurationError`` when a supplied value cannot form one path segment or
     when ``entity`` is not ``LANDING_ENTITY``.
@@ -2475,8 +2563,32 @@ def build_landing_key(
     }
     segments = [LANDING_KEY_ROOT]
     segments.extend(f"{field}={values[field]}" for field in PARTITION_FIELDS)
-    segments.append(OBJECT_NAME)
-    return KEY_SEPARATOR.join(segments)
+    return KEY_SEPARATOR.join(segments) + KEY_SEPARATOR
+
+
+def build_landing_key(
+    source_system_key: str,
+    entity: str,
+    extract_date: datetime.date,
+    part: int = DEFAULT_PART_NUMBER,
+) -> str:
+    """Return the landing object key for one part of one extract.
+
+    The key is
+
+        landing/source_system_key=<KEY>/entity=policy_issue/extract_date=<YYYY-MM-DD>/part-<NNNN>.json
+
+    which is ``build_landing_prefix`` followed by the object name of ``part``. With no
+    part supplied the name is ``OBJECT_NAME``, so a caller that names no part addresses
+    the key this contract has always fixed; a second part of the same source system,
+    entity and extract date addresses its own key beside it rather than replacing it.
+
+    Raises ``ConfigurationError`` when a supplied value cannot form one path segment,
+    when ``entity`` is not ``LANDING_ENTITY``, or when ``part`` is not an accepted part
+    number.
+    """
+    prefix = build_landing_prefix(source_system_key, entity, extract_date)
+    return f"{prefix}{object_name(part)}"
 
 
 def build_object_uri(bucket: str, key: str) -> str:
@@ -2485,18 +2597,23 @@ def build_object_uri(bucket: str, key: str) -> str:
 
 
 def build_manifest_key(
-    source_system_key: str, entity: str, extract_date: datetime.date
+    source_system_key: str,
+    entity: str,
+    extract_date: datetime.date,
+    part: int = DEFAULT_PART_NUMBER,
 ) -> str:
-    """Return the key of the COPY manifest naming the landed object of one extract.
+    """Return the key of the COPY manifest naming the landed object of one part.
 
     The manifest sits beside the landed object under the same landing prefix, carrying
-    ``MANIFEST_OBJECT_NAME`` in place of ``OBJECT_NAME``.
+    ``manifest_object_name`` of the same part in place of ``object_name``, so each
+    landed part is bound by its own manifest and a COPY reading one manifest reads one
+    object.
 
-    Raises ``ConfigurationError`` when a supplied value cannot form one path segment.
+    Raises ``ConfigurationError`` when a supplied value cannot form one path segment or
+    when ``part`` is not an accepted part number.
     """
-    landing_key = build_landing_key(source_system_key, entity, extract_date)
-    prefix = landing_key[: -len(OBJECT_NAME)]
-    return f"{prefix}{MANIFEST_OBJECT_NAME}"
+    prefix = build_landing_prefix(source_system_key, entity, extract_date)
+    return f"{prefix}{manifest_object_name(part)}"
 
 
 def build_probe_key() -> str:
@@ -2853,10 +2970,10 @@ def note_object_replaced(client: Any, bucket: str, key: str) -> bool:
 
     One head request is made for ``key`` and nothing on the bucket is written, deleted
     or configured. When it answers, one warning line names the key, states that the
-    object already there is replaced by this landing, and states that a landed record is
-    loaded into the raw relation before the next record is landed for that source system
-    and extract date. The line carries the key alone: no value the landing record
-    carries, and no part of the object already there, reaches it.
+    object already there is replaced by this landing, and states that each record of one
+    source system, entity and extract date is landed under its own part number. The line
+    carries the key alone: no value the landing record carries, and no content of the
+    object already there, reaches it.
 
     Returns True when the head request answered and the line was written, and False when
     it did not answer. No outcome of the head request reaches the caller as a failure -
@@ -2871,9 +2988,9 @@ def note_object_replaced(client: Any, bucket: str, key: str) -> bool:
     _warn(
         f"the landing key {_shown(key, MAX_DIAGNOSTIC_PATH_CHARACTERS)} already "
         "carries an object, which this landing replaces; one key carries one object "
-        "per source system, entity and extract date, so a landed record is loaded into "
-        "the raw relation before the next record is landed for that source system and "
-        "extract date"
+        "per source system, entity, extract date and part, so a second record of that "
+        "source system and extract date is landed under its own --part number rather "
+        "than over this key"
     )
     return True
 
@@ -3450,6 +3567,25 @@ def _validate_extract_date(name: str, value: str) -> str:
     return value
 
 
+def _validate_landing_part(name: str, value: str) -> str:
+    """Return ``value`` confirmed to be the part element of a landed object name.
+
+    An accepted value is exactly ``PART_NUMBER_DIGITS`` decimal digits, which is the
+    form the object name carries, so the key the rendered load reads is the key the
+    landing writer wrote character for character.
+
+    Raises ``ConfigurationError`` for every other value.
+    """
+    if not _PART_TEXT_SHAPE.fullmatch(value):
+        raise _rejected(
+            name,
+            value,
+            f"exactly {PART_NUMBER_DIGITS} decimal digits are accepted, the form the "
+            "landed object name carries",
+        )
+    return value
+
+
 def _validate_policy_number(name: str, value: str) -> str:
     """Return ``value`` confirmed to be a policy number.
 
@@ -3589,6 +3725,7 @@ _PLACEHOLDER_VALIDATORS: dict[str, Callable[[str, str], str]] = {
     "SOURCE_SYSTEM_KEY": _validate_key_segment,
     "ENTITY": _validate_key_segment,
     "EXTRACT_DATE": _validate_extract_date,
+    "LANDING_PART": _validate_landing_part,
     "POLICY_NUMBER": _validate_policy_number,
     "REDSHIFT_IAM_ROLE": _validate_iam_role,
     "AWS_REGION": _validate_region,
@@ -3934,7 +4071,9 @@ def render_redshift_load(
     frame ``RENDERED_TRANSACTION_FRAME``, a delete guard keyed on the record's own
     source-system key and policy number, the COPY column list ``columns`` in that exact
     order, and a COPY reading the manifest key derived from the record's own
-    source-system key with the supplied entity and extract date.
+    source-system key with the supplied entity, extract date and part. The part reaches
+    both derived keys from the ``LANDING_PART`` value, so a load rendered for one part
+    reads the manifest of that part and of no other object under the prefix.
 
     Raises ``ConfigurationError`` when a value is refused or contradicts ``record``, and
     ``TemplateError`` when the template or the rendered text is not as described.
@@ -3995,11 +4134,12 @@ def render_redshift_load(
         )
 
     extract_date = datetime.date.fromisoformat(validated["EXTRACT_DATE"])
+    part = int(validated["LANDING_PART"], 10)
     object_key = build_landing_key(
-        validated["SOURCE_SYSTEM_KEY"], validated["ENTITY"], extract_date
+        validated["SOURCE_SYSTEM_KEY"], validated["ENTITY"], extract_date, part
     )
     manifest_key = build_manifest_key(
-        validated["SOURCE_SYSTEM_KEY"], validated["ENTITY"], extract_date
+        validated["SOURCE_SYSTEM_KEY"], validated["ENTITY"], extract_date, part
     )
     object_uri = build_object_uri(validated["S3_BUCKET"], object_key)
     manifest_uri = build_object_uri(validated["S3_BUCKET"], manifest_key)
@@ -4101,6 +4241,7 @@ def render_redshift_document(
     region: str,
     iam_role: str,
     *,
+    part: int = DEFAULT_PART_NUMBER,
     object_etag: str | None = None,
     object_version_id: str | None = None,
     statement_timeout_ms: str = DEFAULT_STATEMENT_TIMEOUT_MS,
@@ -4114,7 +4255,10 @@ def render_redshift_document(
     read, parsed, validated against the schema at ``schema_path`` and confirmed to carry
     ``source_system_key`` before anything is rendered, and the object identity the
     documents bind to is computed from the record's own bytes, which are the bytes
-    land_to_s3 uploads. ``statement_timeout_ms`` bounds every statement of the rendered
+    land_to_s3 uploads. ``part`` is the part element of the object name the documents
+    bind to and defaults to ``DEFAULT_PART_NUMBER``, so a caller that names no part
+    renders the load of the object a landing that names no part wrote.
+    ``statement_timeout_ms`` bounds every statement of the rendered
     load and defaults to ``DEFAULT_STATEMENT_TIMEOUT_MS``. No S3 request is made and
     nothing is written.
 
@@ -4140,6 +4284,7 @@ def render_redshift_document(
         "SOURCE_SYSTEM_KEY": source_system_key,
         "ENTITY": entity,
         "EXTRACT_DATE": extract_date.isoformat(),
+        "LANDING_PART": part_number_text(part),
         "POLICY_NUMBER": record.get(POLICY_NUMBER_FIELD),
         "REDSHIFT_IAM_ROLE": iam_role,
         "AWS_REGION": region,
@@ -4172,6 +4317,7 @@ def land_record(
     entity: str,
     extract_date: datetime.date,
     *,
+    part: int = DEFAULT_PART_NUMBER,
     region: str | None = None,
     endpoint_url: str | None = None,
     schema_path: Path = DEFAULT_SCHEMA,
@@ -4185,18 +4331,23 @@ def land_record(
     a real date in each date key and a real moment in its timestamp, confirmed to carry
     the amounts its policy type populates and null in every other amount, and checked to
     carry ``source_system_key`` itself; the landing key is then built from the value the
-    validated record carries and the fixed entity literal, all before any client
-    exists. The schema admits ``return_code`` 00 alone, so the record written is one
-    successful execution of the chain, carrying the policy number and the last-changed
-    timestamp the chain assigned; a record carrying any other code is rejected here.
-    The bytes read are the bytes written, so the stored object is byte-identical to
-    ``record_path``.
+    validated record carries, the fixed entity literal and ``part``, all before any
+    client exists. The schema admits ``return_code`` 00 alone, so the record written is
+    one successful execution of the chain, carrying the policy number and the
+    last-changed timestamp the chain assigned; a record carrying any other code is
+    rejected here. The bytes read are the bytes written, so the stored object is
+    byte-identical to ``record_path``.
 
     Two objects are written under the landing prefix and nothing else is created on the
-    bucket: the record at ``build_landing_key`` and, beside it, the COPY manifest
-    modernization/landing/load_redshift.sql binds its load to, at
-    ``build_manifest_key``. The record is written first and the manifest second, so no
-    manifest on the bucket ever names an object that was not written, and the manifest
+    bucket: the record at ``build_landing_key`` for ``part`` and, beside it, the COPY
+    manifest modernization/landing/load_redshift.sql binds its load to, at
+    ``build_manifest_key`` for that same part. ``part`` defaults to
+    ``DEFAULT_PART_NUMBER``, whose two names are ``OBJECT_NAME`` and
+    ``MANIFEST_OBJECT_NAME``; another part writes its own pair of objects beside them,
+    so the records of one source system, entity and extract date coexist and the
+    landing zone can be replayed to rebuild every raw row of that extract date. The
+    record is written first and the manifest second, so no manifest on the bucket ever
+    names an object that was not written, and the manifest
     is the document ``build_copy_manifest`` returns for that object: one entry carrying
     the record's own URI, ``mandatory`` true and the byte count of the bytes just
     written, which is what ``--render-redshift-load manifest`` prints for the same
@@ -4205,9 +4356,10 @@ def land_record(
     objects are written in either run mode.
 
     The landing key is head-requested through ``note_object_replaced`` before the record
-    is written, so an object already there is named in one warning line as one this
-    landing replaces. That head request cannot fail the landing: whatever it answers,
-    the record and the manifest are written and the URI is returned.
+    is written, so an object already there - which is one landed for this same part - is
+    named in one warning line as one this landing replaces. That head request cannot
+    fail the landing: whatever it answers, the record and the manifest are written and
+    the URI is returned.
 
     Raises ``RecordError`` when the record breaches the landing contract,
     ``SchemaError`` when the schema cannot be used, ``ConfigurationError`` when a
@@ -4225,8 +4377,8 @@ def land_record(
     confirm_product_premium_allocation(record, record_path)
     confirm_source_system_key(record, source_system_key, record_path)
     carried_key = str(record[SOURCE_SYSTEM_KEY_FIELD])
-    key = build_landing_key(carried_key, entity, extract_date)
-    manifest_key = build_manifest_key(carried_key, entity, extract_date)
+    key = build_landing_key(carried_key, entity, extract_date, part)
+    manifest_key = build_manifest_key(carried_key, entity, extract_date, part)
     _note(
         f"validated {_path_shown(record_path)} carrying {len(body)} bytes for key "
         f"{_shown(key, MAX_DIAGNOSTIC_PATH_CHARACTERS)}"
@@ -4436,7 +4588,7 @@ COPY raw.genapp_policy_issue (
     flood_premium_amount,
     weather_premium_amount
 )
-FROM 's3://${S3_BUCKET}/landing/source_system_key=${SOURCE_SYSTEM_KEY}/entity=${ENTITY}/extract_date=${EXTRACT_DATE}/part-0000.manifest.json'
+FROM 's3://${S3_BUCKET}/landing/source_system_key=${SOURCE_SYSTEM_KEY}/entity=${ENTITY}/extract_date=${EXTRACT_DATE}/part-${LANDING_PART}.manifest.json'
 IAM_ROLE '${REDSHIFT_IAM_ROLE}'
 FORMAT AS JSON 'auto'
 MANIFEST
@@ -4449,6 +4601,7 @@ _FIXTURE_VALUES: dict[str, str] = {
     "SOURCE_SYSTEM_KEY": DEFAULT_SOURCE_SYSTEM_KEY,
     "ENTITY": LANDING_ENTITY,
     "EXTRACT_DATE": _SELF_TEST_EXTRACT_DATE.isoformat(),
+    "LANDING_PART": DEFAULT_PART_TEXT,
     "POLICY_NUMBER": "1000301",
     "REDSHIFT_IAM_ROLE": _SELF_TEST_IAM_ROLE,
     "AWS_REGION": _SELF_TEST_REGION,
@@ -4572,12 +4725,12 @@ _HOUSE_CHANGES: dict[str, Any] = {
 }
 
 # Fragments of the warning line a landing writes for a key that already carries an
-# object: the replacement itself and the loading sequence the line states. One case
-# requires both present, and the cases of a first landing and of a head request that
-# does not answer require the first absent.
+# object: the replacement itself and the part contract the line states. One case
+# requires both present, and the cases of a first landing, of a landing of another part
+# and of a head request that does not answer require the first absent.
 _REPLACEMENT_FRAGMENT = "already carries an object, which this landing replaces"
 _REPLACEMENT_SEQUENCE_FRAGMENT = (
-    "a landed record is loaded into the raw relation before the next record is landed"
+    "one key carries one object per source system, entity, extract date and part"
 )
 
 # Members of the replacing record that no line of a landing carries: its identifiers,
@@ -5992,6 +6145,146 @@ def _case_landing_replacement_noted(scratch: _Scratch) -> str:
     )
 
 
+def _case_landing_parts_coexist(scratch: _Scratch) -> str:
+    """Two parts of one extract date land as four objects that all stand together.
+
+    The motor record is landed under the default part and the commercial record under
+    part 1, for one source system, entity and extract date. The bucket is then required
+    to carry four objects - two records and two manifests - each record byte-identical
+    to the file it was landed from and each manifest naming its own record's URI and
+    byte count. Neither landing writes a replacement line, because neither addresses a
+    key the other wrote, which is what makes the landing zone replayable: both raw rows
+    of one extract date can be rebuilt from object storage alone.
+    """
+    mock_aws, _ = _test_collaborators()
+    first = scratch.write("record-part-0000.json", _motor_record_text())
+    second = scratch.write(
+        "record-part-0001.json", _motor_record_text(**_COMMERCIAL_CHANGES)
+    )
+    bodies = {DEFAULT_PART_NUMBER: first.read_bytes(), 1: second.read_bytes()}
+    _assert(
+        bodies[DEFAULT_PART_NUMBER] != bodies[1],
+        "both records of this case carry the same bytes",
+    )
+    with mock_aws():
+        with _controlled_environment(
+            scratch, AWS_DEFAULT_REGION=_SELF_TEST_REGION, **_SELF_TEST_CREDENTIALS
+        ):
+            raw = boto3.session.Session(region_name=_SELF_TEST_REGION).client(
+                SERVICE_NAME, config=_client_config()
+            )
+            raw.create_bucket(
+                Bucket=_SELF_TEST_BUCKET,
+                CreateBucketConfiguration={"LocationConstraint": _SELF_TEST_REGION},
+            )
+            landed: dict[int, str] = {}
+            for part, path in ((DEFAULT_PART_NUMBER, first), (1, second)):
+                with _captured_stderr() as reported:
+                    landed[part] = land_record(
+                        path,
+                        _SELF_TEST_BUCKET,
+                        DEFAULT_SOURCE_SYSTEM_KEY,
+                        LANDING_ENTITY,
+                        _SELF_TEST_EXTRACT_DATE,
+                        part=part,
+                    )
+                _assert(
+                    _REPLACEMENT_FRAGMENT not in reported.getvalue(),
+                    f"landing part {part} named a replacement",
+                )
+            expected_keys: list[str] = []
+            for part, body in bodies.items():
+                key = build_landing_key(
+                    DEFAULT_SOURCE_SYSTEM_KEY,
+                    LANDING_ENTITY,
+                    _SELF_TEST_EXTRACT_DATE,
+                    part,
+                )
+                manifest_key = build_manifest_key(
+                    DEFAULT_SOURCE_SYSTEM_KEY,
+                    LANDING_ENTITY,
+                    _SELF_TEST_EXTRACT_DATE,
+                    part,
+                )
+                expected_keys.extend((key, manifest_key))
+                _assert_equal(
+                    landed[part],
+                    build_object_uri(_SELF_TEST_BUCKET, key),
+                    f"the URI of part {part}",
+                )
+                _assert_equal(
+                    raw.get_object(Bucket=_SELF_TEST_BUCKET, Key=key)["Body"].read(),
+                    body,
+                    f"the stored bytes of part {part}",
+                )
+                manifest = json.loads(
+                    raw.get_object(Bucket=_SELF_TEST_BUCKET, Key=manifest_key)["Body"]
+                    .read()
+                    .decode("ascii")
+                )
+                entries = manifest["entries"]
+                _assert_equal(len(entries), 1, f"manifest entries of part {part}")
+                _assert_equal(
+                    entries[0]["url"],
+                    build_object_uri(_SELF_TEST_BUCKET, key),
+                    f"the URI the manifest of part {part} names",
+                )
+                _assert_equal(
+                    entries[0]["meta"]["content_length"],
+                    len(body),
+                    f"the byte count the manifest of part {part} names",
+                )
+            listing = raw.list_objects_v2(
+                Bucket=_SELF_TEST_BUCKET,
+                Prefix=build_landing_prefix(
+                    DEFAULT_SOURCE_SYSTEM_KEY, LANDING_ENTITY, _SELF_TEST_EXTRACT_DATE
+                ),
+            )
+            _assert_equal(listing.get("KeyCount"), 4, "objects under one prefix")
+            _assert_equal(
+                sorted(entry["Key"] for entry in listing["Contents"]),
+                sorted(expected_keys),
+                "the keys the two landings wrote",
+            )
+            with _captured_stderr() as replacing:
+                land_record(
+                    first,
+                    _SELF_TEST_BUCKET,
+                    DEFAULT_SOURCE_SYSTEM_KEY,
+                    LANDING_ENTITY,
+                    _SELF_TEST_EXTRACT_DATE,
+                    part=DEFAULT_PART_NUMBER,
+                )
+            notice = replacing.getvalue()
+            _assert_in(
+                _REPLACEMENT_FRAGMENT, notice, "the notice of a repeated same part"
+            )
+            _assert_in(
+                _REPLACEMENT_SEQUENCE_FRAGMENT, notice, "the part contract stated"
+            )
+            still_there = raw.list_objects_v2(Bucket=_SELF_TEST_BUCKET)
+            _assert_equal(
+                still_there.get("KeyCount"), 4, "objects after the repeated landing"
+            )
+            _assert_equal(
+                raw.get_object(
+                    Bucket=_SELF_TEST_BUCKET,
+                    Key=build_landing_key(
+                        DEFAULT_SOURCE_SYSTEM_KEY,
+                        LANDING_ENTITY,
+                        _SELF_TEST_EXTRACT_DATE,
+                        1,
+                    ),
+                )["Body"].read(),
+                bodies[1],
+                "the bytes of part 1 after part 0000 was landed again",
+            )
+    return (
+        "2 records and 2 manifests coexist under one prefix, and a repeated landing "
+        "of one part replaced that part alone"
+    )
+
+
 def _case_landing_replacement_probe_non_fatal(scratch: _Scratch) -> str:
     """A head request that does not answer writes no notice and fails no landing.
 
@@ -6236,6 +6529,139 @@ def _case_keys_built() -> str:
         )
     return "landing, manifest and URI shapes confirmed; 5 segments refused"
 
+
+def _case_part_option_resolved() -> str:
+    """The part element resolves, names its own objects and refuses every other value.
+
+    The key a caller that names no part builds is required to equal the key of the
+    default part character for character, so the object name of a landing that names no
+    part is the one the landing contract has always fixed.
+    """
+    _assert_equal(resolve_part(None), DEFAULT_PART_NUMBER, "the part of no setting")
+    _assert_equal(
+        build_landing_key(
+            DEFAULT_SOURCE_SYSTEM_KEY, LANDING_ENTITY, _SELF_TEST_EXTRACT_DATE
+        ),
+        build_landing_key(
+            DEFAULT_SOURCE_SYSTEM_KEY,
+            LANDING_ENTITY,
+            _SELF_TEST_EXTRACT_DATE,
+            DEFAULT_PART_NUMBER,
+        ),
+        "the key of a caller naming no part",
+    )
+    _assert_equal(
+        build_manifest_key(
+            DEFAULT_SOURCE_SYSTEM_KEY, LANDING_ENTITY, _SELF_TEST_EXTRACT_DATE
+        ),
+        build_manifest_key(
+            DEFAULT_SOURCE_SYSTEM_KEY,
+            LANDING_ENTITY,
+            _SELF_TEST_EXTRACT_DATE,
+            DEFAULT_PART_NUMBER,
+        ),
+        "the manifest key of a caller naming no part",
+    )
+    for supplied, expected in (
+        ("0", 0),
+        ("0000", 0),
+        ("1", 1),
+        ("0001", 1),
+        ("42", 42),
+        ("9999", MAX_PART_NUMBER),
+    ):
+        _assert_equal(resolve_part(supplied), expected, f"the part from {supplied!r}")
+    _assert_equal(object_name(0), OBJECT_NAME, "the object name of the default part")
+    _assert_equal(
+        manifest_object_name(0),
+        MANIFEST_OBJECT_NAME,
+        "the manifest name of the default part",
+    )
+    _assert_equal(object_name(1), "part-0001.json", "the object name of part 1")
+    _assert_equal(
+        manifest_object_name(1),
+        "part-0001.manifest.json",
+        "the manifest name of part 1",
+    )
+    _assert_equal(
+        object_name(MAX_PART_NUMBER), "part-9999.json", "the object name of part 9999"
+    )
+    prefix = build_landing_prefix(
+        DEFAULT_SOURCE_SYSTEM_KEY, LANDING_ENTITY, _SELF_TEST_EXTRACT_DATE
+    )
+    _assert_equal(
+        prefix,
+        "landing/source_system_key=GENAPP_CLASS_EXEMPLAR/entity=policy_issue/"
+        "extract_date=2026-08-19/",
+        "the landing prefix",
+    )
+    _assert_equal(
+        len(prefix.rstrip(KEY_SEPARATOR).split(KEY_SEPARATOR)),
+        len(PARTITION_FIELDS) + 1,
+        "the segments of the landing prefix",
+    )
+    for part in (1, MAX_PART_NUMBER):
+        key = build_landing_key(
+            DEFAULT_SOURCE_SYSTEM_KEY, LANDING_ENTITY, _SELF_TEST_EXTRACT_DATE, part
+        )
+        _assert_equal(key, f"{prefix}{object_name(part)}", f"the key of part {part}")
+        _assert_equal(
+            build_manifest_key(
+                DEFAULT_SOURCE_SYSTEM_KEY,
+                LANDING_ENTITY,
+                _SELF_TEST_EXTRACT_DATE,
+                part,
+            ),
+            f"{prefix}{manifest_object_name(part)}",
+            f"the manifest key of part {part}",
+        )
+    refused_settings = (
+        "-1",
+        "1.0",
+        "0x1",
+        "00001",
+        "10000",
+        " 1",
+        "1 ",
+        "",
+        "one",
+        "1e3",
+        "+1",
+        "١",
+    )
+    for supplied in refused_settings:
+        _assert_raises(
+            f"the part setting {supplied!r}",
+            ConfigurationError,
+            "--part",
+            lambda supplied=supplied: resolve_part(supplied),
+        )
+    refused_numbers: tuple[Any, ...] = (
+        -1,
+        MAX_PART_NUMBER + 1,
+        True,
+        "0000",
+        None,
+        1.0,
+    )
+    for value in refused_numbers:
+        _assert_raises(
+            f"the part number {value!r}",
+            ConfigurationError,
+            "",
+            lambda value=value: build_landing_key(
+                DEFAULT_SOURCE_SYSTEM_KEY,
+                LANDING_ENTITY,
+                _SELF_TEST_EXTRACT_DATE,
+                value,
+            ),
+        )
+    return (
+        f"{len(refused_settings)} part settings and {len(refused_numbers)} part "
+        "numbers refused; the default part key is unchanged"
+    )
+
+
 def _case_render_identity() -> str:
     """The object identity is derived from the record's own bytes, with overrides."""
     body = _motor_record_text().encode("utf-8")
@@ -6428,6 +6854,99 @@ def _case_render_manifest(scratch: _Scratch) -> str:
     return f"one mandatory entry pinned to {len(body)} bytes"
 
 
+def _case_render_non_default_part(scratch: _Scratch) -> str:
+    """A load and a manifest rendered for a non-default part name that part's object.
+
+    Both documents are rendered for part 1 through the authored template, and each is
+    required to name the object and the manifest of part 1 and no other object under the
+    prefix, with the byte count of the record's own bytes. The same record rendered for
+    the default part is required to name the default object, so the part reaches the
+    rendered documents from the setting alone.
+    """
+    path = scratch.write("record-part.json", _motor_record_text())
+    body = path.read_bytes()
+    rendered: dict[int, tuple[str, str]] = {}
+    for part in (DEFAULT_PART_NUMBER, 1):
+        with _captured_stderr():
+            sql = render_redshift_document(
+                RENDER_DOCUMENT_SQL,
+                path,
+                _SELF_TEST_BUCKET,
+                DEFAULT_SOURCE_SYSTEM_KEY,
+                LANDING_ENTITY,
+                _SELF_TEST_EXTRACT_DATE,
+                _SELF_TEST_REGION,
+                _SELF_TEST_IAM_ROLE,
+                part=part,
+            )
+            manifest = render_redshift_document(
+                RENDER_DOCUMENT_MANIFEST,
+                path,
+                _SELF_TEST_BUCKET,
+                DEFAULT_SOURCE_SYSTEM_KEY,
+                LANDING_ENTITY,
+                _SELF_TEST_EXTRACT_DATE,
+                _SELF_TEST_REGION,
+                _SELF_TEST_IAM_ROLE,
+                part=part,
+            )
+        rendered[part] = (sql, manifest)
+        object_uri = build_object_uri(
+            _SELF_TEST_BUCKET,
+            build_landing_key(
+                DEFAULT_SOURCE_SYSTEM_KEY,
+                LANDING_ENTITY,
+                _SELF_TEST_EXTRACT_DATE,
+                part,
+            ),
+        )
+        manifest_uri = build_object_uri(
+            _SELF_TEST_BUCKET,
+            build_manifest_key(
+                DEFAULT_SOURCE_SYSTEM_KEY,
+                LANDING_ENTITY,
+                _SELF_TEST_EXTRACT_DATE,
+                part,
+            ),
+        )
+        _assert_equal(
+            sql.count(f"'{manifest_uri}'"),
+            1,
+            f"manifest references of the load of part {part}",
+        )
+        _assert_in(
+            f"part-{part_number_text(part)}.json",
+            sql,
+            f"the object the load of part {part} records",
+        )
+        entry = parse_json_document(manifest)["entries"][0]
+        _assert_equal(entry["url"], object_uri, f"the URI the manifest of {part} names")
+        _assert_equal(
+            entry["meta"]["content_length"],
+            len(body),
+            f"the byte count the manifest of part {part} names",
+        )
+    other_name = f"part-{part_number_text(1)}"
+    _assert(
+        other_name not in rendered[DEFAULT_PART_NUMBER][0],
+        f"the load of the default part names {other_name}",
+    )
+    _assert(
+        other_name not in rendered[DEFAULT_PART_NUMBER][1],
+        f"the manifest of the default part names {other_name}",
+    )
+    for supplied in ("1", "00001", "10000", "-1", "x"):
+        _assert_raises(
+            f"the LANDING_PART value {supplied!r}",
+            ConfigurationError,
+            "LANDING_PART",
+            lambda supplied=supplied: _validated_placeholder(
+                "LANDING_PART", supplied
+            ),
+        )
+    return "the load and the manifest of part 0001 name that part's object alone"
+
+
 def _case_render_rejects_hostile_values() -> str:
     """No placeholder accepts a quote, a comment, a separator or a control character."""
     refused = 0
@@ -6582,7 +7101,7 @@ def _case_render_rejects_template_faults(scratch: _Scratch) -> str:
         (
             "a template reading the object instead of its manifest",
             _FIXTURE_TEMPLATE_TEXT.replace(
-                "part-0000.manifest.json", "part-0000.json"
+                "part-${LANDING_PART}.manifest.json", "part-${LANDING_PART}.json"
             ),
             None,
             "does not read the manifest",
@@ -6777,7 +7296,38 @@ def _case_render_cli(scratch: _Scratch) -> str:
     _assert_in(
         f"'{_SELF_TEST_REGION}'", from_environment.stdout, "the rendered region"
     )
-    return "sql and manifest rendered from options and from the environment"
+    with_part = _run_cli(
+        scratch,
+        ["--render-redshift-load", RENDER_DOCUMENT_SQL, "--part", "1", *arguments],
+    )
+    _assert_equal(with_part.status, EXIT_OK, "the status of a render naming a part")
+    _assert_in(
+        "part-0001.manifest.json", with_part.stdout, "the manifest the part reads"
+    )
+    _assert(
+        "part-0000" not in with_part.stdout,
+        "the render of part 1 names the default part",
+    )
+    refused_part = _run_cli(
+        scratch,
+        [
+            "--render-redshift-load",
+            RENDER_DOCUMENT_SQL,
+            "--part",
+            "10000",
+            *arguments,
+        ],
+    )
+    _assert_equal(
+        refused_part.status,
+        EXIT_CONFIGURATION_REJECTED,
+        "the status of a render naming a part outside the accepted range",
+    )
+    _assert_in("--part", refused_part.stderr, "the diagnostic naming the part setting")
+    return (
+        "sql and manifest rendered from options, from the environment and for a "
+        "named part"
+    )
 
 
 def _case_redshift_settings_resolved(scratch: _Scratch) -> str:
@@ -7720,6 +8270,10 @@ def run_self_test(*, quiet: bool = False, stream: Any = None) -> int:
             lambda: _case_landing_replacement_noted(scratch),
         )
         _run_case(
+            results, out, quiet, "landing_parts_coexist",
+            lambda: _case_landing_parts_coexist(scratch),
+        )
+        _run_case(
             results, out, quiet, "landing_replacement_probe_non_fatal",
             lambda: _case_landing_replacement_probe_non_fatal(scratch),
         )
@@ -7728,6 +8282,9 @@ def run_self_test(*, quiet: bool = False, stream: Any = None) -> int:
             lambda: _case_upload_failure_reported(scratch),
         )
         _run_case(results, out, quiet, "keys_built", _case_keys_built)
+        _run_case(
+            results, out, quiet, "part_option_resolved", _case_part_option_resolved
+        )
         _run_case(results, out, quiet, "render_identity", _case_render_identity)
         _run_case(
             results, out, quiet, "render_fixture_bytes",
@@ -7740,6 +8297,10 @@ def run_self_test(*, quiet: bool = False, stream: Any = None) -> int:
         _run_case(
             results, out, quiet, "render_manifest",
             lambda: _case_render_manifest(scratch),
+        )
+        _run_case(
+            results, out, quiet, "render_non_default_part",
+            lambda: _case_render_non_default_part(scratch),
         )
         _run_case(
             results, out, quiet, "render_rejects_hostile_values",
@@ -7840,9 +8401,14 @@ def build_arg_parser() -> argparse.ArgumentParser:
             f"extract_date=<{EXTRACT_DATE_FORM}>",
         )
     )
-    key_template = f"{key_prefix_template}{KEY_SEPARATOR}{OBJECT_NAME}"
+    part_form = "N" * PART_NUMBER_DIGITS
+    key_template = (
+        f"{key_prefix_template}{KEY_SEPARATOR}"
+        f"{OBJECT_NAME_TEMPLATE.format(part=part_form)}"
+    )
     manifest_key_template = (
-        f"{key_prefix_template}{KEY_SEPARATOR}{MANIFEST_OBJECT_NAME}"
+        f"{key_prefix_template}{KEY_SEPARATOR}"
+        f"{MANIFEST_OBJECT_NAME_TEMPLATE.format(part=part_form)}"
     )
     parser = _CommandLineParser(
         prog=_PROGRAM,
@@ -7875,12 +8441,13 @@ def build_arg_parser() -> argparse.ArgumentParser:
             f"--render-redshift-load {RENDER_DOCUMENT_MANIFEST} prints for the same "
             "record, so the real-branch order is land, bootstrap the raw relation, "
             "then run the COPY of load_redshift.sql.\n"
-            "One key carries one object per source system, entity and extract date: a "
-            "second landing for the same source system and extract date addresses that "
-            "same key and replaces the object it carries, naming it in one warning "
-            "line, so a run lands one record, loads it into the raw relation, then "
-            "lands the next. A head request that does not answer writes no such line "
-            "and the landing still succeeds.\n"
+            "One key carries one object per source system, entity, extract date and "
+            f"part: --part names the part, {DEFAULT_PART_TEXT} applies when it is "
+            "omitted, and every part of one extract date coexists under one prefix, so "
+            "the landing zone can be replayed to rebuild every raw row of that date. A "
+            "second landing of the same part addresses that same key and replaces the "
+            "object it carries, naming it in one warning line; a head request that "
+            "does not answer writes no such line and the landing still succeeds.\n"
             "In landing mode stdout carries exactly one line, the URI of the object "
             "written; in either probe mode it carries exactly one line, that probe's "
             "verdict. "
@@ -7977,6 +8544,21 @@ def build_arg_parser() -> argparse.ArgumentParser:
             "entity element of the landing prefix, which is the fixed literal "
             f"{LANDING_ENTITY}; omitted, that literal applies, and any other value is "
             "refused rather than landing the record outside the canonical prefix"
+        ),
+    )
+    parser.add_argument(
+        "--part",
+        default=None,
+        metavar="NUMBER",
+        help=(
+            "part element of the landed object name, written as 1 to "
+            f"{PART_NUMBER_DIGITS} decimal digits between {MIN_PART_NUMBER} and "
+            f"{MAX_PART_NUMBER} and reaching the name zero-padded to "
+            f"{PART_NUMBER_DIGITS} digits; omitted, part {DEFAULT_PART_TEXT} applies "
+            f"and the object name is {OBJECT_NAME}. Each part of one source system, "
+            "entity and extract date is its own object with its own COPY manifest, so "
+            "two records of one extract date coexist under one prefix instead of the "
+            "second replacing the first"
         ),
     )
     parser.add_argument(
@@ -8184,6 +8766,7 @@ def _run(args: argparse.Namespace) -> str:
             resolve_extract_date(args.extract_date),
             require_region(region),
             resolve_iam_role(args.iam_role),
+            part=resolve_part(args.part),
             object_etag=args.object_etag,
             object_version_id=args.object_version_id,
             template_path=resolve_template_path(args.template),
@@ -8208,6 +8791,7 @@ def _run(args: argparse.Namespace) -> str:
         resolve_source_system_key(args.source_system_key),
         resolve_entity(args.entity),
         resolve_extract_date(args.extract_date),
+        part=resolve_part(args.part),
         region=region,
         endpoint_url=endpoint_url,
     )

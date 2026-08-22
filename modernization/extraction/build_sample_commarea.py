@@ -35,7 +35,28 @@ WHICH FIELD MAP MEMBERS ARE FIXED
     ``numeric_display`` and left for ``alphanumeric``, that ``fill_by_kind`` is
     ``zeros`` for ``numeric_display`` and ``spaces`` for ``alphanumeric``, and that
     every layout item flagged ``chain_required_numeric`` records kind
-    ``numeric_display``. Loading also
+    ``numeric_display``.
+
+    Loading confirms the recorded geometry of every layout group carrying an overlay
+    role against that group's own declared items: the items cover the area the group
+    redefines contiguously from its offset, the last of them is one of the filler items,
+    ``overlay_length`` is the summed length of the items declared before that trailing
+    filler, and ``overlay_end_byte`` is the last character of ``overlay_length``
+    characters from the offset. Each such group must be measured by one
+    ``length_constants.measured`` entry whose recorded length and end byte are the
+    group's own, whose declared check is ``WS-CA-HEADER-LEN`` plus the product's
+    declared full length, and whose shortfall is the characters by which that check
+    falls short of the measured end byte.
+
+    Loading confirms the ``counts`` census against the logical entries ``fields``
+    declares: 17 entries resolving to 16 runtime business values, each ``counts`` member
+    equal to the entries or target instances it counts, the members of each census
+    dimension accounting for every value those entries record, each relation's total
+    columns equal to its source-derived columns plus the warehouse-assigned column that
+    ``source_system_key`` targets on it, and ``landing_fields`` equal to the runtime
+    business values plus that section's one landing field.
+
+    Loading also
     confirms the container and element types of every member this builder reads: each
     ``layout`` group name and each ``request_routing.map`` request id is a non-empty
     string, and ``sample_definition_contract.required_keys``, where it is recorded, is a
@@ -124,10 +145,21 @@ WHAT --self-test CHECKS
     fill or the stated chain-populated content of every window it omits and its rendered
     bytes against a table of literal expected window contents, confirms that
     ``chain_populated_items``, the logical entries, the copybook parse and that table
-    state the same pre-execution content, and runs the failure matrix: mutated field
+    state the same pre-execution content, reports the overlay geometry, the measured
+    shortfalls and the census the loaded map reconciles, and runs the failure matrix:
+    mutated field
     maps, including a chain-populated seed inside its declared domain, a seed of the
     wrong length, a non-digit seed for a numeric window, a chain-populated item missing
-    from the section and a foreign item present in it, rejected sample definitions,
+    from the section and a foreign item present in it, an overlay group whose declared
+    items are no longer contiguous, whose trailing filler is shortened or renamed, whose
+    items are removed, whose redefined area is unstated, whose offset is moved and whose
+    recorded length or end byte contradicts those items, a second overlay group no
+    measurement covers, a measured length, end byte, declared check, shortfall and
+    declared length constant restated away from the geometry they measure, a logical
+    entry removed, demoted, mislabelled by status or group, targeting an uncounted
+    relation or stripped of its landing field, the warehouse-assigned section stripped
+    of its landing field, every ``counts`` member restated one step away from the
+    entries it counts, rejected sample definitions,
     including two keys that name one item by differing
     case, a record one character short of and one character past the emitted length
     offered to the writer, an unwritable output, an unreadable field map, an input that
@@ -356,6 +388,96 @@ PROTECTED_FILL_ITEMS = frozenset(
         "CA-C-FILLER",
     }
 )
+
+# Layout members that record the geometry of one product overlay: the characters the
+# overlay's own items cover from the group's offset, and the 1-based position of the
+# last of them. The characters the overlay leaves in the area it redefines are held by
+# the group's one trailing filler item.
+OVERLAY_LENGTH_MEMBER = "overlay_length"
+OVERLAY_END_BYTE_MEMBER = "overlay_end_byte"
+
+
+class _OverlayMeasurement(NamedTuple):
+    """The ``length_constants`` members that record one overlay group's measurement.
+
+    ``group`` names the layout group the measurement belongs to and
+    ``declared_constant`` the ``length_constants.declared`` entry the chain adds to the
+    header length for that product. ``measured_length`` and ``measured_end_byte`` name
+    the members that repeat the group's own geometry, ``declared_check`` the member that
+    records the header length plus that declared constant, and ``shortfall`` the member
+    that records the characters by which that check falls short of the measured end
+    byte.
+    """
+
+    group: str
+    declared_constant: str
+    measured_length: str
+    measured_end_byte: str
+    declared_check: str
+    shortfall: str
+
+
+# Length constant the chain adds every product length to before it compares the supplied
+# COMMAREA length, and the measurement recorded for each overlay this bridge exercises.
+HEADER_LENGTH_CONSTANT = "WS-CA-HEADER-LEN"
+OVERLAY_MEASUREMENTS = (
+    _OverlayMeasurement(
+        group="motor_overlay",
+        declared_constant="WS-FULL-MOTOR-LEN",
+        measured_length="actual_motor_overlay_length",
+        measured_end_byte="actual_motor_overlay_end_byte",
+        declared_check="declared_full_motor_check",
+        shortfall="shortfall_bytes",
+    ),
+    _OverlayMeasurement(
+        group="commercial_overlay",
+        declared_constant="WS-FULL-COMM-LEN",
+        measured_length="actual_commercial_overlay_length",
+        measured_end_byte="actual_commercial_overlay_end_byte",
+        declared_check="declared_full_comm_check",
+        shortfall="commercial_shortfall_bytes",
+    ),
+)
+
+# Field census this builder reads: the logical entries the field map declares under
+# ``fields``, and the runtime business values they resolve to, which are the entries
+# recording a runtime status other than declaration-only.
+LOGICAL_FIELD_ENTRIES = 17
+RUNTIME_BUSINESS_VALUES = 16
+
+# Runtime statuses a logical entry records, each with the ``counts`` member that tallies
+# the entries recording it, and the statuses whose entries carry a runtime value.
+STATUS_ACTIVE = "active"
+STATUS_DERIVED = "derived"
+STATUS_DECLARATION_ONLY = "declaration_only"
+COUNTED_ENTRY_STATUSES = {
+    STATUS_ACTIVE: "active_entries",
+    STATUS_DERIVED: "derived_entries",
+    STATUS_DECLARATION_ONLY: "declaration_only_entries",
+}
+RUNTIME_ENTRY_STATUSES = (STATUS_ACTIVE, STATUS_DERIVED)
+
+# Groups a logical entry records, each with the ``counts`` member that tallies it.
+COUNTED_ENTRY_GROUPS = {
+    "premium_payment": "premium_payment_entries",
+    "policy_request": "policy_request_entries",
+}
+
+# Canonical relations the logical entries target, each with the ``counts`` member that
+# tallies the source-derived column instances it receives and the member that records
+# its total column count.
+COUNTED_TARGET_RELATIONS = {
+    "canonical.issued_policy": "issued_policy_source_derived_columns",
+    "canonical.preissued_rating": "preissued_rating_source_derived_columns",
+}
+COUNTED_RELATION_TOTALS = {
+    "canonical.issued_policy": "issued_policy_total_columns",
+    "canonical.preissued_rating": "preissued_rating_total_columns",
+}
+
+# Section that records the sole warehouse-assigned column, its targets and the landing
+# field the census counts beside the runtime business values.
+WAREHOUSE_ASSIGNED_SECTION = "source_system_key"
 
 # Character classes permitted in a supplied value, matched with fullmatch: one or more
 # ASCII digits 0-9 for a numeric item, one or more printable 7-bit ASCII characters for
@@ -872,6 +994,20 @@ def _positive_int(container: dict[str, Any], key: str, where: str) -> int:
     return value
 
 
+def _non_negative_int(container: dict[str, Any], key: str, where: str) -> int:
+    """Return a non-negative integer member of a field map mapping.
+
+    Used for the census tallies and the measured shortfalls, each of which the field map
+    records as zero when nothing is counted or nothing falls short.
+    """
+    value = container.get(key)
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise FieldMapError(
+            f"{where}: '{key}' must be a non-negative integer, found {_display(value)}"
+        )
+    return value
+
+
 def _check_string_keys(section: dict[Any, Any], what: str, where: str) -> None:
     """Confirm every key of one field map mapping is a non-empty string.
 
@@ -986,14 +1122,423 @@ def _check_chain_numeric_kinds(field_map: dict[str, Any]) -> None:
                 )
 
 
+def _overlay_geometry_groups(field_map: dict[str, Any]) -> list[str]:
+    """Return every layout group carrying an overlay role, in name order.
+
+    A group qualifies when request routing selects it as an overlay or when it records
+    either overlay geometry member, so a group carrying geometry that no request selects
+    is checked and measured rather than passed over.
+    """
+    layout = _mapping_section(field_map, "layout", "field map")
+    names = set(_overlay_group_names(field_map))
+    for group_name, group in layout.items():
+        if isinstance(group, dict) and (
+            OVERLAY_LENGTH_MEMBER in group or OVERLAY_END_BYTE_MEMBER in group
+        ):
+            names.add(group_name)
+    return sorted(names)
+
+
+def _redefined_area(group: dict[str, Any], where: str) -> tuple[int, int]:
+    """Return the offset and length of the area one layout group redefines.
+
+    The group must record exactly one ``group_declarations`` entry that names the item
+    it redefines; that entry's offset and length are the area its items cover.
+    """
+    declarations = _sequence_section(group, "group_declarations", where)
+    redefining: list[tuple[int, dict[str, Any]]] = []
+    for position, declaration in enumerate(declarations, start=1):
+        if not isinstance(declaration, dict):
+            raise FieldMapError(
+                f"{where}: 'group_declarations' entry {position} must be a mapping, "
+                f"found {_type_name(declaration)}"
+            )
+        if declaration.get("redefines"):
+            redefining.append((position, declaration))
+    if len(redefining) != 1:
+        raise FieldMapError(
+            f"{where}: 'group_declarations' must record exactly one entry that "
+            f"redefines another item, found {len(redefining)}"
+        )
+    position, declaration = redefining[0]
+    entry_where = f"{where} group_declarations entry {position}"
+    return (
+        _positive_int(declaration, "offset", entry_where),
+        _positive_int(declaration, "length", entry_where),
+    )
+
+
+def _contiguous_coverage(
+    windows: list[Window], offset: int, area_length: int, where: str
+) -> int:
+    """Return the characters ``windows`` cover from ``offset``, filling the whole area.
+
+    Each window must start where the window before it ends, and the windows together
+    must cover exactly ``area_length`` characters, so a dropped, moved, shortened or
+    added declaration is named rather than absorbed by the group's trailing filler.
+    """
+    if not windows:
+        raise FieldMapError(f"{where}: declares no placeable item")
+    position = offset
+    for window in windows:
+        if window.offset != position:
+            raise FieldMapError(
+                f"{where}: item {_display(window.item)} is declared at offset "
+                f"{window.offset} where the declarations before it end at byte "
+                f"{position - 1}; the group's items must cover the area it redefines "
+                f"contiguously from offset {offset}"
+            )
+        position += window.length
+    covered = position - offset
+    if covered != area_length:
+        raise FieldMapError(
+            f"{where}: the declared items cover {covered} character(s) from offset "
+            f"{offset} and the area the group redefines holds {area_length}"
+        )
+    return covered
+
+
+def _check_overlay_geometry(field_map: dict[str, Any]) -> None:
+    """Confirm every overlay group's recorded geometry matches its declared items.
+
+    For each group carrying an overlay role: its offset is the offset of the area it
+    redefines, its declared items cover that area contiguously from there, the last of
+    them is one of ``PROTECTED_FILL_ITEMS``, ``overlay_length`` is the summed length of
+    the items declared before that trailing filler, and ``overlay_end_byte`` is the last
+    character of ``overlay_length`` characters starting at the offset. Raises
+    ``FieldMapError`` naming the group, the member, the value its declarations give that
+    member and the value recorded.
+    """
+    layout = _mapping_section(field_map, "layout", "field map")
+    for group_name in _overlay_geometry_groups(field_map):
+        group = _mapping_section(layout, group_name, "field map layout")
+        where = f"field map layout group {_display(group_name)}"
+        offset = _positive_int(group, "offset", where)
+        area_offset, area_length = _redefined_area(group, where)
+        if area_offset != offset:
+            raise FieldMapError(
+                f"{where}: 'offset' is {offset} and the area the group redefines "
+                f"starts at byte {area_offset}"
+            )
+        windows = _group_windows(layout, group_name)
+        covered = _contiguous_coverage(windows, offset, area_length, where)
+        filler = windows[-1]
+        if filler.item.upper() not in PROTECTED_FILL_ITEMS:
+            raise FieldMapError(
+                f"{where}: item {_display(filler.item)} is declared last and must be "
+                f"one of the filler items {_quote_all(sorted(PROTECTED_FILL_ITEMS))}, "
+                f"which hold the characters the overlay leaves"
+            )
+        declared_length = _positive_int(group, OVERLAY_LENGTH_MEMBER, where)
+        expected_length = covered - filler.length
+        if declared_length != expected_length:
+            raise FieldMapError(
+                f"{where}: '{OVERLAY_LENGTH_MEMBER}' must be {expected_length}, the "
+                f"summed length of the {len(windows) - 1} item(s) declared before "
+                f"filler {_display(filler.item)}, found {declared_length}"
+            )
+        declared_end = _positive_int(group, OVERLAY_END_BYTE_MEMBER, where)
+        expected_end = offset + declared_length - 1
+        if declared_end != expected_end:
+            raise FieldMapError(
+                f"{where}: '{OVERLAY_END_BYTE_MEMBER}' must be {expected_end}, the "
+                f"last of {declared_length} character(s) from offset {offset}, found "
+                f"{declared_end}"
+            )
+
+
+def _declared_length_constant(declared: dict[str, Any], name: str) -> int:
+    """Return the value one ``length_constants.declared`` entry records."""
+    where = "field map length_constants.declared"
+    entry = _mapping_section(declared, name, where)
+    return _positive_int(entry, "value", f"{where} {_display(name)}")
+
+
+def _check_measured_lengths(field_map: dict[str, Any]) -> None:
+    """Confirm the measured length constants repeat the layout geometry they measure.
+
+    Every overlay group carrying geometry must be measured by one entry of
+    ``OVERLAY_MEASUREMENTS``. For each measurement, the recorded length and end byte are
+    the group's own, the declared check is the header length plus the product's declared
+    full length, and the shortfall is the characters by which that check falls short of
+    the measured end byte. Raises ``FieldMapError`` naming the member, the value the
+    declarations give it and the value recorded.
+    """
+    layout = _mapping_section(field_map, "layout", "field map")
+    constants = _mapping_section(field_map, "length_constants", "field map")
+    declared = _mapping_section(constants, "declared", "field map length_constants")
+    measured = _mapping_section(constants, "measured", "field map length_constants")
+    where = "field map length_constants.measured"
+    covered = {measurement.group for measurement in OVERLAY_MEASUREMENTS}
+    unmeasured = [
+        name for name in _overlay_geometry_groups(field_map) if name not in covered
+    ]
+    if unmeasured:
+        raise FieldMapError(
+            f"{where}: records no measurement for overlay group(s) "
+            f"{_quote_all(unmeasured)}"
+        )
+    header = _declared_length_constant(declared, HEADER_LENGTH_CONSTANT)
+    for measurement in OVERLAY_MEASUREMENTS:
+        group = _mapping_section(layout, measurement.group, "field map layout")
+        group_where = f"field map layout group {_display(measurement.group)}"
+        overlay_length = _positive_int(group, OVERLAY_LENGTH_MEMBER, group_where)
+        overlay_end = _positive_int(group, OVERLAY_END_BYTE_MEMBER, group_where)
+        for member, layout_member, expected in (
+            (measurement.measured_length, OVERLAY_LENGTH_MEMBER, overlay_length),
+            (measurement.measured_end_byte, OVERLAY_END_BYTE_MEMBER, overlay_end),
+        ):
+            recorded = _positive_int(measured, member, where)
+            if recorded != expected:
+                raise FieldMapError(
+                    f"{where}: '{member}' must be {expected}, the '{layout_member}' "
+                    f"layout group {_display(measurement.group)} declares, found "
+                    f"{recorded}"
+                )
+        full = _declared_length_constant(declared, measurement.declared_constant)
+        check = _positive_int(measured, measurement.declared_check, where)
+        if check != header + full:
+            raise FieldMapError(
+                f"{where}: '{measurement.declared_check}' must be {header + full}, the "
+                f"{header} characters '{HEADER_LENGTH_CONSTANT}' declares plus the "
+                f"{full} characters '{measurement.declared_constant}' declares, found "
+                f"{check}"
+            )
+        shortfall = _non_negative_int(measured, measurement.shortfall, where)
+        if shortfall != overlay_end - check:
+            raise FieldMapError(
+                f"{where}: '{measurement.shortfall}' must be {overlay_end - check}, "
+                f"the characters by which '{measurement.declared_check}' {check} falls "
+                f"short of measured end byte {overlay_end}, found {shortfall}"
+            )
+
+
+def _entry_member(entry: dict[str, Any], key: str, where: str) -> str:
+    """Return one non-empty string member of a field map entry."""
+    value = entry.get(key)
+    if not isinstance(value, str) or not value:
+        raise FieldMapError(
+            f"{where}: '{key}' must be a non-empty string, found {_display(value)}"
+        )
+    return value
+
+
+def _entry_target_relations(entry: dict[str, Any], where: str) -> list[str]:
+    """Return the relations one entry's ``targets`` name, in declaration order.
+
+    An entry recording no target, and one recording an empty target sequence, both yield
+    no relation; every recorded target must name its relation.
+    """
+    targets = entry.get("targets")
+    if targets is None:
+        return []
+    if not isinstance(targets, list):
+        raise FieldMapError(
+            f"{where}: 'targets' must be a sequence when recorded, "
+            f"found {_type_name(targets)}"
+        )
+    relations: list[str] = []
+    for position, target in enumerate(targets, start=1):
+        if not isinstance(target, dict):
+            raise FieldMapError(
+                f"{where}: 'targets' entry {position} must be a mapping, "
+                f"found {_type_name(target)}"
+            )
+        relations.append(
+            _entry_member(target, "relation", f"{where} targets entry {position}")
+        )
+    return relations
+
+
+def _tallied(values: Iterable[str]) -> dict[str, int]:
+    """Return the number of times each value appears."""
+    tally: dict[str, int] = {}
+    for value in values:
+        tally[value] = tally.get(value, 0) + 1
+    return tally
+
+
+def _reconciled_tally(
+    counts: dict[str, Any],
+    tally: dict[str, int],
+    members: dict[str, str],
+    what: str,
+    total: int,
+    subject: str,
+) -> int:
+    """Confirm the counted members of one census dimension match the observed tally.
+
+    ``members`` maps each counted value to the ``counts`` member that tallies it,
+    ``tally`` holds the observed count of every value the entries record, counted or
+    not, and ``total`` is the number of records the dimension covers. Each member must
+    equal the observed count of its value, and the members together must account for
+    ``total``, so both a mislabelled record and a value the census counts under no
+    member are named. Returns the summed member values.
+    """
+    where = "field map counts"
+    counted = 0
+    for value, member in sorted(members.items()):
+        recorded = _non_negative_int(counts, member, where)
+        observed = tally.get(value, 0)
+        if recorded != observed:
+            raise FieldMapError(
+                f"{where}: '{member}' must be {observed}, the number of 'fields' "
+                f"entries recording {what} {_display(value)}, found {recorded}"
+            )
+        counted += recorded
+    if counted != total:
+        raise FieldMapError(
+            f"{where}: the members counting {what} account for {counted} of the "
+            f"{total} {subject}; no member counts "
+            f"{_quote_all(sorted(set(tally) - set(members)))}"
+        )
+    return counted
+
+
+def _check_field_census(field_map: dict[str, Any]) -> None:
+    """Confirm the ``counts`` census matches the logical entries ``fields`` declares.
+
+    ``fields`` holds ``LOGICAL_FIELD_ENTRIES`` entries resolving to
+    ``RUNTIME_BUSINESS_VALUES`` runtime business values, and every ``counts`` member is
+    confirmed against those entries: the status and group members against the entries
+    recording each value, the relation members against the target instances each
+    relation receives, and the runtime, instance, total-column and landing members
+    against the arithmetic relating them. Raises ``FieldMapError`` naming the member,
+    the value the entries give it and the value recorded.
+    """
+    counts = _mapping_section(field_map, "counts", "field map")
+    where = "field map counts"
+    entries = _logical_entries(field_map)
+    if len(entries) != LOGICAL_FIELD_ENTRIES:
+        raise FieldMapError(
+            f"field map fields declares {len(entries)} logical entries and the census "
+            f"this builder reads holds {LOGICAL_FIELD_ENTRIES}"
+        )
+    recorded_entries = _positive_int(counts, "logical_field_entries", where)
+    if recorded_entries != len(entries):
+        raise FieldMapError(
+            f"{where}: 'logical_field_entries' must be {len(entries)}, the number of "
+            f"entries 'fields' declares, found {recorded_entries}"
+        )
+
+    statuses: list[str] = []
+    groups: list[str] = []
+    relations: list[str] = []
+    landed = 0
+    for position, entry in enumerate(entries, start=1):
+        entry_where = f"field map fields entry {position}"
+        statuses.append(_entry_member(entry, "runtime_status", entry_where))
+        groups.append(_entry_member(entry, "group", entry_where))
+        relations.extend(_entry_target_relations(entry, entry_where))
+        if entry.get("landing_field") is not None:
+            _entry_member(entry, "landing_field", entry_where)
+            landed += 1
+
+    status_tally = _tallied(statuses)
+    subject = "entries 'fields' declares"
+    _reconciled_tally(
+        counts,
+        status_tally,
+        COUNTED_ENTRY_STATUSES,
+        "runtime_status",
+        len(entries),
+        subject,
+    )
+    _reconciled_tally(
+        counts, _tallied(groups), COUNTED_ENTRY_GROUPS, "group", len(entries), subject
+    )
+
+    runtime_values = sum(
+        status_tally.get(status, 0) for status in RUNTIME_ENTRY_STATUSES
+    )
+    recorded_runtime = _positive_int(counts, "runtime_business_values", where)
+    if recorded_runtime != runtime_values:
+        raise FieldMapError(
+            f"{where}: 'runtime_business_values' must be {runtime_values}, the entries "
+            f"recording runtime_status {_quote_all(RUNTIME_ENTRY_STATUSES)}, found "
+            f"{recorded_runtime}"
+        )
+    if runtime_values != RUNTIME_BUSINESS_VALUES:
+        raise FieldMapError(
+            f"field map fields resolves {runtime_values} runtime business values and "
+            f"the census this builder reads holds {RUNTIME_BUSINESS_VALUES}"
+        )
+
+    relation_tally = _tallied(relations)
+    instances = _reconciled_tally(
+        counts,
+        relation_tally,
+        COUNTED_TARGET_RELATIONS,
+        "a target on relation",
+        len(relations),
+        "target instances 'fields' declares",
+    )
+    recorded_instances = _positive_int(counts, "source_derived_column_instances", where)
+    if recorded_instances != instances:
+        raise FieldMapError(
+            f"{where}: 'source_derived_column_instances' must be {instances}, the "
+            f"summed source-derived columns of "
+            f"{_quote_all(sorted(COUNTED_TARGET_RELATIONS))}, found "
+            f"{recorded_instances}"
+        )
+
+    warehouse = _mapping_section(field_map, WAREHOUSE_ASSIGNED_SECTION, "field map")
+    warehouse_where = f"field map {WAREHOUSE_ASSIGNED_SECTION}"
+    assigned = _tallied(_entry_target_relations(warehouse, warehouse_where))
+    per_relation = _positive_int(
+        counts, "warehouse_assigned_columns_per_relation", where
+    )
+    for relation, member in sorted(COUNTED_RELATION_TOTALS.items()):
+        if assigned.get(relation, 0) != per_relation:
+            raise FieldMapError(
+                f"{where}: 'warehouse_assigned_columns_per_relation' is {per_relation} "
+                f"and {warehouse_where} targets {assigned.get(relation, 0)} column(s) "
+                f"on {_display(relation)}"
+            )
+        source_derived = relation_tally.get(relation, 0)
+        recorded_total = _positive_int(counts, member, where)
+        if recorded_total != source_derived + per_relation:
+            raise FieldMapError(
+                f"{where}: '{member}' must be {source_derived + per_relation}, the "
+                f"{source_derived} source-derived column(s) of {_display(relation)} "
+                f"plus its {per_relation} warehouse-assigned column(s), found "
+                f"{recorded_total}"
+            )
+    recorded_relations = _positive_int(counts, "canonical_relations", where)
+    if recorded_relations != len(COUNTED_TARGET_RELATIONS):
+        raise FieldMapError(
+            f"{where}: 'canonical_relations' must be {len(COUNTED_TARGET_RELATIONS)}, "
+            f"the relations {_quote_all(sorted(COUNTED_TARGET_RELATIONS))} the census "
+            f"counts, found {recorded_relations}"
+        )
+
+    warehouse_landing = _entry_member(warehouse, "landing_field", warehouse_where)
+    if landed != runtime_values:
+        raise FieldMapError(
+            f"field map fields records a landing field for {landed} of its entries and "
+            f"{runtime_values} of them carry a runtime business value"
+        )
+    recorded_landing = _positive_int(counts, "landing_fields", where)
+    if recorded_landing != landed + 1:
+        raise FieldMapError(
+            f"{where}: 'landing_fields' must be {landed + 1}, the {landed} runtime "
+            f"business values plus the warehouse-assigned "
+            f"{_display(warehouse_landing)}, found {recorded_landing}"
+        )
+
+
 def _check_fixed_contract(field_map: dict[str, Any]) -> None:
     """Confirm the field map declares the fixed record contract this tool emits.
 
     Checks ``record.length``, ``record.link_length_observed`` and
     ``sample_definition_contract.emitted_record_length`` against
     ``COMMAREA_RECORD_LENGTH``, the padding character and justification recorded for
-    both item kinds, and the kind of every layout item flagged
-    ``chain_required_numeric``. Raises ``FieldMapError`` naming the member that differs.
+    both item kinds, the kind of every layout item flagged ``chain_required_numeric``,
+    the geometry every overlay group records against its own declared items, the
+    measured length constants against that geometry and the declared constants they
+    reconcile with, and the ``counts`` census against the logical entries ``fields``
+    declares.
+    Raises ``FieldMapError`` naming the member that differs.
     """
     _record_length(field_map)
     record = _mapping_section(field_map, "record", "field map")
@@ -1014,6 +1559,9 @@ def _check_fixed_contract(field_map: dict[str, Any]) -> None:
         )
     _fill_rules(field_map)
     _check_chain_numeric_kinds(field_map)
+    _check_overlay_geometry(field_map)
+    _check_measured_lengths(field_map)
+    _check_field_census(field_map)
 
 
 class _FieldMapSource(NamedTuple):
@@ -3216,6 +3764,66 @@ _COMMERCIAL_PREMIUM_PROBE = "00013500"
 # write_record is offered one character more than it writes.
 _EXTRA_RECORD_CHARACTER = "0"
 
+# Names and values the overlay geometry and census mutants carry. The stale overlay
+# length is the value the field map records for the declared WS-MOTOR-LEN constant,
+# which the motor overlay's own items exceed; the spare overlay group is a second group
+# carrying geometry that no measurement covers; the trailing item name stands outside
+# PROTECTED_FILL_ITEMS; and the uncounted status, group and target relation stand
+# outside the members the census counts.
+_STALE_OVERLAY_CONSTANT = "WS-MOTOR-LEN"
+_SPARE_OVERLAY_GROUP = "spare_overlay"
+_NON_FILLER_TRAILING_ITEM = "CA-M-UNRESERVED"
+_UNCOUNTED_ENTRY_STATUS = "provisional"
+_UNCOUNTED_ENTRY_GROUP = "unlisted_group"
+_UNCOUNTED_TARGET_RELATION = "canonical.unlisted_relation"
+_UNCOUNTED_TARGET: dict[str, Any] = {
+    "relation": _UNCOUNTED_TARGET_RELATION,
+    "column": "unlisted_column",
+}
+
+# The two overlay groups the geometry and measurement mutants alter, each with the
+# measurement recorded for it, and the group the mislabelling mutant moves an entry
+# into.
+_MOTOR_OVERLAY_GROUP = "motor_overlay"
+_COMMERCIAL_OVERLAY_GROUP = "commercial_overlay"
+_MEASUREMENT_BY_GROUP = {
+    measurement.group: measurement for measurement in OVERLAY_MEASUREMENTS
+}
+_MOTOR_MEASUREMENT = _MEASUREMENT_BY_GROUP[_MOTOR_OVERLAY_GROUP]
+_COMMERCIAL_MEASUREMENT = _MEASUREMENT_BY_GROUP[_COMMERCIAL_OVERLAY_GROUP]
+_POLICY_REQUEST_GROUP = "policy_request"
+
+# Logical entries the census mutants alter: the declaration-only entry whose status is
+# mislabelled, the premium entry whose status, group and targets are altered, and the
+# active entries whose landing field is removed and whose status is demoted.
+_MISLABELLED_STATUS_ENTRY = "db2_policynumber_declaration"
+_RELABELLED_CENSUS_ENTRY = "payment"
+_UNLANDED_CENSUS_ENTRY = "broker_id"
+_DEMOTED_CENSUS_ENTRY = "brokers_reference"
+
+# Every member of the census, the step by which one mutant restates it and the text the
+# diagnostic must carry: the members the entries themselves give a value state the value
+# they must hold, and the warehouse-assigned member states the value found instead.
+_CENSUS_EXPECTED = "'{member}' must be {expected}"
+_CENSUS_RESTATED = "'{member}' is {restated}"
+_RESTATED_CENSUS_MEMBERS = (
+    ("logical_field_entries", -1, _CENSUS_EXPECTED),
+    ("premium_payment_entries", -1, _CENSUS_EXPECTED),
+    ("policy_request_entries", -1, _CENSUS_EXPECTED),
+    ("active_entries", 1, _CENSUS_EXPECTED),
+    ("derived_entries", 1, _CENSUS_EXPECTED),
+    ("declaration_only_entries", 1, _CENSUS_EXPECTED),
+    ("runtime_business_values", -1, _CENSUS_EXPECTED),
+    ("issued_policy_source_derived_columns", -1, _CENSUS_EXPECTED),
+    ("preissued_rating_source_derived_columns", -1, _CENSUS_EXPECTED),
+    ("source_derived_column_instances", -1, _CENSUS_EXPECTED),
+    ("warehouse_assigned_columns_per_relation", 1, _CENSUS_RESTATED),
+    ("issued_policy_total_columns", -1, _CENSUS_EXPECTED),
+    ("preissued_rating_total_columns", -1, _CENSUS_EXPECTED),
+    ("landing_fields", -1, _CENSUS_EXPECTED),
+    ("canonical_relations", 1, _CENSUS_EXPECTED),
+)
+
 # The field map's product premium nullability claim, held here as literals: the builder
 # cases it may name for the record bytes, the statements it withholds, the dbt test that
 # carries the transformed column-level assertion and the cases it requires of that test.
@@ -4632,6 +5240,65 @@ def _layout_entry(
     )
 
 
+def _logical_entry(document: dict[str, Any], logical_entry: str) -> dict[str, Any]:
+    """Return one logical field entry of a field map document."""
+    for entry in document["fields"]:
+        if isinstance(entry, dict) and entry.get("logical_entry") == logical_entry:
+            return entry
+    raise SelfTestError(
+        f"field map fields declares no logical entry {_display(logical_entry)}"
+    )
+
+
+def _restated_overlay_geometry(
+    document: dict[str, Any], group: str, length: int
+) -> None:
+    """Record ``length`` as one overlay group's length with the end byte it implies.
+
+    Both geometry members stay consistent with each other and with the group's offset,
+    so only their disagreement with the group's declared items is left to be reported.
+    """
+    entry = document["layout"][group]
+    entry[OVERLAY_LENGTH_MEMBER] = length
+    entry[OVERLAY_END_BYTE_MEMBER] = entry["offset"] + length - 1
+
+
+def _relabelled_entry(
+    document: dict[str, Any],
+    logical_entry: str,
+    member: str,
+    value: str,
+    counted: dict[str, str],
+) -> None:
+    """Record ``value`` for one entry's ``member`` and drop the count it leaves behind.
+
+    The census member counting the value being replaced falls by one, so every counted
+    member still matches the entries recording it and only the total they account for
+    falls short.
+    """
+    entry = _logical_entry(document, logical_entry)
+    document["counts"][counted[entry[member]]] -= 1
+    entry[member] = value
+
+
+def _demoted_entry(document: dict[str, Any], logical_entry: str) -> None:
+    """Record one logical entry as declaration-only and restate every count it feeds.
+
+    The entry loses its landing field, one entry moves from the active count to the
+    declaration-only count, and the runtime and landing totals fall by one, so the
+    census agrees with the entries throughout and only the runtime business values it
+    resolves to fall short of the census this builder reads.
+    """
+    entry = _logical_entry(document, logical_entry)
+    entry["runtime_status"] = STATUS_DECLARATION_ONLY
+    entry["landing_field"] = None
+    counts = document["counts"]
+    counts[COUNTED_ENTRY_STATUSES[STATUS_ACTIVE]] -= 1
+    counts[COUNTED_ENTRY_STATUSES[STATUS_DECLARATION_ONLY]] += 1
+    counts["runtime_business_values"] -= 1
+    counts["landing_fields"] -= 1
+
+
 def _protected_fill_entry(document: dict[str, Any], item: str) -> dict[str, Any]:
     """Return one protected_fill_items entry of a field map document."""
     contract = document["sample_definition_contract"]
@@ -5562,6 +6229,37 @@ def _case_nullability_claim(field_map: dict[str, Any], names: Iterable[str]) -> 
     )
 
 
+def _case_map_contract(field_map: dict[str, Any]) -> str:
+    """Confirm the overlay, measurement and census checks accept the loaded field map.
+
+    The three contract checks run over the map this self-test loaded and the values
+    they reconcile are read back and reported: each overlay group's length and end byte,
+    the shortfall each measurement records against the declared constants, and the
+    census the logical entries resolve to.
+    """
+    _check_overlay_geometry(field_map)
+    _check_measured_lengths(field_map)
+    _check_field_census(field_map)
+    layout = field_map["layout"]
+    geometry = ", ".join(
+        f"{name} covers {layout[name][OVERLAY_LENGTH_MEMBER]} character(s) to byte "
+        f"{layout[name][OVERLAY_END_BYTE_MEMBER]}"
+        for name in _overlay_geometry_groups(field_map)
+    )
+    measured = field_map["length_constants"]["measured"]
+    shortfalls = ", ".join(
+        f"{measurement.shortfall}={measured[measurement.shortfall]}"
+        for measurement in OVERLAY_MEASUREMENTS
+    )
+    counts = field_map["counts"]
+    return (
+        f"{geometry}; {shortfalls}; {counts['logical_field_entries']} logical entries, "
+        f"{counts['runtime_business_values']} runtime business values, "
+        f"{counts['source_derived_column_instances']} source-derived column instances, "
+        f"{counts['landing_fields']} landing fields"
+    )
+
+
 def _case_protected_fill_mutation(
     tree: _HeldTree, mutated_map: str, layout: CopybookLayout, item: str
 ) -> str:
@@ -6276,6 +6974,13 @@ def run_self_test(
             results,
             out,
             quiet,
+            "map_contract_reconciled",
+            lambda: _case_map_contract(field_map),
+        )
+        _run_case(
+            results,
+            out,
+            quiet,
             "motor_record_bytes",
             lambda: _case_fixture_record(
                 layout,
@@ -6470,6 +7175,232 @@ def run_self_test(
                 _layout_entry(document, "motor_overlay", "CA-M-COLOUR")
             ),
         )
+        overlay_group = _MOTOR_OVERLAY_GROUP
+        overlay_geometry = field_map["layout"][overlay_group]
+        commercial_geometry = field_map["layout"][_COMMERCIAL_OVERLAY_GROUP]
+        measured_constants = field_map["length_constants"]["measured"]
+        stale_overlay_length = _declared_length_constant(
+            field_map["length_constants"]["declared"], _STALE_OVERLAY_CONSTANT
+        )
+        stale_geometry = _mutated_field_map(
+            tree,
+            "map_stale_overlay_geometry",
+            field_map,
+            lambda document: _restated_overlay_geometry(
+                document, overlay_group, stale_overlay_length
+            ),
+        )
+        moved_end_byte = _mutated_field_map(
+            tree,
+            "map_overlay_end_byte_moved",
+            field_map,
+            lambda document: document["layout"][overlay_group].__setitem__(
+                OVERLAY_END_BYTE_MEMBER,
+                document["layout"][overlay_group][OVERLAY_END_BYTE_MEMBER] + 1,
+            ),
+        )
+        moved_overlay_offset = _mutated_field_map(
+            tree,
+            "map_overlay_offset_moved",
+            field_map,
+            lambda document: document["layout"][overlay_group].__setitem__(
+                "offset", document["layout"][overlay_group]["offset"] + 1
+            ),
+        )
+        shortened_filler = _mutated_field_map(
+            tree,
+            "map_overlay_filler_shortened",
+            field_map,
+            lambda document: _layout_entry(
+                document, overlay_group, "CA-M-FILLER"
+            ).__setitem__(
+                "length",
+                _layout_entry(document, overlay_group, "CA-M-FILLER")["length"] - 1,
+            ),
+        )
+        renamed_filler = _mutated_field_map(
+            tree,
+            "map_overlay_trailing_item_renamed",
+            field_map,
+            lambda document: _layout_entry(
+                document, overlay_group, "CA-M-FILLER"
+            ).__setitem__("item", _NON_FILLER_TRAILING_ITEM),
+        )
+        overlay_without_items = _mutated_field_map(
+            tree,
+            "map_overlay_without_items",
+            field_map,
+            lambda document: document["layout"][overlay_group].__setitem__("items", []),
+        )
+        overlay_without_redefines = _mutated_field_map(
+            tree,
+            "map_overlay_without_redefines",
+            field_map,
+            lambda document: document["layout"][overlay_group][
+                "group_declarations"
+            ][0].__setitem__("redefines", None),
+        )
+        spare_overlay = _mutated_field_map(
+            tree,
+            "map_spare_overlay_group",
+            field_map,
+            lambda document: document["layout"].__setitem__(
+                _SPARE_OVERLAY_GROUP, copy.deepcopy(document["layout"][overlay_group])
+            ),
+        )
+        measured_length = _mutated_field_map(
+            tree,
+            "map_measured_overlay_length",
+            field_map,
+            lambda document: document["length_constants"]["measured"].__setitem__(
+                _MOTOR_MEASUREMENT.measured_length, stale_overlay_length
+            ),
+        )
+        measured_end_byte = _mutated_field_map(
+            tree,
+            "map_measured_overlay_end_byte",
+            field_map,
+            lambda document: document["length_constants"]["measured"].__setitem__(
+                _COMMERCIAL_MEASUREMENT.measured_end_byte,
+                document["length_constants"]["measured"][
+                    _COMMERCIAL_MEASUREMENT.measured_end_byte
+                ]
+                + 1,
+            ),
+        )
+        measured_check = _mutated_field_map(
+            tree,
+            "map_measured_declared_check",
+            field_map,
+            lambda document: document["length_constants"]["measured"].__setitem__(
+                _MOTOR_MEASUREMENT.declared_check,
+                document["length_constants"]["measured"][
+                    _MOTOR_MEASUREMENT.declared_check
+                ]
+                - 1,
+            ),
+        )
+        measured_shortfall = _mutated_field_map(
+            tree,
+            "map_measured_shortfall",
+            field_map,
+            lambda document: document["length_constants"]["measured"].__setitem__(
+                _MOTOR_MEASUREMENT.shortfall,
+                document["length_constants"]["measured"][_MOTOR_MEASUREMENT.shortfall]
+                - 1,
+            ),
+        )
+        declared_constant = _mutated_field_map(
+            tree,
+            "map_declared_constant_restated",
+            field_map,
+            lambda document: document["length_constants"]["declared"][
+                _MOTOR_MEASUREMENT.declared_constant
+            ].__setitem__(
+                "value",
+                document["length_constants"]["declared"][
+                    _MOTOR_MEASUREMENT.declared_constant
+                ]["value"]
+                + 1,
+            ),
+        )
+        entry_removed = _mutated_field_map(
+            tree,
+            "map_logical_entry_removed",
+            field_map,
+            lambda document: document["fields"].remove(
+                _logical_entry(document, _DEMOTED_CENSUS_ENTRY)
+            ),
+        )
+        entry_demoted = _mutated_field_map(
+            tree,
+            "map_logical_entry_demoted",
+            field_map,
+            lambda document: _demoted_entry(document, _DEMOTED_CENSUS_ENTRY),
+        )
+        status_mislabelled = _mutated_field_map(
+            tree,
+            "map_entry_status_mislabelled",
+            field_map,
+            lambda document: _logical_entry(
+                document, _MISLABELLED_STATUS_ENTRY
+            ).__setitem__("runtime_status", STATUS_ACTIVE),
+        )
+        status_uncounted = _mutated_field_map(
+            tree,
+            "map_entry_status_uncounted",
+            field_map,
+            lambda document: _relabelled_entry(
+                document,
+                _RELABELLED_CENSUS_ENTRY,
+                "runtime_status",
+                _UNCOUNTED_ENTRY_STATUS,
+                COUNTED_ENTRY_STATUSES,
+            ),
+        )
+        group_mislabelled = _mutated_field_map(
+            tree,
+            "map_entry_group_mislabelled",
+            field_map,
+            lambda document: _logical_entry(
+                document, _RELABELLED_CENSUS_ENTRY
+            ).__setitem__("group", _POLICY_REQUEST_GROUP),
+        )
+        group_uncounted = _mutated_field_map(
+            tree,
+            "map_entry_group_uncounted",
+            field_map,
+            lambda document: _relabelled_entry(
+                document,
+                _RELABELLED_CENSUS_ENTRY,
+                "group",
+                _UNCOUNTED_ENTRY_GROUP,
+                COUNTED_ENTRY_GROUPS,
+            ),
+        )
+        target_uncounted = _mutated_field_map(
+            tree,
+            "map_entry_target_uncounted",
+            field_map,
+            lambda document: _logical_entry(document, _RELABELLED_CENSUS_ENTRY)[
+                "targets"
+            ].append(dict(_UNCOUNTED_TARGET)),
+        )
+        landing_field_removed = _mutated_field_map(
+            tree,
+            "map_entry_landing_field_removed",
+            field_map,
+            lambda document: _logical_entry(
+                document, _UNLANDED_CENSUS_ENTRY
+            ).__setitem__("landing_field", None),
+        )
+        warehouse_landing_removed = _mutated_field_map(
+            tree,
+            "map_warehouse_landing_field_removed",
+            field_map,
+            lambda document: document[WAREHOUSE_ASSIGNED_SECTION].__setitem__(
+                "landing_field", None
+            ),
+        )
+        counted_members = tuple(
+            (
+                f"map_counts_{member}",
+                _mutated_field_map(
+                    tree,
+                    f"map_counts_{member}",
+                    field_map,
+                    lambda document, member=member, step=step: document[
+                        "counts"
+                    ].__setitem__(member, document["counts"][member] + step),
+                ),
+                template.format(
+                    member=member,
+                    expected=field_map["counts"][member],
+                    restated=field_map["counts"][member] + step,
+                ),
+            )
+            for member, step, template in _RESTATED_CENSUS_MEMBERS
+        )
         numeric_filler = _mutated_field_map(
             tree,
             "map_numeric_filler",
@@ -6624,10 +7555,173 @@ def run_self_test(
 
         for case_name, mutated, expected_status, fragment in (
             (
-                "map_dropped_item_rejects_key",
+                "map_dropped_overlay_item",
                 dropped_item,
-                EXIT_SAMPLE_REJECTED,
-                "names no item declared for request id",
+                EXIT_FIELD_MAP_INVALID,
+                "must cover the area it redefines contiguously from offset",
+            ),
+            (
+                "map_stale_overlay_geometry",
+                stale_geometry,
+                EXIT_FIELD_MAP_INVALID,
+                (
+                    f"'{OVERLAY_LENGTH_MEMBER}' must be "
+                    f"{overlay_geometry[OVERLAY_LENGTH_MEMBER]}"
+                ),
+            ),
+            (
+                "map_overlay_end_byte_moved",
+                moved_end_byte,
+                EXIT_FIELD_MAP_INVALID,
+                (
+                    f"'{OVERLAY_END_BYTE_MEMBER}' must be "
+                    f"{overlay_geometry[OVERLAY_END_BYTE_MEMBER]}"
+                ),
+            ),
+            (
+                "map_overlay_offset_moved",
+                moved_overlay_offset,
+                EXIT_FIELD_MAP_INVALID,
+                "and the area the group redefines starts at byte",
+            ),
+            (
+                "map_overlay_filler_shortened",
+                shortened_filler,
+                EXIT_FIELD_MAP_INVALID,
+                "the declared items cover",
+            ),
+            (
+                "map_overlay_trailing_item_renamed",
+                renamed_filler,
+                EXIT_FIELD_MAP_INVALID,
+                f"item {_display(_NON_FILLER_TRAILING_ITEM)} is declared last",
+            ),
+            (
+                "map_overlay_without_items",
+                overlay_without_items,
+                EXIT_FIELD_MAP_INVALID,
+                "declares no placeable item",
+            ),
+            (
+                "map_overlay_without_redefines",
+                overlay_without_redefines,
+                EXIT_FIELD_MAP_INVALID,
+                "must record exactly one entry that redefines another item",
+            ),
+            (
+                "map_spare_overlay_group",
+                spare_overlay,
+                EXIT_FIELD_MAP_INVALID,
+                (
+                    "records no measurement for overlay group(s) "
+                    f"{_display(_SPARE_OVERLAY_GROUP)}"
+                ),
+            ),
+            (
+                "map_measured_overlay_length",
+                measured_length,
+                EXIT_FIELD_MAP_INVALID,
+                (
+                    f"'{_MOTOR_MEASUREMENT.measured_length}' must be "
+                    f"{overlay_geometry[OVERLAY_LENGTH_MEMBER]}"
+                ),
+            ),
+            (
+                "map_measured_overlay_end_byte",
+                measured_end_byte,
+                EXIT_FIELD_MAP_INVALID,
+                (
+                    f"'{_COMMERCIAL_MEASUREMENT.measured_end_byte}' must be "
+                    f"{commercial_geometry[OVERLAY_END_BYTE_MEMBER]}"
+                ),
+            ),
+            (
+                "map_measured_declared_check",
+                measured_check,
+                EXIT_FIELD_MAP_INVALID,
+                (
+                    f"'{_MOTOR_MEASUREMENT.declared_check}' must be "
+                    f"{measured_constants[_MOTOR_MEASUREMENT.declared_check]}"
+                ),
+            ),
+            (
+                "map_measured_shortfall",
+                measured_shortfall,
+                EXIT_FIELD_MAP_INVALID,
+                (
+                    f"'{_MOTOR_MEASUREMENT.shortfall}' must be "
+                    f"{measured_constants[_MOTOR_MEASUREMENT.shortfall]}"
+                ),
+            ),
+            (
+                "map_declared_constant_restated",
+                declared_constant,
+                EXIT_FIELD_MAP_INVALID,
+                f"characters '{_MOTOR_MEASUREMENT.declared_constant}' declares",
+            ),
+            (
+                "map_logical_entry_removed",
+                entry_removed,
+                EXIT_FIELD_MAP_INVALID,
+                (
+                    "logical entries and the census this builder reads holds "
+                    f"{LOGICAL_FIELD_ENTRIES}"
+                ),
+            ),
+            (
+                "map_logical_entry_demoted",
+                entry_demoted,
+                EXIT_FIELD_MAP_INVALID,
+                (
+                    "runtime business values and the census this builder reads holds "
+                    f"{RUNTIME_BUSINESS_VALUES}"
+                ),
+            ),
+            (
+                "map_entry_status_mislabelled",
+                status_mislabelled,
+                EXIT_FIELD_MAP_INVALID,
+                f"'{COUNTED_ENTRY_STATUSES[STATUS_ACTIVE]}' must be",
+            ),
+            (
+                "map_entry_status_uncounted",
+                status_uncounted,
+                EXIT_FIELD_MAP_INVALID,
+                f"no member counts {_display(_UNCOUNTED_ENTRY_STATUS)}",
+            ),
+            (
+                "map_entry_group_mislabelled",
+                group_mislabelled,
+                EXIT_FIELD_MAP_INVALID,
+                f"'{COUNTED_ENTRY_GROUPS[_POLICY_REQUEST_GROUP]}' must be",
+            ),
+            (
+                "map_entry_group_uncounted",
+                group_uncounted,
+                EXIT_FIELD_MAP_INVALID,
+                f"no member counts {_display(_UNCOUNTED_ENTRY_GROUP)}",
+            ),
+            (
+                "map_entry_target_uncounted",
+                target_uncounted,
+                EXIT_FIELD_MAP_INVALID,
+                f"no member counts {_display(_UNCOUNTED_TARGET_RELATION)}",
+            ),
+            (
+                "map_entry_landing_field_removed",
+                landing_field_removed,
+                EXIT_FIELD_MAP_INVALID,
+                "records a landing field for",
+            ),
+            (
+                "map_warehouse_landing_field_removed",
+                warehouse_landing_removed,
+                EXIT_FIELD_MAP_INVALID,
+                "'landing_field' must be a non-empty string",
+            ),
+            *(
+                (case_name, mutated, EXIT_FIELD_MAP_INVALID, fragment)
+                for case_name, mutated, fragment in counted_members
             ),
             (
                 "map_numeric_filler_rejected",

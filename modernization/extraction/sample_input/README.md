@@ -217,7 +217,12 @@ Behaviour:
 - `modernization/extraction/build_sample_commarea.py` always emits the full 32,500-character record, so the premium and
   accidents bytes are present regardless of the declared length;
 - `modernization/extraction/extract_commarea.py` validates that the applicable amount bytes are numeric before landing,
-  and refuses a blank numeric window.
+  and refuses a blank numeric window;
+- every measurement in the table above is asserted rather than merely recorded: the builder refuses a field map whose
+  `overlay_length` or `overlay_end_byte` disagrees with the overlay's own item declarations, whose recorded
+  `actual_*_overlay_*` measurement disagrees with the layout, or whose recorded shortfall disagrees with the declared
+  constants, and it does so on every load of the map — so a stale value fails the `translate` stage rather than passing
+  unread.
 
 The commercial constants are exact — 28 + 1174 = 1202 is the true end of that overlay — so the shortfall is specific to
 motor. The motor overlay is 77 bytes (15 + 15 + 6 + 7 + 8 + 4 + 10 + 6 + 6) beginning at byte 101, and the commercial

@@ -14,7 +14,7 @@
 # stg_genapp__policy_issue.sql with _genapp__models.yml beside it, the intermediate model
 # int_policy_issue_decoded.sql with _int__models.yml beside it, the two mart models
 # canonical_issued_policy.sql and canonical_preissued_rating.sql with
-# _canonical__models.yml beside them, and the three singular tests under tests/. This file
+# _canonical__models.yml beside them, and the four singular tests under tests/. This file
 # claims no run of its own; per-target run status is recorded in
 # modernization/validation/validation-evidence.md, which records the DuckDB local_substitute
 # run and no Amazon Redshift run.

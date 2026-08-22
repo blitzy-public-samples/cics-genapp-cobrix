@@ -1,14 +1,17 @@
 -- assert_preissued_rating_unique_key.sql
 -- Singular data test of the GenApp Policy-Issue cloud-warehouse bridge, and one of the
--- three singular tests of modernization/dbt/genapp_rqi/tests/. dbt discovers this file
+-- four singular tests of modernization/dbt/genapp_rqi/tests/. dbt discovers this file
 -- through the test-paths entry of modernization/dbt/genapp_rqi/dbt_project.yml; nothing
 -- imports it.
--- The other two singular tests of that directory are
+-- The other three singular tests of that directory are
 -- tests/assert_issued_policy_unique_key.sql, which asserts the same key and population rules
 -- on the issued mart together with the relation inventory of the canonical schema and the
--- column set of the upstream record, and tests/assert_product_premium_nullability.sql, which
--- asserts the product premium null pattern and the amount values of this mart. Neither reads
--- this file.
+-- column set of the upstream record, tests/assert_product_premium_nullability.sql, which
+-- asserts the product premium null pattern and the amount values of this mart at the
+-- canonical layer and the product premium allocation of the landed record at the landed
+-- layer, and tests/assert_canonical_column_widths.sql, which asserts the declared type and
+-- declared width of every column of both canonical relations from the parsed project, on an
+-- adapter reporting no width as well. None of the three reads this file.
 --
 -- Relation under test. ref('canonical_preissued_rating'), the model
 -- models/marts/canonical/canonical_preissued_rating.sql, which sets the relation alias
@@ -106,7 +109,11 @@
 --     each with the type family and the nullability declared there. The declared width of a
 --     text column is compared where the adapter reports one: Amazon Redshift reports
 --     character_maximum_length and DuckDB reports none for VARCHAR, and the width of every
---     value is asserted by the two value rules above on both adapters. Each of the six amount
+--     value is asserted by the two value rules above on both adapters. The declared width
+--     itself, and the width the select list of the model casts to, are compared with the
+--     width the canonical contract fixes by tests/assert_canonical_column_widths.sql, which
+--     reads the parsed project rather than the catalog and therefore compares a width on an
+--     adapter reporting none. Each of the six amount
 --     columns carries the numeric precision and the numeric scale of its
 --     declaration: DECIMAL(8,2) for payment_amount and motor_premium_amount, the digit count
 --     of PIC 9(6) plus two, and DECIMAL(10,2) for the four commercial premiums, the digit

@@ -67,7 +67,12 @@
       * HC-CHAIN-VSAM-CALEN receives EIBCALEN as observed inside the
       * translated LGAPVS01, the program that issues this command and
       * the one the translated LGAPDB01 links with LENGTH(32500) at
-      * base/src/lgapdb01.cbl:243-246.
+      * base/src/lgapdb01.cbl:243-246. The pair therefore witnesses
+      * this write, and modernization/harness/driver.cbl publishes it
+      * under the capture keys VSAM_WRITE_REACHED and
+      * VSAM_WRITE_EIBCALEN. A case whose chain never reaches this
+      * command leaves the pair at 'N' and zero whether or not that
+      * program was entered.
       *
       * Order guard: this command has two predecessors, both in the
       * program that links to it. The translated LGAPDB01 performs
@@ -248,10 +253,10 @@
            ADD  1                   TO HC-VSAM-COUNT
            END-ADD
       *
-      * Report that the translated LGAPVS01 was entered and record the
-      * COMMAREA length in force there, set from LENGTH(32500) at
-      * base/src/lgapdb01.cbl:243-246.
-           SET  HC-CHAIN-VSAM-ENTERED TO TRUE
+      * Report this write as reached inside the translated LGAPVS01 and
+      * record the COMMAREA length in force there, set from
+      * LENGTH(32500) at base/src/lgapdb01.cbl:243-246.
+           SET  HC-CHAIN-VSAM-CAPTURED TO TRUE
            MOVE EIBCALEN            TO HC-CHAIN-VSAM-CALEN
       *
       * Stamp the execution ordinal from the shared event sequence and

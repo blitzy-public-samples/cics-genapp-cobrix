@@ -196,6 +196,15 @@ instances, ten stand on `canonical.issued_policy` and eight on `canonical.preiss
 instances in the policy and request group are the policy number and policy type repeated on the rating relation.
 Adding the one warehouse-assigned column per relation gives the 11 and 9 total column counts of section 5.
 
+Every figure in this table is enforced at run time rather than only stated here. On each load of
+[`copybook_field_map.yml`](copybook_field_map.yml), `build_sample_commarea.py` requires the entry list to hold exactly
+seventeen logical entries, requires each member of the map's `counts` block to equal what the entries themselves record
+— per runtime status, per group and per target relation — and requires the reconciliations above: the two group totals
+against the seventeen entries, active plus derived against the sixteen runtime values, and the two relations'
+source-derived columns against the eighteen instances. A map whose census contradicts its entries is refused with the
+contradicted member named, so this section and the map cannot drift apart unnoticed. Rationale:
+[`../docs/decision-log.md`](../docs/decision-log.md), row **D-90**.
+
 ### 3.2 Per-entry specification
 
 Runtime status is one of **active** (the item holds a business value on every executed request of its applicable
@@ -457,12 +466,15 @@ PICTURE of each field. All typing happens afterwards, in the dbt intermediate mo
 The landed object is written under this key:
 
 ```text
-s3://<bucket>/landing/source_system_key=GENAPP_CLASS_EXEMPLAR/entity=policy_issue/extract_date=YYYY-MM-DD/part-0000.json
+s3://<bucket>/landing/source_system_key=GENAPP_CLASS_EXEMPLAR/entity=policy_issue/extract_date=YYYY-MM-DD/part-<NNNN>.json
 ```
 
 The partition requirement applies to the S3 key prefix only; it is not a warehouse table property. The object name
-is the literal `part-0000.json`. The prefix layout, its elements and its examples are documented in
-[`../landing/partition-layout.md`](../landing/partition-layout.md).
+carries a part element of four zero-padded digits, `part-<NNNN>.json`, which is `part-0000.json` when the caller names
+no part; a second record of the same source system, entity and extract date is written under its own part rather than
+over the first object, so the prefix can be replayed to rebuild every raw row of that extract date. Rationale:
+[`../docs/decision-log.md`](../docs/decision-log.md), rows **D-80** and **D-81**. The prefix layout, its elements and
+its examples are documented in [`../landing/partition-layout.md`](../landing/partition-layout.md).
 
 ### 6.3 Transformations performed by `extract_commarea.py`
 
@@ -549,7 +561,13 @@ exactly the premium and accident-count windows. The handling is as follows, and 
 - Every generated sample record is the full 32,500 characters, so the premium window always holds its supplied
   digits whatever length the chain validates.
 - Extraction validates that the applicable amount windows hold digits before landing, per section 6.3.
+- The measurement is machine-asserted, not merely recorded: on every load of
+  [`copybook_field_map.yml`](copybook_field_map.yml), `build_sample_commarea.py` requires each overlay's
+  `overlay_length` and `overlay_end_byte` to agree with that overlay's own item declarations, requires the recorded
+  `actual_*_overlay_length` and `actual_*_overlay_end_byte` to agree with the layout, and requires the recorded
+  `declared_full_*_check` and shortfall to follow from the declared length constants. A value that contradicts the
+  declarations ends the `translate` stage of `make all` naming the member and both figures.
 
-Rationale: [`../docs/decision-log.md`](../docs/decision-log.md), row **D-08**. The same measurement, stated from the
-sample builder's point of view, is recorded in
+Rationale: [`../docs/decision-log.md`](../docs/decision-log.md), rows **D-08** and **D-87** through **D-89**. The same
+measurement, stated from the sample builder's point of view, is recorded in
 [`sample_input/README.md`](sample_input/README.md).

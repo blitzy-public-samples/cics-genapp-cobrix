@@ -38,14 +38,15 @@
 > FORMAL AWS DIFF REQUIREMENT REMAINS OPEN.** Translation, compilation, execution and capture are demonstrated for the
 > motor (`01AMOT`, policy number 1000001) and commercial (`01ACOM`, policy number 1000002) samples, and the read-only
 > source guard ran at four points of the harness run, verdict PASS in each of the four stage blocks of
-> `readonly-check.log`. The `execute` stage selected those two success cases through `run_harness.sh --success-only`: the
-> case table of that script carries twelve chain cases, the other ten were not selected by this run and no result is
-> claimed for them, and the five infrastructure probes that precede the cases each asserted their driver status. Of the
-> observed return-code contract — `00`, `70`, `80`, `90`, `98`, `99` and the `LGCA` and `LGSQ` abends — this run exercised
-> `00` only; the remaining codes are documented against their source locators in section 7 of
-> `modernization/validation/validation-evidence.md` and were not exercised here. Downstream of the captures the same run
+> `readonly-check.log`. The `execute` stage selects the case table of `run_harness.sh` through the
+> Makefile variable `CASES_MODE`, whose default `all` runs all twelve chain cases — 902 assertions — and whose value
+> `success-only` runs the two success cases alone; the five infrastructure probes that precede the cases each asserted
+> their driver status. The whole observed return-code contract — `00`, `70`, `80`, `90`, `98`, `99` and the `LGCA` and
+> `LGSQ` abends — is therefore exercised by the default selection, case by case, as recorded in section 7 of
+> `modernization/validation/validation-evidence.md`; only the two success cases carry a landing record, and the ten
+> characterisation cases feed nothing downstream. Downstream of the captures the same run
 > recorded: one landing record of 17 keys per case; one landed object with its COPY manifest per case under the documented
-> prefix; two rows in `raw.genapp_policy_issue`; `dbt run` PASS=4 and `dbt test` PASS=63 with no warning and no error,
+> prefix; two rows in `raw.genapp_policy_issue`; `dbt run` PASS=4 and `dbt test` PASS=64 with no warning and no error,
 > leaving schema `canonical` holding exactly `issued_policy` and `preissued_rating` with two rows each; and a comparison
 > verdict of PASS over 40 of 40 canonical column instances across the two cases, with 0 column failures, 0 missing fields
 > and 0 non-zero delta inside the ±0.01 tolerance. `modernization/landing/load_redshift.sql` is authored and was not
@@ -70,7 +71,7 @@ truth for rationale.
 | 1 | [Figure 1 — BEFORE: GenApp Policy-Issue Chain, As-Is](#figure-1) | Before — the as-is chain, unchanged by this work |
 | 2 | [Figure 2 — AFTER (BUILT): Canonical Warehouse Bridge](#figure-2) | After — the built bridge; every artifact it names is present at this milestone, from the read-only sources through the harness, extraction, landing, raw relation and dbt models to the field-by-field diff, and the whole path has run for both samples; every component marked `DELIVERED` in the figure and none `PENDING`; run status per `modernization/validation/validation-evidence.md` and the retained logs in `modernization/validation/artifacts/` |
 | 3 | [Figure 3 — AFTER (PROPOSED, NOT BUILT): AWS-Native Multi-RQI Warehouse](#figure-3) | Proposed — **not built**; the only figure containing unbuilt services and future domains; carries no `DELIVERED`/`PENDING` marker |
-| 4 | [Figure 4 — dbt Transformation DAG and Field Allocation](#figure-4) | After — the delivered model graph and column allocation; the raw relation, both dbt models and both canonical mart models are present at this milestone, together with their enforced column contracts and the three singular tests, and `dbt run` and `dbt test` have run against these files unchanged; every node marked `DELIVERED` in the figure and none `PENDING`; `dbt run`/`dbt test` status per `modernization/validation/validation-evidence.md` |
+| 4 | [Figure 4 — dbt Transformation DAG and Field Allocation](#figure-4) | After — the delivered model graph and column allocation; the raw relation, both dbt models and both canonical mart models are present at this milestone, together with their enforced column contracts and the four singular tests, and `dbt run` and `dbt test` have run against these files unchanged; every node marked `DELIVERED` in the figure and none `PENDING`; `dbt run`/`dbt test` status per `modernization/validation/validation-evidence.md` |
 | 5 | [Figure 5 — Validation Harness Control Flow](#figure-5) | After — the order of the compile, execute, transform and compare gates; every step it names is present at this milestone, the comparison gate and the evidence document included, and every gate of the order has run; every step marked `DELIVERED` in the figure and none `PENDING`; gate outcomes per `modernization/validation/validation-evidence.md` and the retained logs in `modernization/validation/artifacts/` |
 
 ---
@@ -165,7 +166,7 @@ writer `land_to_s3.py` with its `landing-schema.json` contract, the two raw load
 two canonical mart models are present as authored artifacts, and the comparison gate
 `modernization/validation/diff_harness_vs_warehouse.py` closes the path. The recorded results of the run: one landing
 record of 17 keys per case, one landed object with its COPY manifest per case, two rows in `raw.genapp_policy_issue`,
-`dbt run` PASS=4 and `dbt test` PASS=63, and a comparison verdict of PASS over 40 of 40 canonical column instances in
+`dbt run` PASS=4 and `dbt test` PASS=64, and a comparison verdict of PASS over 40 of 40 canonical column instances in
 `modernization/validation/artifacts/diff-report.md`. The consolidated record of every one of those results is
 `modernization/validation/validation-evidence.md`; `load_redshift.sql` is authored and was not executed on this branch.
 Each recorded result is validated against local substitute, not AWS.
@@ -336,9 +337,9 @@ domains and factors from the build belongs to
 `_genapp__sources.yml`, the DDL that defines `raw.genapp_policy_issue`, `stg_genapp__policy_issue.sql`,
 `int_policy_issue_decoded.sql` and the two mart models `canonical_issued_policy.sql` and
 `canonical_preissued_rating.sql`, each with its property file, together with the enforced column contracts those
-property files declare and the three singular tests under `modernization/dbt/genapp_rqi/tests/`. `dbt run` and `dbt test`
-have run against these files unchanged — 4 models built, 63 data tests passed, and both canonical relations populated
-with two rows each — and the record of that run
+property files declare and the four singular tests under `modernization/dbt/genapp_rqi/tests/`. `dbt run` and `dbt test`
+have run against these files unchanged — 4 models built, 64 data tests passed, and both canonical relations populated
+from every landed record of the run — and the record of that run
 belongs to `modernization/validation/validation-evidence.md` rather than to this figure.
 
 The dbt model dependencies inside the bridge, and which source group supplies which canonical relation. Each node carries
@@ -418,11 +419,13 @@ read-only source files, the sample definitions, `build_sample_commarea.py`, `tra
 `readonly-check.log`; the `SAMPLE` to `BUILD` sample construction, which emits both 32,500-character records; `SRC` to
 `TRANS` to `MODS`, which translated the three programs (`translate.log`, `translation-report.json`) and compiled them and
 the twelve stubs as `cobc -m` modules; `MODS` and `BUILD` to `DRIVER`, which compiled the driver as a `cobc -x`
-executable (`compile.log`); `DRIVER` to `CAP` for both samples, each traversing `LGAPOL01`, `LGAPDB01` and
+executable (`compile.log`); `DRIVER` to `CAP` for every case the `execute` stage selects — by default the whole authored
+table, twelve cases and 902 assertions, of which the ten characterisation cases assert a return code, an abend or a route
+and feed nothing downstream — with the two success samples each traversing `LGAPOL01`, `LGAPDB01` and
 `LGAPVS01` with `CA-RETURN-CODE` `00`, no abend and a 64-byte VSAM record under a 21-byte key (`driver_01amot.log`,
 `driver_01acom.log`, `captures_01amot.txt`, `captures_01acom.txt`); `CAP` to `EXT` to `S3O` to `RAWR`, which landed one
 17-key record and its COPY manifest per case and loaded two rows into `raw.genapp_policy_issue`; `RAWR` to `DBTRUN` to
-`CANON`, `dbt run` PASS=4 and `dbt test` PASS=63 with no warning and no error (`dbt-clean.log`, `dbt-run.log`,
+`CANON`, `dbt run` PASS=4 and `dbt test` PASS=64 with no warning and no error (`dbt-clean.log`, `dbt-run.log`,
 `dbt-test.log`); and the `DIFFG` comparison gate, verdict PASS over 40 of 40 canonical column instances with 0 failures
 and 0 missing fields (`diff-report.md`, `diff-report.json`). `DIFFG` to `EVID` and `RO` to `EVID` are closed by
 `modernization/validation/validation-evidence.md`, which consolidates every one of those results. Each of those
@@ -468,6 +471,7 @@ flowchart TD
     CAP --> EXT --> S3O --> RAWR --> DBTRUN --> CANON
     CAP --> DIFFG
     CANON --> DIFFG
+    DBTRUN -. "run_results.json: freshness precondition" .-> DIFFG
     DIFFG --> EVID
     BASE --> RO --> EVID
 
@@ -477,11 +481,14 @@ flowchart TD
         L5B[("cylinder: persisted data")]
         L5C{"diamond: the pass or fail comparison gate"}
         L5D["from"] --> L5E["to: solid arrow is gate order — the target step runs only after the source step succeeds"]
+        L5F["from"] -. "precondition" .-> L5G["to: dotted arrow is a precondition the target reads about the source, not a step order"]
     end
 ```
 
 **Legend:** rectangles are executable steps or evidence; cylinders are persisted data; the diamond is the pass/fail
-comparison; each solid arrow is gate order — the step at the head runs only after the step at the tail succeeds.
+comparison; each solid arrow is gate order — the step at the head runs only after the step at the tail succeeds; the one
+dotted arrow is a precondition rather than an order — `DIFFG` reads the dbt run artifact `run_results.json` that
+`DBTRUN` wrote and publishes no verdict unless every node recorded there succeeded.
 **The source path has no incoming write edge** — `SRC` only ever originates arrows, so the five files are read for hashing
 and for translation and are never a target. `DELIVERED` marks a step whose own artifact exists in the repository at this
 point, here the five source files, the pinned SHA-256 baseline, the JSON sample definitions, `build_sample_commarea.py`,
@@ -496,7 +503,10 @@ in the state line above and, gate by gate, in the consolidated evidence record. 
 its artifact exists, and what each step produced is stated separately.**
 The comparison gate receives two independent inputs: the SQL and VSAM
 captures come from the harness stubs, while the canonical rows come from the landed post-chain COMMAREA; request and
-return fields are taken from the driver input and the returned COMMAREA. `verify_readonly.sh` takes the SHA-256 baseline
+return fields are taken from the driver input and the returned COMMAREA. It also reads one input it never compares: the
+dbt run artifact of the `DBTRUN` step, the dotted edge of the figure, which is a precondition on the warehouse state
+rather than a value under comparison — a state whose last transform is not established as successful is refused and no
+verdict is published for it (`modernization/docs/decision-log.md`, rows **D-82** and **D-83**). `verify_readonly.sh` takes the SHA-256 baseline
 and feeds the evidence record: its verdict for this milestone is in
 `modernization/validation/artifacts/readonly-check.log`, and the comparison verdict it stands beside is in
 `modernization/validation/artifacts/diff-report.md`. Every result on this path carries the label
@@ -522,18 +532,18 @@ every authored file besides this document that carries the title.
 | Figure 1 — BEFORE: GenApp Policy-Issue Chain, As-Is | `modernization/docs/project-guide.md`, `modernization/README.md` | CLOSED — both present and citing the exact title: `project-guide.md` 2, `README.md` 1. In-tree total: 2 authored files, 3 references |
 | Figure 2 — AFTER (BUILT): Canonical Warehouse Bridge | `modernization/docs/project-guide.md`, `modernization/README.md`, `modernization/landing/partition-layout.md`, `modernization/validation/validation-evidence.md` | CLOSED — all four present and citing the exact title: `project-guide.md` 2, `README.md` 1, `partition-layout.md` 1, `validation-evidence.md` 2. In-tree total: 11 authored files, 13 references |
 | Figure 3 — AFTER (PROPOSED, NOT BUILT): AWS-Native Multi-RQI Warehouse | `modernization/docs/project-guide.md`, `modernization/docs/decision-log.md` | CLOSED — both present and citing the exact title: `project-guide.md` 2, `decision-log.md` 5. In-tree total: 3 authored files, 8 references |
-| Figure 4 — dbt Transformation DAG and Field Allocation | `modernization/extraction/extraction-spec.md`, `modernization/docs/field-level-lineage.md` | CLOSED — both present and citing the exact title: `extraction-spec.md` 1, `field-level-lineage.md` 1. In-tree total: 19 authored files, 20 references |
+| Figure 4 — dbt Transformation DAG and Field Allocation | `modernization/extraction/extraction-spec.md`, `modernization/docs/field-level-lineage.md` | CLOSED — both present and citing the exact title: `extraction-spec.md` 1, `field-level-lineage.md` 1. In-tree total: 20 authored files, 22 references |
 | Figure 5 — Validation Harness Control Flow | `modernization/README.md`, `modernization/harness/translation-rules.md`, `modernization/validation/validation-evidence.md` | CLOSED — all three present and citing the exact title: `README.md` 1, `translation-rules.md` 3, `validation-evidence.md` 2. In-tree total: 32 authored files, 38 references, plus the tracked evidence artifact `modernization/validation/artifacts/diff-report.md` |
 
-Fifty-four authored files besides this document carry an exact figure title, in 67 file-to-figure pairs — eight files
-cite more than one figure, `modernization/README.md` citing all five — and those 67 pairs hold 82 references, six files
+Fifty-five authored files besides this document carry an exact figure title, in 68 file-to-figure pairs — eight files
+cite more than one figure, `modernization/README.md` citing all five — and those 68 pairs hold 84 references, seven files
 citing one figure more than once. Every one of those references is verifiable here. Six authored files carry no figure
 title at all:
 `modernization/.gitignore`, `modernization/requirements.txt`,
 `modernization/extraction/copybook_field_map.yml`, `modernization/extraction/build_sample_commarea.py`,
 `modernization/extraction/sample_input/commarea_01amot.json` and
 `modernization/extraction/sample_input/commarea_01acom.json`. Together with
-this document that accounts for all 61 authored files. One tracked evidence artifact carries a title as well and is
+this document that accounts for all 62 authored files. One tracked evidence artifact carries a title as well and is
 counted separately from the authored files: `modernization/validation/artifacts/diff-report.md` cites Figure 5.
 Generated paths are excluded from the search and from every count here: the `modernization/harness/build/` tree copies
 the four shared copybooks verbatim on each run and inherits their titles, `modernization/dbt/genapp_rqi/target` and
@@ -555,8 +565,8 @@ Per figure, the authored files besides this document that carry the exact title:
 - `Figure 3 — AFTER (PROPOSED, NOT BUILT): AWS-Native Multi-RQI Warehouse` — 3 files carrying 8 references:
   `modernization/README.md`, `modernization/docs/project-guide.md` (two references),
   `modernization/docs/decision-log.md` (five references).
-- `Figure 4 — dbt Transformation DAG and Field Allocation` — 19 files carrying 20 references:
-  `modernization/README.md`, `modernization/extraction/extraction-spec.md`,
+- `Figure 4 — dbt Transformation DAG and Field Allocation` — 20 files carrying 22 references:
+  `modernization/README.md` (two references), `modernization/extraction/extraction-spec.md`,
   `modernization/docs/field-level-lineage.md`, `modernization/docs/traceability-matrix.md`,
   `modernization/warehouse/ddl/01_schemas.sql`, `modernization/warehouse/ddl/02_raw_genapp_policy_issue.sql`,
   `modernization/dbt/genapp_rqi/dbt_project.yml`, `modernization/dbt/genapp_rqi/macros/generate_schema_name.sql`,
@@ -570,7 +580,8 @@ Per figure, the authored files besides this document that carry the exact title:
   `modernization/dbt/genapp_rqi/models/marts/canonical/canonical_preissued_rating.sql`,
   `modernization/dbt/genapp_rqi/tests/assert_issued_policy_unique_key.sql`,
   `modernization/dbt/genapp_rqi/tests/assert_preissued_rating_unique_key.sql`,
-  `modernization/dbt/genapp_rqi/tests/assert_product_premium_nullability.sql`.
+  `modernization/dbt/genapp_rqi/tests/assert_product_premium_nullability.sql`,
+  `modernization/dbt/genapp_rqi/tests/assert_canonical_column_widths.sql`.
 - `Figure 5 — Validation Harness Control Flow` — 32 files carrying 38 references: `modernization/README.md`,
   `modernization/Makefile`, `modernization/harness/translation-rules.md` (three references),
   `modernization/validation/validation-evidence.md` (two references),

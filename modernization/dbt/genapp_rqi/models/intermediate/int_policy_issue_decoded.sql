@@ -49,10 +49,13 @@
 -- values as a pattern, and both raw loaders validate the record against that schema before
 -- inserting it. The casts below are therefore total over the landing contract. A value that
 -- reaches this model outside it -- 2026-02-30, 2026-08-19T25:00:00.000000 or a non-numeric
--- amount -- fails its cast when a consumer reads this view. The relationships tests of
--- _int__models.yml read every date, timestamp and amount cast, so such a value fails those
--- tests, dbt then skips both models of models/marts/canonical, and no such row reaches a
--- canonical relation.
+-- amount -- fails its cast. This model materializes as a table, so dbt evaluates every cast
+-- below once, while this model builds, and such a value fails this model itself: dbt then
+-- skips both models of models/marts/canonical together, no such row reaches a canonical
+-- relation, and both canonical relations keep the state of the last run that built them
+-- both. The relationships tests of _int__models.yml read every date, timestamp and amount
+-- column of the built relation, so a value that does reach a canonical relation is compared
+-- with the landed string it was cast from.
 --
 -- What this model does not do. It derives no value and applies no arithmetic to any amount.
 -- The three named programs base/src/lgapol01.cbl, base/src/lgapdb01.cbl and
@@ -85,12 +88,13 @@
 -- no row is added. The motor sample row and the commercial sample row both reach the
 -- output.
 --
--- Configuration. The view materialization and the intermediate schema come from the
+-- Configuration. The table materialization and the intermediate schema come from the
 -- models/intermediate key of modernization/dbt/genapp_rqi/dbt_project.yml, and
 -- macros/generate_schema_name.sql returns that schema name verbatim. This file declares no
 -- configuration of its own; the enforced contract is declared in _int__models.yml beside it.
 -- No relation alias is set, so the relation is named int_policy_issue_decoded and the models
--- of models/marts/canonical reach it as ref('int_policy_issue_decoded').
+-- of models/marts/canonical reach it as ref('int_policy_issue_decoded'), one built relation
+-- both of them read.
 --
 -- This file is applied unchanged on Amazon Redshift and DuckDB.
 -- Diagram reference: Figure 4 — dbt Transformation DAG and Field Allocation

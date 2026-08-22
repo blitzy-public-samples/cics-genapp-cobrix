@@ -12,7 +12,7 @@ Decision rationale: see modernization/docs/decision-log.md.
 
 | Item | Value |
 |---|---|
-| generated at (UTC) | 2026-08-22T19:21:34Z |
+| generated at (UTC) | 2026-08-22T22:52:21Z |
 | target | duckdb |
 | adapter | duckdb 1.5.5 |
 | python | 3.12.14 |
@@ -24,6 +24,7 @@ Decision rationale: see modernization/docs/decision-log.md.
 | harness run directory | modernization/harness/build/run |
 | capture snapshots | modernization/validation/expected |
 | cases requested | 01AMOT, 01ACOM |
+| transform freshness | FRESH — dbt test recorded 64 nodes, 64 of them successful and 0 warned |
 | gate artifact | modernization/validation/artifacts/gate-probe-redshift.log |
 | disposition | validated against local substitute, not AWS |
 
@@ -35,6 +36,29 @@ Decision rationale: see modernization/docs/decision-log.md.
 | 01ACOM | PASS | 20/20 | 0 | 0 | 0 | validated against local substitute, not AWS |
 
 **Overall verdict: PASS** (exit status 0) — validated against local substitute, not AWS.
+
+## Transform freshness precondition
+
+| Item | Value |
+|---|---|
+| verdict | FRESH |
+| dbt run artifact | modernization/dbt/genapp_rqi/target/run_results.json |
+| dbt version | 1.12.2 |
+| artifact schema | https://schemas.getdbt.com/dbt/run-results/v6.json |
+| invocation id | b66a1492-202c-491b-b88f-a91b855f4fd2 |
+| recorded at | 2026-08-22T22:52:20.810327Z |
+| subcommand | test |
+| dbt target | local_substitute |
+| elapsed seconds | 1.438537359237671 |
+| nodes recorded | 64 |
+| nodes successful | 64 |
+| nodes warned | 0 |
+| nodes refused | 0 |
+| statuses accepted | success, pass |
+| statuses warned | warn |
+| statuses refused | error, fail, skipped, runtime error |
+
+Every node of the last dbt invocation recorded a successful status, so the warehouse state below is the state that invocation produced — validated against local substitute, not AWS.
 
 ## Canonical inventory
 

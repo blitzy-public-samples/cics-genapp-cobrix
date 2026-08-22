@@ -69,8 +69,74 @@ Behaviour
   headed by a comment line carrying the run disposition, and a JSON report
   recording every applied rule site and carrying that disposition as a member.
 
-The script is argv-driven and never prompts.  Exit status is 0 on success and
-non-zero, with a precise message on standard error, on any failure.
+The script is argv-driven and never prompts.  Exit status is 0 on success, 5
+when a case of ``--self-test`` did not hold, and non-zero with a precise
+message on standard error on any other failure.
+
+WHAT --self-test CHECKS
+    That every gate of this translator can fail, and on which input.  The
+    matrix drives this module's own functions in this process, over synthetic
+    fixed-format fragments and over copies of the shipped documents, and each
+    case names both the fixture and what it observed.
+
+    The rewrite rules R1-R14: the commented compiler directive, the mapped
+    ``COPY`` replacements, the ``PROCEDURE DIVISION USING DFHCOMMAREA``
+    binding, the inserted harness declarations, the chain ``LINK`` rewritten to
+    ``EIBCALEN`` plus a dynamic ``CALL`` with length 32500, the diagnostic
+    ``LINK``, ``GOBACK`` with and without the source's period, the captured
+    abend, the six operands of the ``KSDSPOLY`` write, the two time stubs, the
+    response-condition constant, the mapped DML ``CALL`` and the lines no rule
+    claims, each with a contradicting fixture that must be refused: a link
+    length of 32499, a foreign COMMAREA, a wrong link target, a chain link in a
+    program that carries none, a diagnostic ``LINK`` to another program or with
+    another length form, a ``RETURN`` carrying an operand, an ``ABEND`` without
+    its code, another file, record length or key length on the write, a literal
+    where the capture module needs an item, ``ASKTIME`` and ``FORMATTIME``
+    missing an operand, an unsupported response condition, an include naming
+    another copybook or standing outside its declared group, a DML block at an
+    unmapped line, ending on another line, addressing another table, carrying
+    another predicate or another host order, an uncovered CICS verb, an
+    unterminated block, a comment inside a block, an altered carried-through
+    line and a dropped rewrite site.
+
+    The columns 8-72 layout rule: a generated line reaching past column 72,
+    naming the line and the column it reaches, a tab, a line too short to reach
+    the indicator column, an invalid indicator, an invalid sequence area, and
+    the emitter refusing a word and a comment that would leave the code area.
+
+    The statement-map contract: a dml or includes count that disagrees with
+    ``checks``, a duplicated entry, a repeated dml id, two entries claiming one
+    source line, a total-block count, a ``using_counts`` arity, an unlisted
+    call program, a declared census that disagrees with the source, an order
+    constraint count, an ordinal item the capture copybook does not declare, an
+    enforcer that is not the capturing stub of its successor, a non-integer
+    line number, a capture copybook missing a declared ordinal and a harness
+    copybook absent from the directory read.
+
+    The pinned digests and the read and write surfaces: a source whose bytes do
+    not carry its pinned digest, a source whose digest changed against the
+    baseline of the run, a name with no pinned digest, a name outside the
+    five-file allow list, a traversal out of the source directory, a copybook
+    outside the harness set, a source, copybook or statement-map location other
+    than the pinned one, a read outside the checkout, a build directory that is
+    not the build tree of this checkout, and a build path that leaves it or is
+    absolute.
+
+    The shipped inputs pass every one of those gates in the same run: the
+    statement map validates, the five sources carry their pinned digests, the
+    three programs translate and meet their census, every generated line holds
+    the layout rule, no untranslated construct survives, every unclaimed line is
+    carried through, the structural counts, per-rule totals, chain-link contract
+    and declared census hold, the capture-order contract reconciles, and every
+    input re-reads unchanged after the last case.
+
+    The matrix builds every fixture in this process from strings, bytes and
+    copies of the documents it read.  It creates no file, writes nothing inside
+    or outside the build tree, starts no subprocess and reads nothing but the
+    five authorized sources, the harness copybooks, the capture stubs, the
+    driver and the statement map of this checkout.  Every case prints one line;
+    a shipped input that cannot be read leaves status 1 before any case runs,
+    and a case that does not hold leaves status 5.
 
 Rule-to-construct coverage is carried by the JSON report and its per-rule
 totals, which account for every rewritten construct and for every source line
@@ -81,6 +147,7 @@ it does.  Harness topology is Figure 5 — Validation Harness Control Flow in
 """
 
 import argparse
+import copy
 import errno
 import hashlib
 import json
@@ -3816,6 +3883,29 @@ def _validate_order_metadata(
     }
 
 
+def read_statement_map_document(path: Path):
+    """Read ``statement_map.yml`` and compose the document it carries.
+
+    The bytes are read under ``MAX_STATEMENT_MAP_BYTES`` through the
+    descriptor walk every read of this translator uses, decoded as UTF-8 and
+    composed with aliases, merge keys and duplicate keys refused.  The document
+    is returned exactly as composed; nothing of its content is checked here.
+    """
+    components = lexical_repo_components(path, "--statement-map")
+    raw = read_repo_file(components, "--statement-map", MAX_STATEMENT_MAP_BYTES)
+    try:
+        text = raw.decode("utf-8")
+    except UnicodeDecodeError as error:
+        raise TranslationError(
+            f"statement map {path} is not valid UTF-8: {error}"
+        ) from error
+    loader = _StrictMapLoader(text)
+    try:
+        return loader.get_single_data()
+    finally:
+        loader.dispose()
+
+
 def load_statement_map(path: Path, copybook_dir: Path) -> dict:
     """Load and validate ``statement_map.yml`` before any generation happens.
 
@@ -3831,19 +3921,20 @@ def load_statement_map(path: Path, copybook_dir: Path) -> dict:
     ``copybook_dir/hcapture.cpy`` declares and against the capturing stub each
     constraint names as its enforcer.
     """
-    components = lexical_repo_components(path, "--statement-map")
-    raw = read_repo_file(components, "--statement-map", MAX_STATEMENT_MAP_BYTES)
-    try:
-        text = raw.decode("utf-8")
-    except UnicodeDecodeError as error:
-        raise TranslationError(
-            f"statement map {path} is not valid UTF-8: {error}"
-        ) from error
-    loader = _StrictMapLoader(text)
-    try:
-        data = loader.get_single_data()
-    finally:
-        loader.dispose()
+    return validate_statement_map_document(
+        read_statement_map_document(path), path, copybook_dir
+    )
+
+
+def validate_statement_map_document(data, path: Path, copybook_dir: Path) -> dict:
+    """Validate one composed statement-map document and return its contract.
+
+    ``data`` is the document ``read_statement_map_document`` composed for
+    ``path``; every check the loaded map is held to is applied here, so the
+    same document supplied from anywhere is held to the same contract.  Returns
+    the validated blocks, the declared program name, the ordering metadata, the
+    event-to-ordinal resolution and the order records the generation reads.
+    """
     _bound_loaded_document(data, f"statement map {path}")
     data = _require_mapping(data, f"{path}")
     _validate_map_scalar_types(data, f"statement map {path}")
@@ -4331,6 +4422,22 @@ class ProgramTranslator:
 
     # -- entry point -------------------------------------------------------
     def translate(self) -> ProgramResult:
+        """Apply every rule to the source and hold the result to its census.
+
+        The rules run first, then the measured line total and block counts are
+        compared with the pinned census of the named source.
+        """
+        result = self.apply_rules()
+        self._verify_census()
+        return result
+
+    def apply_rules(self) -> ProgramResult:
+        """Apply rules R1-R14 to the source text and return the result.
+
+        The census of the named source is not consulted here, so a fragment of
+        fixed-format source shorter than a whole program is translated by the
+        same rule table the three authorized programs go through.
+        """
         lines = split_source_lines(self.text)
         self.source_lines = lines
         self.result = ProgramResult(
@@ -4372,7 +4479,6 @@ class ProgramTranslator:
                 continue
             self.result.generated_lines.append(line)
             index += 1
-        self._verify_census()
         return self.result
 
     # -- bookkeeping -------------------------------------------------------
@@ -6337,6 +6443,1907 @@ def summarise(outcome: dict) -> str:
 
 
 # --------------------------------------------------------------------------
+# Built-in case matrix
+# --------------------------------------------------------------------------
+# Status returned when a case of --self-test did not hold.  Every other status
+# of this tool is unchanged: 0 on success and 1 on any generation failure.
+EXIT_SELF_TEST_FAILED = 5
+
+
+class _SelfTestFailure(Exception):
+    """One case did not hold; the message states what the case observed."""
+
+
+@dataclass(frozen=True)
+class _CaseResult:
+    """The outcome of one case, as its line and the summary report it."""
+
+    name: str
+    passed: bool
+    detail: str
+
+
+@dataclass(frozen=True)
+class _SelfTestInputs:
+    """The shipped inputs the matrix reads once and every case works from.
+
+    ``document`` is the composed statement map before validation, ``contract``
+    the validated one, ``results`` the translation of each authorized program
+    and ``generated`` its generated lines.  Nothing here is written back.
+    """
+
+    document: dict
+    contract: dict
+    map_index: dict
+    sources: dict
+    baseline: dict
+    copybooks: dict
+    dfhresp_item: str
+    results: dict
+    generated: dict
+
+    def dml_entry(self, entry_id: str) -> dict:
+        """Return the validated dml entry carrying ``entry_id``."""
+        for entry in self.contract["dml"]:
+            if str(entry["id"]) == entry_id:
+                return entry
+        raise _SelfTestFailure(
+            f"the statement map declares no dml entry {entry_id!r}; it declares "
+            f"{[str(entry['id']) for entry in self.contract['dml']]}"
+        )
+
+    def include_entry(self, entry_id: str) -> dict:
+        """Return the validated includes entry carrying ``entry_id``."""
+        for entry in self.contract["includes"]:
+            if str(entry["id"]) == entry_id:
+                return entry
+        raise _SelfTestFailure(
+            f"the statement map declares no includes entry {entry_id!r}; it "
+            f"declares "
+            f"{[str(entry['id']) for entry in self.contract['includes']]}"
+        )
+
+    def source_lines(self, name: str) -> list:
+        """Return the fixed-format lines of one authorized source."""
+        return split_source_lines(self.sources[name].decode("ascii"))
+
+
+def _self_test_inputs() -> _SelfTestInputs:
+    """Read every shipped input the matrix works from, once.
+
+    The five authorized sources, the four harness copybooks and the statement
+    map are read through the guarded read path a generation run uses, and the
+    three programs are translated in memory.  A failure here raises before any
+    case runs, so no case is judged against inputs that did not load.
+    """
+    document = read_statement_map_document(EXPECTED_STATEMENT_MAP)
+    contract = validate_statement_map_document(
+        document, EXPECTED_STATEMENT_MAP, EXPECTED_COPYBOOK_DIR
+    )
+    map_index = index_statement_map(contract)
+    sources = {
+        name: read_authorized_source(EXPECTED_SOURCE_DIR, name)
+        for name in sorted(SOURCE_ALLOW_LIST)
+    }
+    copybooks = {
+        name: read_harness_copybook(EXPECTED_COPYBOOK_DIR, name)
+        for name in HARNESS_COPYBOOKS
+    }
+    dfhresp_item = discover_level_01_item("dfhresp.cpy", copybooks["dfhresp.cpy"])
+    results = {}
+    for name in PROGRAM_SOURCES:
+        results[name] = ProgramTranslator(
+            name=name,
+            text=sources[name].decode("ascii"),
+            statement_map=contract,
+            map_index=map_index,
+            dfhresp_item=dfhresp_item,
+        ).translate()
+    return _SelfTestInputs(
+        document=document,
+        contract=contract,
+        map_index=map_index,
+        sources=sources,
+        baseline={name: sha256_of_bytes(data) for name, data in sources.items()},
+        copybooks=copybooks,
+        dfhresp_item=dfhresp_item,
+        results=results,
+        generated={
+            name: list(result.generated_lines)
+            for name, result in results.items()
+        },
+    )
+
+
+# --------------------------------------------------------------------------
+# Case helpers
+# --------------------------------------------------------------------------
+def _observed(condition, message: str) -> None:
+    """Raise ``_SelfTestFailure`` with ``message`` unless ``condition`` holds."""
+    if not condition:
+        raise _SelfTestFailure(message)
+
+
+def _refused(what: str, body, *expected: str) -> str:
+    """Run ``body``, requiring it to raise and to name every ``expected`` text.
+
+    Returns the one-line diagnostic the refusal carried, which the case reports
+    as what it observed.  A body that returns instead of raising fails the case,
+    and so does a refusal whose message misses one of the expected texts: that
+    means the guard fired for a reason other than the one the fixture
+    contradicts.
+    """
+    try:
+        body()
+    except TranslationError as error:
+        message = one_line(error, limit=600)
+        for fragment in expected:
+            if fragment not in message:
+                raise _SelfTestFailure(
+                    f"{what} was refused, but the diagnostic does not carry "
+                    f"{fragment!r}: {message}"
+                ) from None
+        return message
+    raise _SelfTestFailure(f"{what} was accepted; this fixture must be refused")
+
+
+def _fixed_line(indent: int, text: str) -> str:
+    """Return one fixed-format line holding ``text`` from column ``indent``+1."""
+    line = " " * indent + text
+    if len(line) > MAX_LINE_LENGTH:
+        raise _SelfTestFailure(
+            f"the fixture line {line!r} reaches column {len(line)}, past column "
+            f"{MAX_LINE_LENGTH}"
+        )
+    return line
+
+
+def _translated_fragment(inputs: _SelfTestInputs, name: str, lines: list):
+    """Apply the rule table to one synthetic fragment attributed to ``name``.
+
+    The fragment is a list of fixed-format lines and is translated by exactly
+    the rules a whole program goes through; only the pinned census of ``name``
+    is left out, so a fragment of any length can be held to one rule.
+    """
+    return ProgramTranslator(
+        name=name,
+        text="\n".join(lines) + "\n",
+        statement_map=inputs.contract,
+        map_index=inputs.map_index,
+        dfhresp_item=inputs.dfhresp_item,
+    ).apply_rules()
+
+
+def _rules_of(result) -> list:
+    """Return the rule ids the applications of ``result`` carry, in order."""
+    return [application.rule_id for application in result.applications]
+
+
+def _statements_of(result) -> list:
+    """Return the code-area text of every generated non-comment line."""
+    return [
+        code_of(line).strip()
+        for line in result.generated_lines
+        if line.strip() and not is_comment_line(line)
+    ]
+
+
+def _mutated_document(inputs: _SelfTestInputs, mutate) -> dict:
+    """Return a copy of the shipped map document with ``mutate`` applied to it.
+
+    ``mutate`` receives the copy and changes one member of it; the document the
+    matrix read is never handed to it.
+    """
+    candidate = copy.deepcopy(inputs.document)
+    mutate(candidate)
+    return candidate
+
+
+def _validated(document: dict) -> dict:
+    """Validate one statement-map document under the shipped map's identity."""
+    return validate_statement_map_document(
+        document, EXPECTED_STATEMENT_MAP, EXPECTED_COPYBOOK_DIR
+    )
+
+
+# --------------------------------------------------------------------------
+# Synthetic fixed-format fixtures
+# --------------------------------------------------------------------------
+# Column the fixture statements start in, and the column their operand
+# continuation lines start in.  Both sit inside the code area every generated
+# line is held to.
+_FIXTURE_INDENT = AREA_B_INDENT
+_FIXTURE_OPERAND_INDENT = AREA_B_INDENT + 6
+
+# The item names the fixtures use for the areas, keys and response fields the
+# rewritten constructs name.  They stand for source items and are never read
+# from a source.
+_FIXTURE_LINK_ITEM = "WS-LINK-PROGRAM"
+_FIXTURE_DIAG_AREA = "WS-ERROR-MESSAGE"
+_FIXTURE_RECORD_ITEM = "WS-POLICY-RECORD"
+_FIXTURE_KEY_ITEM = "WS-POLICY-KEY"
+_FIXTURE_RESP_ITEM = "WS-WRITE-RESPONSE"
+_FIXTURE_ABSTIME_ITEM = "WS-ABSTIME"
+_FIXTURE_DATE_ITEM = "WS-DATE"
+_FIXTURE_TIME_ITEM = "WS-TIME"
+
+
+def _chain_link_fragment(
+    target: str = "LGAPDB01",
+    length: str = str(CHAIN_LINK_LENGTH),
+    commarea: str = CHAIN_LINK_COMMAREA,
+) -> list:
+    """Return a fragment declaring a chain LINK and the item it names.
+
+    The PROGRAM operand names a data item whose VALUE clause carries ``target``,
+    which is the form both chain sites of the source use.
+    """
+    return [
+        _fixed_line(
+            AREA_A_INDENT,
+            f"01  {_FIXTURE_LINK_ITEM}  PIC X(8) VALUE '{target}'.",
+        ),
+        _fixed_line(
+            _FIXTURE_INDENT, f"EXEC CICS LINK PROGRAM({_FIXTURE_LINK_ITEM})"
+        ),
+        _fixed_line(_FIXTURE_OPERAND_INDENT, f"COMMAREA({commarea})"),
+        _fixed_line(_FIXTURE_OPERAND_INDENT, f"LENGTH({length}) END-EXEC"),
+    ]
+
+
+def _diagnostic_link_fragment(
+    program: str = DIAGNOSTIC_LINK_PROGRAM,
+    length: str = f"LENGTH OF {_FIXTURE_DIAG_AREA}",
+) -> list:
+    """Return a fragment carrying one diagnostic LINK to a literal program."""
+    return [
+        _fixed_line(_FIXTURE_INDENT, f"EXEC CICS LINK PROGRAM('{program}')"),
+        _fixed_line(
+            _FIXTURE_OPERAND_INDENT, f"COMMAREA({_FIXTURE_DIAG_AREA})"
+        ),
+        _fixed_line(_FIXTURE_OPERAND_INDENT, f"LENGTH({length}) END-EXEC"),
+    ]
+
+
+def _write_fragment(
+    file_name: str = WRITE_FILE_NAME,
+    record_length: str = str(WRITE_RECORD_LENGTH).zfill(5),
+    key_length: str = str(WRITE_KEY_LENGTH).zfill(5),
+    from_item: str = _FIXTURE_RECORD_ITEM,
+) -> list:
+    """Return a fragment carrying one KSDSPOLY write with all six operands."""
+    return [
+        _fixed_line(_FIXTURE_INDENT, f"EXEC CICS WRITE FILE('{file_name}')"),
+        _fixed_line(_FIXTURE_OPERAND_INDENT, f"FROM({from_item})"),
+        _fixed_line(_FIXTURE_OPERAND_INDENT, f"LENGTH({record_length})"),
+        _fixed_line(_FIXTURE_OPERAND_INDENT, f"RIDFLD({_FIXTURE_KEY_ITEM})"),
+        _fixed_line(_FIXTURE_OPERAND_INDENT, f"KEYLENGTH({key_length})"),
+        _fixed_line(
+            _FIXTURE_OPERAND_INDENT, f"RESP({_FIXTURE_RESP_ITEM}) END-EXEC"
+        ),
+    ]
+
+
+def _mapped_block_fragment(
+    inputs: _SelfTestInputs,
+    entry: dict,
+    *,
+    shift: int = 0,
+    extra: str | None = None,
+    replace: tuple | None = None,
+) -> list:
+    """Return a fragment holding one mapped source block at its mapped lines.
+
+    The block's own source lines are taken from the authorized program the map
+    describes and are preceded by as many blank lines as it takes for the block
+    to open on the line the map declares for it.  ``shift`` moves the block that
+    many lines further down, ``extra`` inserts one line ahead of its
+    ``END-EXEC`` and ``replace`` rewrites one text of every line of it.
+    """
+    name = inputs.contract["declared_program"]
+    lines = inputs.source_lines(name)
+    start = int(entry["start_line"])
+    end = int(entry["end_line"])
+    block = list(lines[start - 1:end])
+    if replace is not None:
+        block = [line.replace(replace[0], replace[1]) for line in block]
+    if extra is not None:
+        block = block[:-1] + [extra] + block[-1:]
+    return [""] * (start - 1 + shift) + block
+
+
+# --------------------------------------------------------------------------
+# Cases: the shipped inputs pass every guard
+# --------------------------------------------------------------------------
+def _case_statement_map_accepted(inputs: _SelfTestInputs) -> str:
+    """The shipped statement map validates and indexes without a change."""
+    contract = inputs.contract
+    _observed(
+        len(contract["includes"]) == EXPECTED_MAP_INCLUDE_COUNT
+        and len(contract["dml"]) == EXPECTED_MAP_DML_COUNT,
+        f"the shipped map holds {len(contract['includes'])} includes and "
+        f"{len(contract['dml'])} dml entries; "
+        f"{EXPECTED_MAP_INCLUDE_COUNT} and {EXPECTED_MAP_DML_COUNT} are "
+        f"required",
+    )
+    checks = contract["checks"]
+    _observed(
+        checks["total_blocks"] == EXPECTED_MAP_TOTAL_BLOCKS,
+        f"checks.total_blocks is {checks['total_blocks']}, expected "
+        f"{EXPECTED_MAP_TOTAL_BLOCKS}",
+    )
+    _observed(
+        len(inputs.map_index) == EXPECTED_MAP_TOTAL_BLOCKS,
+        f"the index holds {len(inputs.map_index)} start line(s); "
+        f"{EXPECTED_MAP_TOTAL_BLOCKS} blocks are declared",
+    )
+    return (
+        f"{len(contract['includes'])} include(s), {len(contract['dml'])} dml "
+        f"entry/entries, {len(inputs.map_index)} indexed start line(s), "
+        f"declared program {contract['declared_program']}"
+    )
+
+
+def _case_order_metadata_accepted(inputs: _SelfTestInputs) -> str:
+    """The shipped ordering metadata resolves every ordinal it declares."""
+    metadata = inputs.contract["order_metadata"]
+    _observed(
+        metadata["declared_constraints"] == EXPECTED_MAP_ORDER_CONSTRAINT_COUNT
+        and metadata["validated_constraints"]
+        == EXPECTED_MAP_ORDER_CONSTRAINT_COUNT,
+        f"the map declares {metadata['declared_constraints']} order "
+        f"constraint(s) and validated "
+        f"{metadata['validated_constraints']}; "
+        f"{EXPECTED_MAP_ORDER_CONSTRAINT_COUNT} are required",
+    )
+    resolution = inputs.contract["ordinal_resolution"]
+    _observed(
+        len(resolution) == len(inputs.contract["dml"]) + 1,
+        f"the ordinal resolution covers {len(resolution)} event(s); one per "
+        f"dml entry plus the VSAM write is "
+        f"{len(inputs.contract['dml']) + 1}",
+    )
+    return (
+        f"{metadata['validated_constraints']} order constraint(s) validated, "
+        f"{len(resolution)} event ordinal(s) resolved, sequence item "
+        f"{metadata['sequence_item']}"
+    )
+
+
+def _case_pinned_digests_accepted(inputs: _SelfTestInputs) -> str:
+    """Every authorized source read carries the digest pinned for its name."""
+    for name, digest in sorted(inputs.baseline.items()):
+        expected = AUTHORIZED_SOURCE_DIGESTS[name]
+        _observed(
+            digest == expected,
+            f"{name} read as {digest}, pinned as {expected}",
+        )
+        require_authorized_source_digest(name, inputs.sources[name])
+    _observed(
+        len(inputs.baseline) == len(AUTHORIZED_SOURCE_DIGESTS),
+        f"{len(inputs.baseline)} source(s) were read; "
+        f"{len(AUTHORIZED_SOURCE_DIGESTS)} carry a pinned digest",
+    )
+    return (
+        f"{len(inputs.baseline)} source(s) carry their pinned digest: "
+        + ", ".join(sorted(inputs.baseline))
+    )
+
+
+def _case_harness_copybooks_accepted(inputs: _SelfTestInputs) -> str:
+    """The four harness copybooks read, and dfhresp.cpy names one item."""
+    sizes = {
+        name: len(data) for name, data in sorted(inputs.copybooks.items())
+    }
+    _observed(
+        set(sizes) == set(HARNESS_COPYBOOKS),
+        f"the copybooks read are {sorted(sizes)}; "
+        f"{sorted(HARNESS_COPYBOOKS)} are required",
+    )
+    _observed(
+        all(size > 0 for size in sizes.values()),
+        f"a harness copybook read as empty: {sizes}",
+    )
+    _observed(
+        inputs.dfhresp_item == "DFHRESP-NORMAL",
+        f"dfhresp.cpy declares {inputs.dfhresp_item!r}; the response-condition "
+        f"item the rule substitutes is 'DFHRESP-NORMAL'",
+    )
+    return (
+        f"{len(sizes)} copybook(s) read ("
+        + ", ".join(f"{name}={size}B" for name, size in sizes.items())
+        + f"); response-condition item {inputs.dfhresp_item}"
+    )
+
+
+def _case_shipped_programs_translate(inputs: _SelfTestInputs) -> str:
+    """Each authorized program translates and meets its pinned census."""
+    reported = []
+    for name in PROGRAM_SOURCES:
+        result = inputs.results[name]
+        census = EXPECTED_SOURCE_CENSUS[name]
+        _observed(
+            result.source_line_count == census["lines"]
+            and result.exec_cics_sites == census["exec_cics"]
+            and result.exec_sql_blocks == census["exec_sql"],
+            f"{name} measured {result.source_line_count} line(s), "
+            f"{result.exec_cics_sites} EXEC CICS site(s) and "
+            f"{result.exec_sql_blocks} EXEC SQL block(s) against the census "
+            f"{census}",
+        )
+        reported.append(
+            f"{name} {result.source_line_count}L/"
+            f"{result.exec_cics_sites}C/{result.exec_sql_blocks}S"
+        )
+    return "; ".join(reported)
+
+
+def _case_shipped_lines_within_columns(inputs: _SelfTestInputs) -> str:
+    """Every generated line of every program holds the fixed-format rule."""
+    widest = 0
+    total = 0
+    for name, lines in sorted(inputs.generated.items()):
+        verify_generated_lines(name, lines)
+        total += len(lines)
+        widest = max(widest, max((len(line) for line in lines), default=0))
+    _observed(
+        widest <= MAX_LINE_LENGTH,
+        f"a generated line reaches column {widest}, past column "
+        f"{MAX_LINE_LENGTH}",
+    )
+    return (
+        f"{total} generated line(s) across {len(inputs.generated)} program(s) "
+        f"stay inside columns {CODE_START + 1}-{MAX_LINE_LENGTH}; widest is "
+        f"column {widest}"
+    )
+
+
+def _case_shipped_tokens_accounted(inputs: _SelfTestInputs) -> str:
+    """No untranslated construct survives, and the one comment is accounted."""
+    accounted = {}
+    for name in PROGRAM_SOURCES:
+        result = inputs.results[name]
+        for label, numbers in verify_no_forbidden_tokens(
+            name, result.generated_lines, result.rule_comment_lines
+        ).items():
+            accounted.setdefault(label, []).extend(
+                f"{name}:{number}" for number in numbers
+            )
+    _observed(
+        sorted(accounted) == ["PROCESS SQL"],
+        f"the accounted-for comment occurrences are {sorted(accounted)}; only "
+        f"the commented PROCESS directive is expected",
+    )
+    return (
+        "no active EXEC CICS, EXEC SQL, END-EXEC, DFHRESP( or PROCESS SQL "
+        f"token survives; accounted comment(s): {accounted}"
+    )
+
+
+def _case_shipped_carry_through(inputs: _SelfTestInputs) -> str:
+    """Every source line no rule claimed reaches the copy unchanged."""
+    carried = []
+    for name in PROGRAM_SOURCES:
+        result = inputs.results[name]
+        verify_carry_through(result, inputs.source_lines(name))
+        carried.append(f"{name}={result.unchanged_source_lines}")
+    return "line(s) copied unchanged: " + ", ".join(carried)
+
+
+def _case_shipped_structural_counts(inputs: _SelfTestInputs) -> str:
+    """The generated tree holds every mandated construct exactly as declared."""
+    observed = verify_structural_counts(inputs.generated)
+    _observed(
+        observed == EXPECTED_STRUCTURAL_COUNTS,
+        f"the generated tree holds {observed}; "
+        f"{EXPECTED_STRUCTURAL_COUNTS} is required",
+    )
+    return ", ".join(
+        f"{label}={count}" for label, count in sorted(observed.items())
+    )
+
+
+def _case_shipped_rule_totals(inputs: _SelfTestInputs) -> str:
+    """Every rule was applied exactly as many times as it is expected to be."""
+    totals = verify_rule_totals([inputs.results[name] for name in PROGRAM_SOURCES])
+    _observed(
+        totals["per_rule"] == EXPECTED_RULE_SITES,
+        f"the per-rule totals are {totals['per_rule']}; "
+        f"{EXPECTED_RULE_SITES} is required",
+    )
+    return (
+        ", ".join(
+            f"{rule}={totals['per_rule'][rule]}" for rule in EXPECTED_RULE_SITES
+        )
+        + f"; {totals['exec_cics_sites']} EXEC CICS site(s), "
+        f"{totals['exec_sql_blocks']} EXEC SQL block(s)"
+    )
+
+
+def _case_shipped_chain_links(inputs: _SelfTestInputs) -> str:
+    """Both chain LINK sites carry their target, COMMAREA and 32500 length."""
+    contract = verify_chain_link_contract(
+        [inputs.results[name] for name in PROGRAM_SOURCES]
+    )
+    _observed(
+        len(contract["sites"]) == len(CHAIN_LINK_TARGETS),
+        f"{len(contract['sites'])} chain link site(s) were recorded; "
+        f"{len(CHAIN_LINK_TARGETS)} are required",
+    )
+    for site in contract["sites"]:
+        _observed(
+            site["length"] == CHAIN_LINK_LENGTH
+            and site["commarea_operand"] == CHAIN_LINK_COMMAREA,
+            f"{site['program']}:{site['locator']} links with LENGTH "
+            f"{site['length']} and COMMAREA {site['commarea_operand']}",
+        )
+    return "; ".join(
+        f"{site['program']}:{site['locator']} -> {site['target_program']} "
+        f"LENGTH {site['length']}"
+        for site in contract["sites"]
+    )
+
+
+def _case_shipped_declared_census(inputs: _SelfTestInputs) -> str:
+    """The census the map declares equals the figures measured this run."""
+    verify_declared_source_census(
+        inputs.contract, [inputs.results[name] for name in PROGRAM_SOURCES]
+    )
+    declared = inputs.contract["source_program"]
+    return (
+        f"{inputs.contract['declared_program']}: "
+        f"{declared['total_lines']} line(s), "
+        f"{declared['exec_cics_blocks']} EXEC CICS block(s), "
+        f"{declared['exec_sql_blocks']} EXEC SQL block(s), longest line "
+        f"{declared['max_line_length']}"
+    )
+
+
+def _case_shipped_capture_order_contract(inputs: _SelfTestInputs) -> str:
+    """The map, the capture copybook, the stubs and the driver state one order."""
+    reconciled = verify_capture_order_contract(
+        inputs.contract, inputs.copybooks[CAPTURE_COPYBOOK], EXPECTED_COPYBOOK_DIR
+    )
+    _observed(
+        len(reconciled["entries"]) == EXPECTED_MAP_ORDER_CONSTRAINT_COUNT,
+        f"{len(reconciled['entries'])} order constraint(s) were reconciled; "
+        f"{EXPECTED_MAP_ORDER_CONSTRAINT_COUNT} are declared",
+    )
+    return (
+        f"{len(reconciled['entries'])} constraint(s) reconciled across "
+        f"{len(reconciled['ordinal_items_declared'])} declared ordinal item(s); "
+        f"driver order events "
+        f"{len(reconciled['driver_agreement']['order_table_events'])}"
+    )
+
+
+def _case_shipped_sources_unchanged(inputs: _SelfTestInputs) -> str:
+    """Re-reading every authorized source yields the digest of the first read."""
+    verify_sources_unchanged(EXPECTED_SOURCE_DIR, inputs.baseline)
+    return (
+        f"{len(inputs.baseline)} source(s) re-read at the same digest from "
+        f"{repo_relative(EXPECTED_SOURCE_DIR)}"
+    )
+
+
+def _case_build_root_accepted() -> str:
+    """The build tree of this checkout is accepted as the one write root."""
+    tree = BuildTree(CANONICAL_BUILD_ROOT)
+    _observed(
+        tree.root == CANONICAL_BUILD_ROOT,
+        f"the build tree resolved to {tree.root}, not {CANONICAL_BUILD_ROOT}",
+    )
+    report = tree.path_for(REPORT_RELATIVE)
+    _observed(
+        tree.root in report.parents,
+        f"{report} does not stand inside {tree.root}",
+    )
+    return (
+        f"build root {repo_relative(tree.root)} accepted; report path "
+        f"{repo_relative(report)} stands inside it"
+    )
+
+
+# --------------------------------------------------------------------------
+# Cases: the rewrite rules on synthetic fixed-format fragments
+# --------------------------------------------------------------------------
+def _case_r1_directive_commented(inputs: _SelfTestInputs) -> str:
+    """R1 turns the compiler directive into a comment line of the copy."""
+    source = _fixed_line(AREA_A_INDENT, "PROCESS SQL(DB2),APOST")
+    result = _translated_fragment(inputs, "lgapdb01.cbl", [source])
+    _observed(
+        _rules_of(result) == ["R1"],
+        f"the fragment applied {_rules_of(result)}; ['R1'] is expected",
+    )
+    generated = result.generated_lines
+    _observed(
+        len(generated) == 1 and is_comment_line(generated[0]),
+        f"R1 emitted {generated!r}; one comment line is expected",
+    )
+    _observed(
+        R1_NOTE in generated[0] and "PROCESS SQL(DB2),APOST" in generated[0],
+        f"the commented directive is {generated[0]!r}; it must carry the "
+        f"directive text and {R1_NOTE!r}",
+    )
+    accounted = verify_no_forbidden_tokens(
+        "lgapdb01.cbl", generated, result.rule_comment_lines
+    )
+    _observed(
+        accounted.get("PROCESS SQL") == [1],
+        f"the comment accounting is {accounted}; the directive must be "
+        f"accounted for at line 1",
+    )
+    return f"emitted {generated[0].strip()!r} and accounted for it as a comment"
+
+
+def _case_r1_active_directive_refused(inputs: _SelfTestInputs) -> str:
+    """An uncommented directive line is refused as a surviving construct."""
+    source = _fixed_line(AREA_A_INDENT, "PROCESS SQL(DB2),APOST")
+    message = _refused(
+        "a generated line still carrying the PROCESS directive",
+        lambda: verify_no_forbidden_tokens("lgapdb01.cbl", [source], set()),
+        "lgapdb01.cbl:1 still carries the active construct 'PROCESS SQL'",
+    )
+    return message
+
+
+def _case_r2_include_replaced(inputs: _SelfTestInputs) -> str:
+    """R2 replaces the mapped EXEC SQL INCLUDE with the declared COPY."""
+    entry = inputs.include_entry("include_lgcmarea")
+    lines = inputs.source_lines(inputs.contract["declared_program"])
+    start = int(entry["start_line"])
+    fragment = [""] * (start - 2) + [lines[start - 2]] + list(
+        lines[start - 1:int(entry["end_line"])]
+    )
+    result = _translated_fragment(inputs, "lgapdb01.cbl", fragment)
+    statements = _statements_of(result)
+    replacement = str(entry["replacement"]).strip()
+    _observed(
+        _rules_of(result) == ["R2"] and replacement in statements,
+        f"the fragment applied {_rules_of(result)} and generated "
+        f"{statements}; one R2 site emitting {replacement!r} is expected",
+    )
+    return (
+        f"entry {entry['id']} at lines {entry['start_line']}-"
+        f"{entry['end_line']} generated {replacement!r} beneath "
+        f"{str(entry['enclosing_group']).strip()!r}"
+    )
+
+
+def _case_r13_call_emitted(inputs: _SelfTestInputs) -> str:
+    """R13 replaces the mapped DML block with the CALL its contract declares."""
+    entry = inputs.dml_entry("select_lastchanged")
+    result = _translated_fragment(
+        inputs, "lgapdb01.cbl", _mapped_block_fragment(inputs, entry)
+    )
+    statements = _statements_of(result)
+    hosts = [str(item["host"]) for item in entry["using"]]
+    expected = [f"CALL '{entry['call_program']}' USING", *hosts, "END-CALL."]
+    _observed(
+        _rules_of(result) == ["R13"] and statements == expected,
+        f"the fragment applied {_rules_of(result)} and generated "
+        f"{statements}; {expected} is expected",
+    )
+    contract = result.applications[0].details["sql_contract"]
+    _observed(
+        contract["sql_verb"] == str(entry["sql_verb"]).upper(),
+        f"the enforced contract records verb {contract['sql_verb']!r}; the map "
+        f"declares {entry['sql_verb']!r}",
+    )
+    return (
+        f"entry {entry['id']} at lines {entry['start_line']}-"
+        f"{entry['end_line']} generated a {len(hosts)}-host CALL to "
+        f"{entry['call_program']}, {contract['sql_verb']} contract enforced"
+    )
+
+
+def _case_r14_lines_carried(inputs: _SelfTestInputs) -> str:
+    """R14 copies a line no rule claims into the copy byte-for-byte."""
+    fragment = [
+        _fixed_line(AREA_A_INDENT, "MOVE '00' TO CA-RETURN-CODE."),
+        "      *    a comment line of the source",
+        "",
+        _fixed_line(_FIXTURE_INDENT, "PERFORM WRITE-ERROR-MESSAGE"),
+    ]
+    result = _translated_fragment(inputs, "lgapol01.cbl", fragment)
+    _observed(
+        _rules_of(result) == [],
+        f"the fragment applied {_rules_of(result)}; no rule site is expected",
+    )
+    _observed(
+        result.generated_lines == fragment,
+        f"the copy holds {result.generated_lines!r}; the source lines "
+        f"{fragment!r} are expected byte-for-byte",
+    )
+    verify_carry_through(result, fragment)
+    return (
+        f"{len(fragment)} unclaimed line(s), including a comment and a blank "
+        f"line, reached the copy unchanged"
+    )
+
+
+def _case_r3_binding_emitted(inputs: _SelfTestInputs) -> str:
+    """R3 binds the shared COMMAREA to the procedure division header."""
+    result = _translated_fragment(
+        inputs,
+        "lgapol01.cbl",
+        [_fixed_line(AREA_A_INDENT, "PROCEDURE DIVISION.")],
+    )
+    statements = _statements_of(result)
+    _observed(
+        _rules_of(result) == ["R3"]
+        and statements == ["PROCEDURE DIVISION USING DFHCOMMAREA."],
+        f"the fragment applied {_rules_of(result)} and generated "
+        f"{statements}; one R3 site binding DFHCOMMAREA is expected",
+    )
+    return f"generated {statements[0]!r}"
+
+
+def _case_r3_missing_binding_refused(inputs: _SelfTestInputs) -> str:
+    """A generated tree missing one procedure-division binding is refused."""
+    mutated = {
+        name: list(lines) for name, lines in inputs.generated.items()
+    }
+    program = "lgapol01.cbl"
+    replaced = None
+    for index, line in enumerate(mutated[program]):
+        if STRUCTURAL_PATTERNS[_R3_STRUCTURAL_LABEL].match(code_of(line)):
+            mutated[program][index] = _fixed_line(
+                AREA_A_INDENT, "PROCEDURE DIVISION."
+            )
+            replaced = index + 1
+            break
+    _observed(
+        replaced is not None,
+        f"{program} carries no generated procedure-division binding to mutate",
+    )
+    message = _refused(
+        f"a generated tree whose {program} binding was removed",
+        lambda: verify_structural_counts(mutated),
+        repr(_R3_STRUCTURAL_LABEL),
+        f"expected "
+        f"{EXPECTED_STRUCTURAL_COUNTS[_R3_STRUCTURAL_LABEL]}",
+    )
+    return f"{program}:{replaced} unbound -> {message}"
+
+
+def _case_r4_declarations_inserted(inputs: _SelfTestInputs) -> str:
+    """R4 inserts the harness declarations after the anchor it keeps."""
+    anchor = _fixed_line(AREA_A_INDENT, "WORKING-STORAGE SECTION.")
+    plain = _translated_fragment(inputs, "lgapol01.cbl", [anchor])
+    witness = _translated_fragment(inputs, R4_DFHRESP_PROGRAM, [anchor])
+    plain_statements = _statements_of(plain)
+    witness_statements = _statements_of(witness)
+    _observed(
+        plain_statements
+        == ["WORKING-STORAGE SECTION.", *R4_DECLARATIONS],
+        f"the anchor of lgapol01.cbl generated {plain_statements}; the anchor "
+        f"followed by {list(R4_DECLARATIONS)} is expected",
+    )
+    _observed(
+        witness_statements
+        == [
+            "WORKING-STORAGE SECTION.",
+            *R4_DECLARATIONS,
+            R4_DFHRESP_DECLARATION,
+        ],
+        f"the anchor of {R4_DFHRESP_PROGRAM} generated {witness_statements}; "
+        f"{R4_DFHRESP_DECLARATION!r} must follow the shared declarations",
+    )
+    _observed(
+        plain.applications[0].source_text == anchor,
+        f"the R4 site recorded {plain.applications[0].source_text!r} as its "
+        f"source; the anchor line {anchor!r} is expected",
+    )
+    return (
+        f"{len(R4_DECLARATIONS)} declaration(s) inserted after the anchor, "
+        f"and {R4_DFHRESP_DECLARATION!r} only in {R4_DFHRESP_PROGRAM}"
+    )
+
+
+def _case_r5_chain_link_rewritten(inputs: _SelfTestInputs) -> str:
+    """R5 carries the declared length into EIBCALEN and calls dynamically."""
+    result = _translated_fragment(
+        inputs, "lgapol01.cbl", _chain_link_fragment()
+    )
+    statements = _statements_of(result)
+    expected = [
+        f"01  {_FIXTURE_LINK_ITEM}  PIC X(8) VALUE 'LGAPDB01'.",
+        f"MOVE {CHAIN_LINK_LENGTH} TO EIBCALEN",
+        f"CALL {_FIXTURE_LINK_ITEM} USING {CHAIN_LINK_COMMAREA}",
+    ]
+    _observed(
+        _rules_of(result) == ["R5"] and statements == expected,
+        f"the fragment applied {_rules_of(result)} and generated "
+        f"{statements}; {expected} is expected",
+    )
+    site = result.chain_links[0]
+    _observed(
+        site["length"] == CHAIN_LINK_LENGTH
+        and site["target_program"] == "LGAPDB01"
+        and site["commarea_operand"] == CHAIN_LINK_COMMAREA,
+        f"the recorded site is {site}",
+    )
+    return (
+        f"LENGTH {site['length']} reached EIBCALEN and the dynamic CALL passes "
+        f"{site['commarea_operand']} to {site['target_program']}"
+    )
+
+
+def _case_r6_diagnostic_link_rewritten(inputs: _SelfTestInputs) -> str:
+    """R6 passes the diagnostic area and its length to the harness stub."""
+    result = _translated_fragment(
+        inputs, "lgapol01.cbl", _diagnostic_link_fragment()
+    )
+    statements = _statements_of(result)
+    expected = [
+        f"MOVE LENGTH OF {_FIXTURE_DIAG_AREA} TO {HARNESS_DIAG_LEN_ITEM}",
+        f"CALL '{STUB_DIAG_LINK}' USING {_FIXTURE_DIAG_AREA} "
+        f"{HARNESS_DIAG_LEN_ITEM}",
+    ]
+    _observed(
+        _rules_of(result) == ["R6"] and statements == expected,
+        f"the fragment applied {_rules_of(result)} and generated "
+        f"{statements}; {expected} is expected",
+    )
+    return f"generated a call to {STUB_DIAG_LINK} with the area and its length"
+
+
+def _case_r7_return_becomes_goback(inputs: _SelfTestInputs) -> str:
+    """R7 rewrites the CICS return to GOBACK, keeping the source's period."""
+    with_period = _translated_fragment(
+        inputs,
+        "lgapol01.cbl",
+        [_fixed_line(_FIXTURE_INDENT, "EXEC CICS RETURN END-EXEC.")],
+    )
+    without_period = _translated_fragment(
+        inputs,
+        "lgapol01.cbl",
+        [_fixed_line(_FIXTURE_INDENT, "EXEC CICS RETURN END-EXEC")],
+    )
+    expected_period = ["GOBACK."]
+    expected_plain = ["GOBACK"]
+    _observed(
+        _statements_of(with_period) == expected_period
+        and _statements_of(without_period) == expected_plain,
+        f"the two returns generated {_statements_of(with_period)} and "
+        f"{_statements_of(without_period)}; {expected_period} and "
+        f"{expected_plain} are expected",
+    )
+    _observed(
+        _rules_of(with_period) == ["R7"] and with_period.exec_cics_sites == 1,
+        f"the fragment applied {_rules_of(with_period)} over "
+        f"{with_period.exec_cics_sites} EXEC CICS site(s)",
+    )
+    return "generated 'GOBACK.' and 'GOBACK' from the two source forms"
+
+
+def _case_r8_abend_captured(inputs: _SelfTestInputs) -> str:
+    """R8 captures the abend code, calls the stub and returns to the caller."""
+    result = _translated_fragment(
+        inputs,
+        "lgapvs01.cbl",
+        [
+            _fixed_line(
+                _FIXTURE_INDENT, "EXEC CICS ABEND ABCODE('LGCA') NODUMP END-EXEC"
+            )
+        ],
+    )
+    statements = _statements_of(result)
+    expected = [
+        f"MOVE 'LGCA' TO {HARNESS_ABEND_ITEM}",
+        f"CALL '{STUB_ABEND}' USING {HARNESS_ABEND_ITEM}",
+        "GOBACK",
+    ]
+    _observed(
+        _rules_of(result) == ["R8"] and statements == expected,
+        f"the fragment applied {_rules_of(result)} and generated "
+        f"{statements}; {expected} is expected",
+    )
+    return f"captured abend 'LGCA' through {STUB_ABEND}, then GOBACK"
+
+
+def _case_r9_write_reaches_capture(inputs: _SelfTestInputs) -> str:
+    """R9 passes all six write operands to the capture module in order."""
+    result = _translated_fragment(inputs, "lgapvs01.cbl", _write_fragment())
+    statements = _statements_of(result)
+    expected = [
+        f"CALL '{STUB_WRITE}' USING",
+        f"'{WRITE_FILE_NAME}'",
+        _FIXTURE_RECORD_ITEM,
+        f"'{str(WRITE_RECORD_LENGTH).zfill(WRITE_LENGTH_LITERAL_DIGITS)}'",
+        _FIXTURE_KEY_ITEM,
+        f"'{str(WRITE_KEY_LENGTH).zfill(WRITE_LENGTH_LITERAL_DIGITS)}'",
+        _FIXTURE_RESP_ITEM,
+        "END-CALL",
+    ]
+    _observed(
+        _rules_of(result) == ["R9"] and statements == expected,
+        f"the fragment applied {_rules_of(result)} and generated "
+        f"{statements}; {expected} is expected",
+    )
+    recorded = result.applications[0].details["file_write"]
+    _observed(
+        recorded["record_length"] == WRITE_RECORD_LENGTH
+        and recorded["key_length"] == WRITE_KEY_LENGTH,
+        f"the recorded write contract is {recorded}",
+    )
+    return (
+        f"six operand(s) reached {STUB_WRITE}: {WRITE_FILE_NAME}, record "
+        f"length {recorded['record_length']}, key length "
+        f"{recorded['key_length']}"
+    )
+
+
+def _case_r10_asktime_rewritten(inputs: _SelfTestInputs) -> str:
+    """R10 rewrites the clock read to the deterministic harness stub."""
+    result = _translated_fragment(
+        inputs,
+        "lgapol01.cbl",
+        [
+            _fixed_line(
+                _FIXTURE_INDENT,
+                f"EXEC CICS ASKTIME ABSTIME({_FIXTURE_ABSTIME_ITEM}) END-EXEC",
+            )
+        ],
+    )
+    statements = _statements_of(result)
+    expected = [f"CALL '{STUB_ASKTIME}' USING {_FIXTURE_ABSTIME_ITEM}"]
+    _observed(
+        _rules_of(result) == ["R10"] and statements == expected,
+        f"the fragment applied {_rules_of(result)} and generated "
+        f"{statements}; {expected} is expected",
+    )
+    return f"generated {statements[0]!r}"
+
+
+def _case_r11_formattime_rewritten(inputs: _SelfTestInputs) -> str:
+    """R11 passes all three time operands to the deterministic harness stub."""
+    result = _translated_fragment(
+        inputs,
+        "lgapol01.cbl",
+        [
+            _fixed_line(
+                _FIXTURE_INDENT,
+                f"EXEC CICS FORMATTIME ABSTIME({_FIXTURE_ABSTIME_ITEM})",
+            ),
+            _fixed_line(
+                _FIXTURE_OPERAND_INDENT, f"MMDDYYYY({_FIXTURE_DATE_ITEM})"
+            ),
+            _fixed_line(
+                _FIXTURE_OPERAND_INDENT,
+                f"TIME({_FIXTURE_TIME_ITEM}) END-EXEC",
+            ),
+        ],
+    )
+    statements = _statements_of(result)
+    expected = [
+        f"CALL '{STUB_FORMATTIME}' USING {_FIXTURE_ABSTIME_ITEM} "
+        f"{_FIXTURE_DATE_ITEM} {_FIXTURE_TIME_ITEM}"
+    ]
+    _observed(
+        _rules_of(result) == ["R11"] and statements == expected,
+        f"the fragment applied {_rules_of(result)} and generated "
+        f"{statements}; {expected} is expected",
+    )
+    return f"generated {statements[0]!r}"
+
+
+def _case_r12_condition_substituted(inputs: _SelfTestInputs) -> str:
+    """R12 replaces the response macro with the copybook's named constant."""
+    source = _fixed_line(
+        _FIXTURE_INDENT, f"IF {_FIXTURE_RESP_ITEM} NOT = DFHRESP(NORMAL)"
+    )
+    result = _translated_fragment(inputs, "lgapvs01.cbl", [source])
+    statements = _statements_of(result)
+    expected = [f"IF {_FIXTURE_RESP_ITEM} NOT = {inputs.dfhresp_item}"]
+    _observed(
+        _rules_of(result) == ["R12"] and statements == expected,
+        f"the fragment applied {_rules_of(result)} and generated "
+        f"{statements}; {expected} is expected",
+    )
+    verify_no_forbidden_tokens(
+        "lgapvs01.cbl", result.generated_lines, result.rule_comment_lines
+    )
+    return f"generated {statements[0]!r} with no DFHRESP( token surviving"
+
+
+def _case_carry_through_mutation_refused(inputs: _SelfTestInputs) -> str:
+    """A copy that alters one unclaimed source line is refused."""
+    program = "lgapvs01.cbl"
+    result = copy.deepcopy(inputs.results[program])
+    lines = inputs.source_lines(program)
+    mutated = None
+    for index, line in enumerate(result.generated_lines):
+        if line.strip() and not is_comment_line(line) and line in lines:
+            result.generated_lines[index] = line.rstrip() + " X"
+            mutated = index + 1
+            break
+    _observed(
+        mutated is not None,
+        f"{program} carries no unclaimed generated line to mutate",
+    )
+    message = _refused(
+        f"a copy of {program} whose carried-through line {mutated} was altered",
+        lambda: verify_carry_through(result, lines),
+        "unclaimed source lines were carried through unchanged",
+    )
+    return f"{program}:{mutated} altered -> {message}"
+
+
+def _case_rule_total_mutation_refused(inputs: _SelfTestInputs) -> str:
+    """A run that drops one rewrite site of a rule is refused."""
+    results = [copy.deepcopy(inputs.results[name]) for name in PROGRAM_SOURCES]
+    dropped = None
+    for result in results:
+        for index, application in enumerate(result.applications):
+            if application.rule_id == "R7":
+                del result.applications[index]
+                dropped = str(application.source_lines)
+                break
+        if dropped is not None:
+            break
+    _observed(dropped is not None, "no R7 site was found to drop")
+    message = _refused(
+        f"a run whose R7 site {dropped} was dropped",
+        lambda: verify_rule_totals(results),
+        f"rule R7 was applied {EXPECTED_RULE_SITES['R7'] - 1} time(s), expected "
+        f"{EXPECTED_RULE_SITES['R7']}",
+    )
+    return f"dropped {dropped} -> {message}"
+
+
+# --------------------------------------------------------------------------
+# Cases: one contradicting fragment per rewritten construct
+# --------------------------------------------------------------------------
+# The structural label R3 is counted under, named once so the case that removes
+# a binding and the diagnostic it expects cannot drift apart.
+_R3_STRUCTURAL_LABEL = "PROCEDURE DIVISION USING DFHCOMMAREA."
+
+# Each row is one fragment a rule must refuse: the case name, the program the
+# fragment is attributed to, the fragment builder and the texts the refusal has
+# to carry.  The builder receives the shipped inputs, so a row can place a real
+# mapped block at a line the map does not declare for it.
+_REFUSED_FRAGMENT_CASES = (
+    (
+        "r5_chain_link_length_mutation_refused",
+        "lgapol01.cbl",
+        lambda inputs: _chain_link_fragment(length="32499"),
+        (
+            "chain LINK LENGTH(32499) is not the shared COMMAREA length "
+            f"{CHAIN_LINK_LENGTH}",
+        ),
+    ),
+    (
+        "r5_chain_link_commarea_mutation_refused",
+        "lgapol01.cbl",
+        lambda inputs: _chain_link_fragment(commarea="WS-OTHER-AREA"),
+        (f"chain LINK COMMAREA(WS-OTHER-AREA) is not {CHAIN_LINK_COMMAREA}",),
+    ),
+    (
+        "r5_chain_link_target_mutation_refused",
+        "lgapol01.cbl",
+        lambda inputs: _chain_link_fragment(target="LGAPVS01"),
+        ("resolves to 'LGAPVS01'", "this site must link LGAPDB01"),
+    ),
+    (
+        "r5_chain_link_in_unlinked_program_refused",
+        "lgapvs01.cbl",
+        lambda inputs: _chain_link_fragment(),
+        ("this program carries no chain LINK site",),
+    ),
+    (
+        "r6_diagnostic_program_mutation_refused",
+        "lgapol01.cbl",
+        lambda inputs: _diagnostic_link_fragment(program="LGZZZZ01"),
+        (
+            "LINK PROGRAM('LGZZZZ01') is not the diagnostic program "
+            f"'{DIAGNOSTIC_LINK_PROGRAM}'",
+        ),
+    ),
+    (
+        "r6_diagnostic_length_form_refused",
+        "lgapol01.cbl",
+        lambda inputs: _diagnostic_link_fragment(length="90"),
+        ("diagnostic LINK LENGTH(90) is not of the form 'LENGTH OF <item>'",),
+    ),
+    (
+        "r7_return_with_operand_refused",
+        "lgapol01.cbl",
+        lambda inputs: [
+            _fixed_line(
+                _FIXTURE_INDENT, "EXEC CICS RETURN TRANSID('SSC1') END-EXEC"
+            )
+        ],
+        ("EXEC CICS RETURN carries operand(s) ['TRANSID']",),
+    ),
+    (
+        "r8_abend_without_code_refused",
+        "lgapol01.cbl",
+        lambda inputs: [
+            _fixed_line(_FIXTURE_INDENT, "EXEC CICS ABEND NODUMP END-EXEC")
+        ],
+        ("EXEC CICS ABEND has no ABCODE(...) operand",),
+    ),
+    (
+        "r9_write_file_mutation_refused",
+        "lgapvs01.cbl",
+        lambda inputs: _write_fragment(file_name="KSDSOTHR"),
+        (
+            "WRITE FILE('KSDSOTHR') is not the projection file "
+            f"'{WRITE_FILE_NAME}'",
+        ),
+    ),
+    (
+        "r9_write_record_length_mutation_refused",
+        "lgapvs01.cbl",
+        lambda inputs: _write_fragment(record_length="00063"),
+        (f"WRITE LENGTH(00063) is not {WRITE_RECORD_LENGTH}",),
+    ),
+    (
+        "r9_write_key_length_mutation_refused",
+        "lgapvs01.cbl",
+        lambda inputs: _write_fragment(key_length="00020"),
+        (f"WRITE KEYLENGTH(00020) is not {WRITE_KEY_LENGTH}",),
+    ),
+    (
+        "r9_write_literal_area_refused",
+        "lgapvs01.cbl",
+        lambda inputs: _write_fragment(from_item="'A'"),
+        ("WRITE FROM('A') is a literal",),
+    ),
+    (
+        "r10_asktime_without_abstime_refused",
+        "lgapol01.cbl",
+        lambda inputs: [
+            _fixed_line(_FIXTURE_INDENT, "EXEC CICS ASKTIME END-EXEC")
+        ],
+        ("EXEC CICS ASKTIME has no ABSTIME(...) operand",),
+    ),
+    (
+        "r11_formattime_without_time_refused",
+        "lgapol01.cbl",
+        lambda inputs: [
+            _fixed_line(
+                _FIXTURE_INDENT,
+                f"EXEC CICS FORMATTIME ABSTIME({_FIXTURE_ABSTIME_ITEM})",
+            ),
+            _fixed_line(
+                _FIXTURE_OPERAND_INDENT,
+                f"MMDDYYYY({_FIXTURE_DATE_ITEM}) END-EXEC",
+            ),
+        ],
+        ("EXEC CICS FORMATTIME has no TIME(...) operand",),
+    ),
+    (
+        "r12_unsupported_condition_refused",
+        "lgapvs01.cbl",
+        lambda inputs: [
+            _fixed_line(
+                _FIXTURE_INDENT,
+                f"IF {_FIXTURE_RESP_ITEM} NOT = DFHRESP(NOTFND)",
+            )
+        ],
+        (
+            "references unsupported response condition(s) ['NOTFND']",
+            "only NORMAL has a harness constant",
+        ),
+    ),
+    (
+        "r2_include_name_mutation_refused",
+        "lgapdb01.cbl",
+        lambda inputs: _mapped_block_fragment(
+            inputs,
+            inputs.include_entry("include_sqlca"),
+            replace=("SQLCA", "LGPOLICY"),
+        ),
+        ("source includes 'LGPOLICY'", "names 'SQLCA'"),
+    ),
+    (
+        "r2_enclosing_group_absent_refused",
+        "lgapdb01.cbl",
+        lambda inputs: _mapped_block_fragment(
+            inputs, inputs.include_entry("include_lgcmarea")
+        ),
+        ("declares enclosing_group", "no code line precedes the block"),
+    ),
+    (
+        "r13_unmapped_block_refused",
+        "lgapdb01.cbl",
+        lambda inputs: _mapped_block_fragment(
+            inputs, inputs.dml_entry("set_identity"), shift=1
+        ),
+        ("no statement map entry starts at line",),
+    ),
+    (
+        "r13_block_end_line_mismatch_refused",
+        "lgapdb01.cbl",
+        lambda inputs: _mapped_block_fragment(
+            inputs,
+            inputs.dml_entry("set_identity"),
+            extra=_fixed_line(_FIXTURE_OPERAND_INDENT, "+ 0"),
+        ),
+        ("statement map entry 'set_identity' ends at line 310",),
+    ),
+    (
+        "r13_table_mutation_refused",
+        "lgapdb01.cbl",
+        lambda inputs: _mapped_block_fragment(
+            inputs,
+            inputs.dml_entry("select_lastchanged"),
+            replace=("FROM POLICY", "FROM POLICYX"),
+        ),
+        ("declares table 'POLICY'", "the source block addresses 'POLICYX'"),
+    ),
+    (
+        "r13_predicate_mutation_refused",
+        "lgapdb01.cbl",
+        lambda inputs: _mapped_block_fragment(
+            inputs,
+            inputs.dml_entry("select_lastchanged"),
+            replace=("WHERE POLICYNUMBER", "WHERE CUSTOMERNUMBER"),
+        ),
+        ("as predicate token 2", "the source holds 'CUSTOMERNUMBER'"),
+    ),
+    (
+        "r13_host_mutation_refused",
+        "lgapdb01.cbl",
+        lambda inputs: _mapped_block_fragment(
+            inputs,
+            inputs.dml_entry("select_lastchanged"),
+            replace=("INTO :CA-LASTCHANGED", "INTO :CA-POLICY-NUM"),
+        ),
+        ("requires host variable(s)", "in that order"),
+    ),
+    (
+        "uncovered_cics_verb_refused",
+        "lgapol01.cbl",
+        lambda inputs: [
+            _fixed_line(_FIXTURE_INDENT, "EXEC CICS SYNCPOINT END-EXEC")
+        ],
+        ("no rule covers EXEC CICS SYNCPOINT",),
+    ),
+    (
+        "unterminated_exec_block_refused",
+        "lgapol01.cbl",
+        lambda inputs: [_fixed_line(_FIXTURE_INDENT, "EXEC CICS RETURN")],
+        ("opens an EXEC block that is never terminated by END-EXEC",),
+    ),
+    (
+        "comment_inside_exec_block_refused",
+        "lgapol01.cbl",
+        lambda inputs: [
+            _fixed_line(
+                _FIXTURE_INDENT,
+                f"EXEC CICS ASKTIME ABSTIME({_FIXTURE_ABSTIME_ITEM})",
+            ),
+            "      *    a comment inside the block",
+            _fixed_line(_FIXTURE_OPERAND_INDENT, "END-EXEC"),
+        ],
+        ("is a comment line inside the EXEC block opened at line 1",),
+    ),
+)
+
+
+def _case_refused_fragment(
+    inputs: _SelfTestInputs, program: str, build, expected: tuple
+) -> str:
+    """Translate one contradicting fragment and require the rule to refuse it."""
+    lines = build(inputs)
+    return _refused(
+        f"a {program} fragment of {len(lines)} line(s)",
+        lambda: _translated_fragment(inputs, program, lines),
+        *expected,
+    )
+
+
+# --------------------------------------------------------------------------
+# Cases: the fixed-format layout rule and the emitter width limit
+# --------------------------------------------------------------------------
+# The fixture the layout cases build: a line count and a width chosen so the
+# diagnostic names both, in the form an over-wide generated line produces.
+_LAYOUT_FIXTURE_LINES = 115
+_LAYOUT_FIXTURE_WIDTH = 95
+
+
+def _layout_fixture(last: str) -> list:
+    """Return a fixture whose final line is ``last``, at the pinned count."""
+    filler = _fixed_line(_FIXTURE_INDENT, "CONTINUE")
+    return [filler] * (_LAYOUT_FIXTURE_LINES - 1) + [last]
+
+
+# Each row is one line the layout rule must refuse: the case name, the line and
+# the texts the refusal has to carry.  The line stands last in a fixture of
+# _LAYOUT_FIXTURE_LINES lines, so every diagnostic names that line number.
+_REFUSED_LAYOUT_CASES = (
+    (
+        "layout_line_past_column_72_refused",
+        " " * AREA_B_INDENT + "X" * (_LAYOUT_FIXTURE_WIDTH - AREA_B_INDENT),
+        (
+            f"lgapvs01.cbl:{_LAYOUT_FIXTURE_LINES} reaches column "
+            f"{_LAYOUT_FIXTURE_WIDTH}, past column {MAX_LINE_LENGTH}",
+        ),
+    ),
+    (
+        "layout_tab_refused",
+        " " * AREA_B_INDENT + "MOVE\tX TO Y",
+        (f"lgapvs01.cbl:{_LAYOUT_FIXTURE_LINES} contains a tab character",),
+    ),
+    (
+        "layout_short_line_refused",
+        "  X",
+        (
+            f"lgapvs01.cbl:{_LAYOUT_FIXTURE_LINES} is 3 character(s) long",
+            f"must reach the indicator column at column {INDICATOR_INDEX + 1}",
+        ),
+    ),
+    (
+        "layout_indicator_column_refused",
+        " " * INDICATOR_INDEX + "X" + "MOVE A TO B",
+        (
+            f"lgapvs01.cbl:{_LAYOUT_FIXTURE_LINES} indicator column holds 'X'",
+        ),
+    ),
+    (
+        "layout_sequence_area_refused",
+        "00(1  " + " MOVE A TO B",
+        (
+            f"lgapvs01.cbl:{_LAYOUT_FIXTURE_LINES} sequence area holds invalid "
+            f"character(s) ['(']",
+        ),
+    ),
+)
+
+
+def _case_refused_layout(line: str, expected: tuple) -> str:
+    """Require the layout rule to refuse one generated line."""
+    return _refused(
+        f"a generated line of {len(line)} character(s)",
+        lambda: verify_generated_lines(
+            "lgapvs01.cbl", _layout_fixture(line)
+        ),
+        *expected,
+    )
+
+
+def _case_emitter_width_refusals() -> str:
+    """The emitter refuses a word and a comment that leave the code area."""
+    word = "X" * (MAX_LINE_LENGTH - AREA_A_INDENT + 1)
+    statement = _refused(
+        f"a statement word of {len(word)} character(s)",
+        lambda: emit_statement(AREA_A_INDENT, [word]),
+        f"does not fit columns {AREA_A_INDENT + 1}-{MAX_LINE_LENGTH}",
+    )
+    comment = _refused(
+        "a comment line past the code area",
+        lambda: emit_comment("Y" * MAX_LINE_LENGTH),
+        "comment line would reach column",
+    )
+    _observed(
+        len(emit_statement(AREA_A_INDENT, ["MOVE", "A", "TO", "B"], True)) == 1,
+        "a statement that fits the code area was wrapped",
+    )
+    return f"{statement}; {comment}"
+
+
+# --------------------------------------------------------------------------
+# Cases: the statement-map contract
+# --------------------------------------------------------------------------
+# Each row is one mutation of the shipped statement-map document the contract
+# must refuse: the case name, the mutation and the texts the refusal has to
+# carry.  Every mutation is applied to a copy; the shipped document and the
+# shipped file are never changed.
+_REFUSED_MAP_CASES = (
+    (
+        "map_dml_count_mismatch_refused",
+        lambda document: document["dml"].pop(),
+        (
+            f"dml holds {EXPECTED_MAP_DML_COUNT - 1} entries but "
+            f"checks.dml_count is {EXPECTED_MAP_DML_COUNT}",
+        ),
+    ),
+    (
+        "map_duplicated_entry_refused",
+        lambda document: document["dml"].append(
+            copy.deepcopy(document["dml"][1])
+        ),
+        (
+            f"dml holds {EXPECTED_MAP_DML_COUNT + 1} entries but "
+            f"checks.dml_count is {EXPECTED_MAP_DML_COUNT}",
+        ),
+    ),
+    (
+        "map_duplicate_dml_id_refused",
+        lambda document: document["dml"][2].update(
+            {"id": document["dml"][1]["id"]}
+        ),
+        ("duplicate dml id 'set_identity'",),
+    ),
+    (
+        "map_include_count_mismatch_refused",
+        lambda document: document["includes"].pop(),
+        (
+            f"includes holds {EXPECTED_MAP_INCLUDE_COUNT - 1} entries but "
+            f"checks.include_count is {EXPECTED_MAP_INCLUDE_COUNT}",
+        ),
+    ),
+    (
+        "map_total_blocks_mismatch_refused",
+        lambda document: document["checks"].update(
+            {"total_blocks": EXPECTED_MAP_TOTAL_BLOCKS + 1}
+        ),
+        (
+            f"checks.total_blocks is {EXPECTED_MAP_TOTAL_BLOCKS + 1}, expected "
+            f"{EXPECTED_MAP_TOTAL_BLOCKS}",
+        ),
+    ),
+    (
+        "map_using_count_mismatch_refused",
+        lambda document: document["checks"]["using_counts"].update(
+            {"set_identity": 2}
+        ),
+        (
+            "dml[set_identity] declares 1 host variables but "
+            "checks.using_counts['set_identity'] is 2",
+        ),
+    ),
+    (
+        "map_unlisted_call_program_refused",
+        lambda document: document["dml"][1].update(
+            {"call_program": "SQL-SET-IDENTITY-X"}
+        ),
+        ("is not listed in checks.call_programs",),
+    ),
+    (
+        "map_declared_census_mutation_refused",
+        lambda document: document["source_program"].update(
+            {"exec_sql_blocks": EXPECTED_TOTAL_SQL_BLOCKS - 1}
+        ),
+        (
+            f"source_program.exec_sql_blocks is "
+            f"{EXPECTED_TOTAL_SQL_BLOCKS - 1}, expected "
+            f"{EXPECTED_TOTAL_SQL_BLOCKS}",
+        ),
+    ),
+    (
+        "map_order_constraint_count_mismatch_refused",
+        lambda document: document["checks"].update(
+            {"order_constraint_count": EXPECTED_MAP_ORDER_CONSTRAINT_COUNT - 1}
+        ),
+        (
+            f"checks.order_constraint_count is "
+            f"{EXPECTED_MAP_ORDER_CONSTRAINT_COUNT - 1}, expected "
+            f"{EXPECTED_MAP_ORDER_CONSTRAINT_COUNT}",
+        ),
+    ),
+    (
+        "map_capture_ordinal_mutation_refused",
+        lambda document: document["capture_ordinals"]["by_dml_id"].update(
+            {"set_identity": "HC-ABSENT-SEQ"}
+        ),
+        ("capture_ordinals",),
+    ),
+    (
+        "map_enforcer_mutation_refused",
+        lambda document: document["execution_order"][0].update(
+            {"enforced_by": "modernization/harness/driver.cbl"}
+        ),
+        (
+            "execution_order[policy_first_captured].enforced_by names "
+            "'modernization/harness/driver.cbl'",
+        ),
+    ),
+    (
+        "map_non_integer_start_line_refused",
+        lambda document: document["dml"][1].update({"start_line": "308"}),
+        ("start_line holds str '308'; an integer is required",),
+    ),
+)
+
+
+def _case_refused_map(inputs: _SelfTestInputs, mutate, expected: tuple) -> str:
+    """Require the map contract to refuse one mutation of the shipped document."""
+    document = _mutated_document(inputs, mutate)
+    return _refused(
+        "a mutated statement-map document",
+        lambda: _validated(document),
+        *expected,
+    )
+
+
+def _case_map_duplicate_start_line_refused(inputs: _SelfTestInputs) -> str:
+    """Two map entries claiming one source block line are refused."""
+    contract = copy.deepcopy(inputs.contract)
+    first = int(contract["dml"][0]["start_line"])
+    contract["dml"][1]["start_line"] = first
+    message = _refused(
+        f"a map whose second dml entry also starts at line {first}",
+        lambda: index_statement_map(contract),
+        f"statement map has two entries starting at line {first}",
+    )
+    return message
+
+
+def _case_capture_copybook_mutation_refused(inputs: _SelfTestInputs) -> str:
+    """A capture copybook missing one declared ordinal item is refused."""
+    resolution = inputs.contract["ordinal_resolution"]
+    item = resolution["set_identity"]
+    text = inputs.copybooks[CAPTURE_COPYBOOK].decode("utf-8")
+    kept = [
+        line
+        for line in text.split("\n")
+        if item not in line or is_comment_line(line)
+    ]
+    _observed(
+        len(kept) < len(text.split("\n")),
+        f"{CAPTURE_COPYBOOK} declares no line naming {item} to remove",
+    )
+    message = _refused(
+        f"a capture copybook whose declaration of {item} was removed",
+        lambda: verify_capture_order_contract(
+            inputs.contract,
+            "\n".join(kept).encode("utf-8"),
+            EXPECTED_COPYBOOK_DIR,
+        ),
+        f"names the ordinal item(s) ['{item}']",
+        "does not declare",
+    )
+    return message
+
+
+def _case_absent_harness_copybook_refused(inputs: _SelfTestInputs) -> str:
+    """A harness copybook absent from the directory read is refused."""
+    components = lexical_repo_components(
+        EXPECTED_STUB_DIR, "--copybook-dir"
+    ) + (CAPTURE_COPYBOOK,)
+    message = _refused(
+        f"a read of {CAPTURE_COPYBOOK} from a directory that does not hold it",
+        lambda: read_repo_file(
+            components,
+            f"the harness copybook {CAPTURE_COPYBOOK}",
+            MAX_READ_FILE_BYTES,
+        ),
+        f"the harness copybook {CAPTURE_COPYBOOK} names",
+        "which does not exist",
+    )
+    return message
+
+
+# --------------------------------------------------------------------------
+# Cases: the pinned digests and the read and write surfaces
+# --------------------------------------------------------------------------
+def _case_source_digest_mutation_refused(inputs: _SelfTestInputs) -> str:
+    """A source whose bytes differ from its pinned digest is refused."""
+    name = "lgapvs01.cbl"
+    mutated = inputs.sources[name].replace(b"KSDSPOLY", b"KSDSOTHR", 1)
+    _observed(
+        mutated != inputs.sources[name]
+        and len(mutated) == len(inputs.sources[name]),
+        f"the fixture did not change one construct of {name} at equal length",
+    )
+    message = _refused(
+        f"{name} carrying a changed byte range at its original length",
+        lambda: require_authorized_source_digest(name, mutated),
+        f"{name} does not carry its pinned digest",
+        AUTHORIZED_SOURCE_DIGESTS[name],
+    )
+    return message
+
+
+def _case_sources_changed_during_run_refused(inputs: _SelfTestInputs) -> str:
+    """A source whose digest differs from the baseline of the run is refused."""
+    name = "lgapol01.cbl"
+    baseline = dict(inputs.baseline)
+    baseline[name] = "0" * 64
+    message = _refused(
+        f"a baseline recording another digest for {name}",
+        lambda: verify_sources_unchanged(EXPECTED_SOURCE_DIR, baseline),
+        f"{name} changed during the run",
+        inputs.baseline[name],
+    )
+    return message
+
+
+# Each row is one read or write surface the guards must refuse: the case name,
+# the body and the texts the refusal has to carry.
+_REFUSED_SURFACE_CASES = (
+    (
+        "source_digest_unknown_name_refused",
+        lambda: require_authorized_source_digest("driver.cbl", b""),
+        ("no pinned digest for authorized source 'driver.cbl'",),
+    ),
+    (
+        "source_outside_allow_list_refused",
+        lambda: read_authorized_source(EXPECTED_SOURCE_DIR, "lgstsq.cbl"),
+        (
+            "refusing to read 'lgstsq.cbl'",
+            "only the five authorized source files",
+        ),
+    ),
+    (
+        "source_traversal_refused",
+        lambda: read_authorized_source(
+            EXPECTED_SOURCE_DIR, "../../modernization/harness/driver.cbl"
+        ),
+        ("refusing to read",),
+    ),
+    (
+        "copybook_outside_harness_set_refused",
+        lambda: read_harness_copybook(EXPECTED_COPYBOOK_DIR, "lgcmarea.cpy"),
+        (
+            "refusing to read 'lgcmarea.cpy'",
+            "only the harness copybooks",
+        ),
+    ),
+    (
+        "source_directory_moved_refused",
+        lambda: require_expected_read_directory(
+            REPO_ROOT / "modernization" / "harness",
+            EXPECTED_SOURCE_DIR,
+            "--source-dir",
+        ),
+        ("--source-dir names", "this translator reads only"),
+    ),
+    (
+        "copybook_directory_moved_refused",
+        lambda: require_expected_read_directory(
+            EXPECTED_STUB_DIR, EXPECTED_COPYBOOK_DIR, "--copybook-dir"
+        ),
+        ("--copybook-dir names", "this translator reads only"),
+    ),
+    (
+        "statement_map_moved_refused",
+        lambda: require_expected_read_file(
+            EXPECTED_DRIVER_SOURCE, EXPECTED_STATEMENT_MAP, "--statement-map"
+        ),
+        ("--statement-map names", "this translator reads only"),
+    ),
+    (
+        "read_outside_checkout_refused",
+        lambda: lexical_repo_components(
+            Path("/etc/passwd"), "--statement-map"
+        ),
+        ("this translator reads only inside",),
+    ),
+    (
+        "build_directory_outside_checkout_refused",
+        lambda: BuildTree(REPO_ROOT / "modernization" / "harness"),
+        ("refusing to write to", "the build directory must be"),
+    ),
+    (
+        "build_path_leaving_root_refused",
+        lambda: BuildTree(CANONICAL_BUILD_ROOT).path_for("../src/escape.cbl"),
+        ("refusing to write outside the build tree",),
+    ),
+    (
+        "build_path_absolute_refused",
+        lambda: BuildTree(CANONICAL_BUILD_ROOT).path_for("/etc/passwd"),
+        ("build paths must be relative",),
+    ),
+)
+
+
+def _case_refused_surface(body, expected: tuple) -> str:
+    """Require one read or write surface guard to refuse its fixture."""
+    return _refused("the surface under test", body, *expected)
+
+
+# --------------------------------------------------------------------------
+# Case runner
+# --------------------------------------------------------------------------
+def _case_inputs_unchanged_by_matrix(inputs: _SelfTestInputs) -> str:
+    """Every shipped input still reads as it did before the cases ran."""
+    for name, digest in sorted(inputs.baseline.items()):
+        current = sha256_of_bytes(
+            read_authorized_source(EXPECTED_SOURCE_DIR, name)
+        )
+        _observed(
+            current == digest,
+            f"{name} now reads as {current}; the matrix started from {digest}",
+        )
+    for name, data in sorted(inputs.copybooks.items()):
+        current = read_harness_copybook(EXPECTED_COPYBOOK_DIR, name)
+        _observed(
+            current == data,
+            f"the harness copybook {name} changed while the matrix ran",
+        )
+    document = read_statement_map_document(EXPECTED_STATEMENT_MAP)
+    _observed(
+        document == inputs.document,
+        "the statement map changed while the matrix ran",
+    )
+    return (
+        f"{len(inputs.baseline)} source(s), {len(inputs.copybooks)} harness "
+        f"copybook(s) and the statement map re-read unchanged"
+    )
+
+
+def _run_case(results: list, stream, quiet: bool, name: str, body) -> None:
+    """Run one case, record its outcome and print its line.
+
+    A case that raises records a failure and the run continues with the next
+    one, so one broken guard does not hide the state of the rest.
+    ``_SelfTestFailure`` carries the observation the case made; a
+    ``TranslationError`` a case did not expect, and any of the listed defect
+    classes, are reported by type and message.
+    """
+    try:
+        detail = body()
+    except _SelfTestFailure as failure:
+        result = _CaseResult(name=name, passed=False, detail=one_line(failure))
+    except TranslationError as error:
+        result = _CaseResult(
+            name=name,
+            passed=False,
+            detail=f"unexpected refusal: {one_line(error)}",
+        )
+    except (
+        ArithmeticError,
+        AssertionError,
+        AttributeError,
+        LookupError,
+        NameError,
+        OSError,
+        RuntimeError,
+        StopIteration,
+        TypeError,
+        ValueError,
+        yaml.YAMLError,
+    ) as error:
+        result = _CaseResult(
+            name=name,
+            passed=False,
+            detail=f"unexpected {type(error).__name__}: {one_line(error)}",
+        )
+    else:
+        result = _CaseResult(name=name, passed=True, detail=one_line(detail))
+    results.append(result)
+    if result.passed and quiet:
+        return
+    verdict = "PASS" if result.passed else "FAIL"
+    print(f"self-test {verdict} {result.name} -- {result.detail}", file=stream)
+
+
+def run_self_test(quiet: bool = False, stream=None) -> int:
+    """Run every case and return 0, or ``EXIT_SELF_TEST_FAILED`` on a failure.
+
+    The shipped statement map, the five authorized sources and the four harness
+    copybooks are read first and the three programs are translated once, so an
+    input that cannot be read raises its own ``TranslationError`` before any
+    case runs.  Each case then prints one line to ``stream``, which defaults to
+    standard output, followed by one summary line; ``quiet`` limits the case
+    lines to the failing ones.  Every fixture is built in this process from
+    strings, bytes and copies of the documents already read: the matrix creates
+    no file, writes nothing inside or outside the build tree, starts no
+    subprocess and leaves the shipped inputs exactly as it found them.
+    """
+    out = sys.stdout if stream is None else stream
+    inputs = _self_test_inputs()
+    results = []
+
+    _run_case(results, out, quiet, "statement_map_accepted",
+              lambda: _case_statement_map_accepted(inputs))
+    _run_case(results, out, quiet, "order_metadata_accepted",
+              lambda: _case_order_metadata_accepted(inputs))
+    _run_case(results, out, quiet, "pinned_digests_accepted",
+              lambda: _case_pinned_digests_accepted(inputs))
+    _run_case(results, out, quiet, "harness_copybooks_accepted",
+              lambda: _case_harness_copybooks_accepted(inputs))
+    _run_case(results, out, quiet, "shipped_programs_translate",
+              lambda: _case_shipped_programs_translate(inputs))
+    _run_case(results, out, quiet, "shipped_lines_within_columns",
+              lambda: _case_shipped_lines_within_columns(inputs))
+    _run_case(results, out, quiet, "shipped_tokens_accounted",
+              lambda: _case_shipped_tokens_accounted(inputs))
+    _run_case(results, out, quiet, "shipped_carry_through",
+              lambda: _case_shipped_carry_through(inputs))
+    _run_case(results, out, quiet, "shipped_structural_counts",
+              lambda: _case_shipped_structural_counts(inputs))
+    _run_case(results, out, quiet, "shipped_rule_totals",
+              lambda: _case_shipped_rule_totals(inputs))
+    _run_case(results, out, quiet, "shipped_chain_links",
+              lambda: _case_shipped_chain_links(inputs))
+    _run_case(results, out, quiet, "shipped_declared_census",
+              lambda: _case_shipped_declared_census(inputs))
+    _run_case(results, out, quiet, "shipped_capture_order_contract",
+              lambda: _case_shipped_capture_order_contract(inputs))
+    _run_case(results, out, quiet, "shipped_sources_unchanged",
+              lambda: _case_shipped_sources_unchanged(inputs))
+    _run_case(results, out, quiet, "build_root_accepted",
+              _case_build_root_accepted)
+
+    _run_case(results, out, quiet, "r1_directive_commented",
+              lambda: _case_r1_directive_commented(inputs))
+    _run_case(results, out, quiet, "r1_active_directive_refused",
+              lambda: _case_r1_active_directive_refused(inputs))
+    _run_case(results, out, quiet, "r2_include_replaced",
+              lambda: _case_r2_include_replaced(inputs))
+    _run_case(results, out, quiet, "r3_binding_emitted",
+              lambda: _case_r3_binding_emitted(inputs))
+    _run_case(results, out, quiet, "r3_missing_binding_refused",
+              lambda: _case_r3_missing_binding_refused(inputs))
+    _run_case(results, out, quiet, "r4_declarations_inserted",
+              lambda: _case_r4_declarations_inserted(inputs))
+    _run_case(results, out, quiet, "r5_chain_link_rewritten",
+              lambda: _case_r5_chain_link_rewritten(inputs))
+    _run_case(results, out, quiet, "r6_diagnostic_link_rewritten",
+              lambda: _case_r6_diagnostic_link_rewritten(inputs))
+    _run_case(results, out, quiet, "r7_return_becomes_goback",
+              lambda: _case_r7_return_becomes_goback(inputs))
+    _run_case(results, out, quiet, "r8_abend_captured",
+              lambda: _case_r8_abend_captured(inputs))
+    _run_case(results, out, quiet, "r9_write_reaches_capture",
+              lambda: _case_r9_write_reaches_capture(inputs))
+    _run_case(results, out, quiet, "r10_asktime_rewritten",
+              lambda: _case_r10_asktime_rewritten(inputs))
+    _run_case(results, out, quiet, "r11_formattime_rewritten",
+              lambda: _case_r11_formattime_rewritten(inputs))
+    _run_case(results, out, quiet, "r12_condition_substituted",
+              lambda: _case_r12_condition_substituted(inputs))
+    _run_case(results, out, quiet, "r13_call_emitted",
+              lambda: _case_r13_call_emitted(inputs))
+    _run_case(results, out, quiet, "r14_lines_carried",
+              lambda: _case_r14_lines_carried(inputs))
+    _run_case(results, out, quiet, "r14_carry_through_mutation_refused",
+              lambda: _case_carry_through_mutation_refused(inputs))
+    _run_case(results, out, quiet, "rule_total_mutation_refused",
+              lambda: _case_rule_total_mutation_refused(inputs))
+
+    for name, program, build, expected in _REFUSED_FRAGMENT_CASES:
+        _run_case(
+            results, out, quiet, name,
+            lambda program=program, build=build, expected=expected: (
+                _case_refused_fragment(inputs, program, build, expected)
+            ),
+        )
+    for name, line, expected in _REFUSED_LAYOUT_CASES:
+        _run_case(
+            results, out, quiet, name,
+            lambda line=line, expected=expected: _case_refused_layout(
+                line, expected
+            ),
+        )
+    _run_case(results, out, quiet, "emitter_width_refusals",
+              _case_emitter_width_refusals)
+    for name, mutate, expected in _REFUSED_MAP_CASES:
+        _run_case(
+            results, out, quiet, name,
+            lambda mutate=mutate, expected=expected: _case_refused_map(
+                inputs, mutate, expected
+            ),
+        )
+    _run_case(results, out, quiet, "map_duplicate_start_line_refused",
+              lambda: _case_map_duplicate_start_line_refused(inputs))
+    _run_case(results, out, quiet, "capture_copybook_mutation_refused",
+              lambda: _case_capture_copybook_mutation_refused(inputs))
+    _run_case(results, out, quiet, "absent_harness_copybook_refused",
+              lambda: _case_absent_harness_copybook_refused(inputs))
+    _run_case(results, out, quiet, "source_digest_mutation_refused",
+              lambda: _case_source_digest_mutation_refused(inputs))
+    _run_case(results, out, quiet, "sources_changed_during_run_refused",
+              lambda: _case_sources_changed_during_run_refused(inputs))
+    for name, body, expected in _REFUSED_SURFACE_CASES:
+        _run_case(
+            results, out, quiet, name,
+            lambda body=body, expected=expected: _case_refused_surface(
+                body, expected
+            ),
+        )
+
+    _run_case(results, out, quiet, "shipped_inputs_unchanged_by_matrix",
+              lambda: _case_inputs_unchanged_by_matrix(inputs))
+
+    passed = sum(1 for result in results if result.passed)
+    failed = len(results) - passed
+    print(
+        f"self-test summary cases={len(results)} passed={passed} "
+        f"failed={failed}",
+        file=out,
+    )
+    return 0 if failed == 0 else EXIT_SELF_TEST_FAILED
+
+
+# --------------------------------------------------------------------------
 # Command line
 # --------------------------------------------------------------------------
 def build_parser() -> argparse.ArgumentParser:
@@ -6350,7 +8357,10 @@ def build_parser() -> argparse.ArgumentParser:
         epilog=(
             "Writes the generated programs, the verbatim copybooks, the source "
             "SHA-256 baseline and the translation report; exits non-zero on any "
-            "rule, count or guard failure."
+            "rule, count or guard failure. With --self-test it generates "
+            "nothing and runs the built-in case matrix instead, leaving status "
+            "0 when every case held and 5 when one did not. Decision "
+            "rationale: modernization/docs/decision-log.md"
         ),
     )
     parser.add_argument(
@@ -6393,6 +8403,23 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--self-test",
+        action="store_true",
+        help=(
+            "run the built-in case matrix over the pinned sources, statement "
+            "map and harness copybooks of this checkout and exit; it generates "
+            "no build tree, writes no file and accepts no other path option"
+        ),
+    )
+    parser.add_argument(
+        "--quiet",
+        action="store_true",
+        help=(
+            "with --self-test, print only the failing case lines and the "
+            "summary"
+        ),
+    )
+    parser.add_argument(
         "--report",
         default=None,
         metavar="FILE",
@@ -6427,7 +8454,28 @@ def one_line(text: str, limit: int = 400) -> str:
 def main(argv=None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+    if args.self_test:
+        supplied = [
+            option
+            for option, value, default in (
+                ("--source-dir", args.source_dir, DEFAULT_SOURCE_DIR),
+                ("--build-dir", args.build_dir, DEFAULT_BUILD_DIR),
+                ("--statement-map", args.statement_map, DEFAULT_STATEMENT_MAP),
+                ("--copybook-dir", args.copybook_dir, DEFAULT_COPYBOOK_DIR),
+                ("--report", args.report, None),
+            )
+            if value != default
+        ]
+        if supplied:
+            parser.error(
+                "--self-test reads the pinned locations of this checkout and "
+                f"accepts no {', '.join(supplied)}"
+            )
+    if args.quiet and not args.self_test:
+        parser.error("--quiet applies to --self-test only")
     try:
+        if args.self_test:
+            return run_self_test(quiet=args.quiet)
         outcome = translate_all(
             source_dir=resolve_input_path(args.source_dir),
             build_dir=resolve_input_path(args.build_dir),

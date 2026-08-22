@@ -26,7 +26,18 @@
 # order, the reported type, the reported width, the numeric precision and scale and the
 # nullability of both relations, and the width of every text value, are asserted against
 # these declarations by modernization/dbt/genapp_rqi/tests/assert_issued_policy_unique_key.sql
-# and modernization/dbt/genapp_rqi/tests/assert_preissued_rating_unique_key.sql.
+# and modernization/dbt/genapp_rqi/tests/assert_preissued_rating_unique_key.sql. Those two
+# files compare a reported width only where the adapter reports one, so on DuckDB their width
+# rules compare nothing and what they assert there is the length of every stored text value.
+# The declared width itself is asserted on both adapters by
+# modernization/dbt/genapp_rqi/tests/assert_canonical_column_widths.sql, which reads the
+# parsed project rather than a built relation: it compares each data_type declared below with
+# the type the canonical contract of AAP section 0.3.2 fixes, and with the type the select
+# list of the model casts that column to. A width changed in this file, a width changed in a
+# model cast, a removed cast of a character column and a cast that file cannot read are each
+# returned as a failing row on DuckDB as well as on Amazon Redshift. The numeric precision and
+# scale of the six amount columns reach both adapters through the enforced contract itself,
+# which compares decimal(p,s) in full on DuckDB.
 #
 # These two contracts are the only declaration of the canonical column set in the project:
 # modernization/warehouse/ddl/01_schemas.sql creates the raw and canonical namespaces and no
@@ -61,8 +72,9 @@
 # varchar(64) source_system_key, char(1) policy_type, varchar(6) request_id, char(2)
 # return_code and varchar(10) brokers_reference, beside the bigint, date, timestamp,
 # decimal(8,2) and decimal(10,2) columns. Each model's select list casts those five text
-# columns to the same spelling declared here and applies no other conversion; the bigint,
-# date, timestamp and decimal values arrive from
+# columns to the same spelling declared here and applies no other conversion, and
+# tests/assert_canonical_column_widths.sql compares the two spellings column by column; the
+# bigint, date, timestamp and decimal values arrive from
 # models/intermediate/int_policy_issue_decoded.sql already typed, and a changed type there
 # fails these contracts. dbt reads these declarations twice on every build of a contracted
 # model: the adapter's create-table statement builds the relation's columns from them, and
@@ -83,13 +95,16 @@
 # returns verbatim; neither they nor either relation alias is restated here.
 #
 # Data tests. Every test below is a dbt built-in test: not_null, accepted_values and
-# relationships. This project declares no packages.yml and no dbt package. The three
+# relationships. This project declares no packages.yml and no dbt package. The four
 # singular tests under modernization/dbt/genapp_rqi/tests/ carry the assertions no built-in
 # test expresses: key uniqueness on the pair (source_system_key, policy_number), row-for-row
 # parity with ref('int_policy_issue_decoded') in both directions, the presence of at least
 # one row per expected request id, parity of the key set between the two relations, the
 # relation inventory of the canonical schema, the physical column shape of both relations,
-# the product premium null pattern, and the value, sign and magnitude of the six amounts.
+# the product premium null pattern of this layer and the product premium allocation of the
+# landed record it is projected from, the value, sign and magnitude of the six amounts, and
+# the declared type and declared width of all 20 column instances against the type each
+# model's select list casts to.
 #
 # Applied unchanged on Amazon Redshift and DuckDB.
 # Diagram reference: Figure 4 — dbt Transformation DAG and Field Allocation
@@ -272,7 +287,8 @@ models:
           definitions under modernization/extraction/sample_input/ carry 01AMOT, which
           resolves policy type M, and 01ACOM, which resolves policy type C. Those two ids
           are the list a validation run supplies to the expected_request_ids variable the
-          three singular tests under tests/ read; that variable defaults to an empty list,
+          three key, population and premium singular tests under tests/ read; that variable
+          defaults to an empty list,
           and on a run that supplies the two ids each of them is carried by at least one
           row of this relation. VARCHAR(6), never null: the model casts the
           arriving text to that width, and the width of the value is asserted by the

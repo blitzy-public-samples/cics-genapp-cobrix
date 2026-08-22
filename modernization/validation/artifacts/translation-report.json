@@ -41,7 +41,7 @@
     },
     "hcapture.cpy": {
       "path": "modernization/harness/copybooks/hcapture.cpy",
-      "sha256": "6c35ee2362554c4e3fe1eb9295b046303c19b5d49bc058a5b8c5b1a22b55ca6a"
+      "sha256": "1fd1ee803a0606b593f03f55b26bf0dba25129af9cc481270d9da2821690e320"
     },
     "hsqlca.cpy": {
       "path": "modernization/harness/copybooks/hsqlca.cpy",
@@ -82,7 +82,7 @@
     {
       "origin": "modernization/harness/copybooks/hcapture.cpy",
       "copy": "modernization/harness/build/src/hcapture.cpy",
-      "sha256": "6c35ee2362554c4e3fe1eb9295b046303c19b5d49bc058a5b8c5b1a22b55ca6a",
+      "sha256": "1fd1ee803a0606b593f03f55b26bf0dba25129af9cc481270d9da2821690e320",
       "kind": "harness copybook"
     }
   ],
@@ -1693,7 +1693,7 @@
         ],
         "successor_ordinal_item": "HC-VSAM-SEQ",
         "first_captured_ordinal": null,
-        "guard_line": 274
+        "guard_line": 279
       },
       {
         "entry": "lastchanged_before_commercial",
@@ -1753,7 +1753,7 @@
         ],
         "successor_ordinal_item": "HC-POL-SEQ",
         "first_captured_ordinal": 1,
-        "guard_line": 361
+        "guard_line": 366
       },
       {
         "entry": "identity_before_lastchanged",
