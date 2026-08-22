@@ -271,10 +271,10 @@ models:
           unrecognised id reaches no row of this relation. The two authored sample
           definitions under modernization/extraction/sample_input/ carry 01AMOT, which
           resolves policy type M, and 01ACOM, which resolves policy type C. Those two ids
-          are the default of the expected_request_ids variable
-          tests/assert_issued_policy_unique_key.sql and
-          tests/assert_product_premium_nullability.sql read, and each of them is carried by
-          at least one row of this relation. VARCHAR(6), never null: the model casts the
+          are the list a validation run supplies to the expected_request_ids variable the
+          three singular tests under tests/ read; that variable defaults to an empty list,
+          and on a run that supplies the two ids each of them is carried by at least one
+          row of this relation. VARCHAR(6), never null: the model casts the
           arriving text to that width, and the width of the value is asserted by the
           singular test of this relation.
         config:

@@ -2797,16 +2797,31 @@ def validate_record(
     withheld recorded when there are more. ``key`` names the object in the
     diagnostic. Returns None when the record satisfies the schema.
 
+    Several violations can describe one breach: ``required`` rejects an object once
+    per property it omits, and each branch of the schema's ``allOf`` holds the same
+    value to its own constraint. Every violation is therefore rendered before the
+    count is taken, a rendering that repeats is reported once, and both ``limit``
+    and the withheld count are taken over the renderings that remain. Two
+    violations that render differently are both reported.
+
     Raises ``ObjectError`` carrying the violations when it does not.
     """
     errors = sorted(
         validator.iter_errors(record),
         key=lambda error: (_json_pointer(error.absolute_path), error.message),
     )
-    if not errors:
+    violations: list[str] = []
+    seen: set[str] = set()
+    for error in errors:
+        rendered = _violation(error)
+        if rendered in seen:
+            continue
+        seen.add(rendered)
+        violations.append(rendered)
+    if not violations:
         return
-    reported = "; ".join(_violation(error) for error in errors[:limit])
-    withheld = len(errors) - min(len(errors), limit)
+    reported = "; ".join(violations[:limit])
+    withheld = len(violations) - min(len(violations), limit)
     if withheld:
         reported = f"{reported}; (+{withheld} further violations)"
     raise ObjectError(
@@ -3949,6 +3964,14 @@ _REDACTED_FRAGMENTS = (
 # Prefix of the private temporary directory one self-test run works inside.
 _SCRATCH_PREFIX = "load-local-selftest-"
 
+# Fragment that stands in for one text a case supplied to a run - a path, an
+# endpoint, a bucket, a region, an extract date or a digest of the object the case
+# served - while that run's output is searched for a business identifier. It
+# carries no digit and no upper-case letter, so it forms no fragment of
+# _REDACTED_FRAGMENTS, and it is not empty, so replacing a fragment with it never
+# joins the characters either side of that fragment.
+_INCIDENTAL_MARKER = "<incidental>"
+
 
 class _Absent:
     """Marker naming a record member that a fixture removes."""
@@ -4374,6 +4397,88 @@ def _assert_absent(fragment: str, text: str, what: str) -> None:
         raise _SelfTestFailure(
             f"{what} carries {fragment!r}: {_escaped(text, 240)}"
         )
+
+
+def _incidental_text(
+    scratch: _Scratch,
+    database: Path,
+    *,
+    endpoint: str | None = None,
+    body: bytes | None = None,
+) -> tuple[str, ...]:
+    """Return every text of a case's own making that this tool's output carries back.
+
+    The private directory of the run, the database the case named, the directory a
+    database sits in, the repository directory, the two shared DDL scripts, the
+    bucket, the region and the extract date reach the progress lines as the case
+    supplied them, and a temporary directory name assigned by the operating
+    system carries characters of its own. ``endpoint`` and the port inside it, both
+    assigned when a case starts a server, reach a diagnostic that names the
+    endpoint. The digest and the entity tag of ``body`` are the digests of the
+    object the case served, and the short digest of every fragment of
+    ``_REDACTED_FRAGMENTS`` is what a redacted summary line carries in place of
+    that identifier.
+
+    Each text is returned as it stands and in the bounded renderings ``_escaped``
+    produces for it, which is the form a diagnostic carries a long path in, longest
+    first.
+    """
+    texts = [
+        str(scratch.path),
+        str(database),
+        str(DATABASE_DIRECTORY),
+        str(_REPOSITORY_DIR),
+        _SELF_TEST_BUCKET,
+        _SELF_TEST_REGION,
+        _SELF_TEST_EXTRACT_DATE.isoformat(),
+    ]
+    texts.extend(str(path) for path in resolve_ddl_paths(True))
+    if endpoint is not None:
+        texts.append(endpoint)
+        texts.append(endpoint.rsplit(":", 1)[-1])
+    if body is not None:
+        texts.append(hashlib.sha256(body).hexdigest())
+        texts.append(_single_part_etag(body))
+    texts.extend(_digest(fragment) for fragment in _REDACTED_FRAGMENTS)
+    forms = {
+        rendering
+        for text in texts
+        if text
+        for rendering in (
+            text,
+            _escaped(text, MAX_DIAGNOSTIC_CHARACTERS),
+            _escaped(text, MAX_DIAGNOSTIC_PATH_CHARACTERS),
+        )
+    }
+    return tuple(sorted(forms, key=len, reverse=True))
+
+
+def _without_incidental_text(text: str, incidental: Sequence[str]) -> str:
+    """Return ``text`` with every fragment of ``incidental`` replaced by a marker.
+
+    ``incidental`` is applied longest fragment first, so a path is replaced as a
+    whole before any directory it sits under is.
+    """
+    remaining = text
+    for fragment in incidental:
+        remaining = remaining.replace(fragment, _INCIDENTAL_MARKER)
+    return remaining
+
+
+def _assert_identifiers_withheld(
+    text: str, incidental: Sequence[str], what: str
+) -> None:
+    """Require no fragment of ``_REDACTED_FRAGMENTS`` outside ``incidental`` text.
+
+    Every text of ``incidental`` is replaced by ``_INCIDENTAL_MARKER`` first, and
+    every fragment is then required to be absent from what remains: a temporary
+    directory name, an operating-system-assigned port, a repository path and a
+    digest carry digits of their own, and none of them is a value this tool
+    disclosed. An identifier carried anywhere else fails the case.
+    """
+    remaining = _without_incidental_text(text, incidental)
+    for fragment in _REDACTED_FRAGMENTS:
+        _assert_absent(fragment, remaining, what)
 
 
 def _assert_raises(
@@ -4818,6 +4923,104 @@ def _case_record_refusals() -> str:
     return (
         f"{len(parse_failures)} parse, {len(contract_failures)} contract, "
         f"{len(schema_failures)} schema and {len(key_failures) + 1} key faults refused"
+    )
+
+
+def _case_schema_violations_reported_once() -> str:
+    """One breach is reported once and every distinct violation is reported.
+
+    A record carrying only the two natural-key columns breaches ``required`` once
+    per omitted column, and each of those violations renders as the same
+    constraint, declared list, omitted properties and rejected shape; the
+    diagnostic carries that rendering once and withholds nothing. A record
+    breaching four different constraints carries all four. With record values shown
+    the library's own message distinguishes each omission, and every one of those
+    messages is kept, so the report stays bounded by its limit rather than
+    collapsed.
+    """
+    validator = build_validator(load_schema(), DEFAULT_SCHEMA)
+    key = _selftest_key()
+    omitting = parse_record(
+        _json_object_text(
+            _MOTOR_RECORD_MEMBERS[: len(NATURAL_KEY_FIELDS)]
+        ).encode("utf-8"),
+        key,
+    )
+    breaching = parse_record(
+        _record_text(
+            issue_date="19-08-2026", payment_amount="500.00", extra_column="x"
+        ).encode("utf-8"),
+        key,
+    )
+    omitted_count = EXPECTED_COLUMN_COUNT - len(NATURAL_KEY_FIELDS)
+    previously_shown = show_identifiers_enabled()
+    set_show_identifiers(False)
+    try:
+        omissions = str(
+            _assert_raises(
+                f"a record carrying {len(NATURAL_KEY_FIELDS)} landed columns",
+                ObjectError,
+                "does not satisfy the landing schema",
+                lambda: validate_record(omitting, validator, key),
+            )
+        )
+        _assert_equal(
+            omissions.count("the 'required' constraint is not satisfied"),
+            1,
+            "the times one omission constraint is reported",
+        )
+        _assert_absent("further violations", omissions, "the omission diagnostic")
+        _assert_absent("1000301", omissions, "the omission diagnostic")
+        _assert_in(
+            "the properties at issue are", omissions, "the omission diagnostic"
+        )
+        distinct = str(
+            _assert_raises(
+                "a record breaching four constraints",
+                ObjectError,
+                "does not satisfy the landing schema",
+                lambda: validate_record(breaching, validator, key),
+            )
+        )
+        breaches = (
+            "at /: the 'additionalProperties' constraint",
+            "at /issue_date: the 'pattern' constraint",
+            "at /issue_date: the 'format' constraint",
+            "at /payment_amount: the 'pattern' constraint",
+        )
+        for breach in breaches:
+            _assert_equal(
+                distinct.count(breach), 1, f"the times {breach!r} is reported"
+            )
+        _assert_absent("further violations", distinct, "the four-breach diagnostic")
+        for value in ("19-08-2026", "500.00", "1000301"):
+            _assert_absent(value, distinct, "the four-breach diagnostic")
+        set_show_identifiers(True)
+        shown = str(
+            _assert_raises(
+                "the same omissions with record values shown",
+                ObjectError,
+                "does not satisfy the landing schema",
+                lambda: validate_record(omitting, validator, key),
+            )
+        )
+        _assert_in(
+            f"(+{omitted_count - MAX_REPORTED_SCHEMA_ERRORS} further violations)",
+            shown,
+            "the omission diagnostic under --show-identifiers",
+        )
+        for name in ("broker_id", "customer_number"):
+            _assert_in(
+                f"'{name}' is a required property",
+                shown,
+                "the omission diagnostic under --show-identifiers",
+            )
+    finally:
+        set_show_identifiers(previously_shown)
+    return (
+        f"{omitted_count} omission violations reported as 1, {len(breaches)} "
+        f"distinct violations each reported once, and {omitted_count} distinct "
+        "messages kept under --show-identifiers"
     )
 
 
@@ -6218,12 +6421,13 @@ def _case_identifiers_redacted(scratch: _Scratch) -> str:
         outcome.written,
         outcome.sha256,
     )
-    for fragment in _REDACTED_FRAGMENTS:
-        _assert_absent(fragment, default_stdout, "the default summary line")
+    incidental = _incidental_text(scratch, database, body=body)
+    _assert_identifiers_withheld(
+        default_stdout, incidental, "the default summary line"
+    )
     _assert_absent(outcome.uri, default_stderr, "the default progress lines")
-    _assert_absent("1000301", default_stderr, "the default progress lines")
-    _assert_absent(
-        DEFAULT_SOURCE_SYSTEM_KEY, default_stderr, "the default progress lines"
+    _assert_identifiers_withheld(
+        default_stderr, incidental, "the default progress lines"
     )
     _assert_in(REDACTED_TEXT, default_stderr, "the default progress lines")
     _assert_in("identifiers=redacted", default_stdout, "the default summary line")
@@ -6290,9 +6494,9 @@ def _case_cli_loads_and_redacts(scratch: _Scratch) -> str:
     _assert_equal(len(lines), 1, f"the stdout lines of a load: {run.stdout!r}")
     _assert_in(qualified_relation_name(), lines[0], "the summary line")
     _assert_in("removed=0 written=1", lines[0], "the summary line")
-    for fragment in _REDACTED_FRAGMENTS:
-        _assert_absent(fragment, run.stdout, "the summary line")
-        _assert_absent(fragment, run.stderr, "the progress lines")
+    incidental = _incidental_text(scratch, database, endpoint=endpoint, body=body)
+    _assert_identifiers_withheld(run.stdout, incidental, "the summary line")
+    _assert_identifiers_withheld(run.stderr, incidental, "the progress lines")
     with _served_bucket(body) as endpoint:
         repeat = _run_cli(
             scratch,
@@ -6329,6 +6533,76 @@ def _case_cli_loads_and_redacts(scratch: _Scratch) -> str:
         )
     _assert_equal(by_uri.status, EXIT_OK, "the status of a load naming the URI")
     return "2 command line loads left 1 row, and the URI form named the same object"
+
+
+def _case_leaked_identifier_still_caught(scratch: _Scratch) -> str:
+    """The redaction check passes a run's own text and fails on a carried identifier.
+
+    The database name and the endpoint port this case supplies carry the redacted
+    fragments themselves, and the progress and summary forms built from them are
+    required to pass the check, which is what makes the check independent of the
+    temporary directory name and the port a run is given. The same lines carrying
+    one fragment in a value position are then required to fail it, one fragment at
+    a time, as is the summary line ``--show-identifiers`` prints.
+    """
+    database = scratch.database("42-1001-BRMOT001-1000301.duckdb")
+    endpoint = f"http://{_LOOPBACK_ADDRESS}:42101"
+    body = _record_bytes()
+    digest = hashlib.sha256(body).hexdigest()
+    incidental = _incidental_text(scratch, database, endpoint=endpoint, body=body)
+    key_values = (DEFAULT_SOURCE_SYSTEM_KEY, "1000301")
+    previously_shown = show_identifiers_enabled()
+    set_show_identifiers(False)
+    try:
+        redacted_summary = _report(
+            qualified_relation_name(), key_values, 0, 1, digest
+        )
+    finally:
+        set_show_identifiers(previously_shown)
+    own_text = "\n".join(
+        (
+            (
+                f"{_PROGRAM}: reading bucket {_shown(_SELF_TEST_BUCKET)} in region "
+                f"{_shown(_SELF_TEST_REGION)} through {_shown(endpoint)}"
+            ),
+            (
+                f"{_PROGRAM}: read {len(body)} bytes with sha256 {digest} and etag "
+                f"{_single_part_etag(body)} for "
+                f"{_SELF_TEST_EXTRACT_DATE.isoformat()}"
+            ),
+            f"{_PROGRAM}: opened database {_path_shown(database)}",
+            f"{_PROGRAM}: the private directory is {_path_shown(scratch.path)}",
+            redacted_summary,
+        )
+    )
+    _assert_identifiers_withheld(
+        own_text, incidental, "the lines naming this run's own text"
+    )
+    for fragment in _REDACTED_FRAGMENTS:
+        carried = f"{own_text}\n{_PROGRAM}: carried the value {_shown(fragment)}"
+        _assert_raises(
+            f"a run carrying {fragment!r} in a value position",
+            _SelfTestFailure,
+            fragment,
+            lambda carried=carried: _assert_identifiers_withheld(
+                carried, incidental, "the progress lines"
+            ),
+        )
+    disclosed = _report(
+        qualified_relation_name(), key_values, 0, 1, digest, show_identifiers=True
+    )
+    _assert_raises(
+        "a summary line naming its natural key",
+        _SelfTestFailure,
+        "1000301",
+        lambda: _assert_identifiers_withheld(
+            disclosed, incidental, "the summary line"
+        ),
+    )
+    return (
+        f"{len(_REDACTED_FRAGMENTS)} identifiers caught in a value position while "
+        f"{len(incidental)} texts of this run's own carried every fragment"
+    )
 
 
 def _case_exit_codes(scratch: _Scratch) -> str:
@@ -6544,6 +6818,10 @@ def run_self_test(*, quiet: bool = False, stream: Any = None) -> int:
         _run_case(results, out, quiet, "record_accepted", _case_record_accepted)
         _run_case(results, out, quiet, "record_refusals", _case_record_refusals)
         _run_case(
+            results, out, quiet, "schema_violations_reported_once",
+            _case_schema_violations_reported_once,
+        )
+        _run_case(
             results, out, quiet, "duplicate_members_refused",
             lambda: _case_duplicate_members_refused(scratch),
         )
@@ -6641,6 +6919,10 @@ def run_self_test(*, quiet: bool = False, stream: Any = None) -> int:
         _run_case(
             results, out, quiet, "cli_loads_and_redacts",
             lambda: _case_cli_loads_and_redacts(scratch),
+        )
+        _run_case(
+            results, out, quiet, "leaked_identifier_still_caught",
+            lambda: _case_leaked_identifier_still_caught(scratch),
         )
         _run_case(results, out, quiet, "exit_codes", lambda: _case_exit_codes(scratch))
     finally:

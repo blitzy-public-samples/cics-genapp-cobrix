@@ -186,18 +186,28 @@ HOW IT VALIDATES THE RECORD
     exists.
 
     A schema violation is reported by the JSON Pointer of the offending value, the
-    constraint it breached and the value's JSON type and size. The value itself is
+    constraint it breached and the value's JSON type and size. Violations that render
+    identically - the same pointer, the same breached constraint and the same message -
+    are reported once, and the count of the violations withheld past the reported bound
+    counts each of them once, so a record omitting several landed keys carries one
+    paragraph for the constraint it breached rather than one per omitted key, and every
+    violation that reads differently is still reported. The value itself is
     reported only under --show-identifiers: these records carry policy, customer and broker
     identifiers, and this output is retained in run evidence.
 
 WHAT --self-test CHECKS
     Schema loading and every way it can fail, record validation against the schema in
-    both directions, rejection of a repeated JSON member at every nesting level of the
+    both directions, the reporting of violations that render identically as one
+    violation with every distinct one kept, rejection of a repeated JSON member at every
+    nesting level of the
     record and of the schema, rejection of a control character in each of the 17 landed
     values by the schema and by the tool with nothing uploaded, the product premium
     allocation over every policy type in both directions, the endpoint policy over
     accepted and refused forms, the access probe and its cleanup on success and on
     failure, one successful upload of the record and of the COPY manifest beside it, the
+    replacement notice over a key that already carries an object and a key that does
+    not, a head request that does not answer leaving the landing successful and silent
+    about a replacement, the
     upload failures botocore reports, the Redshift renderer over a byte-compared
     successful render and every rejected placeholder value, the rendered statement
     sequence and column list, the emitted manifest, the Redshift probe over every
@@ -236,6 +246,17 @@ WHERE IT WRITES
     then run the COPY of modernization/landing/load_redshift.sql, with no manifest to
     place by hand. A manifest write that does not succeed after the record was written
     fails the landing, names the manifest key and leaves the record object in place.
+
+    One key carries one object per source system, entity and extract date, so a second
+    landing for the same source system and extract date addresses that same key and
+    replaces the object it carries. The key is head-requested before the record is
+    written, and an object already there is named in one warning line stating that this
+    landing replaces it and that a landed record is loaded into the raw relation before
+    the next record is landed for that source system and extract date. A head request
+    that does not answer, whatever the reason, writes no line and changes nothing else:
+    the record and the manifest are written and the landing succeeds. The sequence a run
+    follows is therefore land one record, load it into the raw relation, then land the
+    next.
 
     In landing mode stdout carries exactly one line, the s3:// URI of the object
     written. In probe mode stdout carries exactly one line, the probe verdict, and in
@@ -1536,8 +1557,12 @@ def validate_record(
     Every constraint the schema declares is applied, including its enumerations,
     lengths, patterns and semantic formats. Violations are reported in JSON Pointer and
     keyword order, at most ``limit`` of them, with the number withheld recorded when
-    there are more. ``path`` names the record in the diagnostic. Returns None when the
-    record satisfies the schema.
+    there are more. Violations that render identically - the same JSON Pointer, the same
+    breached keyword and the same message - are reported once, and both ``limit`` and
+    the withheld count are applied to the violations that remain, so a record omitting
+    several landed keys carries one paragraph for the keyword it breached while every
+    violation that reads differently is reported. ``path`` names the record in the
+    diagnostic. Returns None when the record satisfies the schema.
 
     Raises ``RecordError`` carrying the violations when it does not.
     """
@@ -1550,8 +1575,17 @@ def validate_record(
     )
     if not errors:
         return
-    reported = "; ".join(_violation(error) for error in errors[:limit])
-    withheld = len(errors) - min(len(errors), limit)
+    violations: list[str] = []
+    rendered: set[tuple[str, str, str]] = set()
+    for error in errors:
+        message = _violation(error)
+        marker = (_json_pointer(error.absolute_path), str(error.validator), message)
+        if marker in rendered:
+            continue
+        rendered.add(marker)
+        violations.append(message)
+    reported = "; ".join(violations[:limit])
+    withheld = len(violations) - min(len(violations), limit)
     if withheld:
         reported = f"{reported}; (+{withheld} further violations)"
     raise RecordError(
@@ -2812,6 +2846,36 @@ def probe_bucket_access(
                 f"write failed: {_reason(cleanup_error)}"
             )
     return key
+
+
+def note_object_replaced(client: Any, bucket: str, key: str) -> bool:
+    """Note that ``key`` already carries an object this landing replaces, and report it.
+
+    One head request is made for ``key`` and nothing on the bucket is written, deleted
+    or configured. When it answers, one warning line names the key, states that the
+    object already there is replaced by this landing, and states that a landed record is
+    loaded into the raw relation before the next record is landed for that source system
+    and extract date. The line carries the key alone: no value the landing record
+    carries, and no part of the object already there, reaches it.
+
+    Returns True when the head request answered and the line was written, and False when
+    it did not answer. No outcome of the head request reaches the caller as a failure -
+    an absent object, a refused read, an endpoint that did not answer and any other
+    outcome are all reported as False - so this call never turns a landing that would
+    have succeeded into one that fails.
+    """
+    try:
+        client.head_object(Bucket=bucket, Key=key)
+    except Exception:  # noqa: BLE001 - reported as False, never as a landing failure
+        return False
+    _warn(
+        f"the landing key {_shown(key, MAX_DIAGNOSTIC_PATH_CHARACTERS)} already "
+        "carries an object, which this landing replaces; one key carries one object "
+        "per source system, entity and extract date, so a landed record is loaded into "
+        "the raw relation before the next record is landed for that source system and "
+        "extract date"
+    )
+    return True
 
 
 def put_record(client: Any, bucket: str, key: str, body: bytes) -> None:
@@ -4132,6 +4196,11 @@ def land_record(
     the landing and names the manifest key, leaving the record object in place. Both
     objects are written in either run mode.
 
+    The landing key is head-requested through ``note_object_replaced`` before the record
+    is written, so an object already there is named in one warning line as one this
+    landing replaces. That head request cannot fail the landing: whatever it answers,
+    the record and the manifest are written and the URI is returned.
+
     Raises ``RecordError`` when the record breaches the landing contract,
     ``SchemaError`` when the schema cannot be used, ``ConfigurationError`` when a
     setting cannot be resolved, and ``AccessError`` when the bucket or either write did
@@ -4156,6 +4225,7 @@ def land_record(
     )
     client = resolve_s3_access(bucket, region, endpoint_url)
     confirm_bucket_reachable(client, bucket)
+    note_object_replaced(client, bucket, key)
     put_record(client, bucket, key, body)
     object_uri = build_object_uri(bucket, key)
     manifest = build_copy_manifest(object_uri, len(body)).encode("ascii")
@@ -4493,6 +4563,28 @@ _HOUSE_CHANGES: dict[str, Any] = {
     "motor_premium_amount": None,
 }
 
+# Fragments of the warning line a landing writes for a key that already carries an
+# object: the replacement itself and the loading sequence the line states. One case
+# requires both present, and the cases of a first landing and of a head request that
+# does not answer require the first absent.
+_REPLACEMENT_FRAGMENT = "already carries an object, which this landing replaces"
+_REPLACEMENT_SEQUENCE_FRAGMENT = (
+    "a landed record is loaded into the raw relation before the next record is landed"
+)
+
+# Members of the replacing record that no line of a landing carries: its identifiers,
+# its request id and its amounts. Its dates and its policy type are not among them; the
+# extract date of that case stands in the landing key itself, and the policy type is one
+# letter.
+_WITHHELD_RECORD_MEMBERS = (
+    POLICY_NUMBER_FIELD,
+    "customer_number",
+    "request_id",
+    "brokers_reference",
+    PAYMENT_FIELD,
+    *COMMERCIAL_PREMIUM_FIELDS,
+)
+
 # Control characters a case places inside a landed value, each paired with the name the
 # case reports it by. Every one of them is refused wherever it sits in a value.
 _EMBEDDED_CONTROL_CHARACTERS = (
@@ -4569,6 +4661,27 @@ class _RecordingClient:
     def operations(self) -> tuple[str, ...]:
         """Return the operations called so far, in call order."""
         return tuple(operation for operation, _ in self.calls)
+
+
+class _RefusingHeadClient:
+    """One S3 client whose head request raises, delegating every other call.
+
+    ``failure`` is what ``head_object`` raises. Every other attribute is the wrapped
+    client's own, so a landing driven through this client performs every step against
+    the service it wraps and only its head request does not answer.
+    """
+
+    def __init__(self, client: Any, failure: BaseException) -> None:
+        self._client = client
+        self._failure = failure
+
+    def head_object(self, **arguments: Any) -> Any:
+        """Raise the failure this client carries, requesting nothing."""
+        raise self._failure
+
+    def __getattr__(self, name: str) -> Any:
+        """Return the wrapped client's attribute unchanged."""
+        return getattr(self._client, name)
 
 
 class _StandInRedshiftError(Exception):
@@ -5044,6 +5157,130 @@ def _case_record_refusals(scratch: _Scratch) -> str:
         lambda: read_record_bytes(scratch.absent("no-such-record.json")),
     )
     return f"{len(checks) + 2} rejected records named"
+
+
+def _case_schema_violations_reported_once(scratch: _Scratch) -> str:
+    """Identically rendered violations are reported once and distinct ones all reported.
+
+    A record omitting every landed key but two breaches one keyword once per omitted
+    key, and the three assertions of this case are that the diagnostic carries that
+    keyword once, that it withholds nothing it reported once, and that it carries no
+    landed value. A record breaching several keywords is then required to report each of
+    them, and a record breaching more of them than the reported bound admits is required
+    to report the bound and to count the remainder from the violations that were kept.
+    """
+    schema = load_schema()
+    validator = build_validator(schema, DEFAULT_SCHEMA)
+
+    def _distinct(record: Mapping[str, Any]) -> list[str]:
+        """Return the violations of ``record`` that render differently, in order."""
+        kept: list[str] = []
+        for error in sorted(
+            validator.iter_errors(record),
+            key=lambda one: (_json_pointer(one.absolute_path), str(one.validator)),
+        ):
+            rendered = _violation(error)
+            if rendered not in kept:
+                kept.append(rendered)
+        return kept
+
+    omitted = {name: _ABSENT for name, _ in _MOTOR_RECORD_MEMBERS[2:]}
+    truncated = scratch.write("record-truncated.json", _motor_record_text(**omitted))
+    record = parse_record(read_record_bytes(truncated), truncated)
+    raised = len(list(validator.iter_errors(record)))
+    _assert(
+        raised > 1,
+        f"a record omitting {len(omitted)} landed keys raised {raised} violations",
+    )
+    _assert_equal(len(_distinct(record)), 1, "the violations that render differently")
+    message = str(
+        _assert_raises(
+            "a record omitting every landed key but two",
+            RecordError,
+            "does not satisfy",
+            lambda: validate_record(record, validator, truncated),
+        )
+    )
+    _assert_equal(
+        message.count("constraint is not satisfied"),
+        1,
+        "the paragraphs one repeatedly rendered violation is reported as",
+    )
+    _assert(
+        "further violations" not in message,
+        f"the diagnostic withholds a violation it reported once: {message!r}",
+    )
+    _assert(
+        str(dict(_MOTOR_RECORD_MEMBERS)[POLICY_NUMBER_FIELD]) not in message,
+        f"the diagnostic carries the record's policy number: {message!r}",
+    )
+
+    several = scratch.write(
+        "record-several-violations.json",
+        _motor_record_text(policy_type="X", payment_amount="500.00", broker_id=""),
+    )
+    several_record = parse_record(read_record_bytes(several), several)
+    pointers = ("/broker_id", "/payment_amount", "/policy_type")
+    _assert_equal(
+        len(_distinct(several_record)), len(pointers), "the distinct violations raised"
+    )
+    several_message = str(
+        _assert_raises(
+            "a record breaching several keywords",
+            RecordError,
+            "does not satisfy",
+            lambda: validate_record(several_record, validator, several),
+        )
+    )
+    for pointer in pointers:
+        _assert_in(f"at {pointer}:", several_message, "the reported violations")
+    _assert_equal(
+        several_message.count("constraint is not satisfied"),
+        len(pointers),
+        "the paragraphs several distinct violations are reported as",
+    )
+
+    beyond = scratch.write(
+        "record-beyond-limit.json",
+        _motor_record_text(
+            policy_number="x1",
+            customer_number="x2",
+            request_id="x3",
+            issue_date="x4",
+            expiry_date="x5",
+            broker_id="x6",
+            payment_amount="x7",
+        ),
+    )
+    beyond_record = parse_record(read_record_bytes(beyond), beyond)
+    kept = _distinct(beyond_record)
+    _assert(
+        len(kept) > MAX_REPORTED_SCHEMA_ERRORS,
+        f"a record breaching seven keywords rendered {len(kept)} distinct violations",
+    )
+    beyond_message = str(
+        _assert_raises(
+            "a record breaching more keywords than the reported bound admits",
+            RecordError,
+            "does not satisfy",
+            lambda: validate_record(beyond_record, validator, beyond),
+        )
+    )
+    _assert_equal(
+        beyond_message.count("constraint is not satisfied"),
+        MAX_REPORTED_SCHEMA_ERRORS,
+        "the violations reported up to the bound",
+    )
+    _assert_in(
+        f"(+{len(kept) - MAX_REPORTED_SCHEMA_ERRORS} further violations)",
+        beyond_message,
+        "the count withheld from the violations that were kept",
+    )
+    return (
+        f"{raised} identically rendered violations reported once, {len(pointers)} "
+        f"distinct violations all reported, {MAX_REPORTED_SCHEMA_ERRORS} of "
+        f"{len(kept)} reported with {len(kept) - MAX_REPORTED_SCHEMA_ERRORS} counted"
+    )
 
 
 def _case_duplicate_members_refused(scratch: _Scratch) -> str:
@@ -5625,6 +5862,243 @@ def _case_landing_uploads_bytes(scratch: _Scratch) -> str:
     return (
         f"{len(body)} bytes stored unchanged at the derived key, "
         f"{len(expected_manifest)} manifest bytes beside them"
+    )
+
+
+def _case_landing_replacement_noted(scratch: _Scratch) -> str:
+    """A landing over a key that already carries an object names the replacement.
+
+    Two records of different byte counts are landed for one source system, entity and
+    extract date. The first landing writes no replacement line; the second writes one
+    naming the key it replaces and the loading sequence one key per extract implies,
+    carrying no identifier and no amount of the record it landed. The key, the stored
+    bytes, the object count and the byte count the manifest names are all confirmed
+    after the replacement.
+    """
+    mock_aws, _ = _test_collaborators()
+    first = scratch.write("record-replaced-first.json", _motor_record_text())
+    second = scratch.write(
+        "record-replaced-second.json", _motor_record_text(**_COMMERCIAL_CHANGES)
+    )
+    first_body = first.read_bytes()
+    second_body = second.read_bytes()
+    _assert(
+        len(first_body) != len(second_body),
+        f"both records of this case carry {len(first_body)} bytes",
+    )
+    key = build_landing_key(
+        DEFAULT_SOURCE_SYSTEM_KEY, LANDING_ENTITY, _SELF_TEST_EXTRACT_DATE
+    )
+    manifest_key = build_manifest_key(
+        DEFAULT_SOURCE_SYSTEM_KEY, LANDING_ENTITY, _SELF_TEST_EXTRACT_DATE
+    )
+    with mock_aws():
+        with _controlled_environment(
+            scratch, AWS_DEFAULT_REGION=_SELF_TEST_REGION, **_SELF_TEST_CREDENTIALS
+        ):
+            raw = boto3.session.Session(region_name=_SELF_TEST_REGION).client(
+                SERVICE_NAME, config=_client_config()
+            )
+            raw.create_bucket(
+                Bucket=_SELF_TEST_BUCKET,
+                CreateBucketConfiguration={"LocationConstraint": _SELF_TEST_REGION},
+            )
+            with _captured_stderr() as opening:
+                first_uri = land_record(
+                    first,
+                    _SELF_TEST_BUCKET,
+                    DEFAULT_SOURCE_SYSTEM_KEY,
+                    LANDING_ENTITY,
+                    _SELF_TEST_EXTRACT_DATE,
+                )
+            _assert(
+                _REPLACEMENT_FRAGMENT not in opening.getvalue(),
+                "the first landing named a replacement",
+            )
+            with _captured_stderr() as replacing:
+                second_uri = land_record(
+                    second,
+                    _SELF_TEST_BUCKET,
+                    DEFAULT_SOURCE_SYSTEM_KEY,
+                    LANDING_ENTITY,
+                    _SELF_TEST_EXTRACT_DATE,
+                )
+            notice = replacing.getvalue()
+            _assert_in(_REPLACEMENT_FRAGMENT, notice, "the replacement notice")
+            _assert_in(
+                _REPLACEMENT_SEQUENCE_FRAGMENT, notice, "the loading sequence stated"
+            )
+            lines = [
+                line for line in notice.splitlines() if _REPLACEMENT_FRAGMENT in line
+            ]
+            _assert_equal(len(lines), 1, "the replacement lines the landing wrote")
+            line = lines[0]
+            _assert(
+                line.startswith(f"{_PROGRAM}: warning: "),
+                f"the replacement notice is not one warning line: {line!r}",
+            )
+            _assert_in(key, line, "the key the replacement notice names")
+            members = _record_members(**_COMMERCIAL_CHANGES)
+            for name in _WITHHELD_RECORD_MEMBERS:
+                _assert(
+                    str(members[name]) not in line,
+                    f"the replacement notice carries the {name} value: {line!r}",
+                )
+            _assert_equal(second_uri, first_uri, "the URI of the replacing landing")
+            _assert_equal(
+                second_uri, build_object_uri(_SELF_TEST_BUCKET, key), "the landed URI"
+            )
+            stored = raw.get_object(Bucket=_SELF_TEST_BUCKET, Key=key)
+            _assert_equal(stored["Body"].read(), second_body, "the replaced bytes")
+            listing = raw.list_objects_v2(Bucket=_SELF_TEST_BUCKET)
+            _assert_equal(listing.get("KeyCount"), 2, "objects in the bucket")
+            _assert_equal(
+                sorted(entry["Key"] for entry in listing["Contents"]),
+                sorted((key, manifest_key)),
+                "the keys the two landings wrote",
+            )
+            manifest = json.loads(
+                raw.get_object(Bucket=_SELF_TEST_BUCKET, Key=manifest_key)["Body"]
+                .read()
+                .decode("ascii")
+            )
+            _assert_equal(
+                manifest["entries"][0]["content_length"],
+                len(second_body),
+                "the byte count the manifest names after the replacement",
+            )
+    return (
+        f"{len(first_body)} bytes replaced by {len(second_body)} at one key, the "
+        "replacement named once and the manifest naming the bytes in the bucket"
+    )
+
+
+def _case_landing_replacement_probe_non_fatal(scratch: _Scratch) -> str:
+    """A head request that does not answer writes no notice and fails no landing.
+
+    The head request is put to a stubbed client that answers it, to one refusing it with
+    each answer a service gives, and to a client raising a failure no client models.
+    A landing is then driven end to end through a client whose head request raises, over
+    a key that already carries an object, and is required to succeed silently and to
+    replace the bytes at that key.
+    """
+    mock_aws, Stubber = _test_collaborators()
+    key = build_landing_key(
+        DEFAULT_SOURCE_SYSTEM_KEY, LANDING_ENTITY, _SELF_TEST_EXTRACT_DATE
+    )
+    client = _stubbed_client()
+    with Stubber(client) as stubber:
+        stubber.add_response(
+            "head_object", {}, {"Bucket": _SELF_TEST_BUCKET, "Key": key}
+        )
+        with _captured_stderr() as answered:
+            noted = note_object_replaced(client, _SELF_TEST_BUCKET, key)
+        stubber.assert_no_pending_responses()
+    _assert_equal(noted, True, "the answer for a key carrying an object")
+    _assert_in(_REPLACEMENT_FRAGMENT, answered.getvalue(), "the replacement notice")
+    refusals = (
+        ("404", 404),
+        ("NoSuchKey", 404),
+        ("AccessDenied", 403),
+        ("InternalError", 500),
+    )
+    for code, status in refusals:
+        client = _stubbed_client()
+        with Stubber(client) as stubber:
+            stubber.add_client_error(
+                "head_object", service_error_code=code, http_status_code=status
+            )
+            with _captured_stderr() as refused:
+                answer = note_object_replaced(client, _SELF_TEST_BUCKET, key)
+        _assert_equal(
+            answer, False, f"the answer for a head request refused with {code}"
+        )
+        _assert_equal(
+            refused.getvalue(), "", f"what a head request refused with {code} wrote"
+        )
+    unmodelled = _RefusingHeadClient(
+        _stubbed_client(), RuntimeError("the head request did not answer")
+    )
+    with _captured_stderr() as silent:
+        _assert_equal(
+            note_object_replaced(unmodelled, _SELF_TEST_BUCKET, key),
+            False,
+            "the answer for a head request raising a failure no client models",
+        )
+    _assert_equal(silent.getvalue(), "", "what a head request that raised wrote")
+
+    first = scratch.write("record-probe-first.json", _motor_record_text())
+    second = scratch.write(
+        "record-probe-second.json", _motor_record_text(**_COMMERCIAL_CHANGES)
+    )
+    second_body = second.read_bytes()
+    original = globals()["resolve_s3_access"]
+
+    def _refusing_access(*arguments: Any, **keywords: Any) -> Any:
+        """Return the client the tool resolves, with a head request that raises."""
+        return _RefusingHeadClient(
+            original(*arguments, **keywords),
+            RuntimeError("the head request did not answer"),
+        )
+
+    with mock_aws():
+        with _controlled_environment(
+            scratch, AWS_DEFAULT_REGION=_SELF_TEST_REGION, **_SELF_TEST_CREDENTIALS
+        ):
+            raw = boto3.session.Session(region_name=_SELF_TEST_REGION).client(
+                SERVICE_NAME, config=_client_config()
+            )
+            raw.create_bucket(
+                Bucket=_SELF_TEST_BUCKET,
+                CreateBucketConfiguration={"LocationConstraint": _SELF_TEST_REGION},
+            )
+            with _captured_stderr():
+                land_record(
+                    first,
+                    _SELF_TEST_BUCKET,
+                    DEFAULT_SOURCE_SYSTEM_KEY,
+                    LANDING_ENTITY,
+                    _SELF_TEST_EXTRACT_DATE,
+                )
+            globals()["resolve_s3_access"] = _refusing_access
+            try:
+                run = _run_cli(
+                    scratch,
+                    [
+                        "--record",
+                        str(second),
+                        "--bucket",
+                        _SELF_TEST_BUCKET,
+                        "--run-mode",
+                        RUN_MODE_REAL,
+                        "--extract-date",
+                        _SELF_TEST_EXTRACT_DATE.isoformat(),
+                    ],
+                    AWS_DEFAULT_REGION=_SELF_TEST_REGION,
+                    **_SELF_TEST_CREDENTIALS,
+                )
+            finally:
+                globals()["resolve_s3_access"] = original
+            _assert_equal(
+                run.status, EXIT_OK, "the status of a landing whose head request raised"
+            )
+            _assert_equal(
+                run.stdout.strip(),
+                build_object_uri(_SELF_TEST_BUCKET, key),
+                "the URI the landing wrote to stdout",
+            )
+            _assert(
+                _REPLACEMENT_FRAGMENT not in run.stderr,
+                f"a head request that raised named a replacement: {run.stderr!r}",
+            )
+            _assert_equal(
+                raw.get_object(Bucket=_SELF_TEST_BUCKET, Key=key)["Body"].read(),
+                second_body,
+                "the bytes stored after a landing whose head request raised",
+            )
+    return (
+        f"1 answered head request noted, {len(refusals)} refused and 1 raising "
+        "swallowed, a landing over an existing object still successful and silent"
     )
 
 
@@ -7167,6 +7641,10 @@ def run_self_test(*, quiet: bool = False, stream: Any = None) -> int:
             lambda: _case_record_refusals(scratch),
         )
         _run_case(
+            results, out, quiet, "schema_violations_reported_once",
+            lambda: _case_schema_violations_reported_once(scratch),
+        )
+        _run_case(
             results, out, quiet, "duplicate_members_refused",
             lambda: _case_duplicate_members_refused(scratch),
         )
@@ -7208,6 +7686,14 @@ def run_self_test(*, quiet: bool = False, stream: Any = None) -> int:
         _run_case(
             results, out, quiet, "landing_uploads_bytes",
             lambda: _case_landing_uploads_bytes(scratch),
+        )
+        _run_case(
+            results, out, quiet, "landing_replacement_noted",
+            lambda: _case_landing_replacement_noted(scratch),
+        )
+        _run_case(
+            results, out, quiet, "landing_replacement_probe_non_fatal",
+            lambda: _case_landing_replacement_probe_non_fatal(scratch),
         )
         _run_case(
             results, out, quiet, "upload_failure_reported",
@@ -7361,6 +7847,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
             f"--render-redshift-load {RENDER_DOCUMENT_MANIFEST} prints for the same "
             "record, so the real-branch order is land, bootstrap the raw relation, "
             "then run the COPY of load_redshift.sql.\n"
+            "One key carries one object per source system, entity and extract date: a "
+            "second landing for the same source system and extract date addresses that "
+            "same key and replaces the object it carries, naming it in one warning "
+            "line, so a run lands one record, loads it into the raw relation, then "
+            "lands the next. A head request that does not answer writes no such line "
+            "and the landing still succeeds.\n"
             "In landing mode stdout carries exactly one line, the URI of the object "
             "written; in either probe mode it carries exactly one line, that probe's "
             "verdict. "

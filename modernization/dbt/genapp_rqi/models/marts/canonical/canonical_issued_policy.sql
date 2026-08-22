@@ -199,11 +199,13 @@ select
 from decoded
 
 -- Successful chain outcome, applied as a second guard over the landing contract.
--- modernization/extraction/extract_commarea.py lands a record only for a returned
--- CA-RETURN-CODE of 00 and refuses every other code of the domain, and
--- models/staging/genapp_class_exemplar/_genapp__models.yml accepts that one value, so every
--- row reaching this model already carries 00. This filter admits 00 independently of both,
--- and a row carrying 70, 80, 90, 98 or 99 is not materialized.
+-- models/staging/genapp_class_exemplar/_genapp__models.yml accepts the six-code domain 00,
+-- 70, 80, 90, 98 and 99, and it and ref('int_policy_issue_decoded') carry a row of any of
+-- those codes as failure evidence; modernization/extraction/extract_commarea.py lands a
+-- record only for a returned CA-RETURN-CODE of 00 and refuses every other code of the
+-- domain, and that success-only landing contract is what makes 00 the only value observed
+-- upstream of this model. This filter admits 00 independently of both, and a row carrying
+-- 70, 80, 90, 98 or 99 is not materialized.
 -- modernization/dbt/genapp_rqi/tests/assert_issued_policy_unique_key.sql returns any row of
 -- this relation whose upstream record carries no successful outcome.
 where return_code = '00'

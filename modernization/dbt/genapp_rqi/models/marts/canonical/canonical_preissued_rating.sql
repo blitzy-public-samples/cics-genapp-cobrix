@@ -231,11 +231,13 @@ from decoded
 -- success, 70 policy insert returned SQLCODE -530, 80 VSAM write response was not normal,
 -- 90 SQL failure, 98 COMMAREA shorter than the required length and 99 unsupported request
 -- id; 00 is the only one that reaches this relation. The comparison is applied as a second
--- guard over the landing contract: modernization/extraction/extract_commarea.py lands a
--- record only for a returned CA-RETURN-CODE of 00 and refuses every other code of the
--- domain, and models/staging/genapp_class_exemplar/_genapp__models.yml accepts that one
--- value, so every row reaching this model already carries 00. The column itself belongs to
--- canonical.issued_policy and no column of this relation carries it, and
+-- guard over the landing contract: models/staging/genapp_class_exemplar/_genapp__models.yml
+-- accepts all six of those codes, and it and ref('int_policy_issue_decoded') carry a row of
+-- any of them as failure evidence, while modernization/extraction/extract_commarea.py lands
+-- a record only for a returned CA-RETURN-CODE of 00 and refuses every other code of the
+-- domain, and that success-only landing contract is what makes 00 the only value observed
+-- upstream of this model. The column itself belongs to canonical.issued_policy and no column
+-- of this relation carries it, and
 -- modernization/dbt/genapp_rqi/tests/assert_preissued_rating_unique_key.sql returns any row
 -- of this relation whose upstream record carries no successful outcome.
 where return_code = '00'

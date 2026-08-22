@@ -1867,6 +1867,14 @@ landing:
   record_format: one JSON object per object file, serialized as a single line terminated by LF
   additional_keys_permitted: false
   json_schema: modernization/landing/landing-schema.json
+  # The object name is the literal `part-0000.json`, so one key carries one object per
+  # source system, entity and extract date: a second record landed for the same source
+  # system and extract date addresses this same key and replaces the object it carries.
+  # modernization/landing/land_to_s3.py head-requests the key before it writes and names
+  # an object already there in one warning line, which fails no landing. The sequence a
+  # run follows is therefore land one record, load it into raw_relation above, then land
+  # the next; the S3 landing zone holds the record landed last for each key rather than
+  # every record landed under it.
   s3_prefix_template: >-
     landing/source_system_key=<source_system_key>/entity=policy_issue/extract_date=YYYY-MM-DD/part-0000.json
   partitioning_scope: S3 key prefix only

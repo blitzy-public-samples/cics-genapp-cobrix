@@ -51,21 +51,29 @@
 --     One key of the upstream relation carrying return_code 00 yields exactly one row of
 --     the relation under test.
 --
+--   rating_relation_carries_no_row
+--     The relation under test carries at least one row. The rule returns exactly one row
+--     when it carries none, whatever the expected_request_ids variable holds, and the detail
+--     column carries the observed row count against the required count. An emptied, wiped or
+--     fully filtered relation breaches it, and no value rule of this file then reads a row.
+--
 --   rating_request_id_not_carried
 --     Each request id of the expected_request_ids variable is carried by at least one row
 --     of the relation under test, read through the upstream record because this relation
---     carries no request_id column. The number of rows carrying it is not read, so a second
---     source system, a further policy of the same product and a backfill each add rows under
---     an expected request id without breaching this rule; the uniqueness of the natural key
---     of every one of those rows is asserted by rating_key_not_unique above.
---     The default of that variable is the two request ids of
+--     carries no request_id column. That variable defaults to an empty list, which withdraws
+--     this rule and leaves every other rule of this file asserted; a run that requires the
+--     rule supplies the list itself, as in
+--     --vars '{expected_request_ids: ["01AMOT", "01ACOM"]}', the two request ids of
 --     the authored sample definitions under modernization/extraction/sample_input/: 01AMOT,
 --     which the routing EVALUATE at base/src/lgapdb01.cbl:196 resolves to policy type M, and
---     01ACOM, which base/src/lgapdb01.cbl:200 resolves to policy type C. A row carrying any
---     other routed request id is not read by this rule, so the 01AEND and 01AHOU rows the
---     same routing admits at base/src/lgapdb01.cbl:188 and :192 neither satisfy nor breach
---     it. An emptied, wiped or fully filtered relation breaches it. The variable set to an
---     empty list withdraws this rule and leaves every other rule of this file asserted.
+--     01ACOM, which base/src/lgapdb01.cbl:200 resolves to policy type C. The number of rows
+--     carrying a supplied request id is not read, so a second source system, a further
+--     policy of the same product and a backfill each add rows under a supplied request id
+--     without breaching this rule; the uniqueness of the natural key of every one of those
+--     rows is asserted by rating_key_not_unique above. A row carrying a request id outside
+--     the supplied list is not read by this rule, so the 01AEND and 01AHOU rows the routing
+--     admits at base/src/lgapdb01.cbl:188 and :192 neither satisfy nor breach it under the
+--     two-sample list.
 --
 --   rating_key_absent_from_issued_policy
 --   issued_policy_key_absent_from_rating
@@ -133,8 +141,9 @@
 -- models/marts/canonical/_canonical__models.yml.
 --
 -- Configuration. It sets no dbt config of any kind, so every dbt default applies to it and
--- a returned row fails the run. The one variable it reads, expected_request_ids, carries its
--- default in the call below and is declared in no project file.
+-- a returned row fails the run. The one variable it reads, expected_request_ids, defaults to
+-- an empty list in the call below, is declared in no project file, and is supplied on the
+-- command line by a run that asserts the rule reading it.
 --
 -- This file is applied unchanged on Amazon Redshift and DuckDB. The catalog read names an
 -- information_schema relation both adapters carry and compares no adapter-specific spelling.
@@ -147,9 +156,9 @@
 {% set issued = ref('canonical_issued_policy') %}
 {% set upstream = ref('int_policy_issue_decoded') %}
 
-{# Request ids each expected to be carried by at least one row. An empty list withdraws
-   that rule and leaves every other rule of this file asserted. #}
-{% set expected_request_ids = var('expected_request_ids', ['01AMOT', '01ACOM']) %}
+{# Request ids each expected to be carried by at least one row. The default empty list
+   withdraws that rule and leaves every other rule of this file asserted. #}
+{% set expected_request_ids = var('expected_request_ids', []) %}
 
 {# The two text columns of the relation, with the width each contract declares and whether
    that width is the exact length of every value. #}
@@ -283,6 +292,16 @@ cross_mart_parity as (
     full outer join issued_keys i
         on r.source_system_key = i.source_system_key
         and r.policy_number = i.policy_number
+
+),
+
+-- The rows of the relation under test, counted for the non-emptiness rule. The count carries
+-- no group by, so it yields exactly one row for an empty relation as well.
+rating_row_count as (
+
+    select count(*) as mart_rows
+
+    from {{ rating }}
 
 ),
 
@@ -460,7 +479,23 @@ where assertion is not null
 
 union all
 
--- One row per expected request id no row of the relation under test carries.
+-- One row when the relation under test carries no row at all, so that no rule above reads an
+-- empty relation.
+select
+    'rating_relation_carries_no_row' as assertion,
+    '{{ rating.identifier }}' as subject,
+    cast(null as varchar) as source_system_key,
+    cast(null as bigint) as policy_number,
+    'rows=' || cast(mart_rows as varchar)
+        || ' required at least 1' as detail
+
+from rating_row_count
+
+where mart_rows = 0
+
+union all
+
+-- One row per supplied expected request id no row of the relation under test carries.
 select
     'rating_request_id_not_carried' as assertion,
     e.request_id as subject,

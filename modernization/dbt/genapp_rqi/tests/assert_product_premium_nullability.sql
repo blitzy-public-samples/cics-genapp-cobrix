@@ -9,8 +9,9 @@
 -- holding them. Neither reads this file.
 --
 -- Convention. This test passes on zero returned rows. The statement returns one row for
--- every row of the asserted relation, every expected request id and every amount column that
--- breaks a rule stated below, and returns no row when every rule holds.
+-- every row of the asserted relation, every supplied expected request id and every amount
+-- column that breaks a rule stated below, one row when the asserted relation carries no row
+-- at all, and no row when every rule holds.
 --
 -- Asserted relation. The model canonical_preissued_rating of models/marts/canonical, and no
 -- other. The reference below spells that model name, which is the file stem of
@@ -29,8 +30,9 @@
 --
 -- Columns returned. Five: assertion, the name of the rule the returned row breaches; subject,
 -- the amount column or request id the breach concerns, or the asserted relation for a null
--- pattern breach; source_system_key and policy_number, the key of the breaching row, null for
--- a request-id breach; and detail, the observed values against the required values.
+-- pattern breach and for a non-emptiness breach; source_system_key and policy_number, the key
+-- of the breaching row, null for a request-id breach and for a non-emptiness breach; and
+-- detail, the observed values against the required values.
 --
 -- Asserted rule motor_row_premium_pattern. For policy_type M, motor_premium_amount carries a
 -- value, and fire_premium_amount, crime_premium_amount, flood_premium_amount and
@@ -53,18 +55,25 @@
 -- domain of the column is E, H, M and C, assigned by the request-routing EVALUATE at
 -- base/src/lgapdb01.cbl:184-207.
 --
+-- Asserted rule premium_relation_carries_no_row. The asserted relation carries at least one
+-- row. The rule returns exactly one row when the relation carries none, whatever the
+-- expected_request_ids variable holds, and the detail column carries the observed row count
+-- against the required count. An emptied, wiped or fully filtered relation breaches it, and
+-- no null pattern rule and no amount rule of this file then reads a row.
+--
 -- Asserted rule premium_row_missing_for_expected_request_id. Each request id of the
 -- expected_request_ids variable is carried by at least one row of the asserted relation, read
--- through the upstream record because the relation carries no request_id column. The number
--- of rows carrying it is not read, so a second source system, a further policy of the same
--- product and a backfill each add rows under an expected request id without breaching this
--- rule, and each added row is read by the null pattern and amount rules above. The default
--- of that variable is 01AMOT, which base/src/lgapdb01.cbl:196 resolves to policy type M, and
--- 01ACOM, which base/src/lgapdb01.cbl:200 resolves to policy type C, so the motor rule and
--- the commercial rule above are each exercised by at least one row. A row carrying any other
--- routed request id neither satisfies nor breaches this rule. An emptied, wiped or fully
--- filtered relation breaches it, and no rule above can then hold vacuously. The variable set
--- to an empty list withdraws this rule and leaves every other rule of this file asserted.
+-- through the upstream record because the relation carries no request_id column. That
+-- variable defaults to an empty list, which withdraws this rule and leaves every other rule
+-- of this file asserted; a run that requires the rule supplies the list itself, as in
+-- --vars '{expected_request_ids: ["01AMOT", "01ACOM"]}', which names the request id
+-- base/src/lgapdb01.cbl:196 resolves to policy type M and the request id
+-- base/src/lgapdb01.cbl:200 resolves to policy type C, so on that run the motor rule and the
+-- commercial rule above are each exercised by at least one row. The number of rows carrying a
+-- supplied request id is not read, so a second source system, a further policy of the same
+-- product and a backfill each add rows under a supplied request id without breaching this
+-- rule, and each added row is read by the null pattern and amount rules above. A row carrying
+-- a request id outside the supplied list neither satisfies nor breaches this rule.
 --
 -- Asserted rule rating_amount_presence_differs_from_upstream. Each amount is present in the
 -- asserted relation exactly where ref('int_policy_issue_decoded') carries it for the same
@@ -102,8 +111,9 @@
 -- base/src/lgcmarea.cpy:37-43 and carries a value for every policy type.
 --
 -- Configuration. This file declares none. dbt applies its defaults for a singular test, and a
--- returned row fails the run. The one variable it reads, expected_request_ids, carries its
--- default in the call below and is declared in no project file.
+-- returned row fails the run. The one variable it reads, expected_request_ids, defaults to an
+-- empty list in the call below, is declared in no project file, and is supplied on the command
+-- line by a run that asserts the rule reading it.
 --
 -- This file is applied unchanged on Amazon Redshift and DuckDB.
 -- Diagram reference: Figure 4 — dbt Transformation DAG and Field Allocation
@@ -113,9 +123,9 @@
 {% set rating = ref('canonical_preissued_rating') %}
 {% set upstream = ref('int_policy_issue_decoded') %}
 
-{# Request ids each expected to be carried by at least one row. An empty list withdraws
-   that rule and leaves every other rule of this file asserted. #}
-{% set expected_request_ids = var('expected_request_ids', ['01AMOT', '01ACOM']) %}
+{# Request ids each expected to be carried by at least one row. The default empty list
+   withdraws that rule and leaves every other rule of this file asserted. #}
+{% set expected_request_ids = var('expected_request_ids', []) %}
 
 {# The absolute delta the amount comparison tolerates, as recorded under
    comparison.amount_tolerance_abs in modernization/extraction/copybook_field_map.yml. #}
@@ -153,6 +163,16 @@ rating_with_upstream as (
         on m.source_system_key = u.source_system_key
         and m.policy_number = u.policy_number
         and u.return_code = '00'
+
+),
+
+-- The rows of the asserted relation, counted for the non-emptiness rule. The count carries no
+-- group by, so it yields exactly one row for an empty relation as well.
+rating_row_count as (
+
+    select count(*) as mart_rows
+
+    from {{ rating }}
 
 ),
 
@@ -263,8 +283,23 @@ where assertion is not null
 
 union all
 
--- One row per expected request id no row of the asserted relation carries, so that the motor
--- rule and the commercial rule above are each exercised by at least one row.
+-- One row when the asserted relation carries no row at all, so that no rule above reads an
+-- empty relation.
+select
+    'premium_relation_carries_no_row' as assertion,
+    '{{ rating.identifier }}' as subject,
+    cast(null as varchar) as source_system_key,
+    cast(null as bigint) as policy_number,
+    'rows=' || cast(mart_rows as varchar)
+        || ' required at least 1' as detail
+
+from rating_row_count
+
+where mart_rows = 0
+
+union all
+
+-- One row per supplied expected request id no row of the asserted relation carries.
 select
     'premium_row_missing_for_expected_request_id' as assertion,
     e.request_id as subject,
