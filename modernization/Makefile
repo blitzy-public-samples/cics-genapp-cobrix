@@ -243,9 +243,24 @@ caller_value_residue = $(strip \
         $(eval __caller_residue := $$(subst $(character),,$(__caller_residue))))\
     $(__caller_residue))
 
+# Measures one value as the text that was supplied, before this file expands it. Make
+# expands a reference such as $(...) inside a value it imports from the environment or
+# takes from the command line, so a value written as a reference reaches the expanded
+# checks below as whatever it expanded to - nothing, for a name this file does not
+# define - and the text the caller wrote cannot be seen there. $(value ...) returns that
+# text unexpanded, and $(origin ...) says whether the value came from outside this file:
+# only then is it measured this way, because this file's own defaults are written with
+# $(shell ...) deliberately.
+check_caller_literal = $(if $(filter environment command,$(firstword $(origin $(1)))),\
+    $(if $(findstring $(CALLER_DOLLAR),$(value $(1))),\
+        $(error $(1) is supplied as "$(value $(1))", which carries a dollar sign; this \
+file accepts $(2) in that value, so it names a value rather than a reference this file \
+or a shell would expand)),)
+
 # Measures the characters of one caller value. An empty value is accepted, and is what
-# an unset optional variable carries.
-check_caller_characters = $(if $(strip $($(1))),\
+# an unset optional variable carries. The supplied text is measured first, so a value
+# written as a reference is refused rather than silently expanded away.
+check_caller_characters = $(call check_caller_literal,$(1),$(3))$(if $(strip $($(1))),\
     $(if $(findstring $(CALLER_DOLLAR),$($(1))),\
         $(error $(1) is set to "$($(1))", which carries a dollar sign; this file \
 accepts $(3) in that value, so it reaches a recipe as text rather than as a shell \
@@ -266,6 +281,20 @@ feed included, is refused))
 # A word list, each word made of the accepted characters $(2) names.
 check_caller_words = $(call check_caller_characters,$(1),$(2),$(3))
 # Decision rationale: docs/decision-log.md, row D-116.
+
+# Every value a caller can supply to this file, measured as the text that was supplied
+# before this file expands any of it. The full character and word checks stand further
+# down, after the defaults each value falls back to; they read the expanded value, and a
+# value written as a reference has by then been expanded - $(shell ...) inside an
+# imported value runs while this file is being read. This block runs first and reads
+# only $(origin ...) and $(value ...), so nothing supplied here is expanded before it
+# has been measured. DBT_TARGET is measured for its accepted names further down and is
+# listed here for the same reason as the rest.
+CALLER_SUPPLIED_VALUES := DBT_PROFILES_DIR DBT_TARGET CASE CASES CASES_MODE \
+    SOURCE_SYSTEM_KEY EXTRACT_DATE STAGE COBC COBFLAGS
+$(foreach caller_value,$(CALLER_SUPPLIED_VALUES),\
+    $(call check_caller_literal,$(caller_value),$(FLAG_ACCEPTED_TEXT)))
+# Decision rationale: docs/decision-log.md, row D-129.
 
 # Authored inputs the recipes name.
 FIELD_MAP := $(PROJECT_DIR)/extraction/copybook_field_map.yml
