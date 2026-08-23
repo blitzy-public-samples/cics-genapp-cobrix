@@ -46,6 +46,29 @@
 #              holding one escaped line per path or one marker line when it is
 #              empty. The bytes of the block follow the tracked state the run
 #              read.
+#   gate D     Every exempt path of that inventory other than
+#              "modernization/validation/artifacts/evidence-manifest.sha256"
+#              that stands in the checkout is stated by one digest line of that
+#              manifest, and every digest that manifest states matches the file
+#              standing at the name it states. Gate C cannot compare an exempt
+#              path with HEAD, because the run of its stage rewrites it; those
+#              files carry the decisions of a run - the comparison report, the
+#              recorded gate selection with the disposition of the target, the
+#              version report, the probe logs, the compiler and harness output,
+#              the dbt logs and the twelve files a harness run publishes - so
+#              this gate measures their content instead. A line of the manifest
+#              that is no digest line, a name it states that the inventory does
+#              not name, a name it states twice, a stated name that is absent or
+#              is not a regular file, a digest that does not match, and an exempt
+#              path standing with no entry at all are each a finding naming the
+#              path, with exit 6. A manifest that is absent while no other exempt
+#              path stands in the checkout passes: nothing has been published
+#              yet. The manifest carries no digest of itself, so a rewrite of an
+#              artifact together with its manifest entry is not detected here and
+#              the git history of the manifest is what carries that case; the
+#              decision log records that limit. modernization/Makefile refreshes
+#              the entries of the artifacts each of its stages rewrites through
+#              --record-evidence, so the manifest is never stale.
 #
 # Evidence log location rules, all applied before anything is written:
 #   - a supplied path is not empty, and an empty --log value never falls back to
@@ -154,6 +177,8 @@
 #      on the evidence log that is not taken within the bounded wait, and a
 #      failed append to the evidence log
 #   5  --self-test recorded at least one failing case
+#   6  a generated evidence file is not covered by the manifest of its set, or
+#      does not match the digest that manifest states
 #
 # Any non-zero code stops the fail-fast modernization/Makefile, which invokes
 # this script through its verify-readonly target.
@@ -252,9 +277,11 @@
 # reporting the gate outcome. Every emitted record passes through one sanitizer
 # that replaces control characters with "?", so one record is always one line.
 # Failures also emit a one-line summary on stderr. The evidence log is
-# the only file this script writes, every append reaches it through the one
-# descriptor opened for it and closed when the run finishes; it performs no
-# network access and runs no git command that alters repository state. One run
+# the only file a verification run writes, every append reaches it through the
+# one descriptor opened for it and closed when the run finishes; --record-evidence
+# writes the manifest of the generated evidence set and nothing else, runs no
+# gate and opens no evidence log. Neither mode performs network access or runs a
+# git command that alters repository state. One run
 # at a time appends to a given evidence log: a run holds an exclusive lock on
 # that log for its whole duration, the blocks of concurrent runs land in the log
 # one after another, and each block stays contiguous. The wait for that lock is
@@ -394,6 +421,43 @@ readonly GENERATED_EVIDENCE_EXEMPT=(
   "modernization/validation/artifacts/dbt-test.log"
 )
 
+# Directory every entry of that inventory stands in, and the manifest of the
+# set, both relative to the repository root. Gate C cannot judge the content of
+# an exempt path, because every one of them is rewritten by the run that
+# produces it; the manifest carries the SHA-256 of each of the others, and gate D
+# measures the set against it. The manifest is itself an exempt entry and carries
+# no digest of its own: no file can hash itself.
+# Decisions taken for this coverage are recorded in
+# modernization/docs/decision-log.md.
+readonly EVIDENCE_DIR_REL="modernization/validation/artifacts"
+readonly EVIDENCE_MANIFEST_REL="${EVIDENCE_DIR_REL}/evidence-manifest.sha256"
+
+# Accepted digest of a manifest line: 64 lower-case hexadecimal characters, the
+# form "sha256sum" writes and "sha256sum --check" reads.
+readonly EVIDENCE_DIGEST_PATTERN='^[0-9a-f]{64}$'
+
+# External tools --record-evidence invokes in addition to REQUIRED_TOOLS: the
+# refreshed manifest is written beside the manifest and renamed over it in one
+# step, so a refresh that stops part way leaves the manifest exactly as it
+# stands. A verification run invokes neither.
+readonly RECORD_TOOLS=(mv rm)
+
+# Header of a manifest this script creates, written when a stage refreshes an
+# entry in a checkout that carries no manifest yet - the first stage of a run
+# that reaches an exempt artifact before the harness has published a set. The
+# text is fixed, so two refreshes over one state write the same header, and a
+# harness run replaces the whole manifest with the set it publishes.
+readonly -a EVIDENCE_MANIFEST_CREATED_HEADER=(
+  "# verify_readonly.sh evidence manifest: the generated evidence set of this checkout"
+  "# status label:        validated against local substitute, not AWS"
+  "# provenance:          created by verify_readonly.sh --record-evidence; a harness"
+  "#                      run replaces it with the set that run publishes, and each"
+  "#                      later stage refreshes its own entries through the same option"
+  "# coverage:            one digest line per generated evidence path the exempt"
+  "#                      inventory of verify_readonly.sh names, this manifest excepted"
+  "# outside this set:    runtime-versions.txt, the environment record of the checkout"
+)
+
 # The only directory an evidence log may live in, relative to the repository
 # root. No sub-directory of it is accepted. It is a generated directory covered
 # by the ignore rules of modernization/.gitignore, so a run of this script
@@ -464,6 +528,7 @@ readonly EXIT_BASE_DIRTY=2
 readonly EXIT_TRACKED=3
 readonly EXIT_ENV=4
 readonly EXIT_SELF_TEST=5
+readonly EXIT_EVIDENCE=6
 
 readonly PROG="${0##*/}"
 
@@ -493,6 +558,16 @@ STDOUT_FAILED=0
 BASELINE_ONLY=0
 QUIET=0
 SELF_TEST=0
+
+# 1 once --record-evidence has been accepted, with the repository-relative paths
+# it named in RECORD_PATHS. That mode refreshes the manifest entries of those
+# paths and runs no gate.
+RECORD_MODE=0
+RECORD_PATHS=()
+
+# SHA-256 of the last file read by evidence_file_digest, or empty when that read
+# reported a failure.
+EVIDENCE_DIGEST=""
 
 # 1 once --reproducible has been accepted: the run block then records fixed text
 # in place of the UTC time of the run and the absolute repository root.
@@ -562,6 +637,21 @@ Options:
                     count summary, and write nothing in this repository. Exits
                     0 when every case passes and 5 when any case fails. Runs
                     alone: no other option may accompany it.
+  --record-evidence PATH...
+                    Refresh the manifest entry of every named generated evidence
+                    file and leave every other line of
+                    modernization/validation/artifacts/evidence-manifest.sha256
+                    byte-identical, so the manifest gate D measures follows the
+                    artifacts a stage has just rewritten. Each PATH is a
+                    repository-relative path of the exempt generated evidence
+                    inventory other than the manifest itself, and must be a
+                    regular file that is not a symbolic link; any other value is
+                    a usage error with exit 4 and the manifest is left exactly as
+                    it stands. The refreshed manifest is written beside it and
+                    renamed over it in one step. A checkout that carries no
+                    manifest receives one whose header states that provenance.
+                    Runs no gate, opens no evidence log, and accepts no other
+                    option.
   -h, --help        Print this message and exit 0.
 
 Stages, in execution order:
@@ -594,6 +684,19 @@ Stages, in execution order:
              then the tracked modifications it counted, each list holding one
              escaped line per path or one marker line when it is empty. The
              bytes of the block follow the tracked state the run read.
+  gate D     Every exempt path of that inventory other than the manifest that
+             stands in the checkout is stated by one digest line of
+             modernization/validation/artifacts/evidence-manifest.sha256, and
+             every digest that manifest states matches the file standing at the
+             name it states. Gate C cannot compare an exempt path with HEAD, so
+             this gate measures the content of those files, which carry the
+             decisions of a run. A malformed line, a name outside the inventory,
+             a name stated twice, a stated name that is absent or irregular, a
+             digest that does not match, and an exempt path standing with no
+             entry are each a finding naming the path, with exit 6. An absent
+             manifest passes only while no other exempt path stands in the
+             checkout. The manifest carries no digest of itself, so a rewrite of
+             an artifact together with its own entry is not detected here.
 
 Substitution of a path between its check and its open:
   A path that is a symbolic link, that exists as something other than a regular
@@ -625,6 +728,8 @@ Exit codes:
      on the evidence log that is not taken within the bounded wait, and a failed
      append to the evidence log
   5  --self-test recorded at least one failing case
+  6  a generated evidence file is not covered by the manifest of its set, or does
+     not match the digest that manifest states
 USAGE_TEXT
 }
 
@@ -844,11 +949,23 @@ parse_args() {
         SELF_TEST=1
         shift
         ;;
+      --record-evidence)
+        RECORD_MODE=1
+        shift
+        ;;
       -h | --help)
         usage
         exit "$EXIT_OK"
         ;;
       *)
+        # Every argument that follows --record-evidence and does not open with
+        # "-" is one path of the refresh; any other bare argument is a usage
+        # error, as it is for every other mode of this script.
+        if ((RECORD_MODE == 1)) && [[ "$1" != -* ]]; then
+          RECORD_PATHS+=("$1")
+          shift
+          continue
+        fi
         fail_usage "unknown option: $(sanitize "$1")"
         ;;
     esac
@@ -865,9 +982,17 @@ parse_args() {
     fail_usage "--log requires a path value, received: $(sanitize "$LOG_REQUESTED")"
   if ((SELF_TEST == 1)); then
     if ((STAGE_SET == 1 || BASELINE_ONLY == 1 || QUIET == 1 || LOG_SET == 1 ||
-      REPRODUCIBLE == 1)); then
+      REPRODUCIBLE == 1 || RECORD_MODE == 1)); then
       fail_usage "--self-test accepts no other option"
     fi
+  fi
+  if ((RECORD_MODE == 1)); then
+    if ((STAGE_SET == 1 || BASELINE_ONLY == 1 || QUIET == 1 || LOG_SET == 1 ||
+      REPRODUCIBLE == 1)); then
+      fail_usage "--record-evidence accepts no other option"
+    fi
+    ((${#RECORD_PATHS[@]} > 0)) ||
+      fail_usage "--record-evidence requires at least one repository-relative generated evidence path"
   fi
 }
 
@@ -1480,6 +1605,374 @@ gate_c() {
   return 1
 }
 
+# Prints what the supplied path is, in the vocabulary the diagnostics of gate D
+# and of the manifest refresh use. Reads the path without following a symbolic
+# link and with shell builtins only.
+evidence_kind() {
+  local path="$1"
+
+  if [[ -L "$path" ]]; then
+    printf '%s' "a symbolic link"
+  elif [[ ! -e "$path" ]]; then
+    printf '%s' "absent"
+  elif [[ -d "$path" ]]; then
+    printf '%s' "a directory"
+  elif [[ -p "$path" ]]; then
+    printf '%s' "a fifo"
+  elif [[ ! -f "$path" ]]; then
+    printf '%s' "not a regular file"
+  else
+    printf '%s' "a regular file"
+  fi
+}
+
+# Prints the name one exempt inventory entry carries inside the evidence
+# directory: the entry with that directory and its separator removed.
+evidence_entry_name() {
+  printf '%s' "${1#"${EVIDENCE_DIR_REL}/"}"
+}
+
+# Reports whether the supplied name, exactly as a manifest digest line carries
+# it, is the name of one exempt inventory entry other than the manifest itself.
+# The comparison is string equality over the whole repository-relative path the
+# name would form, so a name carrying a "/" component, a ".." component or the
+# name of a file outside the inventory matches nothing.
+evidence_covered_name() {
+  local candidate="$1" entry=""
+
+  for entry in "${GENERATED_EVIDENCE_EXEMPT[@]}"; do
+    if [[ "$entry" == "$EVIDENCE_MANIFEST_REL" ]]; then
+      continue
+    fi
+    if [[ "$entry" == "${EVIDENCE_DIR_REL}/${candidate}" ]]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+# Reports whether the supplied value equals one entry of the exempt inventory,
+# by string equality over the whole path.
+evidence_inventory_path() {
+  local candidate="$1" entry=""
+
+  for entry in "${GENERATED_EVIDENCE_EXEMPT[@]}"; do
+    if [[ "$entry" == "$candidate" ]]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+# Reads the SHA-256 of one generated evidence file into EVIDENCE_DIGEST. A
+# symbolic link, an absent path, a path that is not a regular file and a file
+# that cannot be read each leave EVIDENCE_DIGEST empty and return 1, so the
+# caller reports the path rather than a digest of something else.
+evidence_file_digest() {
+  local path="$1" line=""
+
+  EVIDENCE_DIGEST=""
+  if [[ -L "$path" || ! -f "$path" ]]; then
+    return 1
+  fi
+  if ! line="$(sha256sum -- "$path" 2>/dev/null)" || [[ -z "$line" ]]; then
+    return 1
+  fi
+  if [[ ! "${line%% *}" =~ $EVIDENCE_DIGEST_PATTERN ]]; then
+    return 1
+  fi
+  EVIDENCE_DIGEST="${line%% *}"
+  return 0
+}
+
+# Records one gate D finding: the reason in the evidence block, the verdict line
+# that closes the gate, and a one-line summary on stderr. The caller returns 1
+# immediately afterwards, so the first difference the gate meets is the one it
+# reports.
+gate_d_fail() {
+  emit "  finding: $1"
+  emit "gate D result: FAIL"
+  printf '%s: error: gate D %s\n' "$PROG" "$1" >&2
+}
+
+# Gate D: every generated evidence file the exempt inventory names is covered by
+# the manifest of its set, and every digest that manifest states matches the file
+# standing in the checkout.
+#
+# Gate C exempts twenty-three exact paths because every one of them is rewritten
+# by the run of the stage that produces it, so its content cannot be compared
+# with HEAD. That leaves their content unmeasured by git, and those files carry
+# the decisions of a run: the comparison report of the diff stage, the recorded
+# gate selection with the disposition of the target, the version report, the
+# probe logs, the compiler and harness output, the dbt logs and the twelve files
+# a harness run publishes. This gate measures them against
+# modernization/validation/artifacts/evidence-manifest.sha256, which the harness
+# writes for the set it publishes and which every later stage refreshes for the
+# artifact it rewrites, through --record-evidence.
+#
+# The gate holds when, in inventory order:
+#   - the manifest is a regular file that is not a symbolic link, or is absent
+#     while no other exempt path stands in the checkout, which is a checkout
+#     where no stage has published anything yet;
+#   - every line of it is a comment, an empty line, or a digest line of 64
+#     lower-case hexadecimal characters, two spaces and the name of an exempt
+#     entry other than the manifest, stated once;
+#   - every stated name is a regular file whose SHA-256 equals the stated digest;
+#   - every exempt path other than the manifest that stands in the checkout is
+#     stated by a line of the manifest.
+# A difference of any of those is a finding: the path is named in the evidence
+# block and on stderr, and the run exits EXIT_EVIDENCE. A file whose digest was
+# rewritten together with its manifest entry is not detected by this gate - a
+# manifest cannot cover itself - and the git history of the manifest is what
+# carries that case; modernization/docs/decision-log.md, row D-121, records that
+# limit.
+gate_d() {
+  local entry="" name="" line="" digest="" count=0 covered=0
+  local -A stated=()
+  local -a lines=() present=() uncovered=()
+
+  emit "gate D generated evidence covered by the manifest of its set:"
+  emit "  manifest: ${EVIDENCE_MANIFEST_REL}"
+
+  for entry in "${GENERATED_EVIDENCE_EXEMPT[@]}"; do
+    if [[ "$entry" == "$EVIDENCE_MANIFEST_REL" ]]; then
+      continue
+    fi
+    if [[ -e "$entry" || -L "$entry" ]]; then
+      present+=("$entry")
+    fi
+  done
+  printf -v line '  generated evidence paths standing in this checkout: %d of %d' \
+    "${#present[@]}" "$((${#GENERATED_EVIDENCE_EXEMPT[@]} - 1))"
+  emit "$line"
+
+  if [[ ! -e "$EVIDENCE_MANIFEST_REL" && ! -L "$EVIDENCE_MANIFEST_REL" ]]; then
+    if ((${#present[@]} == 0)); then
+      emit "  digest lines: 0"
+      emit "  covered by a matching digest: 0"
+      emit "  standing without an entry:"
+      emit "    (no generated evidence path stands in this checkout)"
+      emit "  paths the manifest does not cover: 0"
+      emit "gate D result: PASS"
+      return 0
+    fi
+    emit "  standing without an entry:"
+    for entry in "${present[@]}"; do
+      emit "    ${entry}"
+    done
+    gate_d_fail "the manifest ${EVIDENCE_MANIFEST_REL} is absent while ${#present[@]} generated evidence path(s) stand in this checkout, each named in the evidence block"
+    return 1
+  fi
+  if [[ -L "$EVIDENCE_MANIFEST_REL" || ! -f "$EVIDENCE_MANIFEST_REL" ]]; then
+    gate_d_fail "the manifest ${EVIDENCE_MANIFEST_REL} is $(evidence_kind "$EVIDENCE_MANIFEST_REL")"
+    return 1
+  fi
+
+  mapfile -t lines <"$EVIDENCE_MANIFEST_REL"
+  for line in "${lines[@]}"; do
+    case "$line" in
+      '#'* | '')
+        continue
+        ;;
+    esac
+    if ((${#line} < 67)) || [[ "${line:64:2}" != "  " ]] ||
+      [[ ! "${line:0:64}" =~ $EVIDENCE_DIGEST_PATTERN ]]; then
+      gate_d_fail "the manifest carries a line that is no digest line: $(sanitize "$line")"
+      return 1
+    fi
+    digest="${line:0:64}"
+    name="${line:66}"
+    if ! evidence_covered_name "$name"; then
+      gate_d_fail "the manifest states $(sanitize "$name"), which the exempt inventory does not name as a covered generated evidence path"
+      return 1
+    fi
+    if [[ -n "${stated[$name]+set}" ]]; then
+      gate_d_fail "the manifest states $(sanitize "$name") more than once"
+      return 1
+    fi
+    stated["$name"]="$digest"
+    count=$((count + 1))
+  done
+  printf -v line '  digest lines: %d' "$count"
+  emit "$line"
+
+  for entry in "${GENERATED_EVIDENCE_EXEMPT[@]}"; do
+    if [[ "$entry" == "$EVIDENCE_MANIFEST_REL" ]]; then
+      continue
+    fi
+    name="$(evidence_entry_name "$entry")"
+    if [[ -z "${stated[$name]+set}" ]]; then
+      if [[ -e "$entry" || -L "$entry" ]]; then
+        uncovered+=("$entry")
+      fi
+      continue
+    fi
+    if ! evidence_file_digest "$entry"; then
+      gate_d_fail "the manifest states ${entry}, which is $(evidence_kind "$entry")"
+      return 1
+    fi
+    if [[ "$EVIDENCE_DIGEST" != "${stated[$name]}" ]]; then
+      gate_d_fail "${entry} does not match the digest its manifest entry states"
+      return 1
+    fi
+    covered=$((covered + 1))
+  done
+  printf -v line '  covered by a matching digest: %d' "$covered"
+  emit "$line"
+
+  emit "  standing without an entry:"
+  if ((${#uncovered[@]} == 0)); then
+    emit "    (every generated evidence path standing in this checkout is covered)"
+  else
+    for entry in "${uncovered[@]}"; do
+      emit "    ${entry}"
+    done
+  fi
+  printf -v line '  paths the manifest does not cover: %d' "${#uncovered[@]}"
+  emit "$line"
+
+  if ((${#uncovered[@]} == 0)); then
+    emit "gate D result: PASS"
+    return 0
+  fi
+  gate_d_fail "${#uncovered[@]} generated evidence path(s) stand with no entry in ${EVIDENCE_MANIFEST_REL}, each named in the evidence block"
+  return 1
+}
+
+# Prints one line of the manifest refresh on stdout. The refresh writes no
+# evidence log: it produces the very file gate D measures, and the stage log of
+# the caller records what it reported.
+record_write() {
+  sanitize_line "$1"
+  stdout_write "$SANITIZED"
+}
+
+# --record-evidence: refreshes the manifest entry of every generated evidence
+# path named on the command line and leaves every other line of the manifest
+# byte-identical.
+#
+# The stage that rewrites an exempt artifact names it here immediately
+# afterwards, so the manifest gate D measures is never stale: the harness writes
+# the manifest for the set it publishes, and verify-env, gate, compile, execute,
+# dbt and diff each refresh the entries of the artifacts they rewrote. Nothing
+# else of the manifest changes, so one stage cannot silence the coverage of
+# another.
+#
+# Every named path is validated before anything is written: it equals one entry
+# of the exempt inventory, it is not the manifest itself - which carries no
+# digest of its own - and it is a regular file that is not a symbolic link. A
+# path that fails one of those is a usage error, and the manifest is left exactly
+# as it stands. A manifest that already carries a line that is no digest line is
+# a finding of its own rather than a line this refresh rewrites, so a manifest
+# gate D would reject is never silently repaired.
+#
+# The refreshed manifest is written to a name beside it and renamed over it in
+# one step: a refresh that stops part way leaves the manifest unchanged and
+# removes what it had written. A checkout that carries no manifest yet receives
+# one whose header states that provenance.
+record_evidence() {
+  local path="" name="" line="" temp="" refreshed=0 added=0 kept=0
+  local -A digests=() written=()
+  local -a wanted=() lines=() out=()
+
+  for path in "${RECORD_TOOLS[@]}"; do
+    require_tool "$path"
+  done
+  if [[ -L "$EVIDENCE_DIR_REL" || ! -d "$EVIDENCE_DIR_REL" ]]; then
+    fail_env "the generated evidence directory ${EVIDENCE_DIR_REL} is $(evidence_kind "$EVIDENCE_DIR_REL")"
+  fi
+
+  for path in "${RECORD_PATHS[@]}"; do
+    if ! evidence_inventory_path "$path"; then
+      fail_usage "--record-evidence accepts a repository-relative path of the exempt generated evidence inventory, which names ${#GENERATED_EVIDENCE_EXEMPT[@]} paths under ${EVIDENCE_DIR_REL}/, received: $(sanitize "$path")"
+    fi
+    if [[ "$path" == "$EVIDENCE_MANIFEST_REL" ]]; then
+      fail_usage "--record-evidence cannot record ${EVIDENCE_MANIFEST_REL}: a manifest carries no digest of itself"
+    fi
+    if [[ -L "$path" || ! -f "$path" ]]; then
+      fail_usage "--record-evidence names ${path}, which is $(evidence_kind "$path")"
+    fi
+  done
+
+  for path in "${RECORD_PATHS[@]}"; do
+    name="$(evidence_entry_name "$path")"
+    if [[ -n "${digests[$name]+set}" ]]; then
+      continue
+    fi
+    if ! evidence_file_digest "$path"; then
+      fail_env "unable to read the SHA-256 of ${path}"
+    fi
+    digests["$name"]="$EVIDENCE_DIGEST"
+    wanted+=("$name")
+  done
+
+  if [[ -e "$EVIDENCE_MANIFEST_REL" || -L "$EVIDENCE_MANIFEST_REL" ]]; then
+    if [[ -L "$EVIDENCE_MANIFEST_REL" || ! -f "$EVIDENCE_MANIFEST_REL" ]]; then
+      fail_env "the manifest ${EVIDENCE_MANIFEST_REL} is $(evidence_kind "$EVIDENCE_MANIFEST_REL")"
+    fi
+    mapfile -t lines <"$EVIDENCE_MANIFEST_REL"
+    for line in "${lines[@]}"; do
+      case "$line" in
+        '#'* | '')
+          out+=("$line")
+          continue
+          ;;
+      esac
+      if ((${#line} < 67)) || [[ "${line:64:2}" != "  " ]] ||
+        [[ ! "${line:0:64}" =~ $EVIDENCE_DIGEST_PATTERN ]]; then
+        fail_env "the manifest ${EVIDENCE_MANIFEST_REL} carries a line that is no digest line, so no entry of it is refreshed: $(sanitize "$line")"
+      fi
+      name="${line:66}"
+      if [[ -n "${digests[$name]+set}" && -z "${written[$name]+set}" ]]; then
+        out+=("${digests[$name]}  ${name}")
+        written["$name"]=1
+        refreshed=$((refreshed + 1))
+        continue
+      fi
+      out+=("$line")
+      kept=$((kept + 1))
+    done
+  else
+    for line in "${EVIDENCE_MANIFEST_CREATED_HEADER[@]}"; do
+      out+=("$line")
+    done
+  fi
+  for name in "${wanted[@]}"; do
+    if [[ -z "${written[$name]+set}" ]]; then
+      out+=("${digests[$name]}  ${name}")
+      written["$name"]=1
+      added=$((added + 1))
+    fi
+  done
+
+  temp="${EVIDENCE_MANIFEST_REL}.record-$$"
+  if [[ -e "$temp" || -L "$temp" ]]; then
+    fail_env "the manifest refresh cannot write ${temp}, which is $(evidence_kind "$temp")"
+  fi
+  if ! : >"$temp"; then
+    fail_env "unable to create the refreshed manifest ${temp}"
+  fi
+  for line in "${out[@]}"; do
+    if ! printf '%s\n' "$line" >>"$temp"; then
+      rm -f -- "$temp" 2>/dev/null || true
+      fail_env "unable to write the refreshed manifest ${temp}"
+    fi
+  done
+  if ! mv -f -- "$temp" "$EVIDENCE_MANIFEST_REL"; then
+    rm -f -- "$temp" 2>/dev/null || true
+    fail_env "unable to replace ${EVIDENCE_MANIFEST_REL} with the refreshed manifest"
+  fi
+
+  record_write "${PROG}: evidence manifest ${EVIDENCE_MANIFEST_REL}"
+  for name in "${wanted[@]}"; do
+    record_write "${PROG}:   ${digests[$name]}  ${name}"
+  done
+  printf -v line \
+    '%s: %d entry(ies) refreshed, %d added, %d entry(ies) of other stages left unchanged' \
+    "$PROG" "$refreshed" "$added" "$kept"
+  record_write "$line"
+}
+
 # --self-test support.
 #
 # Each case runs in its own throwaway git work tree: "repo" holds the five
@@ -1500,7 +1993,7 @@ readonly SELF_TEST_EXPECTED_TOOLS=(git sha256sum wc date mkdir stat flock)
 
 # Number of case lines --self-test reports, including the case that checks this
 # number. A case that is added or removed changes it.
-readonly SELF_TEST_CASE_COUNT=52
+readonly SELF_TEST_CASE_COUNT=61
 
 # Seconds the "flock" shim of the held-lock case hands the real tool in place of
 # the bounded wait the run under test asks for. It applies to that one shim
@@ -3103,27 +3596,67 @@ st_case_tracked_authored() {
   st_end "exit 3 at gate C on one modified tracked authored path, named and counted in two identical blocks"
 }
 
-# Commits every path of the exempt inventory, modifies all of them and nothing
-# else, and runs the gate. Each path is recorded twice in the log - once in the
-# inventory and once in the list of exempt paths this run found modified - the
-# exempt count reads the size of the inventory, no tracked modification is
-# counted, and the run passes.
-st_case_evidence_exempt() {
-  local log_rel="${LOG_DIR_REL}/exempt.log"
-  local log_abs="" path="" reported=""
-  st_begin "evidence-exempt"
-  log_abs="${ST_REPO}/${log_rel}"
+# Creates every path of the exempt inventory in the case work tree, the manifest
+# of the set carrying one comment line and every other entry the supplied line.
+# Leaves the tree uncommitted.
+st_evidence_set() {
+  local body="$1" path=""
 
   for path in "${GENERATED_EVIDENCE_EXEMPT[@]}"; do
     if ! mkdir -p -- "${ST_REPO}/${path%/*}"; then
       fail_env "--self-test could not create the directory of ${path} for ${ST_CASE}"
     fi
-    printf 'self-test published evidence\n' >"${ST_REPO}/${path}"
+    if [[ "$path" == "$EVIDENCE_MANIFEST_REL" ]]; then
+      printf '# self-test evidence manifest\n' >"${ST_REPO}/${path}"
+      continue
+    fi
+    printf '%s\n' "$body" >"${ST_REPO}/${path}"
   done
-  st_commit "self-test published evidence set"
+}
+
+# Prints every path of the exempt inventory except the manifest, one per line, in
+# inventory order: the paths a refresh of the whole set names.
+st_evidence_covered_paths() {
+  local path=""
+
   for path in "${GENERATED_EVIDENCE_EXEMPT[@]}"; do
-    printf 'self-test republished evidence\n' >"${ST_REPO}/${path}"
+    if [[ "$path" != "$EVIDENCE_MANIFEST_REL" ]]; then
+      printf '%s\n' "$path"
+    fi
   done
+}
+
+# Refreshes the manifest entry of every exempt path except the manifest through
+# the copy under test, and notes a failure when that refresh does not complete.
+st_record_all_evidence() {
+  local -a paths=()
+
+  mapfile -t paths < <(st_evidence_covered_paths)
+  st_run --record-evidence "${paths[@]}"
+  ((ST_EXIT == EXIT_OK)) ||
+    st_note "the manifest refresh of the whole set exited ${ST_EXIT}: ${ST_OUTPUT}"
+}
+
+# Commits every path of the exempt inventory, modifies all of them and nothing
+# else, refreshes the manifest over the twenty-two it covers, and runs the gate.
+# Each path is recorded twice in the log - once in the inventory and once in the
+# list of exempt paths this run found modified - the exempt count reads the size
+# of the inventory, no tracked modification is counted, gate D reports every one
+# of those twenty-two as covered, and the run passes.
+st_case_evidence_exempt() {
+  local log_rel="${LOG_DIR_REL}/exempt.log"
+  local log_abs="" path="" reported="" covered=0
+  st_begin "evidence-exempt"
+  log_abs="${ST_REPO}/${log_rel}"
+  covered=$((${#GENERATED_EVIDENCE_EXEMPT[@]} - 1))
+
+  st_evidence_set 'self-test published evidence'
+  st_commit "self-test published evidence set"
+  while IFS= read -r path; do
+    printf 'self-test republished evidence\n' >"${ST_REPO}/${path}"
+  done < <(st_evidence_covered_paths)
+  st_record_all_evidence
+  st_expect_output "0 entry(ies) refreshed, ${covered} added"
   reported="$(cd "$ST_REPO" && git diff --name-only HEAD | wc -l)"
   ((reported == ${#GENERATED_EVIDENCE_EXEMPT[@]})) ||
     st_note "the work tree reports ${reported} modified path(s), expected ${#GENERATED_EVIDENCE_EXEMPT[@]}"
@@ -3137,11 +3670,15 @@ st_case_evidence_exempt() {
   st_expect_output "  exempt generated evidence paths modified: ${#GENERATED_EVIDENCE_EXEMPT[@]}"
   st_expect_output "  tracked modifications: 0"
   st_expect_output "gate C result: PASS"
+  st_expect_output "  digest lines: ${covered}"
+  st_expect_output "  covered by a matching digest: ${covered}"
+  st_expect_output "  paths the manifest does not cover: 0"
+  st_expect_output "gate D result: PASS"
   st_expect_output "verdict: PASS"
   for path in "${GENERATED_EVIDENCE_EXEMPT[@]}"; do
     st_expect_exact_count "$log_abs" "    ${path}" 2
   done
-  st_end "exit 0 with all ${#GENERATED_EVIDENCE_EXEMPT[@]} exempt generated evidence paths modified, each recorded as exempt and none counted"
+  st_end "exit 0 with all ${#GENERATED_EVIDENCE_EXEMPT[@]} exempt generated evidence paths modified, each recorded as exempt and none counted, and all ${covered} covered by the refreshed manifest"
 }
 
 # Commits two tracked paths in the published evidence directory that the exempt
@@ -3176,6 +3713,286 @@ st_case_evidence_not_exempt() {
   st_expect_output "gate C result: FAIL"
   st_expect_output "verdict: FAIL-TRACKED-MODIFICATION"
   st_end "exit 3 at gate C on runtime-versions.txt and one nested name in the evidence directory, both named"
+}
+
+# Publishes the whole evidence set, records it in the manifest, commits, and then
+# appends one byte to the comparison report and to nothing else - the shape the
+# QA report reproduced. Gate C records that path as exempt and passes, because
+# the diff stage rewrites it on every run; gate D compares its content with the
+# digest the manifest states and fails, naming the path, with exit 6.
+st_case_evidence_tamper() {
+  local target="${EVIDENCE_DIR_REL}/diff-report.md"
+  st_begin "evidence-tamper"
+
+  st_evidence_set 'self-test published evidence'
+  st_record_all_evidence
+  st_commit "self-test published evidence set with its manifest"
+  printf 'appended by the tamper case\n' >>"${ST_REPO}/${target}"
+
+  st_run --stage self-test
+  st_expect_exit "$EXIT_EVIDENCE"
+  st_expect_output "gate C result: PASS"
+  st_expect_output "  exempt generated evidence paths modified: 1"
+  st_expect_output "${target} does not match the digest its manifest entry states"
+  st_expect_output "gate D result: FAIL"
+  st_expect_output "verdict: FAIL-EVIDENCE-COVERAGE"
+  st_end "exit 6 at gate D on one altered exempt artifact, named, with gate C still passing it as exempt"
+}
+
+# Publishes the whole evidence set but records every path except one, so that one
+# stands with no entry at all. Gate D names it and fails: an artifact a stage
+# rewrote without refreshing its entry is a finding rather than a gap.
+st_case_evidence_uncovered() {
+  local skipped="${EVIDENCE_DIR_REL}/gate-selection.json"
+  local path="" covered=0
+  local -a paths=()
+  st_begin "evidence-uncovered"
+  covered=$((${#GENERATED_EVIDENCE_EXEMPT[@]} - 2))
+
+  st_evidence_set 'self-test published evidence'
+  while IFS= read -r path; do
+    if [[ "$path" != "$skipped" ]]; then
+      paths+=("$path")
+    fi
+  done < <(st_evidence_covered_paths)
+  st_run --record-evidence "${paths[@]}"
+  st_expect_exit "$EXIT_OK"
+  st_commit "self-test published evidence set with one path unrecorded"
+
+  st_run --stage self-test
+  st_expect_exit "$EXIT_EVIDENCE"
+  st_expect_output "gate C result: PASS"
+  st_expect_output "  digest lines: ${covered}"
+  st_expect_output "  covered by a matching digest: ${covered}"
+  st_expect_output "    ${skipped}"
+  st_expect_output "  paths the manifest does not cover: 1"
+  st_expect_output "1 generated evidence path(s) stand with no entry in ${EVIDENCE_MANIFEST_REL}"
+  st_expect_output "verdict: FAIL-EVIDENCE-COVERAGE"
+  st_end "exit 6 at gate D on one exempt artifact standing without a manifest entry, named"
+}
+
+# Publishes generated evidence with no manifest beside it. Gate D names every
+# uncovered path and fails: a set with no manifest is a set nothing measures.
+st_case_evidence_manifest_absent() {
+  local path="" covered=0
+  st_begin "evidence-manifest-absent"
+  covered=$((${#GENERATED_EVIDENCE_EXEMPT[@]} - 1))
+
+  st_evidence_set 'self-test published evidence'
+  if ! rm -f -- "${ST_REPO}/${EVIDENCE_MANIFEST_REL}"; then
+    fail_env "--self-test could not remove the manifest for ${ST_CASE}"
+  fi
+  st_commit "self-test published evidence set without a manifest"
+
+  st_run --stage self-test
+  st_expect_exit "$EXIT_EVIDENCE"
+  st_expect_output "gate C result: PASS"
+  st_expect_output "the manifest ${EVIDENCE_MANIFEST_REL} is absent while ${covered} generated evidence path(s) stand in this checkout"
+  st_expect_output "    ${EVIDENCE_DIR_REL}/translate.log"
+  st_expect_output "verdict: FAIL-EVIDENCE-COVERAGE"
+  st_end "exit 6 at gate D when ${covered} generated evidence paths stand with no manifest, each named"
+}
+
+# Commits a clean checkout that carries no generated evidence and no manifest.
+# Gate D passes: nothing has been published, so there is nothing to cover.
+st_case_evidence_none_published() {
+  st_begin "evidence-none-published"
+
+  st_run --stage self-test
+  st_expect_exit "$EXIT_OK"
+  st_expect_output "  generated evidence paths standing in this checkout: 0 of $((${#GENERATED_EVIDENCE_EXEMPT[@]} - 1))"
+  st_expect_output "    (no generated evidence path stands in this checkout)"
+  st_expect_output "  paths the manifest does not cover: 0"
+  st_expect_output "gate D result: PASS"
+  st_expect_output "verdict: PASS"
+  st_end "exit 0 with no manifest and no generated evidence: nothing published, nothing to cover"
+}
+
+# Commits a manifest that states a name the exempt inventory does not name as a
+# covered path - the environment record no run of the bridge writes. Gate D
+# rejects the entry rather than measuring a file outside the set.
+st_case_evidence_manifest_foreign() {
+  local foreign="runtime-versions.txt"
+  st_begin "evidence-manifest-foreign"
+
+  st_evidence_set 'self-test published evidence'
+  st_record_all_evidence
+  printf '%s\n' "$foreign" >"${ST_REPO}/${EVIDENCE_DIR_REL}/${foreign}"
+  printf '%064d  %s\n' 0 "$foreign" >>"${ST_REPO}/${EVIDENCE_MANIFEST_REL}"
+  st_commit "self-test manifest naming a path outside the covered inventory"
+
+  st_run --stage self-test
+  st_expect_exit "$EXIT_EVIDENCE"
+  st_expect_output "the manifest states ${foreign}, which the exempt inventory does not name as a covered generated evidence path"
+  st_expect_output "gate D result: FAIL"
+  st_expect_output "verdict: FAIL-EVIDENCE-COVERAGE"
+  st_end "exit 6 at gate D on a manifest entry outside the covered inventory, named"
+}
+
+# Commits a manifest carrying a line that is no digest line, and a manifest
+# stating one name twice. Gate D reports each as a finding, and the refresh
+# refuses to rewrite the malformed manifest so a stage cannot repair it in
+# silence, leaving it byte-identical and no temporary file behind.
+st_case_evidence_manifest_malformed() {
+  local target="${EVIDENCE_DIR_REL}/translate.log"
+  local manifest="" before="" leftover=""
+  st_begin "evidence-manifest-malformed"
+  manifest="${ST_REPO}/${EVIDENCE_MANIFEST_REL}"
+
+  st_evidence_set 'self-test published evidence'
+  st_record_all_evidence
+  printf 'not-a-digest  translate.log\n' >>"$manifest"
+  st_commit "self-test manifest carrying a line that is no digest line"
+  before="$(<"$manifest")"
+
+  st_run --stage self-test
+  st_expect_exit "$EXIT_EVIDENCE"
+  st_expect_output "the manifest carries a line that is no digest line: not-a-digest  translate.log"
+  st_expect_output "verdict: FAIL-EVIDENCE-COVERAGE"
+
+  st_run --record-evidence "$target"
+  st_expect_exit "$EXIT_ENV"
+  st_expect_output "carries a line that is no digest line, so no entry of it is refreshed"
+  [[ "$(<"$manifest")" == "$before" ]] ||
+    st_note "the refused refresh changed ${EVIDENCE_MANIFEST_REL}"
+  leftover="$(cd "${ST_REPO}/${EVIDENCE_DIR_REL}" && printf '%s' "$(echo evidence-manifest.sha256.record-*)")"
+  [[ "$leftover" == 'evidence-manifest.sha256.record-*' ]] ||
+    st_note "the refused refresh left ${leftover} behind"
+  st_end "exit 6 at gate D on a malformed manifest line, and exit 4 from a refresh that leaves that manifest unchanged"
+}
+
+# Commits a manifest stating one covered name twice. Gate D reports the repeated
+# name: a set is described by one entry per file.
+st_case_evidence_manifest_duplicate() {
+  local manifest="" first=""
+  st_begin "evidence-manifest-duplicate"
+  manifest="${ST_REPO}/${EVIDENCE_MANIFEST_REL}"
+
+  st_evidence_set 'self-test published evidence'
+  st_record_all_evidence
+  first="$(cd "$ST_REPO" && grep -m 1 '  translate.log$' "${EVIDENCE_MANIFEST_REL}")" ||
+    fail_env "--self-test could not read the translate.log entry for ${ST_CASE}"
+  printf '%s\n' "$first" >>"$manifest"
+  st_commit "self-test manifest stating one name twice"
+
+  st_run --stage self-test
+  st_expect_exit "$EXIT_EVIDENCE"
+  st_expect_output "the manifest states translate.log more than once"
+  st_expect_output "verdict: FAIL-EVIDENCE-COVERAGE"
+  st_end "exit 6 at gate D on a manifest stating one covered name twice"
+}
+
+# Refreshes one entry of a recorded set after rewriting that one artifact: the
+# entry carries the new digest, every other line of the manifest stays
+# byte-identical, the counts the refresh reports name what it did, a second
+# refresh over unchanged content rewrites the same bytes, and the gate that
+# follows passes.
+st_case_record_evidence() {
+  local target="${EVIDENCE_DIR_REL}/dbt-run.log"
+  local other="${EVIDENCE_DIR_REL}/translate.log"
+  local manifest="" before="" after="" again="" digest="" line="" covered=0
+  st_begin "record-evidence"
+  manifest="${ST_REPO}/${EVIDENCE_MANIFEST_REL}"
+  covered=$((${#GENERATED_EVIDENCE_EXEMPT[@]} - 1))
+
+  st_evidence_set 'self-test published evidence'
+  st_record_all_evidence
+  st_expect_output "0 entry(ies) refreshed, ${covered} added"
+  st_commit "self-test published evidence set with its manifest"
+  before="$(grep -v '  dbt-run.log$' -- "$manifest")"
+
+  printf 'self-test dbt run of a later stage\n' >"${ST_REPO}/${target}"
+  digest="$(sha256sum -- "${ST_REPO}/${target}")" ||
+    fail_env "--self-test could not hash ${target} for ${ST_CASE}"
+  digest="${digest%% *}"
+
+  st_run --record-evidence "$target"
+  st_expect_exit "$EXIT_OK"
+  st_expect_output "1 entry(ies) refreshed, 0 added, $((covered - 1)) entry(ies) of other stages left unchanged"
+  st_expect_output "${digest}  dbt-run.log"
+  after="$(grep -v '  dbt-run.log$' -- "$manifest")"
+  [[ "$after" == "$before" ]] ||
+    st_note "the refresh changed a line of another stage in ${EVIDENCE_MANIFEST_REL}"
+  line="$(grep -c "^${digest}  dbt-run.log$" -- "$manifest")" || line=0
+  ((line == 1)) || st_note "${line} refreshed entry line(s) for dbt-run.log, expected 1"
+
+  st_run --record-evidence "$target" "$other"
+  st_expect_exit "$EXIT_OK"
+  st_expect_output "2 entry(ies) refreshed, 0 added"
+  again="$(grep -v '  dbt-run.log$' -- "$manifest")"
+  [[ "$again" == "$before" ]] ||
+    st_note "a refresh over unchanged content rewrote another line of ${EVIDENCE_MANIFEST_REL}"
+
+  st_run --stage self-test
+  st_expect_exit "$EXIT_OK"
+  st_expect_output "  covered by a matching digest: ${covered}"
+  st_expect_output "gate D result: PASS"
+  st_expect_output "verdict: PASS"
+  st_end "one entry refreshed with the new digest, every other line byte-identical, and the gate passing afterwards"
+}
+
+# Points the refresh at values it must refuse: a tracked authored path outside
+# the exempt inventory, the manifest itself, a path of the inventory that does
+# not exist, a path of the inventory that is a symbolic link, and no path at all.
+# Each is a usage error, the manifest stays byte-identical, and nothing is
+# created.
+st_case_record_evidence_refused() {
+  local outside="$SELF_TEST_MANIFEST_REL"
+  local absent="${EVIDENCE_DIR_REL}/dbt-test.log"
+  local linked="${EVIDENCE_DIR_REL}/dbt-clean.log"
+  local manifest="" before="" path=""
+  local -a paths=()
+  st_begin "record-evidence-refused"
+  manifest="${ST_REPO}/${EVIDENCE_MANIFEST_REL}"
+
+  st_evidence_set 'self-test published evidence'
+  if ! rm -f -- "${ST_REPO}/${absent}"; then
+    fail_env "--self-test could not remove ${absent} for ${ST_CASE}"
+  fi
+  if ! rm -f -- "${ST_REPO}/${linked}" ||
+    ! ln -s -- "../../../${SELF_TEST_MANIFEST_REL}" "${ST_REPO}/${linked}"; then
+    fail_env "--self-test could not place the symbolic link ${linked} for ${ST_CASE}"
+  fi
+  while IFS= read -r path; do
+    if [[ "$path" != "$absent" && "$path" != "$linked" ]]; then
+      paths+=("$path")
+    fi
+  done < <(st_evidence_covered_paths)
+  st_run --record-evidence "${paths[@]}"
+  ((ST_EXIT == EXIT_OK)) ||
+    st_note "the refresh of the recordable paths exited ${ST_EXIT}: ${ST_OUTPUT}"
+  st_commit "self-test evidence set with one absent and one symlinked entry"
+  before="$(<"$manifest")"
+
+  st_run --record-evidence "$outside"
+  st_expect_exit "$EXIT_ENV"
+  st_expect_output "--record-evidence accepts a repository-relative path of the exempt generated evidence inventory"
+  st_expect_output "received: ${outside}"
+
+  st_run --record-evidence "$EVIDENCE_MANIFEST_REL"
+  st_expect_exit "$EXIT_ENV"
+  st_expect_output "a manifest carries no digest of itself"
+
+  st_run --record-evidence "$absent"
+  st_expect_exit "$EXIT_ENV"
+  st_expect_output "--record-evidence names ${absent}, which is absent"
+
+  st_run --record-evidence "$linked"
+  st_expect_exit "$EXIT_ENV"
+  st_expect_output "--record-evidence names ${linked}, which is a symbolic link"
+
+  st_run --record-evidence
+  st_expect_exit "$EXIT_ENV"
+  st_expect_output "--record-evidence requires at least one repository-relative generated evidence path"
+
+  st_run --record-evidence "${EVIDENCE_DIR_REL}/translate.log" --stage self-test
+  st_expect_exit "$EXIT_ENV"
+  st_expect_output "--record-evidence accepts no other option"
+
+  [[ "$(<"$manifest")" == "$before" ]] ||
+    st_note "a refused refresh changed ${EVIDENCE_MANIFEST_REL}"
+  st_expect_body "${ST_REPO}/${SELF_TEST_MANIFEST_REL}" "$SELF_TEST_MANIFEST_BODY"
+  st_end "six refused refreshes, each naming its rule, with the manifest and the link target unchanged"
 }
 
 st_case_tool_list() {
@@ -3353,6 +4170,15 @@ run_self_test() {
   st_case_tracked_authored
   st_case_evidence_exempt
   st_case_evidence_not_exempt
+  st_case_evidence_tamper
+  st_case_evidence_uncovered
+  st_case_evidence_manifest_absent
+  st_case_evidence_none_published
+  st_case_evidence_manifest_foreign
+  st_case_evidence_manifest_malformed
+  st_case_evidence_manifest_duplicate
+  st_case_record_evidence
+  st_case_record_evidence_refused
   st_case_tool_list
   for tool in "${SELF_TEST_EXPECTED_TOOLS[@]}"; do
     st_case_missing_tool "$tool"
@@ -3385,6 +4211,16 @@ main() {
 
   if ((BASELINE_ONLY == 1)); then
     print_baseline
+    exit "$EXIT_OK"
+  fi
+
+  # The manifest refresh runs no gate and opens no evidence log: it produces the
+  # file gate D measures, so it resolves the repository root, records the entries
+  # it was given and returns.
+  if ((RECORD_MODE == 1)); then
+    preflight_tools
+    resolve_repo_root
+    record_evidence
     exit "$EXIT_OK"
   fi
 
@@ -3429,6 +4265,7 @@ main() {
   gate_a || finish "$EXIT_SOURCE" "FAIL-SOURCE-INTEGRITY"
   gate_b || finish "$EXIT_BASE_DIRTY" "FAIL-BASE-WORKTREE-DIRTY"
   gate_c || finish "$EXIT_TRACKED" "FAIL-TRACKED-MODIFICATION"
+  gate_d || finish "$EXIT_EVIDENCE" "FAIL-EVIDENCE-COVERAGE"
 
   finish "$EXIT_OK" "PASS"
 }

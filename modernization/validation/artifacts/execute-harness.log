@@ -14,7 +14,7 @@ run_harness.sh:   cobc flags: -std=ibm -fbinary-truncate -ffold-copy=LOWER -ext 
 run_harness.sh:   inputs present: 24 files under modernization/ plus base/src/
 run_harness.sh:   seeds: first case policy 1000001, last case policy 1000012, lastchanged 2026-08-19-12.00.00.000000
 run_harness.sh:   directories ready under /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4_93f37d/modernization/harness/build
-run_harness.sh:   staging directory of this run: /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4_93f37d/modernization/harness/build/evidence/20260822T225152Z-4054660
+run_harness.sh:   staging directory of this run: /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4_93f37d/modernization/harness/build/evidence/20260823T001518Z-52823
 run_harness.sh:   evidence retention 5: 1 superseded run directories removed, 5 retained
 run_harness.sh:   evidence directory ready at /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4_93f37d/modernization/validation/artifacts
 run_harness.sh:   cases selected: 01AMOT, 01ACOM, 01AMOT-RC70, 01AMOT-RC90, 01AMOT-LGSQ, 01ACOM-LGSQ, 01AMOT-RC80, 01AMOT-RC98, 01AMOT-LGCA, 01AXXX-RC99, 01AHOU-ROUTE, 01AHOU-LGSQ
@@ -2413,9 +2413,9 @@ run_harness.sh:   cases executed: 12; assertions passed: 902
 run_harness.sh:   source guard harness-execute: PASS (modernization/harness/build/logs/readonly-check.log)
 run_harness.sh: == stage 6 of 6: evidence ==
 run_harness.sh:   source guard harness-final: PASS (modernization/harness/build/logs/readonly-check.log)
-run_harness.sh:   evidence staged: 11 files in /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4_93f37d/modernization/harness/build/evidence/20260822T225152Z-4054660
+run_harness.sh:   evidence staged: 11 files in /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4_93f37d/modernization/harness/build/evidence/20260823T001518Z-52823
 run_harness.sh:   evidence manifest: /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4_93f37d/modernization/harness/build/logs/evidence-manifest.sha256
-run_harness.sh:   publication check: 8 staged names and the manifest replaced the 12 of a full-table run in /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4_93f37d/modernization/harness/build/evidence/20260822T225152Z-4054660/publication-check/published, the 3 names of 01ACOM were removed, runtime-versions.txt stood unchanged, and the read-back rejected a planted artifact: /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4_93f37d/modernization/harness/build/evidence/20260822T225152Z-4054660/publication-check/published/driver_01acom.log stands beside the set, and the manifest does not name it
+run_harness.sh:   publication check: 8 staged names and the manifest replaced the 12 of a full-table run in /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4_93f37d/modernization/harness/build/evidence/20260823T001518Z-52823/publication-check/published, the 3 names of 01ACOM were removed, runtime-versions.txt stood unchanged, and the read-back rejected a planted artifact: /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4_93f37d/modernization/harness/build/evidence/20260823T001518Z-52823/publication-check/published/driver_01acom.log stands beside the set, and the manifest does not name it
 run_harness.sh:   published names cleared: 12; files placed: 12
 run_harness.sh:   DEVIATION /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4_93f37d/modernization/validation/artifacts/compile-modules.log stands beside the published set and no run of this script writes it
 run_harness.sh:   DEVIATION /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4_93f37d/modernization/validation/artifacts/dbt-clean.log stands beside the published set and no run of this script writes it
@@ -2432,8 +2432,8 @@ run_harness.sh:   artifacts published: 12 files in /tmp/blitzy/cics-genapp-cobri
 
 run_harness.sh: == run summary ==
   result:            PASS
-  completed (UTC):   2026-08-22T22:52:07Z
-  run identifier:    20260822T225152Z-4054660
+  completed (UTC):   2026-08-23T00:15:32Z
+  run identifier:    20260823T001518Z-52823
   harness script:    /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4_93f37d/modernization/harness/run_harness.sh
   repository root:   /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4_93f37d
   harness lock:      /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4_93f37d/modernization/harness/build/harness.lock held on descriptor 11, waited up to 300 seconds
@@ -2524,7 +2524,7 @@ run_harness.sh: == run summary ==
     modules and driver: /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4_93f37d/modernization/harness/build/bin
     generated samples:  /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4_93f37d/modernization/harness/build/samples
     stage logs:         /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4_93f37d/modernization/harness/build/logs
-    staged evidence:    /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4_93f37d/modernization/harness/build/evidence/20260822T225152Z-4054660
+    staged evidence:    /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4_93f37d/modernization/harness/build/evidence/20260823T001518Z-52823
     evidence manifest:  /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4_93f37d/modernization/harness/build/logs/evidence-manifest.sha256
   published evidence:
     /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4_93f37d/modernization/validation/artifacts/translate.log

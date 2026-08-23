@@ -153,6 +153,27 @@ WHAT IT WRITES
     summary. Nothing else is written: no database is modified, no AWS resource is
     created and no path under base/ is opened for writing.
 
+WHERE IT MAY WRITE
+    Three roots, and nothing else. Every output path - both reports and every
+    capture snapshot - is canonicalised, so a symbolic-link chain, a
+    symbolic-link parent directory, a ".." component and a "/proc/self/cwd" style
+    alias are judged by the path they name rather than the path they spell, and is
+    then held to one policy: a path inside base/ or synthetic_class/ is refused by
+    that tree's name; a path inside the repository must stand below
+    modernization/validation/artifacts or modernization/validation/expected, the
+    roots of the two default reports and of the per-case snapshots, and every
+    other path inside the repository is refused; a path outside the repository
+    must stand below the temporary directory the run resolves, which reads TMPDIR,
+    TEMP and TMP before the platform default; and a final component that is a
+    symbolic link is refused. Every other path of the filesystem is refused by
+    name, /etc/passwd and every other system file among them, and the refusal
+    names the path, the canonical form it resolves to and the accepted roots on
+    one line. The three destinations a command line names are validated together
+    before the field map is read, the warehouse is opened or a report is
+    rendered, so a refused --report, --json or --expected-dir ends the run with 4
+    and writes nothing at all; the same guard runs again at the moment of each
+    write.
+
     The snapshot carries a symbol where a value is one the seeds of the harness
     run determine: the assigned policy number, in the zero-padded form of its
     COMMAREA window, in the digits-alone form of the SQL capture and at the end
@@ -190,9 +211,25 @@ WHAT --self-test CHECKS
     equal. It then drives the statuses those records produce: the status and
     verdict of one case and of the run, the precedence over every ordered pair of
     the declared statuses, the Markdown report, the JSON document and the summary
-    line of a failing run, and the refusal of an output path resolving inside a
-    protected tree. Every case asserts an observed value, and one case asserts
-    that a failing case returns the self-test status.
+    line of a failing run. Every case asserts an observed value, and one case
+    asserts that a failing case returns the self-test status.
+
+    It drives the output confinement of WHERE IT MAY WRITE: an output path inside
+    each protected tree, the two default reports and the default snapshot path of
+    every supported case accepted, a path in the system configuration directory
+    refused as a path, as a write, as --json and as --expected-dir, the system
+    password file refused, four in-repository paths outside the output roots
+    refused, --report inside base/src refused, a path spelled through a
+    symbolic-link parent directory naming a directory outside every accepted root
+    refused, and an output path that is itself a symbolic link refused with the
+    file it names unchanged. Each refusal is asserted to create nothing and to
+    leave the two default report paths at the size and modification time they
+    stood at.
+
+    It drives the field map loader over documents it writes in its private
+    directory: an alias of an anchor, the merge key, a repeated mapping key and a
+    document nested past MAX_DOCUMENT_DEPTH, all refused with the configuration
+    status, and an ordinary mapping still composed.
 
     It drives the transform freshness precondition over dbt run artifacts it
     builds: a run of successful models, a test invocation of passing nodes and a
@@ -205,7 +242,9 @@ WHAT --self-test CHECKS
     reports and asserts the status it returns.
 
     The matrix opens no warehouse, reaches no endpoint, reads no harness output
-    and reads no field map. It writes two reports and one document inside one
+    and reads no field map of this repository; the loader cases read only the
+    documents they write in the private directory. It writes two reports, those
+    documents and one snapshot inside one
     private temporary directory it creates and the last case removes, so no path
     of this repository is written and the reports of the last comparison run
     stand untouched.
@@ -231,8 +270,11 @@ HOW IT FAILS
         case. Both reports are written and state which of the two it was.
     4   a connection, configuration or usage failure: an unknown option, a
         target that cannot be opened, an absent Redshift setting, an adapter
-        that is not installed, or a field map that disagrees with the byte grid
-        this tool carries. Nothing is written on this path.
+        that is not installed, an output path outside the accepted roots of
+        WHERE IT MAY WRITE, a field map carrying an alias, the merge key, a
+        repeated key or nesting past MAX_DOCUMENT_DEPTH, or a field map that
+        disagrees with the byte grid this tool carries. Nothing is written on
+        this path.
     5   one case of --self-test did not hold. It is returned by --self-test
         alone: a comparison run never returns it.
 
@@ -387,8 +429,32 @@ SNAPSHOT_STATE_REFRESHED = "refreshed"
 # Largest file this tool reads, applied to every input.
 MAX_INPUT_BYTES = 1_048_576
 
-# Trees no output path of this tool may resolve into.
+# Container nesting one field map may reach while its nodes are composed. A document
+# nesting deeper is refused at the level it breaches, so the parse is bounded before the
+# interpreter's own recursion limit is reached. It is the bound
+# modernization/extraction/build_sample_commarea.py and
+# modernization/extraction/extract_commarea.py apply to the same document.
+MAX_DOCUMENT_DEPTH = 32
+
+# Trees no output path of this tool may resolve into. They are refused by name before
+# the accepted roots below are considered, so a path inside one is reported as the tree
+# it names rather than as a path outside the accepted set.
 PROTECTED_TREES = ("base", "synthetic_class")
+
+# The output roots of this tool, relative to REPO_ROOT: the artifacts directory holding
+# DEFAULT_REPORT and DEFAULT_JSON_REPORT, and the expected directory holding the
+# per-case capture snapshot DEFAULT_EXPECTED_DIR names. Every output path must
+# canonicalise below one of them or below the temporary directory the run resolves; an
+# authored file, a generated warehouse or dbt path, a protected tree and every path of
+# the wider filesystem are refused by name.
+# Decision rationale: modernization/docs/decision-log.md, row D-125.
+OUTPUT_ROOTS = (ARTIFACTS_DIR, DEFAULT_EXPECTED_DIR)
+
+# The one root outside the repository an output path may stand below, and the name the
+# diagnostics give it. tempfile.gettempdir() reads TMPDIR, TEMP and TMP before the
+# platform default, so a run directed at an operator's own temporary directory writes
+# its reports and snapshots there and nowhere else.
+TEMPORARY_OUTPUT_ROOT_SOURCE = "the temporary directory (TMPDIR, TEMP, TMP)"
 
 # --------------------------------------------------------------------------
 # Declared canonical surface
@@ -889,6 +955,65 @@ class _DuplicateRejectingLoader(yaml.SafeLoader):
                 )
         return super().construct_mapping(node, deep=deep)
 
+
+class _FieldMapLoader(_DuplicateRejectingLoader):
+    """Duplicate-rejecting loader that additionally refuses an alias and deep nesting.
+
+    Mapping construction rejects a repeated key and a key it cannot compare exactly as
+    ``_DuplicateRejectingLoader`` does, and rejects the merge key ``<<`` as well, so no
+    anchored mapping is folded into another one. Node composition rejects every alias,
+    so no anchor expands the document behind the byte bound ``_read_text`` applied, and
+    bounds container nesting to ``MAX_DOCUMENT_DEPTH`` levels while the nodes are
+    composed, so a document nested past the interpreter's recursion limit is named
+    rather than parsed.
+
+    Each refusal raises ``ConfigurationError``, which carries ``EXIT_CONFIGURATION``,
+    and names the anchor, the merge key or the line that carries the offending node. It
+    is the loader every consumer of the field map applies:
+    modernization/extraction/build_sample_commarea.py,
+    modernization/extraction/extract_commarea.py and this module, each raising its own
+    error type. Decision rationale: modernization/docs/decision-log.md, row D-126.
+    """
+
+    def __init__(self, stream: Any) -> None:
+        super().__init__(stream)
+        self._depth = 0
+
+    def compose_node(self, parent: Any, index: Any) -> Any:
+        """Compose one node, refusing an alias and bounding the nesting depth."""
+        if self.check_event(yaml.events.AliasEvent):
+            event = self.peek_event()
+            raise ConfigurationError(
+                f"the field map refers to anchor '*{_printable(str(event.anchor))}' at "
+                f"line {event.start_mark.line + 1}; an alias is not accepted"
+            )
+        self._depth += 1
+        if self._depth > MAX_DOCUMENT_DEPTH:
+            raise ConfigurationError(
+                f"the field map nests deeper than the accepted {MAX_DOCUMENT_DEPTH} "
+                f"levels at line {self.peek_event().start_mark.line + 1}"
+            )
+        try:
+            return super().compose_node(parent, index)
+        finally:
+            self._depth -= 1
+
+    def construct_mapping(
+        self, node: yaml.MappingNode, deep: bool = False
+    ) -> dict[Any, Any]:
+        """Construct one mapping, refusing the merge key as well as a repeated key."""
+        for key_node, _value_node in node.value:
+            if (
+                isinstance(key_node, yaml.nodes.ScalarNode)
+                and key_node.tag == "tag:yaml.org,2002:merge"
+            ):
+                raise ConfigurationError(
+                    f"the field map uses the merge key '<<' at line "
+                    f"{key_node.start_mark.line + 1}; a merge key is not accepted"
+                )
+        return super().construct_mapping(node, deep=deep)
+
+
 # Shape of an ISO calendar date, applied to the two date windows.
 _DATE_SHAPE = re.compile(r"\A([0-9]{4})-([0-9]{2})-([0-9]{2})\Z")
 
@@ -1159,7 +1284,10 @@ def _premium_nullability(
 def load_field_map(path: Path) -> FieldMap:
     """Return the field map at ``path``, checked against the byte grid of this module.
 
-    The document is parsed with a loader that refuses a repeated mapping key, then
+    The document is parsed by ``_FieldMapLoader``, which refuses a repeated mapping
+    key, a key it cannot compare, an alias, the merge key ``<<`` and nesting past
+    ``MAX_DOCUMENT_DEPTH`` containers - the loader contract the field map's own header
+    states and every consumer of the map applies - then
     every section this tool reads is extracted: the record length, the layout
     windows, the seventeen logical field entries and the warehouse-assigned entry,
     the request routing, the return codes, the two canonical relations with their
@@ -1175,11 +1303,16 @@ def load_field_map(path: Path) -> FieldMap:
     """
     text = _read_text(path, "field map", ConfigurationError)
     try:
-        document = yaml.load(text, Loader=_DuplicateRejectingLoader)
+        document = yaml.load(text, Loader=_FieldMapLoader)
     except yaml.YAMLError as error:
         raise ConfigurationError(
             f"the field map at {_path_shown(path)} is not a YAML document this tool "
             f"can read: {_printable(str(error).splitlines()[0] if str(error) else '')}"
+        ) from error
+    except RecursionError as error:
+        raise ConfigurationError(
+            f"the field map at {_path_shown(path)} nests containers too deeply to "
+            f"parse: {_printable(type(error).__name__)}"
         ) from error
     if not isinstance(document, Mapping):
         raise ConfigurationError(
@@ -2977,6 +3110,17 @@ def _snapshot_differences(
     return differences
 
 
+def snapshot_path_of(case: str, expected_dir: Path) -> Path:
+    """Return the capture snapshot path of ``case`` inside ``expected_dir``.
+
+    It is the one path a case writes below the expected directory, and the path the
+    startup confinement check of ``_confirm_output_destinations`` validates for every
+    selected case, so the directory a command line names is judged by the file the run
+    would write inside it.
+    """
+    return expected_dir / case.lower() / SNAPSHOT_NAME
+
+
 def apply_snapshot(
     path: Path, document: Mapping[str, Any], *, refresh: bool = False
 ) -> str:
@@ -3026,20 +3170,113 @@ def apply_snapshot(
 # --------------------------------------------------------------------------
 # Output paths
 # --------------------------------------------------------------------------
+def canonical_temporary_root() -> Path:
+    """Return the temporary directory this run accepts, as the path it canonicalises to.
+
+    ``tempfile.gettempdir()`` reads TMPDIR, TEMP and TMP in that order and falls back to
+    the platform default, so the directory an operator points this run at is the one
+    accepted here. The value is canonicalised, so a temporary directory reached through
+    a symbolic link is compared in the same form a canonicalised output path carries.
+    """
+    return Path(os.path.realpath(tempfile.gettempdir()))
+
+
+def _canonical_output_roots() -> tuple[Path, ...]:
+    """Return the in-repository output roots as the canonical paths they name.
+
+    Each root is resolved, so a symbolic-link component of the checkout is compared in
+    the form a canonicalised output path carries. A root that does not exist yet
+    resolves to the pathname itself, which is the form a path below it canonicalises to.
+    """
+    return tuple(
+        Path(os.path.realpath(REPO_ROOT / relative)) for relative in OUTPUT_ROOTS
+    )
+
+
+def _accepted_output_roots() -> str:
+    """Return the roots an output path may stand below, as one diagnostic fragment."""
+    return (
+        f"below {_quote_all(OUTPUT_ROOTS)} inside "
+        f"{_printable(str(REPO_ROOT))}, or below "
+        f"{_printable(str(canonical_temporary_root()))}"
+    )
+
+
+def _canonical_output_path(path: Path) -> Path:
+    """Return the path ``path`` actually names, with its parent chain resolved.
+
+    Every component above the final one is resolved, so a symbolic-link chain, a
+    symbolic-link parent directory, a ``..`` component and a ``/proc/self/cwd`` style
+    alias are all judged by the path they name rather than the path they spell. The
+    final component is carried as spelled: a link standing there is refused by
+    ``_refuse_protected_path`` before anything is written.
+    """
+    absolute = _resolved(path)
+    return Path(os.path.realpath(absolute.parent)) / absolute.name
+
+
 def _refuse_protected_path(path: Path) -> None:
-    """Refuse an output path resolving inside a tree this tool never writes."""
-    resolved = path.resolve() if path.exists() else _resolved(path)
+    """Refuse an output path this tool does not write, before anything is created.
+
+    The path is canonicalised by ``_canonical_output_path`` and then held to one
+    confinement policy, in this order:
+
+    * a path inside one of ``PROTECTED_TREES`` is refused by that tree's name;
+    * a path inside the repository must stand below one of ``OUTPUT_ROOTS`` - the
+      artifacts directory of the two reports and the expected directory of the per-case
+      snapshots - and every other path inside the repository is refused, an authored
+      file, a dbt or warehouse path and the harness build tree among them;
+    * a path outside the repository must stand below ``canonical_temporary_root()``, and
+      every other path of the filesystem is refused, /etc/passwd and every other system
+      file among them;
+    * a final component that is a symbolic link is refused, so a link cannot redirect
+      the write to the file it names.
+
+    Raises ``ConfigurationError`` naming the path, the canonical form it resolves to and
+    the roots that are accepted, on one line.
+    """
+    canonical = _canonical_output_path(path)
     for tree in PROTECTED_TREES:
-        root = (REPO_ROOT / tree).resolve()
-        if resolved == root or root in resolved.parents:
+        root = Path(os.path.realpath(REPO_ROOT / tree))
+        if canonical == root or root in canonical.parents:
             raise ConfigurationError(
                 f"the output path {_path_shown(path)} resolves inside {tree}/, which "
-                f"this tool never writes"
+                f"this tool never writes: it resolves to "
+                f"{_printable(str(canonical))}"
             )
+    repository = Path(os.path.realpath(REPO_ROOT))
+    inside_repository = canonical == repository or repository in canonical.parents
+    if inside_repository:
+        if not any(root in canonical.parents for root in _canonical_output_roots()):
+            raise ConfigurationError(
+                f"the output path {_path_shown(path)} resolves inside the repository "
+                f"directory {_printable(str(repository))} and outside every output "
+                f"root {_quote_all(OUTPUT_ROOTS)}: it resolves to "
+                f"{_printable(str(canonical))}; an output path stands "
+                f"{_accepted_output_roots()}"
+            )
+    elif canonical_temporary_root() not in canonical.parents:
+        raise ConfigurationError(
+            f"the output path {_path_shown(path)} resolves outside the repository "
+            f"directory {_printable(str(repository))} and outside the temporary "
+            f"directory {_printable(str(canonical_temporary_root()))}: it resolves to "
+            f"{_printable(str(canonical))}; an output path stands "
+            f"{_accepted_output_roots()}"
+        )
+    if os.path.islink(canonical):
+        raise ConfigurationError(
+            f"the output path {_path_shown(path)} is a symbolic link, which this tool "
+            f"never writes through: it resolves to {_printable(str(canonical))}"
+        )
 
 
 def _write_output(path: Path, text: str) -> None:
-    """Write ``text`` to ``path``, creating the directories above it."""
+    """Write ``text`` to ``path``, creating the directories above it.
+
+    ``_refuse_protected_path`` decides first, so a path outside the accepted roots is
+    refused before a directory is created or a byte is written. It is the single funnel
+    every output of this tool passes through: both reports and every capture snapshot.
+    """
     _refuse_protected_path(path)
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -3160,7 +3397,7 @@ def compare_case(
         identity_assertions(rows[RELATION_KEYS[0]], rows[RELATION_KEYS[1]])
     )
 
-    snapshot_path = expected_dir / case.lower() / SNAPSHOT_NAME
+    snapshot_path = snapshot_path_of(case, expected_dir)
     result.snapshot_path = _path_shown(snapshot_path)
     result.snapshot_state = apply_snapshot(
         snapshot_path,
@@ -4081,7 +4318,8 @@ exit statuses:
      records a node dbt did not record as successful; or the warehouse answered a
      canonical relation or column set other than the declared one, or other than
      exactly one row for a natural key
-  4  a connection, configuration or usage failure; nothing is written
+  4  a connection, configuration or usage failure, an output path outside the
+     accepted roots among them; nothing is written
   5  one case of --self-test did not hold; a comparison run never returns it
 """
 
@@ -4188,14 +4426,22 @@ def build_parser() -> _ArgumentParser:
         "--report",
         default=DEFAULT_REPORT,
         metavar="PATH",
-        help=f"Markdown report to write. Default: {DEFAULT_REPORT}.",
+        help=(
+            f"Markdown report to write; it must canonicalise below {ARTIFACTS_DIR}, "
+            f"below {DEFAULT_EXPECTED_DIR} or below the temporary directory this run "
+            "resolves, and every other path is refused before anything is written. "
+            f"Default: {DEFAULT_REPORT}."
+        ),
     )
     parser.add_argument(
         "--json",
         dest="json_report",
         default=DEFAULT_JSON_REPORT,
         metavar="PATH",
-        help=f"JSON report to write. Default: {DEFAULT_JSON_REPORT}.",
+        help=(
+            f"JSON report to write; it is confined to the same roots as --report. "
+            f"Default: {DEFAULT_JSON_REPORT}."
+        ),
     )
     parser.add_argument(
         "--expected-dir",
@@ -4203,7 +4449,9 @@ def build_parser() -> _ArgumentParser:
         metavar="PATH",
         help=(
             "directory of the per-case capture snapshots, one "
-            f"{SNAPSHOT_NAME} per case. Default: {DEFAULT_EXPECTED_DIR}."
+            f"{SNAPSHOT_NAME} per case; the snapshot path of every selected case is "
+            "confined to the same roots as --report and a directory outside them is "
+            f"refused before anything is written. Default: {DEFAULT_EXPECTED_DIR}."
         ),
     )
     parser.add_argument(
@@ -4214,8 +4462,8 @@ def build_parser() -> _ArgumentParser:
             "instead of comparing it, and report each one as refreshed. Without it a "
             "snapshot already on disk is compared and a difference fails the run. It "
             "writes no path outside the per-case snapshot of the expected directory "
-            "and refuses a path resolving inside a protected tree, as every output of "
-            "this tool does."
+            "and is confined to the accepted output roots, as every output of "
+            "this tool is."
         ),
     )
     parser.add_argument(
@@ -4365,7 +4613,7 @@ def resolve_settings(arguments: argparse.Namespace) -> Settings:
         or _environment_value("SOURCE_SYSTEM_KEY")
         or DEFAULT_SOURCE_SYSTEM_KEY
     )
-    return Settings(
+    settings = Settings(
         cases=cases,
         run_dir=_resolved(arguments.run_dir),
         captures=_resolved(arguments.captures) if arguments.captures else None,
@@ -4384,6 +4632,29 @@ def resolve_settings(arguments: argparse.Namespace) -> Settings:
         dbt_run_results=_resolved(arguments.dbt_run_results),
         quiet=bool(arguments.quiet),
     )
+    _confirm_output_destinations(settings)
+    return settings
+
+
+def _confirm_output_destinations(settings: Settings) -> None:
+    """Confine every path this run would write, before anything is read or opened.
+
+    The three destinations a command line names are validated here: the Markdown
+    report, the JSON report and, for every selected case, the capture snapshot inside
+    the expected directory. Each one goes through ``_refuse_protected_path``, the same
+    guard ``_write_output`` applies at the moment of the write, so a destination outside
+    the accepted roots ends the run with ``EXIT_CONFIGURATION`` and one diagnostic
+    before the field map is read, the warehouse is opened or a report is rendered -
+    which is what the documented "nothing is written on this path" status means.
+
+    Raises ``ConfigurationError`` naming the first destination that is refused.
+    """
+    for path in (
+        settings.report,
+        settings.json_report,
+        *(snapshot_path_of(case, settings.expected_dir) for case in settings.cases),
+    ):
+        _refuse_protected_path(path)
 
 
 
@@ -4589,6 +4860,14 @@ _SELF_TEST_ITEMS = {
 
 # Text a built record carries where a comparison run carries a path it read.
 _SELF_TEST_ORIGIN = "built by --self-test"
+
+# Paths the output-confinement cases aim at to exercise a destination standing outside
+# every accepted root: the system configuration directory, which no accepted root holds,
+# and the password file inside it. The cases validate them and never open them: the
+# confinement decision is reached before a directory is created or a byte is written, so
+# a refused case creates nothing there and changes nothing there.
+_SYSTEM_DIRECTORY = Path("/etc")
+_SYSTEM_PASSWORD_FILE = _SYSTEM_DIRECTORY / "passwd"
 
 
 def _assert(condition: bool, message: str) -> None:
@@ -6223,6 +6502,280 @@ def _case_protected_trees_refused(scratch: _Scratch) -> str:
     )
 
 
+def _case_output_roots_accepted() -> str:
+    """Every path a documented run writes is accepted, and validating creates nothing.
+
+    The two default report paths and the default snapshot path of every supported case
+    are the destinations the Makefile diff stage names, so this case holds the
+    confinement policy to the pipeline it must not break. Each one is validated alone,
+    which creates no directory and writes no byte, and the recorded state of the two
+    default reports is compared either side of the validation.
+    """
+    before = _tracked_report_state()
+    accepted: list[str] = []
+    for default in (DEFAULT_REPORT, DEFAULT_JSON_REPORT):
+        path = _resolved(default)
+        _refuse_protected_path(path)
+        accepted.append(default)
+    expected_dir = _resolved(DEFAULT_EXPECTED_DIR)
+    for case in SUPPORTED_CASES:
+        snapshot = snapshot_path_of(case, expected_dir)
+        _refuse_protected_path(snapshot)
+        accepted.append(str(snapshot.relative_to(REPO_ROOT)))
+    _assert_equal(
+        _tracked_report_state(),
+        before,
+        "the size and modification time of the two default report paths",
+    )
+    return f"{len(accepted)} documented destinations accepted: {', '.join(accepted)}"
+
+
+def _case_output_outside_both_roots_refused(scratch: _Scratch) -> str:
+    """An output path outside the repository and the temporary root is refused.
+
+    The path stands in the system configuration directory, which neither accepted root
+    holds, and carries a name that does not exist there. It is refused as an output
+    path, as a write and through the command line as --json and as --expected-dir; each
+    refusal returns EXIT_CONFIGURATION, creates nothing there and leaves the two default
+    reports as they stood.
+    """
+    before = _tracked_report_state()
+    name = f"diff-harness-selftest-{os.getpid()}.json"
+    target = _SYSTEM_DIRECTORY / name
+    _assert_raises(
+        "an output path outside the repository and the temporary directory",
+        ConfigurationError,
+        "outside the temporary directory",
+        lambda: _refuse_protected_path(target),
+    )
+    _assert_raises(
+        "a write outside the repository and the temporary directory",
+        ConfigurationError,
+        "outside the temporary directory",
+        lambda: _write_output(target, _SELF_TEST_ORIGIN),
+    )
+    _assert_raises(
+        "the system password file as an output path",
+        ConfigurationError,
+        "outside the temporary directory",
+        lambda: _refuse_protected_path(_SYSTEM_PASSWORD_FILE),
+    )
+    statuses: list[int] = []
+    common = [
+        "--target",
+        TARGET_DUCKDB,
+        "--database",
+        str(scratch.absent("unused.duckdb")),
+        "--case",
+        _SELF_TEST_CASE,
+    ]
+    out, err = _captured(
+        lambda: statuses.append(main([*common, "--json", str(target)]))
+    )
+    _assert_equal(statuses[-1], EXIT_CONFIGURATION, "the status of --json into /etc")
+    _assert_in("outside the temporary directory", err, "the diagnostic of --json")
+    _assert_equal(out, "", "the stdout of the refused --json run")
+    out, err = _captured(
+        lambda: statuses.append(
+            main([*common, "--expected-dir", str(_SYSTEM_DIRECTORY)])
+        )
+    )
+    _assert_equal(
+        statuses[-1], EXIT_CONFIGURATION, "the status of --expected-dir /etc"
+    )
+    _assert_in(
+        "outside the temporary directory", err, "the diagnostic of --expected-dir"
+    )
+    _assert_equal(out, "", "the stdout of the refused --expected-dir run")
+    _assert(not target.exists(), f"the refused run created {target}")
+    snapshot = snapshot_path_of(_SELF_TEST_CASE, _SYSTEM_DIRECTORY)
+    _assert(not snapshot.parent.exists(), f"the refused run created {snapshot.parent}")
+    _assert_equal(
+        _tracked_report_state(),
+        before,
+        "the size and modification time of the two default report paths",
+    )
+    return (
+        f"an output path, a write, --json and --expected-dir into "
+        f"{_SYSTEM_DIRECTORY} each refused with {EXIT_CONFIGURATION}, creating "
+        f"nothing there"
+    )
+
+
+def _case_output_inside_the_repository_refused(scratch: _Scratch) -> str:
+    """An in-repository output path outside the two output roots is refused.
+
+    Four in-tree paths stand in for the trees this tool does not write: the repository
+    root itself, an authored file, the generated harness build tree and the dbt project
+    directory. Each is refused for standing outside the output roots and none of them is
+    opened. The command line is exercised too, with --report inside base/src, which the
+    protected-tree rule refuses by that tree's name.
+    """
+    refused: list[str] = []
+    for relative in (
+        ".",
+        "modernization/README.md",
+        "modernization/harness/build/diff-report.md",
+        "modernization/dbt/genapp_rqi/diff-report.json",
+    ):
+        candidate = _resolved(relative)
+        _assert_raises(
+            f"an output path at {relative}",
+            ConfigurationError,
+            "outside every output root",
+            lambda candidate=candidate: _refuse_protected_path(candidate),
+        )
+        refused.append(relative)
+    statuses: list[int] = []
+    protected = _resolved(f"{PROTECTED_TREES[0]}/src/diff-report.md")
+    out, err = _captured(
+        lambda: statuses.append(
+            main(
+                [
+                    "--target",
+                    TARGET_DUCKDB,
+                    "--database",
+                    str(scratch.absent("unused.duckdb")),
+                    "--case",
+                    _SELF_TEST_CASE,
+                    "--report",
+                    str(protected),
+                ]
+            )
+        )
+    )
+    _assert_equal(
+        statuses[-1], EXIT_CONFIGURATION, f"the status of --report inside {protected}"
+    )
+    _assert_in(
+        f"resolves inside {PROTECTED_TREES[0]}/",
+        err,
+        "the diagnostic of --report inside the read-only source tree",
+    )
+    _assert_equal(out, "", "the stdout of that refusal")
+    _assert(not protected.exists(), f"the refused run created {protected}")
+    return (
+        f"{len(refused)} in-repository paths refused ({', '.join(refused)}) and "
+        f"--report inside {PROTECTED_TREES[0]}/src refused with "
+        f"{EXIT_CONFIGURATION}"
+    )
+
+
+def _case_output_symbolic_links_refused(scratch: _Scratch) -> str:
+    """A symbolic-link parent and a symbolic-link output path are both refused.
+
+    The first link stands in the private directory and names the system configuration
+    directory, so the path spelled through it canonicalises outside every accepted root
+    and is refused by the path it names rather than accepted by the path it spells. The
+    second link stands at the output path itself, inside the private directory, and
+    names a file there; it is refused as well, and that file keeps the bytes it held.
+    """
+    parent_link = scratch.absent("link_system")
+    parent_link.symlink_to(_SYSTEM_DIRECTORY)
+    name = f"diff-harness-selftest-{os.getpid()}.md"
+    through_link = parent_link / name
+    _assert_raises(
+        "an output path spelled through a symbolic-link parent directory",
+        ConfigurationError,
+        "outside the temporary directory",
+        lambda: _write_output(through_link, _SELF_TEST_ORIGIN),
+    )
+    named = _SYSTEM_DIRECTORY / name
+    _assert(not named.exists(), f"the refused write created {named}")
+    victim = scratch.absent("victim.md")
+    victim.write_text(_SELF_TEST_ORIGIN, encoding="utf-8")
+    final_link = scratch.absent("final_link.md")
+    final_link.symlink_to(victim)
+    _assert_raises(
+        "an output path that is itself a symbolic link",
+        ConfigurationError,
+        "is a symbolic link",
+        lambda: _write_output(final_link, "must not be written"),
+    )
+    _assert_equal(
+        victim.read_text(encoding="utf-8"),
+        _SELF_TEST_ORIGIN,
+        "the text the file a link named still holds",
+    )
+    return (
+        f"a symbolic-link parent naming {_SYSTEM_DIRECTORY} and a symbolic-link "
+        f"output path both refused, each writing nothing"
+    )
+
+
+def _case_field_map_loader_refusals(scratch: _Scratch) -> str:
+    """The field map loader refuses an alias, the merge key, a repeat and deep nesting.
+
+    Each document is written inside the private directory and loaded through
+    ``load_field_map``, so the refusal is the one a command line would return:
+    ``ConfigurationError`` carrying EXIT_CONFIGURATION. A document carrying none of the
+    four is composed by the same loader to confirm the loader still reads an ordinary
+    mapping.
+    """
+    nesting = (
+        "qa_deep: "
+        + "{a: " * (MAX_DOCUMENT_DEPTH + 8)
+        + "1"
+        + "}" * (MAX_DOCUMENT_DEPTH + 8)
+        + "\n"
+    )
+    documents = (
+        (
+            "alias_of_an_anchor.yml",
+            "record:\n  length: 32500\nqa_anchor: &qa {a: 1}\nqa_alias: *qa\n",
+            "refers to anchor '*qa'",
+        ),
+        (
+            "merge_key.yml",
+            "record:\n  length: 32500\nqa_merged:\n  <<: {a: 1}\n",
+            "uses the merge key '<<'",
+        ),
+        (
+            "duplicate_key.yml",
+            "record:\n  length: 32500\nrecord:\n  length: 32500\n",
+            "is not a YAML document this tool can read",
+        ),
+        (
+            "deep_nesting.yml",
+            nesting,
+            f"nests deeper than the accepted {MAX_DOCUMENT_DEPTH} levels",
+        ),
+    )
+    refused: list[str] = []
+    for name, text, fragment in documents:
+        path = scratch.absent(name)
+        path.write_text(text, encoding="utf-8")
+        _assert_raises(
+            f"the field map {name}",
+            ConfigurationError,
+            fragment,
+            lambda path=path: load_field_map(path),
+        )
+        refused.append(name)
+    _assert_raises(
+        "the repeated mapping key the loader itself refuses",
+        yaml.constructor.ConstructorError,
+        "duplicate key",
+        lambda: yaml.load(
+            "record:\n  length: 32500\nrecord:\n  length: 32500\n",
+            Loader=_FieldMapLoader,
+        ),
+    )
+    loaded = yaml.load(
+        "record:\n  length: 32500\nlayout:\n  header:\n    items: []\n",
+        Loader=_FieldMapLoader,
+    )
+    _assert_equal(
+        loaded,
+        {"record": {"length": 32500}, "layout": {"header": {"items": []}}},
+        "the document the loader composes when none of the four is present",
+    )
+    return (
+        f"{len(refused)} field map documents refused with {EXIT_CONFIGURATION} "
+        f"({', '.join(refused)}); an ordinary mapping is still composed"
+    )
+
+
 def _case_snapshot_symbolises_the_run_seeds() -> str:
     """Every seeded position of a snapshot carries its symbol, and no other does."""
     field_map = _self_test_field_map()
@@ -6958,6 +7511,26 @@ def run_self_test(*, quiet: bool = False, stream: Any = None) -> int:
         _run_case(
             results, out, quiet, "protected_trees_refused",
             lambda: _case_protected_trees_refused(scratch),
+        )
+        _run_case(
+            results, out, quiet, "output_roots_accepted",
+            _case_output_roots_accepted,
+        )
+        _run_case(
+            results, out, quiet, "output_outside_both_roots_refused",
+            lambda: _case_output_outside_both_roots_refused(scratch),
+        )
+        _run_case(
+            results, out, quiet, "output_inside_the_repository_refused",
+            lambda: _case_output_inside_the_repository_refused(scratch),
+        )
+        _run_case(
+            results, out, quiet, "output_symbolic_links_refused",
+            lambda: _case_output_symbolic_links_refused(scratch),
+        )
+        _run_case(
+            results, out, quiet, "field_map_loader_refusals",
+            lambda: _case_field_map_loader_refusals(scratch),
         )
         _run_case(
             results, out, quiet, "snapshot_symbolises_the_run_seeds",

@@ -1,5 +1,5 @@
 {
-  "extract_date": "2026-08-22",
+  "extract_date": "2026-08-23",
   "formal_aws_diff": "OPEN",
   "probes": {
     "redshift": {
@@ -16,7 +16,7 @@
     }
   },
   "provisioned": [],
-  "recorded_utc": "2026-08-22T22:51:49Z",
+  "recorded_utc": "2026-08-23T01:36:18Z",
   "selected_target": "local_substitute",
   "source_system_key": "GENAPP_CLASS_EXEMPLAR",
   "status_label": "validated against local substitute, not AWS"

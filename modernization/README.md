@@ -62,9 +62,10 @@ Operating rules of the boundary:
 - The three programs are never preprocessed in place. Translation writes read-only copies, with the two
   copybooks, into `harness/build/**` only.
 - [`validation/verify_readonly.sh`](validation/verify_readonly.sh) is the guard. It checks the five hashes, an
-  empty `git status --porcelain -- base/` and the absence of any tracked modification. `make all` runs it after
-  each generating stage and as the final gate; run it directly with `bash validation/verify_readonly.sh
-  --stage <name>`, and `--self-test` exercises the script itself.
+  empty `git status --porcelain -- base/`, the absence of any tracked modification outside the generated
+  evidence set, and the digest of every file of that set against the manifest of the set (§8). `make all` runs
+  it after each generating stage and as the final gate; run it directly with `bash
+  validation/verify_readonly.sh --stage <name>`, and `--self-test` exercises the script itself.
 
 ### The measured no-formula finding
 
@@ -83,49 +84,67 @@ Non-interactive, from the repository root. This is the pinned procedure:
 DEBIAN_FRONTEND=noninteractive apt-get update
 DEBIAN_FRONTEND=noninteractive apt-get install --reinstall -y \
     python3.12=3.12.3-1ubuntu0.15 python3.12-venv=3.12.3-1ubuntu0.15 \
-    gnucobol3=3.1.2-5.1ubuntu1 git=1:2.43.0-1ubuntu7.3
+    gnucobol3=3.1.2-5.1ubuntu1 git=1:2.51.0-1ubuntu1
 python3.12 -m venv --clear modernization/.venv
 . modernization/.venv/bin/activate
-python -m pip install --upgrade pip==25.3
-python -m pip install -r modernization/requirements.txt
+python -m pip install --upgrade pip==26.2.1
+python -m pip install --require-hashes -r modernization/requirements-lock.txt
 ```
 
-On the host of this checkout — Ubuntu 25.10 "questing" — the four apt pins of that block do not resolve: the
-package set carries no `python3.12` and no `python3.12-venv`, and the pinned `gnucobol3` and `git` versions are
+On the host of this checkout — Ubuntu 25.10 "questing" — three of the four apt pins of that block do not
+resolve: the package set carries no `python3.12` and no `python3.12-venv`, and the pinned `gnucobol3` version is
 absent from its archive, so the `apt-get install` line ends in the resolver with exit status 100 and installs
-nothing. *Measured state of this checkout*, below, records what this host carries instead, and `make verify-env`
-records each of these as a deviation and still passes. The `apt-get update` line and the four
-virtual-environment lines of the block run unchanged here.
+nothing; the pinned `git` version is the one this host already carries. *Measured state of this checkout*, below,
+records what this host carries instead, and `make verify-env` records each unresolved pin as a deviation and
+still passes. The `apt-get update` line and the four virtual-environment lines of the block run unchanged here.
 
-`modernization/requirements.txt` carries ten exact `==` pins: dbt-core 1.12.2, dbt-duckdb 1.11.0,
-dbt-redshift 1.11.0, duckdb 1.5.5, redshift-connector 2.1.16, boto3 1.43.74, botocore 1.43.74,
+`modernization/requirements.txt` carries ten exact `==` pins: dbt-core 1.12.3, dbt-duckdb 1.11.0,
+dbt-redshift 1.11.1, duckdb 1.5.5, redshift-connector 2.1.16, boto3 1.43.74, botocore 1.43.74,
 moto[s3,server] 5.2.2, PyYAML 6.0.3 and jsonschema 4.26.0. After installation, `pip check` reports no broken
 requirements.
+
+`modernization/requirements-lock.txt` is the reproducible install path the block above uses. It resolves those
+ten pins into every distribution the environment holds — 106 of them, direct and transitive — each at one exact
+`==` version and each carrying the SHA-256 of the artifact `pip` is allowed to install, which is what
+`--require-hashes` verifies before anything is unpacked. Two rules keep the two manifests from drifting apart,
+and `make verify-env` measures both: every direct pin of `requirements.txt` appears in the lock at the same
+version, and every entry of the lock carries at least one `sha256` digest. `requirements.txt` stays the
+human-facing manifest of the ten direct pins; installing from it alone — `python -m pip install -r
+modernization/requirements.txt` — resolves the same ten versions and leaves the transitive set to the resolver,
+without artifact verification. The recorded hashes are the wheels resolved for CPython 3.12 on linux-x86_64: on
+another interpreter version, platform or architecture, the required artifacts differ and `--require-hashes`
+refuses the install rather than installing something unverified, which is when the lock is regenerated on that
+platform from the same `requirements.txt`.
 
 Every recipe of the Makefile calls tools through explicit `.venv/bin/...` paths, and a non-interactive shell
 cannot fall back to a system interpreter. Measured facts about the interpreters of this checkout: the system
 interpreter is Python 3.13.7 at `/usr/bin/python3`, it carries `boto3` and `botocore` 1.43.78 against the pinned
 1.43.74, and `duckdb`, `moto`, `redshift-connector` and `dbt` are absent system-wide. All ten pins are installed
-inside `modernization/.venv`, whose interpreter and `pip` measure 3.12.14 and 25.3.
+inside `modernization/.venv`, whose interpreter and `pip` measure 3.12.14 and 26.2.1.
 
 ### Measured state of this checkout
 
 | Component | Pin | Measured here |
 |---|---|---|
 | operating system | Ubuntu 24.04 package set | Ubuntu 25.10; apt carries no `python3.12` package |
-| `python3.12` | 3.12.3 (`3.12.3-1ubuntu0.15`) | 3.12.14 at `/usr/local/bin/python3.12`, built from source |
-| `cobc` (GnuCOBOL) | 3.1.2.0 (`gnucobol3` 3.1.2-5.1ubuntu1) | 3.2.0 at `/usr/bin/cobc`, from `gnucobol3` 3.2-4, installed |
-| `git` | 2.43.0 (`1:2.43.0-1ubuntu7.3`) | 2.51.0 (`1:2.51.0-1ubuntu1`) |
-| `pip` | 25.3 | 25.3 in `modernization/.venv` |
+| `python3.12` | 3.12.14, minimum 3.12.14 (apt `3.12.3-1ubuntu0.15`) | 3.12.14 at `/usr/local/bin/python3.12`, built from source |
+| `cobc` (GnuCOBOL) | 3.1.2.0, minimum 3.1.2 (apt `gnucobol3` 3.1.2-5.1ubuntu1) | 3.2.0 at `/usr/bin/cobc`, from `gnucobol3` 3.2-4, installed |
+| `git` | 2.51.0, minimum 2.43.7 (apt `1:2.51.0-1ubuntu1`) | 2.51.0 (`1:2.51.0-1ubuntu1`) |
+| `pip` | 26.2.1, minimum 26.2.1 | 26.2.1 in `modernization/.venv` |
 | apt package lists | populated | populated |
 | the ten Python pins | see `requirements.txt` | each installed at its exact pin in `modernization/.venv` |
+| the hash-pinned lock | 106 distributions in `requirements-lock.txt` | every direct pin present at the same version, every entry carrying a `sha256` |
 
 `make verify-env` measures every value above and writes `validation/artifacts/verify-env.txt`. A missing tool,
-an interpreter or compiler outside the accepted series, and any package version other than its pin each end the
-run at the first such finding, with the pinned and the measured value named. A tool version inside the accepted
-series that differs from its pin is recorded as a deviation and the stage passes; this checkout records seven
-deviations (`python3.12`, `cobc`, `git` and four apt package pins) and passes. Setting
-`HARNESS_STRICT_TOOL_VERSIONS` makes a deviation end the run as well. `verify-env` installs nothing.
+an interpreter or compiler outside the accepted series, a tool below the minimum recorded for it, a package
+version other than its pin, a direct pin the lock does not carry at the same version and a lock entry with no
+`sha256` each end the run at the first such finding, with the pinned and the measured value named. The four
+minimums are the versions below which a known vulnerability applies — `python3.12` 3.12.14, `cobc` 3.1.2, `git`
+2.43.7 and `pip` 26.2.1 — so a tool inside its series but below its minimum is fatal rather than a deviation. A
+tool version at or above its minimum that differs from its pin is recorded as a deviation and the stage passes;
+this checkout records four deviations (`cobc`, measured 3.2.0 above its pin, and the three apt package pins that
+do not resolve on this host) and passes. Setting `HARNESS_STRICT_TOOL_VERSIONS` makes a deviation end the run as
+well. `verify-env` installs nothing.
 
 ## 4. The `make` workflow
 
@@ -144,7 +163,7 @@ branch, `make land` and `make load` each end the run naming the missing setting 
 
 | Target | What it does |
 |---|---|
-| `verify-env` | Measures `python3.12`, `cobc`, `git`, the virtual environment, `pip` and every pin of `requirements.txt`, and writes `validation/artifacts/verify-env.txt`. Installs nothing. |
+| `verify-env` | Measures `python3.12`, `cobc`, `git`, the virtual environment, `pip`, every pin of `requirements.txt` and the agreement of `requirements-lock.txt` with those pins, and writes `validation/artifacts/verify-env.txt`. Installs nothing. |
 | `gate` | Runs the two real-target probes, selects `redshift` when both pass and `local_substitute` otherwise, and records the selection and probe results in `validation/artifacts/gate-selection.json`, which `land`, `load`, `dbt` and `diff` read. Provisions nothing. |
 | `translate` | Writes the two 32,500-character sample records and translates read-only copies of the three programs, with the two verbatim copybooks, into `harness/build`. |
 | `compile` | Compiles the three translated programs and the twelve stubs as callable modules and `harness/driver.cbl` as an executable, keeping the compiler output including warnings in `validation/artifacts/compile-modules.log`. |
@@ -154,13 +173,24 @@ branch, `make land` and `make load` each end the run naming the missing setting 
 | `load` | Loads the landed object of the case named by `CASE`, at that same part number, into `raw.genapp_policy_issue`. The only target-specific stage; it edits no dbt model file. |
 | `dbt` | Cleans the dbt project, then runs and tests it against the selected target, keeping the output under `validation/artifacts`. |
 | `diff` | Compares the harness captures of both cases with the two canonical rows and writes `validation/artifacts/diff-report.md` and `diff-report.json`. |
-| `verify-readonly` | Runs `validation/verify_readonly.sh` for the stage named by `STAGE`: the five source hashes, an empty `git status --porcelain -- base/` and no tracked modification. |
+| `verify-readonly` | Runs `validation/verify_readonly.sh` for the stage named by `STAGE`: the five source hashes, an empty `git status --porcelain -- base/`, no tracked modification outside the generated evidence set, and every generated evidence file of that set matching the digest `validation/artifacts/evidence-manifest.sha256` states for it (§8). |
 | `all` | Runs every stage above in the recorded order and stops at the first failure. |
 | `local-endpoint` | Optional, local-substitute branch only, and no stage of `all`: starts the pinned `moto` server of the virtual environment at `S3_ENDPOINT_URL` when nothing answers there, keeping its log under `harness/build/logs`, then creates the bucket named by `S3_BUCKET` when that bucket is absent. Both settings are required; the endpoint has to be a loopback `http://` URL on a port of 1024 or above, and a non-loopback endpoint or a `DBT_TARGET` of `redshift` ends the run. Re-running it changes nothing once the endpoint answers and the bucket exists, and it provisions nothing on AWS. |
 
 Overridable variables: `CASE`, `CASES`, `CASES_MODE`, `SOURCE_SYSTEM_KEY`, `EXTRACT_DATE`, `STAGE`, `COBC`,
-`DBT_TARGET`, `DBT_PROFILES_DIR`, `HARNESS_STRICT_TOOL_VERSIONS`. Connection settings are read from the
-environment alone (§5). No recipe is interactive, none installs a package and none provisions an AWS resource.
+`COBFLAGS`, `DBT_TARGET`, `DBT_PROFILES_DIR`, `HARNESS_STRICT_TOOL_VERSIONS`. Connection settings are read from
+the environment alone (§5). No recipe is interactive, none installs a package and none provisions an AWS
+resource.
+
+Each of those values is measured before any recipe runs, whether it arrives on the command line or from the
+environment. `DBT_TARGET` carries `local_substitute`, `redshift` or nothing. Every other one accepts letters,
+digits, `_`, `.`, `/` and `-`, one word each — the case list `CASES` accepts several words, and `COBFLAGS`
+accepts several words and `=` inside an option. A value carrying whitespace, a line feed, a dollar sign, a
+quote, a semicolon or any other shell metacharacter ends the invocation of every target, naming the variable,
+the value and what is accepted, so no such value reaches a shell; the values that a recipe does carry into a
+command are quoted where it carries them. `DBT_PROFILES_DIR=/tmp/dbt_profiles_clone1 make -C modernization dbt`
+is therefore accepted and reaches dbt as one quoted directory, and
+`DBT_PROFILES_DIR='/tmp; touch /tmp/marker'` is refused before the first recipe line of any target runs.
 
 `CASES_MODE` selects what the `execute` stage runs. It accepts two values and refuses any other, naming both:
 
@@ -219,6 +249,15 @@ identity seed of the first case — parallel checkouts of this repository each t
 ```bash
 HARNESS_POLICY_NUMBER=1000101 make -C modernization all
 ```
+
+A run holds an exclusive lock on the harness build tree, so two runs in one checkout serialise instead of
+overwriting each other. `HARNESS_LOCK_WAIT_SECONDS` is the control that changes how long a run waits for that
+lock: a whole number of seconds from 1 to 3600, 300 by default, and any other value ends the run in its
+preflight naming the value and the range. The names the script assigns itself carry nothing into a run —
+`HARNESS_LOCK_WAIT`, `HARNESS_LOCK_WAIT_DEFAULT` and `HARNESS_LOCK_WAIT_MAX` among them — and exporting one is
+never silently absorbed: a well-formed value is reported as a deviation naming the value ignored and the control
+that governs instead, and a malformed value of one of those three seconds names ends the run in the preflight
+exactly as the control would. `bash harness/run_harness.sh --help` lists every name of that kind.
 
 The per-case capture snapshots under `validation/expected/` are **seed-independent**. Each records the run's
 assigned identity and timestamp as a symbol — `<policy-number:10>` where the ten-digit `CA-POLICY-NUM` form
@@ -303,8 +342,9 @@ The template that resolves these is [`dbt/genapp_rqi/profiles.example.yml`](dbt/
 Copy it unchanged to `profiles.yml` in the directory dbt reads profiles from; the copy needs no edit and carries
 no credential. That directory is `~/.dbt` by default, and dbt ends the run with `Invalid value for
 '--profiles-dir': Path '<home>/.dbt' does not exist` when it is not there; `DBT_PROFILES_DIR` names a different
-directory instead, and the `dbt` target passes the directory it names on to dbt. Do not create a `profiles.yml`
-inside this repository tree.
+directory instead, and the `dbt` target passes the directory it names on to dbt, as one quoted argument and
+only after the value has passed the caller-value grammar of §4. Do not create a `profiles.yml` inside this
+repository tree.
 
 ### 5.1 Local-substitute prerequisites
 
@@ -413,7 +453,7 @@ ordinary run returns. These are the case counts measured in this checkout:
 
 | Command | Cases |
 |---|---:|
-| `bash validation/verify_readonly.sh --self-test` | 52 |
+| `bash validation/verify_readonly.sh --self-test` | 61 |
 | `.venv/bin/python extraction/build_sample_commarea.py --self-test` | 114 |
 | `.venv/bin/python extraction/extract_commarea.py --self-test` | 213 |
 | `.venv/bin/python harness/translate.py --self-test` | 93 |
@@ -461,3 +501,31 @@ These paths are produced by a stage that owns them and are ignored by `moderniza
 `validation/expected/` and `validation/artifacts/` are generated **evidence that is tracked**: capture
 snapshots, compile and execution logs, gate and version reports, and the diff report are committed as the
 record of the executed run.
+
+### The generated evidence set and its manifest
+
+A file under `validation/artifacts/` is rewritten by the run of the stage that produces it, so its content
+cannot be compared with `HEAD`: `validation/verify_readonly.sh` exempts twenty-three exact paths there from its
+tracked-modification check for that reason. Those paths carry the decisions of a run — the diff report, the
+recorded gate selection with the disposition of the formal AWS diff, the version report, the probe logs, the
+compiler and harness output, the three dbt logs and the twelve files a harness run publishes — so the same
+script measures their content instead, against `validation/artifacts/evidence-manifest.sha256`:
+
+- the manifest carries one `sha256sum` line per exempt path except itself, twenty-two of them when every stage
+  has run, under the name each file stands at inside `validation/artifacts/`;
+- `harness/run_harness.sh` writes it for the eleven files that run publishes and hashes every other exempt file
+  standing beside them where it stands, without publishing or removing one of them;
+- every later stage that rewrites an exempt artifact refreshes its own entries immediately afterwards, through
+  `bash validation/verify_readonly.sh --record-evidence <repository-relative path>...`, which rewrites the named
+  entries and leaves every other line byte-identical, so one stage cannot silence the coverage of another;
+- every `verify-readonly` run, the four the harness runs itself included, fails with exit status 6 when a
+  covered file does not match its digest, when an exempt file stands with no entry, when the manifest names
+  anything outside the exempt set or when it is absent while exempt files stand. The path is named in the
+  evidence block and on `stderr`. `runtime-versions.txt` stands outside this set: it is tracked and compared by
+  `git` like every other file of the tree.
+
+Two consequences are worth stating. A checkout whose manifest predates this coverage — one covering the eleven
+published files alone — fails that gate naming each uncovered path; recording exactly the paths it names, with
+the `--record-evidence` line above, establishes coverage in one step, and every stage keeps it current from
+there. And a manifest cannot hash itself: an attacker who rewrites a covered artifact **and** its manifest entry
+is not detected by this gate, and the `git` history of the manifest is what carries that case.

@@ -7,20 +7,30 @@
 #   column and the transformation applied on the way to the warehouse.
 #
 # HOW IT IS USED
-#   Loaded with a yaml.SafeLoader that rejects a repeated mapping key, a key it cannot compare,
-#   an alias and the merge key. modernization/extraction/build_sample_commarea.py reads the
-#   record, layout, field, routing and sample contract sections, and
-#   modernization/harness/run_harness.sh passes it that path on every run.
-#   modernization/extraction/extract_commarea.py reads the record, layout, field, routing,
-#   excluded, landing, comparison and product premium nullability sections, plus the
-#   source_system_key section, to decode one post-chain record into the landing record.
-#   The two tools listed under `current_consumers` read this file at run time. The artifacts
-#   listed under `derived_artifacts` stand in the tree and carry the layout, typing and lineage
-#   facts of this file in their authored text; each was authored from it and none of them reads
-#   it. The four artifacts under `planned_consumers` all stand in the tree and carry the same
-#   facts: three state them as prose and modernization/validation/diff_harness_vs_warehouse.py
-#   reads this file at run time. Byte layout is expressed only as `offset`, `length` and `pic`
-#   values.
+#   Three tools read this file at run time, and each one loads it with a yaml.SafeLoader
+#   subclass that rejects a repeated mapping key, a key it cannot compare, an alias, the merge
+#   key `<<` and nesting deeper than 32 containers, after a single bounded read of at most
+#   1 MiB. The three refuse those documents with their own error type and exit status:
+#   build_sample_commarea.py and extract_commarea.py return 3 and
+#   diff_harness_vs_warehouse.py returns 4.
+#     - modernization/extraction/build_sample_commarea.py reads the record, layout,
+#       length_constants, counts, fields, request_routing, supported_request_ids,
+#       supported_samples and sample_definition_contract sections to emit one 32,500-character
+#       sample record, and modernization/harness/run_harness.sh passes it that path on every
+#       run.
+#     - modernization/extraction/extract_commarea.py reads the record, layout, fields,
+#       request_routing, excluded, landing, comparison, return_codes and
+#       product_premium_nullability sections, plus the source_system_key section, to decode one
+#       post-chain record into the landing record.
+#     - modernization/validation/diff_harness_vs_warehouse.py reads the record, layout, fields,
+#       targets, request_routing, supported_request_ids, return_codes, comparison and
+#       product_premium_nullability sections, plus the source_system_key section, to compare the
+#       harness captures with the two canonical rows.
+#   Those three tools are the `current_consumers` list below. The artifacts listed under
+#   `derived_artifacts` stand in the tree and carry the layout, typing and lineage facts of this
+#   file in their authored text; each was authored from it and none of them reads it. The three
+#   artifacts under `planned_consumers` stand in the tree as well and state the same facts as
+#   prose. Byte layout is expressed only as `offset`, `length` and `pic` values.
 #
 # EVIDENCE BOUNDARY
 #   Every locator in this file resolves to one of the five authorised source artifacts:
@@ -2188,6 +2198,7 @@ counts:
 current_consumers:
   - modernization/extraction/build_sample_commarea.py
   - modernization/extraction/extract_commarea.py
+  - modernization/validation/diff_harness_vs_warehouse.py
 
 derived_artifacts:
   - modernization/landing/landing-schema.json
@@ -2202,7 +2213,6 @@ planned_consumers:
   - modernization/extraction/extraction-spec.md
   - modernization/docs/field-level-lineage.md
   - modernization/docs/traceability-matrix.md
-  - modernization/validation/diff_harness_vs_warehouse.py
 
 # Shape of the sample definition documents under modernization/extraction/sample_input/.
 sample_definition_contract:

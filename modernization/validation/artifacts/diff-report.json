@@ -2348,7 +2348,7 @@
     "note": "read opportunistically; the target recorded below is the one used",
     "target_named": "redshift"
   },
-  "generated_at": "2026-08-22T22:52:21Z",
+  "generated_at": "2026-08-23T00:15:47Z",
   "python_version": "3.12.14",
   "requested_cases": [
     "01AMOT",
@@ -2387,9 +2387,9 @@
       "command": "test",
       "dbt_target": "local_substitute",
       "dbt_version": "1.12.2",
-      "elapsed_time": "1.438537359237671",
-      "generated_at": "2026-08-22T22:52:20.810327Z",
-      "invocation_id": "b66a1492-202c-491b-b88f-a91b855f4fd2",
+      "elapsed_time": "1.5259580612182617",
+      "generated_at": "2026-08-23T00:15:47.067148Z",
+      "invocation_id": "59421fdb-904b-4607-a321-e4ccf279b702",
       "schema_version": "https://schemas.getdbt.com/dbt/run-results/v6.json"
     },
     "nodes": {

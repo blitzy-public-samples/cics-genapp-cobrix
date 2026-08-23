@@ -1,6 +1,7 @@
 # Exact direct dependency pins for the GenApp canonical-warehouse bridge.
-# Scope: direct dependencies only; transitive versions are resolved by pip, subject to
-# the transitive security exception named below.
+# Scope: direct dependencies only. Transitive versions are resolved by pip here and are
+# pinned with artifact hashes in modernization/requirements-lock.txt, the reproducible
+# install path; this file stays the human-facing direct-pin manifest.
 # Install into modernization/.venv (Python 3.12) and invoke tools through .venv/bin/... .
 # Consumers authored under modernization/: the extraction tools, the landing writer and
 # local loader, the harness translator, the comparison gate
@@ -8,14 +9,14 @@
 # and the dbt project. These pins are recorded in modernization/docs/decision-log.md
 # and modernization/docs/traceability-matrix.md.
 #
-# Transitive security exception, sqlparse: modernization/docs/decision-log.md, row D-75.
+# Transitive dependency security: modernization/docs/decision-log.md, row D-118.
 #
 # dbt model execution and contracts
-dbt-core==1.12.2
+dbt-core==1.12.3
 # local warehouse adapter (local-substitute branch)
 dbt-duckdb==1.11.0
 # real warehouse adapter (AWS branch)
-dbt-redshift==1.11.0
+dbt-redshift==1.11.1
 # local raw load, query and diff access
 duckdb==1.5.5
 # real-target validation queries

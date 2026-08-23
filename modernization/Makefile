@@ -11,12 +11,14 @@
 #
 # Targets:
 #   verify-env       Measures python3.12, cobc, git, the virtual environment, pip and
-#                    every pin of requirements.txt, and writes
-#                    validation/artifacts/verify-env.txt. A missing tool, an
-#                    interpreter or compiler outside the accepted series, and any
-#                    package version other than its pin, each end the run at the first
-#                    such finding with the pinned and the measured value named. A tool
-#                    version inside the accepted series that differs from its pin is
+#                    every pin of requirements.txt, checks requirements-lock.txt against
+#                    those pins, and writes validation/artifacts/verify-env.txt. A
+#                    missing tool, an interpreter or compiler outside the accepted
+#                    series, a tool below the security minimum recorded for it, a lock
+#                    entry that does not match a pin or carries no hash, and any package
+#                    version other than its pin, each end the run at the first such
+#                    finding with the pinned and the measured value named. A tool
+#                    version at or above its minimum that differs from its pin is
 #                    recorded as a deviation, and HARNESS_STRICT_TOOL_VERSIONS makes a
 #                    deviation end the run as well. It installs nothing.
 #   gate             Runs the two real-target probes of landing/land_to_s3.py, selects
@@ -64,9 +66,15 @@
 #                    rows and writes validation/artifacts/diff-report.md and
 #                    diff-report.json.
 #   verify-readonly  Runs validation/verify_readonly.sh for the stage named by STAGE:
-#                    the five source hashes, an empty "git status --porcelain -- base/"
-#                    and no tracked modification outside the generated evidence the
-#                    script exempts.
+#                    the five source hashes, an empty "git status --porcelain -- base/",
+#                    no tracked modification outside the generated evidence the script
+#                    exempts, and every exempt generated evidence file standing under
+#                    validation/artifacts matching the digest
+#                    validation/artifacts/evidence-manifest.sha256 states for it. Every
+#                    stage above that rewrites one of those exempt artifacts refreshes
+#                    its manifest entry immediately afterwards, through
+#                    "validation/verify_readonly.sh --record-evidence <path>...", so the
+#                    content git cannot compare is measured rather than assumed.
 #   all              Runs every stage above in the order this file records and stops at
 #                    the first failure.
 #   local-endpoint   Optional, and outside the order all runs: brings up the
@@ -83,6 +91,14 @@
 # EXTRACT_DATE, STAGE, COBC, DBT_TARGET, DBT_PROFILES_DIR,
 # HARNESS_STRICT_TOOL_VERSIONS. DBT_TARGET carries local_substitute, redshift or an
 # empty value, and any other value ends the invocation naming it before a recipe runs.
+# Every other value above that this file carries into a recipe - CASE, CASES,
+# CASES_MODE, SOURCE_SYSTEM_KEY, EXTRACT_DATE, STAGE, COBC and DBT_PROFILES_DIR, and
+# the compiler option list COBFLAGS - is measured before any recipe runs as well:
+# letters, digits, "_", ".", "/" and "-" are accepted, one word for each of them except
+# the case list and the option list, and "=" additionally inside an option. A value
+# carrying whitespace, a line feed, a dollar sign or any other shell metacharacter ends
+# the invocation of every target naming the variable, the value and what is accepted, so
+# no such value reaches a shell; each one is quoted where a recipe carries it as well.
 # Connection settings - AWS credentials, AWS_REGION, S3_BUCKET, S3_ENDPOINT_URL, the
 # REDSHIFT_* settings and REDSHIFT_IAM_ROLE - are read from the environment alone. No
 # credential, bucket, host, role or password value is written into this file, and no
@@ -127,23 +143,50 @@ ABS_PY := $(PROJECT_DIR)/$(PY)
 COBC := cobc
 COBFLAGS := -std=ibm -fbinary-truncate -ffold-copy=LOWER -ext cpy
 
-# Pinned runtime and package versions verify-env measures against.
-PYTHON_PIN := 3.12.3
+# Pinned runtime and package versions verify-env measures against, each with the lowest
+# release of its accepted series that carries every security fix published for that
+# series at the time of this measurement. A measured version below its minimum ends the
+# run; a version at or above it that differs from the pin is recorded as a deviation.
+# The minima are the security contract and the pins are the reproducibility contract:
+#   python 3.12.14  carries the 3.12.4 through 3.12.14 security releases
+#   git 2.43.7      carries the batch fixing CVE-2026-27613, CVE-2026-27614,
+#                   CVE-2026-46334, CVE-2026-46835, CVE-2026-48384, CVE-2026-48385
+#                   and CVE-2026-48386
+#   pip 26.2.1      carries the fixes for CVE-2026-1703, CVE-2026-3219, CVE-2026-6357,
+#                   CVE-2026-8643 and CVE-2026-13346
+#   cobc 3.1.2      the published cobc advisories are of the 2.2 branch and are resolved
+#                   throughout the 3 series, so the floor stays at the series entry
+# PYTHON_APT_UPSTREAM is the interpreter release the python3.12 package of the apt pin
+# reports; it stands below PYTHON_MINIMUM, and the remediation line names both.
+PYTHON_PIN := 3.12.14
 PYTHON_SERIES := 3.12
+PYTHON_MINIMUM := 3.12.14
+PYTHON_APT_UPSTREAM := 3.12.3
 COBC_PIN := 3.1.2.0
 COBC_SERIES := 3
 COBC_MINIMUM := 3.1.2
-GIT_PIN := 2.43.0
+GIT_PIN := 2.51.0
 GIT_SERIES := 2
-PIP_PIN := 25.3
+GIT_MINIMUM := 2.43.7
+PIP_PIN := 26.2.1
+PIP_MINIMUM := 26.2.1
 APT_PIN_PYTHON := 3.12.3-1ubuntu0.15
 APT_PIN_PYTHON_VENV := 3.12.3-1ubuntu0.15
 APT_PIN_GNUCOBOL := 3.1.2-5.1ubuntu1
-APT_PIN_GIT := 1:2.43.0-1ubuntu7.3
+APT_PIN_GIT := 1:2.51.0-1ubuntu1
 
-# Remediation lines verify-env prints beside a finding it cannot clear itself.
-APT_REMEDIATION := DEBIAN_FRONTEND=noninteractive apt-get update, then DEBIAN_FRONTEND=noninteractive apt-get install --reinstall -y python3.12=$(APT_PIN_PYTHON) python3.12-venv=$(APT_PIN_PYTHON_VENV) gnucobol3=$(APT_PIN_GNUCOBOL) git=$(APT_PIN_GIT); README.md records the whole procedure
-VENV_REMEDIATION := python3.12 -m venv --clear $(VENV), then $(PY) -m pip install --upgrade pip==$(PIP_PIN), then $(PY) -m pip install -r requirements.txt; README.md records the whole procedure
+# Remediation lines verify-env prints beside a finding it cannot clear itself. The
+# python3.12 packages of the apt line install $(PYTHON_APT_UPSTREAM), which is below
+# $(PYTHON_MINIMUM), so the interpreter line names the release the floor requires beside
+# them.
+APT_REMEDIATION := DEBIAN_FRONTEND=noninteractive apt-get update, then DEBIAN_FRONTEND=noninteractive apt-get install --reinstall -y python3.12=$(APT_PIN_PYTHON) python3.12-venv=$(APT_PIN_PYTHON_VENV) gnucobol3=$(APT_PIN_GNUCOBOL) git=$(APT_PIN_GIT); those python3.12 packages report $(PYTHON_APT_UPSTREAM), below the accepted minimum $(PYTHON_MINIMUM), so provide a $(PYTHON_MINIMUM) or later 3.12 interpreter on PATH as well; README.md records the whole procedure
+VENV_REMEDIATION := python3.12 -m venv --clear $(VENV), then $(PY) -m pip install --upgrade pip==$(PIP_PIN), then $(PY) -m pip install --require-hashes -r $(REQUIREMENTS_LOCK) for the hash-pinned set, or $(PY) -m pip install -r requirements.txt to resolve the direct pins; README.md records the whole procedure
+
+# The two dependency manifests: the direct pins a reader maintains, and the hash-pinned
+# resolution of every distribution those pins install, which verify-env measures against
+# them and which the reproducible install path reads.
+REQUIREMENTS_LOCK := requirements-lock.txt
+LOCK_REMEDIATION := generate it from requirements.txt with a pip resolution report, as the header of $(REQUIREMENTS_LOCK) records, and install with $(PY) -m pip install --require-hashes -r $(REQUIREMENTS_LOCK); README.md records the whole procedure
 
 # Generated directories, in the relative form the recipes are written in and in the
 # absolute form the tools receive as arguments.
@@ -174,6 +217,61 @@ project directory $(PROJECT_DIR)))
 # The generated directories, measured now so no recipe can write outside the project.
 $(foreach generated_path,BUILD ARTIFACTS EXPECTED COMPILE_DIR ABS_BUILD ABS_ARTIFACTS ABS_EXPECTED,$(call check_generated_path,$(generated_path)))
 
+# Shape of every caller-supplied value this file carries into a recipe. A value the
+# environment or the command line supplies reaches a recipe as shell text, so each one
+# is measured here, before any recipe runs, against the characters below and against a
+# word count; a value carrying anything else ends the invocation of every target naming
+# the variable, the value and what is accepted. The recipes quote each of these values
+# as well, so the two controls hold independently.
+#
+# CALLER_DOLLAR holds one dollar sign, which is what a value carrying a dollar that
+# survived this file's own expansion is measured against: such a value would reach the
+# shell as a substitution rather than as text, and no accepted value carries one.
+CALLER_DOLLAR := $$
+CALLER_ACCEPTED_CHARACTERS := A B C D E F G H I J K L M N O P Q R S T U V W X Y Z \
+    a b c d e f g h i j k l m n o p q r s t u v w x y z \
+    0 1 2 3 4 5 6 7 8 9 _ . / -
+CALLER_ACCEPTED_TEXT := letters, digits, "_", ".", "/" and "-"
+
+# The compiler option list additionally carries "=" and more than one word.
+FLAG_ACCEPTED_CHARACTERS := $(CALLER_ACCEPTED_CHARACTERS) =
+FLAG_ACCEPTED_TEXT := $(CALLER_ACCEPTED_TEXT), and "=" between an option and its value
+
+# What is left of one value once every accepted character has been removed from it.
+# $(1) names the variable, so a value carrying a comma is measured whole, and $(2)
+# holds the accepted characters. The removal runs one accepted character at a time
+# over an immediately expanded copy, and the result is stripped, so a value made of
+# accepted characters and word separators alone measures empty. The dollar check runs
+# before this, because a surviving dollar would be expanded again by the copy.
+caller_value_residue = $(strip \
+    $(eval __caller_residue := $(strip $($(1))))\
+    $(foreach character,$(2),\
+        $(eval __caller_residue := $$(subst $(character),,$(__caller_residue))))\
+    $(__caller_residue))
+
+# Measures the characters of one caller value. An empty value is accepted, and is what
+# an unset optional variable carries.
+check_caller_characters = $(if $(strip $($(1))),\
+    $(if $(findstring $(CALLER_DOLLAR),$($(1))),\
+        $(error $(1) is set to "$($(1))", which carries a dollar sign; this file \
+accepts $(3) in that value, so it reaches a recipe as text rather than as a shell \
+substitution),\
+        $(if $(call caller_value_residue,$(1),$(2)),\
+            $(error $(1) is set to "$($(1))", which carries \
+"$(call caller_value_residue,$(1),$(2))"; this file accepts $(3) in that value, so it \
+reaches a recipe as text rather than as shell syntax))),)
+
+# One word made of the accepted characters. Every documented override that reaches a
+# recipe as a single value is measured by this.
+check_caller_word = $(call check_caller_characters,$(1),$(CALLER_ACCEPTED_CHARACTERS),$(CALLER_ACCEPTED_TEXT))\
+$(if $(filter-out 0 1,$(words $(strip $($(1))))),\
+    $(error $(1) is set to "$($(1))", which holds $(words $(strip $($(1)))) words; \
+this file carries that value into a recipe as one word, so whitespace in it, a line \
+feed included, is refused))
+
+# A word list, each word made of the accepted characters $(2) names.
+check_caller_words = $(call check_caller_characters,$(1),$(2),$(3))
+
 # Authored inputs the recipes name.
 FIELD_MAP := $(PROJECT_DIR)/extraction/copybook_field_map.yml
 SAMPLE_INPUT := $(PROJECT_DIR)/extraction/sample_input
@@ -199,6 +297,24 @@ DBT_TEST_LOG := $(ARTIFACTS)/dbt-test.log
 DIFF_REPORT := $(ABS_ARTIFACTS)/diff-report.md
 DIFF_JSON := $(ABS_ARTIFACTS)/diff-report.json
 LOCAL_DUCKDB := $(PROJECT_DIR)/validation/local.duckdb
+
+# Output of the harness, written under the generated log directory while that run is in
+# flight and published to $(EXECUTE_LOG) once it has finished. The harness runs the
+# read-only gate four times during its own run, and that gate measures every published
+# generated evidence file against the manifest of its set: writing the artifact in place
+# would hand those gates a file that is still being appended to.
+HARNESS_OUTPUT_LOG := $(BUILD)/logs/execute-harness.log
+
+# Manifest refresh of the generated evidence set. Gate C of validation/verify_readonly.sh
+# exempts twenty-three exact paths under $(ARTIFACTS) from its tracked-modification check,
+# because the run of the stage that produces one rewrites it; its gate D measures the
+# content of those files against $(ARTIFACTS)/evidence-manifest.sha256 instead. A stage
+# that rewrites one of them therefore records its new digest here, immediately after
+# writing it, so that manifest is never stale and no artifact of one stage is silenced by
+# another. The paths are repository-relative, which is what that option accepts, and only
+# the named entries change.
+EVIDENCE_REL := modernization/$(ARTIFACTS)
+record_evidence = bash validation/verify_readonly.sh --record-evidence $(foreach evidence_name,$(1),'$(EVIDENCE_REL)/$(evidence_name)')
 
 # The generated files and the dbt project directory dbt clean, run and test write under,
 # measured by the same containment check as the generated directories above.
@@ -255,7 +371,7 @@ COPIED_SOURCES := lgapol01.cbl lgapdb01.cbl lgapvs01.cbl lgcmarea.cpy lgpolicy.c
 # address.
 DBT_PROFILES_DIR ?=
 DBT_TARGET ?=
-DBT_PROFILES_FLAG := $(if $(strip $(DBT_PROFILES_DIR)),--profiles-dir $(strip $(DBT_PROFILES_DIR)),)
+DBT_PROFILES_FLAG := $(if $(strip $(DBT_PROFILES_DIR)),--profiles-dir '$(strip $(DBT_PROFILES_DIR))',)
 
 # The target names a caller may ask for, measured before any recipe runs so a value this
 # file does not carry ends the invocation of every target rather than resolving to a
@@ -267,6 +383,17 @@ DBT_TARGET_REFUSED := $(strip $(filter-out $(DBT_TARGET_ACCEPTED),$(DBT_TARGET_N
 ifneq ($(DBT_TARGET_REFUSED),)
 $(error DBT_TARGET is set to "$(DBT_TARGET)", and this file accepts one of local_substitute or redshift, or an empty value; the gate records the target every stage addresses, in $(GATE_SELECTION))
 endif
+
+# Every other caller-supplied value this file carries into a recipe, measured now
+# against the shape above so a value carrying shell syntax ends the invocation of every
+# target rather than reaching a recipe. DBT_TARGET is measured by the accepted-name
+# check above instead, and HARNESS_STRICT_TOOL_VERSIONS is read by the verify-env recipe
+# through the shell alone and is never interpolated by this file. COBC and COBFLAGS
+# compose the compiler command, so each word of the option list is measured with "="
+# accepted between an option and its value.
+$(foreach caller_value,DBT_PROFILES_DIR CASE CASES_MODE SOURCE_SYSTEM_KEY EXTRACT_DATE STAGE COBC,$(call check_caller_word,$(caller_value)))
+$(call check_caller_words,CASES,$(CALLER_ACCEPTED_CHARACTERS),$(CALLER_ACCEPTED_TEXT))
+$(call check_caller_words,COBFLAGS,$(FLAG_ACCEPTED_CHARACTERS),$(FLAG_ACCEPTED_TEXT))
 
 # Whether the caller asked for the real target by name, which makes a probe that does
 # not pass a gate failure.
@@ -351,10 +478,15 @@ require_capture_line() {
 endef
 
 # Confirms every pin of requirements.txt is installed at that exact version in the
-# interpreter running this program, and prints one report line per distribution. The
-# interpreter is named relative to the repository root of the fourth argument while it
-# stands inside that root, and by its absolute path otherwise, so a report of an
-# in-checkout interpreter carries the same text in every checkout.
+# interpreter running this program, confirms the hash-pinned lock of the fifth argument
+# carries every one of those pins at that same version and a sha256 digest for every
+# entry it holds, and prints one report line per distribution. The lock is the
+# reproducible install path, so a lock that has drifted from the manifest, an entry of it
+# that is not an exact pin and an entry of it that carries no digest each end this
+# program with the entry named. The interpreter is named relative to the repository root
+# of the fourth argument while it stands inside that root, and by its absolute path
+# otherwise, so a report of an in-checkout interpreter carries the same text in every
+# checkout.
 define PIN_CHECK_PROGRAM
 import os
 import re
@@ -363,10 +495,55 @@ from importlib import metadata
 
 requirements_path, pip_pin, pip_measured = sys.argv[1], sys.argv[2], sys.argv[3]
 repository_root = os.path.join(os.path.abspath(sys.argv[4]), "")
+lock_path = sys.argv[5]
 interpreter = os.path.abspath(sys.executable)
 if interpreter.startswith(repository_root):
     interpreter = os.path.relpath(interpreter, repository_root)
 pin_pattern = re.compile(r"([A-Za-z0-9._-]+)(\[[^\]]*\])?==([^\s#]+)")
+hash_pattern = re.compile(r"--hash=sha256:[0-9a-f]{64}")
+
+
+def project_name(name):
+    """Return the comparison form of one distribution name (PEP 503)."""
+    return re.sub(r"[-_.]+", "-", name).lower()
+
+
+def lock_entries(path):
+    """Return {name: (version, digests)} of one hash-pinned lock file.
+
+    Continuation backslashes join an entry with its digest lines, so one entry is
+    measured whole however it is wrapped.
+    """
+    with open(path, encoding="utf-8") as handle:
+        body = handle.read()
+    body = body.replace("\\\n", " ")
+    entries = {}
+    for line in body.splitlines():
+        entry = line.strip()
+        if not entry or entry.startswith("#"):
+            continue
+        head = entry.split()[0]
+        match = pin_pattern.fullmatch(head)
+        if match is None:
+            sys.stderr.write(
+                "verify-env: FATAL %s carries the entry %r, which is not an exact pin\n"
+                % (path, head)
+            )
+            raise SystemExit(1)
+        digests = hash_pattern.findall(entry)
+        if not digests:
+            sys.stderr.write(
+                "verify-env: FATAL %s pins %s==%s with no sha256 digest, so an install "
+                "of it cannot be verified\n" % (path, match.group(1), match.group(3))
+            )
+            raise SystemExit(1)
+        entries[project_name(match.group(1))] = (match.group(3), len(digests))
+    if not entries:
+        sys.stderr.write("verify-env: FATAL %s declares no pin\n" % path)
+        raise SystemExit(1)
+    return entries
+
+
 pins = []
 with open(requirements_path, encoding="utf-8") as handle:
     for line in handle:
@@ -384,10 +561,27 @@ with open(requirements_path, encoding="utf-8") as handle:
 if not pins:
     sys.stderr.write("verify-env: FATAL %s declares no pin\n" % requirements_path)
     raise SystemExit(1)
+locked = lock_entries(lock_path)
+for name, pinned in pins:
+    entry = locked.get(project_name(name))
+    if entry is None:
+        sys.stderr.write(
+            "verify-env: FATAL %s pins %s==%s, and %s carries no entry for it\n"
+            % (requirements_path, name, pinned, lock_path)
+        )
+        raise SystemExit(1)
+    if entry[0] != pinned:
+        sys.stderr.write(
+            "verify-env: FATAL %s pins %s==%s, and %s locks it at %s\n"
+            % (requirements_path, name, pinned, lock_path, entry[0])
+        )
+        raise SystemExit(1)
 lines = [
     "interpreter: %s" % interpreter,
     "interpreter version: %s" % sys.version.split()[0],
     "pip: pinned %s measured %s" % (pip_pin, pip_measured),
+    "lock: %s carries %d hash-pinned distributions, covering all %d direct pins"
+    % (lock_path, len(locked), len(pins)),
 ]
 for name, pinned in pins:
     try:
@@ -1095,32 +1289,40 @@ verify-env:
 	}
 	say "verify-env report of $(PROJECT_REL) in this checkout"
 	say "strict tool versions: $$strict, from HARNESS_STRICT_TOOL_VERSIONS"
+	lowest_of() {
+	  printf '%s\n%s\n' "$$1" "$$2" | sort -V | head -n 1
+	}
 	command -v python3.12 > /dev/null 2>&1 || fail 'python3.12 is not on PATH' '$(APT_REMEDIATION)'
 	measured_python="$$(python3.12 --version 2>&1 | awk '{print $$2}')"
-	say "python3.12: pinned $(PYTHON_PIN) measured $$measured_python"
+	say "python3.12: pinned $(PYTHON_PIN) minimum $(PYTHON_MINIMUM) measured $$measured_python"
 	case "$$measured_python" in
 	  $(PYTHON_SERIES).*) ;;
 	  *) fail "python3.12 measures $$measured_python, outside the accepted $(PYTHON_SERIES) series" '$(APT_REMEDIATION)' ;;
 	esac
+	lowest="$$(lowest_of '$(PYTHON_MINIMUM)' "$$measured_python")"
+	[ "$$lowest" = '$(PYTHON_MINIMUM)' ] || fail "python3.12 measures $$measured_python, below the accepted minimum $(PYTHON_MINIMUM), the 3.12 release carrying every security fix published for that series" '$(APT_REMEDIATION)'
 	if [ "$$measured_python" != '$(PYTHON_PIN)' ]; then
 	  deviation "python3.12: pinned $(PYTHON_PIN), measured $$measured_python"
 	fi
 	command -v '$(COBC)' > /dev/null 2>&1 || fail '$(COBC) is not on PATH, so no program of the chain can be compiled' '$(APT_REMEDIATION)'
-	measured_cobc="$$($(COBC) --version 2>&1 | head -n 1 | awk '{print $$3}')"
-	say "cobc: pinned $(COBC_PIN) measured $$measured_cobc"
+	measured_cobc="$$('$(COBC)' --version 2>&1 | head -n 1 | awk '{print $$3}')"
+	say "cobc: pinned $(COBC_PIN) minimum $(COBC_MINIMUM) measured $$measured_cobc"
 	[ "$${measured_cobc%%.*}" = '$(COBC_SERIES)' ] || fail "cobc measures $$measured_cobc, outside the accepted $(COBC_SERIES) series" '$(APT_REMEDIATION)'
-	lowest="$$(printf '%s\n%s\n' '$(COBC_MINIMUM)' "$$measured_cobc" | sort -V | head -n 1)"
+	lowest="$$(lowest_of '$(COBC_MINIMUM)' "$$measured_cobc")"
 	[ "$$lowest" = '$(COBC_MINIMUM)' ] || fail "cobc measures $$measured_cobc, below the accepted minimum $(COBC_MINIMUM)" '$(APT_REMEDIATION)'
 	if [ "$$measured_cobc" != '$(COBC_PIN)' ]; then
 	  deviation "cobc: pinned $(COBC_PIN), measured $$measured_cobc"
 	fi
 	command -v git > /dev/null 2>&1 || fail 'git is not on PATH, so the read-only gate cannot run' '$(APT_REMEDIATION)'
 	measured_git="$$(git --version 2>&1 | awk '{print $$3}')"
-	say "git: pinned $(GIT_PIN) measured $$measured_git"
+	say "git: pinned $(GIT_PIN) minimum $(GIT_MINIMUM) measured $$measured_git"
 	[ "$${measured_git%%.*}" = '$(GIT_SERIES)' ] || fail "git measures $$measured_git, outside the accepted $(GIT_SERIES) series" '$(APT_REMEDIATION)'
+	lowest="$$(lowest_of '$(GIT_MINIMUM)' "$$measured_git")"
+	[ "$$lowest" = '$(GIT_MINIMUM)' ] || fail "git measures $$measured_git, below the accepted minimum $(GIT_MINIMUM), the release carrying the fixes for CVE-2026-27613, CVE-2026-27614, CVE-2026-46334, CVE-2026-46835, CVE-2026-48384, CVE-2026-48385 and CVE-2026-48386" '$(APT_REMEDIATION)'
 	if [ "$$measured_git" != '$(GIT_PIN)' ]; then
 	  deviation "git: pinned $(GIT_PIN), measured $$measured_git"
 	fi
+	say 'apt package python3.12: pinned $(APT_PIN_PYTHON), which packages interpreter release $(PYTHON_APT_UPSTREAM), below the accepted minimum $(PYTHON_MINIMUM); the interpreter checks above govern, and this pin records the packaging alone'
 	if command -v dpkg-query > /dev/null 2>&1; then
 	  for entry in 'python3.12=$(APT_PIN_PYTHON)' 'python3.12-venv=$(APT_PIN_PYTHON_VENV)' 'gnucobol3=$(APT_PIN_GNUCOBOL)' 'git=$(APT_PIN_GIT)'; do
 	    package="$${entry%%=*}"
@@ -1140,20 +1342,26 @@ verify-env:
 	fi
 	[ -x '$(PY)' ] || fail 'no virtual environment interpreter at $(PROJECT_DIR)/$(PY)' '$(VENV_REMEDIATION)'
 	measured_venv_python="$$($(PY) --version 2>&1 | awk '{print $$2}')"
-	say "virtual environment interpreter $(PY): measured $$measured_venv_python"
+	say "virtual environment interpreter $(PY): minimum $(PYTHON_MINIMUM) measured $$measured_venv_python"
 	case "$$measured_venv_python" in
 	  $(PYTHON_SERIES).*) ;;
 	  *) fail "$(PY) measures $$measured_venv_python, outside the accepted $(PYTHON_SERIES) series" '$(VENV_REMEDIATION)' ;;
 	esac
+	lowest="$$(lowest_of '$(PYTHON_MINIMUM)' "$$measured_venv_python")"
+	[ "$$lowest" = '$(PYTHON_MINIMUM)' ] || fail "$(PY) measures $$measured_venv_python, below the accepted minimum $(PYTHON_MINIMUM), the 3.12 release carrying every security fix published for that series; this interpreter runs every stage of the bridge" '$(VENV_REMEDIATION)'
 	[ -x '$(PIP)' ] || fail 'no pip at $(PROJECT_DIR)/$(PIP)' '$(VENV_REMEDIATION)'
 	measured_pip="$$($(PIP) --version 2>&1 | awk '{print $$2}')"
+	lowest="$$(lowest_of '$(PIP_MINIMUM)' "$$measured_pip")"
+	[ "$$lowest" = '$(PIP_MINIMUM)' ] || fail "pip measures $$measured_pip, below the accepted minimum $(PIP_MINIMUM), the release carrying the fixes for CVE-2026-1703, CVE-2026-3219, CVE-2026-6357, CVE-2026-8643 and CVE-2026-13346" '$(VENV_REMEDIATION)'
 	[ "$$measured_pip" = '$(PIP_PIN)' ] || fail "pip: pinned $(PIP_PIN), measured $$measured_pip" '$(VENV_REMEDIATION)'
 	[ -x '$(DBT)' ] || fail 'no dbt at $(PROJECT_DIR)/$(DBT)' '$(VENV_REMEDIATION)'
-	$(PY) -c "$$PIN_CHECK_PROGRAM" requirements.txt '$(PIP_PIN)' "$$measured_pip" '$(REPO_ROOT)' 2>&1 | tee -a "$$report"
+	[ -f '$(REQUIREMENTS_LOCK)' ] || fail 'no hash-pinned lock at $(PROJECT_REL)/$(REQUIREMENTS_LOCK), the reproducible install path' '$(LOCK_REMEDIATION)'
+	$(PY) -c "$$PIN_CHECK_PROGRAM" requirements.txt '$(PIP_PIN)' "$$measured_pip" '$(REPO_ROOT)' '$(REQUIREMENTS_LOCK)' 2>&1 | tee -a "$$report"
 	if [ "$$deviations" -gt 0 ] && [ "$$strict" = 'yes' ]; then
 	  fail "$$deviations version deviation(s) recorded while HARNESS_STRICT_TOOL_VERSIONS is set" 'install the pinned versions, or leave HARNESS_STRICT_TOOL_VERSIONS unset to accept a reported deviation'
 	fi
 	say "verify-env: PASS with $$deviations deviation(s), report $(VERSION_REPORT)"
+	$(call record_evidence,verify-env.txt)
 
 # ---------------------------------------------------------------------------------
 # Stage 2. Precondition gate. Probes only, and nothing is provisioned.
@@ -1182,6 +1390,7 @@ gate:
 	if [ "$$selected" != 'redshift' ]; then
 	  printf 'gate: validated against local substitute, not AWS; the formal AWS diff stays OPEN\n'
 	fi
+	$(call record_evidence,gate-selection.json gate-probe-s3.log gate-probe-redshift.log)
 
 # ---------------------------------------------------------------------------------
 # Stage 3. Sample records and translated copies. Nothing is written outside
@@ -1214,7 +1423,7 @@ compile:
 	log='$(COMPILE_LOG)'
 	: > "$$log"
 	printf 'compile: %s %s\n' '$(COBC)' '$(COBFLAGS)' | tee -a "$$log"
-	$(COBC) --version 2>&1 | head -n 1 | tee -a "$$log"
+	'$(COBC)' --version 2>&1 | head -n 1 | tee -a "$$log"
 	built=0
 	for source in $(MODULE_SOURCES); do
 	  if [ ! -f "$$source" ]; then
@@ -1223,7 +1432,7 @@ compile:
 	  fi
 	  module="$(COMPILE_DIR)/$$(basename "$$source" .cbl).so"
 	  printf '=== module %s from %s\n' "$$module" "$$source" >> "$$log"
-	  $(COBC) $(COBFLAGS) -m -I '$(BUILD)/src' -o "$$module" "$$source" >> "$$log" 2>&1
+	  '$(COBC)' $(COBFLAGS) -m -I '$(BUILD)/src' -o "$$module" "$$source" >> "$$log" 2>&1
 	  if [ ! -f "$$module" ]; then
 	    printf 'compile: no module at %s\n' "$$module" >&2
 	    exit 1
@@ -1235,12 +1444,13 @@ compile:
 	  exit 1
 	fi
 	printf '=== driver %s from harness/driver.cbl\n' '$(COMPILE_DIR)/driver' >> "$$log"
-	$(COBC) $(COBFLAGS) -x -I '$(BUILD)/src' -o '$(COMPILE_DIR)/driver' harness/driver.cbl >> "$$log" 2>&1
+	'$(COBC)' $(COBFLAGS) -x -I '$(BUILD)/src' -o '$(COMPILE_DIR)/driver' harness/driver.cbl >> "$$log" 2>&1
 	if [ ! -x '$(COMPILE_DIR)/driver' ]; then
 	  printf 'compile: no driver executable at %s\n' '$(COMPILE_DIR)/driver' >&2
 	  exit 1
 	fi
 	printf 'compile: %s modules and one driver, compiler output in %s\n' "$$built" '$(COMPILE_LOG)'
+	$(call record_evidence,compile-modules.log)
 
 # ---------------------------------------------------------------------------------
 # Stage 5. Execution of the cases CASES_MODE selects through the harness, which builds
@@ -1259,7 +1469,10 @@ execute:
 	    exit 1
 	    ;;
 	esac
-	PY='$(ABS_PY)' COBC='$(COBC)' bash harness/run_harness.sh "$$selection" 2>&1 | tee '$(EXECUTE_LOG)'
+	mkdir -p '$(BUILD)/logs'
+	PY='$(ABS_PY)' COBC='$(COBC)' bash harness/run_harness.sh "$$selection" 2>&1 | tee '$(HARNESS_OUTPUT_LOG)'
+	cat -- '$(HARNESS_OUTPUT_LOG)' > '$(EXECUTE_LOG)'
+	$(call record_evidence,execute-harness.log)
 	reported_selection="$$(sed -n 's/^[[:space:]]*case selection:[[:space:]]*//p' '$(EXECUTE_LOG)' | tail -n 1)"
 	if [ "$$reported_selection" != '$(strip $(CASES_MODE))' ]; then
 	  printf 'execute: CASES_MODE names %s and the harness reports the case selection "%s"\n' '$(strip $(CASES_MODE))' "$$reported_selection" >&2
@@ -1421,6 +1634,7 @@ dbt:
 	$(DBT) run --project-dir '$(DBT_PROJECT)' --target "$$selected" $(DBT_PROFILES_FLAG) 2>&1 | tee '$(DBT_RUN_LOG)'
 	$(DBT) test --project-dir '$(DBT_PROJECT)' --target "$$selected" $(DBT_PROFILES_FLAG) 2>&1 | tee '$(DBT_TEST_LOG)'
 	printf 'dbt: run and test passed against target %s, output in %s and %s\n' "$$selected" '$(DBT_RUN_LOG)' '$(DBT_TEST_LOG)'
+	$(call record_evidence,dbt-clean.log dbt-run.log dbt-test.log)
 
 # ---------------------------------------------------------------------------------
 # Stage 10. Field-by-field comparison of the harness captures with the two canonical
@@ -1436,6 +1650,7 @@ diff:
 	  warehouse='duckdb'
 	fi
 	$(PY) validation/diff_harness_vs_warehouse.py --cases '$(DIFF_CASES)' --run-dir '$(ABS_BUILD)/run' --field-map '$(FIELD_MAP)' --target "$$warehouse" --database '$(LOCAL_DUCKDB)' --source-system-key '$(SOURCE_SYSTEM_KEY)' --report '$(DIFF_REPORT)' --json '$(DIFF_JSON)' --expected-dir '$(ABS_EXPECTED)'
+	$(call record_evidence,diff-report.md diff-report.json)
 
 # ---------------------------------------------------------------------------------
 # Source guard. Run after each generating stage and as the final gate.

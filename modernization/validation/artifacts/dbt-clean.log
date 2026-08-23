@@ -1,6 +1,6 @@
-[0m22:52:11  Running with dbt=1.12.2
-[0m22:52:11  Checking /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4_93f37d/modernization/dbt/genapp_rqi/target/*
-[0m22:52:11  Cleaned /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4_93f37d/modernization/dbt/genapp_rqi/target/*
-[0m22:52:11  Checking /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4_93f37d/modernization/dbt/genapp_rqi/dbt_packages/*
-[0m22:52:11  Cleaned /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4_93f37d/modernization/dbt/genapp_rqi/dbt_packages/*
-[0m22:52:11  Finished cleaning all paths.
+[0m01:35:50  Running with dbt=1.12.3
+[0m01:35:50  Checking /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4_93f37d/modernization/dbt/genapp_rqi/dbt_packages/*
+[0m01:35:50  Cleaned /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4_93f37d/modernization/dbt/genapp_rqi/dbt_packages/*
+[0m01:35:50  Checking /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4_93f37d/modernization/dbt/genapp_rqi/target/*
+[0m01:35:50  Cleaned /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4_93f37d/modernization/dbt/genapp_rqi/target/*
+[0m01:35:50  Finished cleaning all paths.

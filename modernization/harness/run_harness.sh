@@ -61,6 +61,15 @@
 #                 describes this run alone. runtime-versions.txt stands in that
 #                 directory outside the replacement: it is the environment
 #                 record of the checkout and no run of this script writes it.
+#                 The manifest additionally carries one SHA-256 line per file of
+#                 the generated evidence the other stages left in that directory
+#                 - the two comparison reports of the diff stage and the nine
+#                 stage records of modernization/Makefile - hashed where they
+#                 stand and neither published nor removed here, so the manifest
+#                 covers every path the read-only gate exempts from its
+#                 tracked-modification check and its gate D measures all of them.
+#                 Each later stage refreshes its own entries of that manifest
+#                 through "validation/verify_readonly.sh --record-evidence".
 #
 # Case table, one row per executable case. Each row names the fixture it runs
 # on, the COMMAREA length the driver calls with, the request id it overrides
@@ -224,6 +233,19 @@
 #                 step line the preflight prints. A value outside that range is
 #                 a preflight failure naming the value. Default: 5.
 #
+# Names of this script that are not controls of a run. Each one is assigned by
+# this script itself, so an ambient value carries nothing into the run, and the
+# preflight reports every one the caller exported as a deviation naming the value
+# it ignored and what governs the run instead. A name of the bounded-seconds kind
+# - HARNESS_LOCK_WAIT, HARNESS_LOCK_WAIT_DEFAULT and HARNESS_LOCK_WAIT_MAX, the
+# near misses of HARNESS_LOCK_WAIT_SECONDS - is additionally validated exactly as
+# that control is: a value that is not a whole number of seconds from 1 to 3600
+# ends the run with exit 2 in the preflight, before anything of the run exists,
+# rather than being replaced in silence. The remaining names are
+# HARNESS_LOCK_NAME, HARNESS_LOCK_PATH, HARNESS_LOCK_FD, HARNESS_DIR,
+# HARNESS_BUILD_ROOT, HARNESS_CASES, HARNESS_FIXTURES, HARNESS_PROBES and
+# HARNESS_COPYBOOKS. HARNESS_INTERNAL_AMBIENT carries the inventory.
+#
 # The three handles the driver is started with. This script opens all three,
 # checks each opened descriptor rather than the name it came from, hands them
 # over across the exec and closes them again as soon as the driver returns, so
@@ -343,6 +365,21 @@
 
 set -euo pipefail
 IFS=$'\n\t'
+
+# Every HARNESS_-prefixed name the caller exported, snapshotted here because the
+# constants and the run state below replace the ones this script owns. The
+# preflight reads this snapshot to report an ambient value of a name that is not
+# a control of a run, and to end the run when such a name carries a malformed
+# bounded-seconds value; a documented control is validated where it is read
+# instead. Taken before the first assignment of this script, so an entry of it is
+# a value the caller set and never one of this script's own.
+declare -A HARNESS_AMBIENT_ENVIRONMENT=()
+while IFS= read -r harness_exported_name; do
+  case "$harness_exported_name" in
+    HARNESS_*) HARNESS_AMBIENT_ENVIRONMENT["$harness_exported_name"]="${!harness_exported_name}" ;;
+  esac
+done < <(compgen -e)
+unset -v harness_exported_name
 
 # --------------------------------------------------------------------------
 # Program identity and exit codes
@@ -1024,6 +1061,36 @@ readonly EVIDENCE_MANIFEST_NAME="evidence-manifest.sha256"
 # found beside a published set is reported in the run summary.
 readonly RUNTIME_VERSIONS_NAME="runtime-versions.txt"
 
+# Names in that directory that other stages write and that the manifest of a set
+# carries a digest for: the two comparison reports of the diff stage and the nine
+# stage records of modernization/Makefile. Together with the twelve names above
+# they are the generated evidence set the read-only gate exempts from its
+# tracked-modification check by exact path, and which its gate D therefore
+# measures against this manifest instead.
+#
+# This script does not publish, replace or remove one of them. It hashes each one
+# that stands beside the set at the moment it writes the manifest, so the set of
+# a run covers every exempt path standing then; each later stage refreshes its
+# own entries through "verify_readonly.sh --record-evidence", so an artifact
+# rewritten after this run is covered by its own stage rather than by a stale
+# entry of this one. A name of this list that is not a regular file ends the run:
+# a digest cannot be read from it, and the gate would report it.
+# See modernization/docs/decision-log.md, row D-121: generated evidence covered
+# by one manifest.
+readonly -a CARRIED_EVIDENCE_NAMES=(
+  "diff-report.md"
+  "diff-report.json"
+  "verify-env.txt"
+  "gate-selection.json"
+  "gate-probe-s3.log"
+  "gate-probe-redshift.log"
+  "compile-modules.log"
+  "execute-harness.log"
+  "dbt-clean.log"
+  "dbt-run.log"
+  "dbt-test.log"
+)
+
 # Directory of the run's staging tree the publication check works in. It holds
 # the simulated published directory and the staged set that replaces its
 # content, both created and filled by that check alone.
@@ -1038,9 +1105,65 @@ readonly PUBLICATION_CHECK_NAME="publication-check"
 readonly -a REQUIRED_TOOLS=("mkdir" "rm" "mv" "cat" "tee" "wc" "grep"
   "sha256sum" "date" "head" "git" "stat" "flock" "dd" "timeout")
 
+# Names of this script that carry no control of a run: the internal state and
+# the constants of the sections above, each of which this script assigns for
+# itself, and the build root it removes from the environment of every driver.
+# Every documented control of a run is validated where it is read; these names
+# are not controls, and an ambient one is replaced. Each entry is
+# "<name>|<kind>|<note>":
+#   <kind>   "seconds" for a name holding a bounded number of seconds, which is
+#            validated exactly as the control it neighbours is - a malformed
+#            value ends the run in the preflight - and "text" for a name whose
+#            value this script forms itself and never parses.
+#   <note>   what the run does instead, named in the deviation line, with the
+#            control that does govern it where one exists.
+# The per-case items the driver receives are not listed: export_case_environment
+# sets every one of them on every case, and the probe that withholds one removes
+# it, so no ambient value of those names reaches a driver.
+# See modernization/docs/decision-log.md, row D-117: ambient value of an internal
+# name reported rather than accepted.
+readonly -a HARNESS_INTERNAL_AMBIENT=(
+  "HARNESS_LOCK_WAIT|seconds|the wait of a run is HARNESS_LOCK_WAIT_SECONDS, and this name holds the value that control resolved to"
+  "HARNESS_LOCK_WAIT_DEFAULT|seconds|the wait of a run is HARNESS_LOCK_WAIT_SECONDS, and this name holds the default it falls back to"
+  "HARNESS_LOCK_WAIT_MAX|seconds|the wait of a run is HARNESS_LOCK_WAIT_SECONDS, and this name holds the ceiling that control is accepted below"
+  "HARNESS_LOCK_NAME|text|the harness lock of a checkout stands at harness.lock in its build directory, and no control moves it"
+  "HARNESS_LOCK_PATH|text|the harness lock of a checkout stands at harness.lock in its build directory, and no control moves it"
+  "HARNESS_LOCK_FD|text|the descriptor of the harness lock is the one this run opens"
+  "HARNESS_DIR|text|the harness directory is the physical directory holding this script"
+  "HARNESS_BUILD_ROOT|text|the build tree is resolved from the physical path of this script, and the environment of every driver has this name removed"
+  "HARNESS_CASES|text|the cases of a run are selected by the command line, and this name holds the authored case table"
+  "HARNESS_FIXTURES|text|the fixtures of a run follow from the selected cases, and this name holds the authored fixture list"
+  "HARNESS_PROBES|text|the probes of a run are the authored ones, and this name holds their table"
+  "HARNESS_COPYBOOKS|text|the copybooks of a run are the authored ones, and this name holds their list"
+)
+
+# Values the seconds contract of the preflight is proven against before a run
+# reads an ambient one, as "<value>|<verdict>" with the verdict "accept" or
+# "refuse". The refused values cover a non-numeric value, zero, a negative
+# value, a value above the ceiling, a value carrying shell syntax, a value
+# carrying a space and an empty value.
+readonly -a HARNESS_SECONDS_CONTRACT_CASES=(
+  "1|accept"
+  "300|accept"
+  "3600|accept"
+  "0|refuse"
+  "-1|refuse"
+  "abc|refuse"
+  "3601|refuse"
+  "99999999|refuse"
+  "1[\$(touch seconds-contract-marker)]|refuse"
+  "3 0|refuse"
+  "|refuse"
+)
+
 # --------------------------------------------------------------------------
 # Run state
 # --------------------------------------------------------------------------
+# Ambient values of internal names this run reported, as "<name>=<value>"
+# entries, filled by the preflight from the environment snapshot taken at the
+# head of this script.
+declare -a HARNESS_AMBIENT_INTERNAL=()
+
 SCRIPT_PATH=""
 HARNESS_DIR=""
 REPO_ROOT=""
@@ -1168,6 +1291,13 @@ declare -a SUMMARY_CASE_LINES=()
 declare -a SUMMARY_PROBE_LINES=()
 declare -a SUMMARY_ARTIFACTS=()
 declare -a STAGED_ARTIFACTS=()
+
+# Files of CARRIED_EVIDENCE_NAMES that stood beside the published set when the
+# manifest of this run was written, as "<path>|<name>" entries in the order that
+# list names them. The manifest carries a digest for each of them, and the
+# read-back reads each one where it stands: no file of this list is staged,
+# published or removed by this script.
+declare -a CARRIED_ARTIFACTS=()
 
 # Evidence publication state: the names removed and the files placed by the most
 # recent publication, the SHA-256 published_digest read last, the first
@@ -1347,6 +1477,15 @@ Environment items honoured:
                          the step line the preflight prints. A value outside
                          that range is a preflight failure naming it.
                          Default: 5
+
+Names this script owns, which are no controls of a run: HARNESS_LOCK_WAIT,
+HARNESS_LOCK_WAIT_DEFAULT, HARNESS_LOCK_WAIT_MAX, HARNESS_LOCK_NAME,
+HARNESS_LOCK_PATH, HARNESS_LOCK_FD, HARNESS_DIR, HARNESS_BUILD_ROOT,
+HARNESS_CASES, HARNESS_FIXTURES, HARNESS_PROBES and HARNESS_COPYBOOKS. The
+preflight reports an exported one as a deviation naming the value it ignored,
+and a value of the first three that is not a whole number of seconds from 1 to
+3600 ends the run with exit 2 there; HARNESS_LOCK_WAIT_SECONDS is the control
+that changes the wait.
 
 Environment items exported to the driver:
   COB_LIBRARY_PATH, COB_LS_FIXED, COB_PRE_LOAD,
@@ -1847,6 +1986,24 @@ is_true() {
     1 | y | yes | t | true | on) return 0 ;;
     *) return 1 ;;
   esac
+}
+
+# Succeeds when the supplied value is a whole number of seconds from 1 to the
+# supplied ceiling: one to four digits and nothing else, so no value carrying a
+# sign, a space, a shell metacharacter or an empty value reaches the arithmetic,
+# and a value inside that range. The wait of the harness lock and every ambient
+# name of the seconds kind are measured through this one predicate, so both
+# report the same verdict for the same value.
+seconds_value_accepted() {
+  local value="$1" ceiling="$2"
+
+  if [[ ! "$value" =~ ^[0-9]{1,4}$ ]]; then
+    return 1
+  fi
+  if ((10#$value < 1)) || ((10#$value > ceiling)); then
+    return 1
+  fi
+  return 0
 }
 
 # Prints the size of the supplied file in bytes. Fails when the file cannot be
@@ -2758,6 +2915,81 @@ preflight_tools() {
   done
 }
 
+# Proves the seconds contract of this preflight before a run reads an ambient
+# value through it: every value of HARNESS_SECONDS_CONTRACT_CASES is measured by
+# seconds_value_accepted and its verdict is required to be the authored one, so
+# the predicate that refuses a malformed wait is exercised on every run rather
+# than only when a caller supplies one. A refused value that the predicate
+# accepts, and an accepted value it refuses, each end the run before anything of
+# it exists.
+check_seconds_contract() {
+  local entry="" value="" expected="" measured=""
+
+  for entry in "${HARNESS_SECONDS_CONTRACT_CASES[@]}"; do
+    value="${entry%|*}"
+    expected="${entry##*|}"
+    if seconds_value_accepted "$value" "$HARNESS_LOCK_WAIT_MAX"; then
+      measured="accept"
+    else
+      measured="refuse"
+    fi
+    if [[ "$measured" != "$expected" ]]; then
+      die "$EXIT_PREFLIGHT" \
+        "the bounded-seconds contract of this preflight ${measured}s the value ${value}, and the authored verdict is ${expected}" \
+        "the contract governs HARNESS_LOCK_WAIT_SECONDS and every ambient name of the seconds kind, from 1 to ${HARNESS_LOCK_WAIT_MAX}"
+    fi
+  done
+  emit_step \
+    "bounded-seconds contract: ${#HARNESS_SECONDS_CONTRACT_CASES[@]} values measured, each with its authored verdict"
+}
+
+# Reports every ambient value of a name this script owns, and ends the run when
+# one of the seconds kind is malformed.
+#
+# A name of HARNESS_INTERNAL_AMBIENT is not a control of a run: this script
+# assigns each of them itself, so a value a caller exported under one of those
+# names is replaced. A caller who set one meant something by it - most often the
+# control that neighbours it - so each one is reported as a deviation naming the
+# value that was ignored and what governs the run instead, in the form the
+# compiler environment of a run reports an ambient value it pinned over. A name
+# of the seconds kind is additionally validated exactly as HARNESS_LOCK_WAIT_
+# SECONDS is: a value outside the accepted range ends the run as a preflight
+# failure, so a malformed value of a near-miss name and a malformed value of the
+# control return the same status rather than one being accepted in silence.
+#
+# Runs first in the preflight, before the harness lock and before any shared path
+# of the run exists, so a refused value leaves nothing behind.
+preflight_internal_names() {
+  local entry="" name="" kind="" note="" value=""
+
+  check_seconds_contract
+  HARNESS_AMBIENT_INTERNAL=()
+  for entry in "${HARNESS_INTERNAL_AMBIENT[@]}"; do
+    name="${entry%%|*}"
+    kind="${entry#*|}"
+    kind="${kind%%|*}"
+    note="${entry##*|}"
+    if [[ -z "${HARNESS_AMBIENT_ENVIRONMENT[$name]+set}" ]]; then
+      continue
+    fi
+    value="${HARNESS_AMBIENT_ENVIRONMENT[$name]}"
+    if [[ "$kind" == "seconds" ]] &&
+      ! seconds_value_accepted "$value" "$HARNESS_LOCK_WAIT_MAX"; then
+      die "$EXIT_PREFLIGHT" \
+        "ambient ${name} holds ${value}; a whole number of seconds from 1 to ${HARNESS_LOCK_WAIT_MAX} is accepted under that name" \
+        "${note}" \
+        "unset ${name}, and set HARNESS_LOCK_WAIT_SECONDS to change the wait of this run"
+    fi
+    HARNESS_AMBIENT_INTERNAL+=("${name}=${value}")
+    emit_deviation \
+      "ambient ${name}=${value} ignored; ${note}"
+  done
+  if ((${#HARNESS_AMBIENT_INTERNAL[@]} == 0)); then
+    emit_step \
+      "ambient internal names: none of the ${#HARNESS_INTERNAL_AMBIENT[@]} names this script owns was exported by the caller"
+  fi
+}
+
 # Takes the exclusive harness lock of this checkout and holds it for the rest of
 # the run, publication included. The lock stands on one file below the build
 # directory, which is created here as the first shared path of the run and is
@@ -2773,8 +3005,7 @@ acquire_harness_lock() {
   local supplied="" path="" fd=""
 
   supplied="${HARNESS_LOCK_WAIT_SECONDS:-$HARNESS_LOCK_WAIT_DEFAULT}"
-  if [[ ! "$supplied" =~ ^[0-9]{1,4}$ ]] || ((10#$supplied < 1)) ||
-    ((10#$supplied > HARNESS_LOCK_WAIT_MAX)); then
+  if ! seconds_value_accepted "$supplied" "$HARNESS_LOCK_WAIT_MAX"; then
     die "$EXIT_PREFLIGHT" \
       "HARNESS_LOCK_WAIT_SECONDS holds ${supplied}; a whole number of seconds from 1 to ${HARNESS_LOCK_WAIT_MAX} is accepted" \
       "unset it to wait up to ${HARNESS_LOCK_WAIT_DEFAULT} seconds, or set it to a value in that range"
@@ -3675,6 +3906,7 @@ run_source_guard() {
 stage_preflight() {
   emit_stage 1 "preflight"
   preflight_tools
+  preflight_internal_names
   acquire_harness_lock
   preflight_python
   preflight_cobc
@@ -5968,6 +6200,38 @@ collect_evidence() {
   emit_step "evidence staged: ${#STAGED_ARTIFACTS[@]} files in ${STAGING_DIR}"
 }
 
+# Collects the generated evidence of the other stages that stands beside the
+# published set: every name of CARRIED_EVIDENCE_NAMES that is a file in the
+# validation artifacts directory, in the order that list names them. Those files
+# are the exempt paths of the read-only gate this script does not write - the two
+# comparison reports and the nine stage records - and the manifest of this run
+# carries a digest for each of them, read where it stands. Nothing is copied,
+# replaced or removed here: the entry is a path this script reads.
+#
+# A name of that list that stands as a symbolic link, a directory or any other
+# irregular entry ends the run: no digest can be read from it, and the gate that
+# measures the set would report it as uncovered.
+collect_carried_evidence() {
+  local name="" path=""
+
+  CARRIED_ARTIFACTS=()
+  for name in "${CARRIED_EVIDENCE_NAMES[@]}"; do
+    path="${ARTIFACTS_DIR}/${name}"
+    if [[ ! -e "$path" && ! -L "$path" ]]; then
+      continue
+    fi
+    if [[ -L "$path" || ! -f "$path" ]]; then
+      die "$EXIT_EVIDENCE" \
+        "the generated evidence beside the published set is $(path_kind "$path"): ${path}" \
+        "every name of the generated evidence set is a regular file; remove or restore it and run this script again"
+    fi
+    assert_readable_path "$path" "$EXIT_EVIDENCE"
+    CARRIED_ARTIFACTS+=("${path}|${name}")
+  done
+  emit_step \
+    "generated evidence of other stages covered: ${#CARRIED_ARTIFACTS[@]} of ${#CARRIED_EVIDENCE_NAMES[@]} names stand beside the set and are hashed where they stand"
+}
+
 # Prints every name this script publishes into, or removes from, the validation
 # artifacts directory: the five stage files, the manifest, and the driver log,
 # the capture file and the post-chain record of each success case of the case
@@ -6044,15 +6308,29 @@ published_digest() {
 }
 
 # Writes one evidence manifest: the provenance of this run as comment lines,
-# then one "sha256sum" line per staged file under the name it is published as.
-# The provenance names the disposition of the run, the run itself, the time the
+# then one "sha256sum" line per staged file under the name it is published as,
+# then one per file of CARRIED_ARTIFACTS under the name it stands at. The
+# provenance names the disposition of the run, the run itself, the time the
 # manifest was written, the case selection it describes, the success cases whose
 # captures the set covers, the two seeds of the run, the measured tool versions,
-# the source-guard verdict, the number of files in the set and the name that
-# stands outside it. Every comment line carries a leading "#", which
+# the source-guard verdict, how many files this run publishes, how many it
+# carried from the other stages at that moment and how many digest lines that
+# made, how the coverage is kept current afterwards and the name that stands
+# outside it. The two counts describe the write alone: a later stage adds or
+# refreshes its own entry through
+# validation/verify_readonly.sh --record-evidence, which leaves every other line
+# byte-identical, so the lines standing below the header are the set the gate
+# measures rather than the number the header states. Every comment line carries a
+# leading "#", which
 # "sha256sum --check" skips, so the manifest checks the set as it stands. The
 # manifest is published with the set and read back from the published directory
 # afterwards.
+#
+# The manifest carries no digest of itself, so the set it describes is every
+# other generated evidence path standing beside it: the files this run published
+# and the files the other stages left there. That is the whole of what the
+# read-only gate exempts from its tracked-modification check, and what its gate D
+# measures against these lines.
 #   1 path of the manifest
 #   2 case selection this set describes
 #   3 success cases the set covers, or "none"
@@ -6081,7 +6359,10 @@ write_evidence_manifest() {
   header+="# cobc:                $(sanitize "$COBC_VERSION") (pinned ${COBC_VERSION_PINNED}, $(sanitize "$COBC_VERSION_VERDICT"))"$'\n'
   header+="# python:              $(sanitize "$PYTHON_VERSION")"$'\n'
   header+="# source guard:        $(sanitize "$GUARD_VERDICT") at ${GUARD_PASSES} of 4 points"$'\n'
-  header+="# files in this set:   $(($# + 1)), this manifest included"$'\n'
+  header+="# published by this run: $(($# + 1)) files, this manifest included"$'\n'
+  header+="# carried at this write: ${#CARRIED_ARTIFACTS[@]} of ${#CARRIED_EVIDENCE_NAMES[@]} names the other stages own, hashed where they stand"$'\n'
+  header+="# digest lines at this write: $(($# + ${#CARRIED_ARTIFACTS[@]})), one per file of the set then; the lines standing below are the set now, since a later stage adds or refreshes its own entry through the option named next, and a manifest carries no digest of itself"$'\n'
+  header+="# kept current by:     each later stage refreshing its own entries through validation/verify_readonly.sh --record-evidence"$'\n'
   header+="# outside this set:    ${RUNTIME_VERSIONS_NAME}, the environment record of the checkout"$'\n'
 
   create_private_file "$manifest" "$EXIT_EVIDENCE"
@@ -6089,6 +6370,14 @@ write_evidence_manifest() {
     die "$EXIT_EVIDENCE" "unable to write the evidence manifest: ${manifest}"
   fi
   for entry in "$@"; do
+    staged="${entry%%|*}"
+    name="${entry##*|}"
+    digest="$(hash_file "$staged" "$EXIT_EVIDENCE")"
+    if ! printf '%s  %s\n' "$digest" "$name" >>"$manifest"; then
+      die "$EXIT_EVIDENCE" "unable to append to the evidence manifest: ${manifest}"
+    fi
+  done
+  for entry in "${CARRIED_ARTIFACTS[@]}"; do
     staged="${entry%%|*}"
     name="${entry##*|}"
     digest="$(hash_file "$staged" "$EXIT_EVIDENCE")"
@@ -6188,30 +6477,39 @@ publish_evidence_set() {
 
 # Reads one published set back and reports whether the directory holds exactly
 # the set its manifest describes: the manifest is the one whose SHA-256 was
-# supplied, it carries one digest line per staged name and no other, every
-# published file matches its digest line, and no name this script owns stands
-# there outside the manifest - so an artifact of a success case the run did not
-# execute is a difference rather than part of the set. Names this script never
-# writes, other than the environment record, are collected in EVIDENCE_FOREIGN
-# for the caller to report. The verdict is returned rather than acted on: 0 when
-# the set holds, 1 with the first difference in EVIDENCE_DIFFERENCE, so a caller
-# can require either outcome.
+# supplied, it carries one digest line per staged name and per carried name and
+# no other, every one of those files matches its digest line, and no name this
+# script owns stands there outside the manifest - so an artifact of a success
+# case the run did not execute is a difference rather than part of the set.
+#
+# The carried names are the generated evidence of the other stages this run did
+# not write, taken from CARRIED_ARTIFACTS: the manifest covers them, the read-back
+# measures them where they stand, and they are neither published nor removed. A
+# name this script never writes that is neither carried nor the environment
+# record is collected in EVIDENCE_FOREIGN for the caller to report.
+#
+# The verdict is returned rather than acted on: 0 when the set holds, 1 with the
+# first difference in EVIDENCE_DIFFERENCE, so a caller can require either
+# outcome.
 #   1 directory the set was published into
 #   2 SHA-256 of the manifest that describes the set
 #   3.. staged pairs "<staged path>|<published name>"
 verify_published_set() {
   local target_dir="$1" expected_manifest="$2"
   shift 2
-  local expected_count=$#
+  local expected_count=$(($# + ${#CARRIED_ARTIFACTS[@]}))
   local manifest="${target_dir}/${EVIDENCE_MANIFEST_NAME}"
   local entry="" line="" name="" digest="" count=0
-  local -A set_names=() stated=()
+  local -A set_names=() carried_names=() stated=()
   local -a lines=() owned=() present=()
 
   EVIDENCE_DIFFERENCE=""
   EVIDENCE_FOREIGN=()
   for entry in "$@"; do
     set_names["${entry##*|}"]=1
+  done
+  for entry in "${CARRIED_ARTIFACTS[@]}"; do
+    carried_names["${entry##*|}"]=1
   done
 
   if ! published_digest "$manifest"; then
@@ -6237,7 +6535,7 @@ verify_published_set() {
     fi
     digest="${line:0:64}"
     name="${line:66}"
-    if [[ -z "${set_names[$name]+set}" ]]; then
+    if [[ -z "${set_names[$name]+set}" && -z "${carried_names[$name]+set}" ]]; then
       EVIDENCE_DIFFERENCE="the manifest names ${name}, which this set does not carry"
       return 1
     fi
@@ -6279,7 +6577,8 @@ verify_published_set() {
   mapfile -t present < <(directory_entry_names "$target_dir")
   for name in "${present[@]}"; do
     if [[ -z "$name" || "$name" == "$EVIDENCE_MANIFEST_NAME" ||
-      "$name" == "$RUNTIME_VERSIONS_NAME" || -n "${set_names[$name]+set}" ]]; then
+      "$name" == "$RUNTIME_VERSIONS_NAME" || -n "${set_names[$name]+set}" ||
+      -n "${carried_names[$name]+set}" ]]; then
       continue
     fi
     EVIDENCE_FOREIGN+=("$name")
@@ -6315,8 +6614,9 @@ check_publication_replacement() {
   local root="${STAGING_DIR}/${PUBLICATION_CHECK_NAME}"
   local published="${root}/published" staged="${root}/staged"
   local covered_case="" absent_case="" lower="" name="" manifest="" digest=""
-  local record="" rejected=""
+  local record="" rejected="" carried_rejected="" carried_body="" index=0
   local -a owned=() present=() pairs=() gone=()
+  local -a carried_saved=() carried_check=() carried_digests=()
 
   if ((${#SUCCESS_CASES[@]} < 2)); then
     die "$EXIT_EVIDENCE" \
@@ -6344,6 +6644,20 @@ check_publication_replacement() {
   write_check_file "${published}/${RUNTIME_VERSIONS_NAME}" \
     "publication check: environment record of the checkout"
   record="$(hash_file "${published}/${RUNTIME_VERSIONS_NAME}" "$EXIT_EVIDENCE")"
+
+  # The generated evidence of the other stages: two names of
+  # CARRIED_EVIDENCE_NAMES are placed in the simulated directory, the check
+  # covers them exactly as a run covers the files those stages left, and the
+  # entries of this run are held aside while it does so.
+  carried_saved=("${CARRIED_ARTIFACTS[@]}")
+  CARRIED_ARTIFACTS=()
+  for name in "${CARRIED_EVIDENCE_NAMES[@]:0:2}"; do
+    write_check_file "${published}/${name}" \
+      "publication check: ${name} of the stage that wrote it"
+    carried_check+=("$name")
+    carried_digests+=("$(hash_file "${published}/${name}" "$EXIT_EVIDENCE")")
+    CARRIED_ARTIFACTS+=("${published}/${name}|${name}")
+  done
 
   for name in "${PUBLISHED_STAGE_ARTIFACTS[@]}"; do
     write_check_file "${staged}/${name}" \
@@ -6386,6 +6700,13 @@ check_publication_replacement() {
       "the publication check replaced ${RUNTIME_VERSIONS_NAME}, which stands outside every set" \
       "the directory it works in is ${published}"
   fi
+  for index in "${!carried_check[@]}"; do
+    if [[ "$(hash_file "${published}/${carried_check[$index]}" "$EXIT_EVIDENCE")" != "${carried_digests[$index]}" ]]; then
+      die "$EXIT_EVIDENCE" \
+        "the publication check replaced ${carried_check[$index]}, the generated evidence of another stage that a run covers but never writes" \
+        "the directory it works in is ${published}"
+    fi
+  done
 
   write_check_file "${published}/${gone[0]}" \
     "publication check: ${gone[0]} of an earlier run"
@@ -6404,16 +6725,42 @@ check_publication_replacement() {
       "the directory it works in is ${published}"
   fi
 
+  # The coverage of the carried evidence, proven the same way: the content of one
+  # of those files is altered without its manifest entry, the read-back is
+  # required to reject the set and to name that file, and the original content is
+  # put back and the set is required to read again. A run whose manifest did not
+  # cover those names could not tell the difference.
+  carried_body="$(<"${published}/${carried_check[0]}")"
+  write_check_file "${published}/${carried_check[0]}" \
+    "publication check: ${carried_check[0]} altered after the manifest was written"
+  if verify_published_set "$published" "$digest" "${pairs[@]}"; then
+    die "$EXIT_EVIDENCE" \
+      "the read-back accepted an altered ${carried_check[0]}, the generated evidence of another stage the manifest covers" \
+      "the directory it works in is ${published}" \
+      "every name the manifest describes is measured against the digest it states"
+  fi
+  carried_rejected="$EVIDENCE_DIFFERENCE"
+  write_check_file "${published}/${carried_check[0]}" "$carried_body"
+  if ! verify_published_set "$published" "$digest" "${pairs[@]}"; then
+    die "$EXIT_EVIDENCE" \
+      "the publication check could not read the set back after ${carried_check[0]} was restored" \
+      "$EVIDENCE_DIFFERENCE" \
+      "the directory it works in is ${published}"
+  fi
+
+  CARRIED_ARTIFACTS=("${carried_saved[@]}")
   emit_step \
-    "publication check: ${#pairs[@]} staged names and the manifest replaced the ${#owned[@]} of a full-table run in ${published}, the ${#gone[@]} names of ${absent_case} were removed, ${RUNTIME_VERSIONS_NAME} stood unchanged, and the read-back rejected a planted artifact: ${rejected}"
+    "publication check: ${#pairs[@]} staged names and the manifest replaced the ${#owned[@]} of a full-table run in ${published}, the ${#gone[@]} names of ${absent_case} were removed, ${RUNTIME_VERSIONS_NAME} and the ${#carried_check[@]} carried names stood unchanged, and the read-back rejected a planted artifact: ${rejected}; and an altered carried name: ${carried_rejected}"
 }
 
 # Replaces the published set in the validation artifacts directory with the set
 # this run staged and its manifest, then reads that set back against the
 # manifest standing in it. A name this script owns there that this run did not
 # publish is removed by the replacement, so nothing of an earlier run survives
-# beside the set; a name this script never writes, other than the environment
-# record of the checkout, is reported as a deviation naming it.
+# beside the set; the generated evidence of the other stages the manifest covers
+# stands untouched and is measured where it stands; and a name this script never
+# writes that is neither covered nor the environment record of the checkout is
+# reported as a deviation naming it.
 publish_evidence() {
   local manifest="${LOGS_DIR}/${EVIDENCE_MANIFEST_NAME}"
   local published="${ARTIFACTS_DIR}/${EVIDENCE_MANIFEST_NAME}"
@@ -6445,15 +6792,21 @@ publish_evidence() {
   done
   emit_step \
     "artifacts published: ${#SUMMARY_ARTIFACTS[@]} files in ${ARTIFACTS_DIR}, each named by ${published}"
+  emit_step \
+    "generated evidence covered by ${published}: ${#STAGED_ARTIFACTS[@]} published by this run and ${#CARRIED_ARTIFACTS[@]} carried from other stages"
 }
 
 # Runs the source guard as the final gate of the run, then collects the evidence
-# of the run in the staging directory, writes the manifest that describes it,
-# runs the publication check, and replaces the published set. The gate runs first
-# so the evidence log it appends its fourth block to is complete before that log
-# is collected, and it still decides whether anything is published at all: a gate
-# that does not pass ends the run here, with nothing collected, nothing removed
-# and the published evidence of the previous run exactly as it stands.
+# of the run in the staging directory, collects the generated evidence of the
+# other stages standing beside the published set, writes the manifest that
+# describes both, runs the publication check, and replaces the published set. The
+# gate runs first so the evidence log it appends its fourth block to is complete
+# before that log is collected, and it still decides whether anything is
+# published at all: a gate that does not pass ends the run here, with nothing
+# collected, nothing removed and the published evidence of the previous run
+# exactly as it stands. The manifest therefore covers every generated evidence
+# path the read-only gate exempts from its tracked-modification check, and each
+# later stage refreshes its own entries of it.
 stage_evidence() {
   local manifest="${LOGS_DIR}/${EVIDENCE_MANIFEST_NAME}"
   local selection="" covered=""
@@ -6461,6 +6814,7 @@ stage_evidence() {
   emit_stage 6 "evidence"
   run_source_guard "harness-final"
   collect_evidence
+  collect_carried_evidence
   selection="$(join_with ", " "${SELECTED_CASES[@]}")"
   covered="$(evidence_success_selection)"
   write_evidence_manifest "$manifest" "$selection" "${covered:-none}" \

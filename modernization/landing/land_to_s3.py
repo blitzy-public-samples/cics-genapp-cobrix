@@ -171,8 +171,13 @@ HOW IT VALIDATES THE RECORD
     The record file is parsed with duplicate member names refused: a document carrying
     the same key twice is rejected rather than silently collapsed to its last
     occurrence, so the 17 keys the landing contract fixes cannot be smuggled past
-    validation by a later duplicate. The parsed document is then checked against the
-    landing schema as a Draft 2020-12 document with format assertion enabled, which
+    validation by a later duplicate. Its nesting is measured before it is parsed and a
+    document nesting deeper than MAX_JSON_NESTING_DEPTH is refused unparsed, so a
+    document built to exhaust a parser is a rejected record - one line and the record
+    status - rather than an interpreter that ran out of stack; the same line reports a
+    value the parser refuses without it being a syntax error, an integer literal longer
+    than the interpreter converts being one. The parsed document is then checked against
+    the landing schema as a Draft 2020-12 document with format assertion enabled, which
     holds every date-formatted value to the calendar as well as to its written shape,
     and each timestamp-carrying value is parsed against the exact written form the
     contract fixes, since that form carries no UTC offset and no format keyword of the
@@ -205,11 +210,15 @@ WHAT --self-test CHECKS
     both directions, the reporting of violations that render identically as one
     violation with every distinct one kept, rejection of a repeated JSON member at every
     nesting level of the
-    record and of the schema, rejection of a control character in each of the 17 landed
+    record and of the schema, the nesting bound over a document at it, one past it, one
+    far past it and one carrying brackets inside a landed value, the interpreter's own
+    nesting bound reached with the real parser, an integer literal longer than the
+    interpreter converts, rejection of a control character in each of the 17 landed
     values by the schema and by the tool with nothing uploaded, the product premium
     allocation over every policy type in both directions, the endpoint policy over
     accepted and refused forms, the access probe and its cleanup on success and on
     failure, one successful upload of the record and of the COPY manifest beside it, the
+    digest and byte count a landing records on the object it writes, the
     replacement notice over a key that already carries an object and a key that does
     not, a head request that does not answer leaving the landing successful and silent
     about a replacement, two parts of one extract date landed as four coexisting objects
@@ -245,6 +254,15 @@ WHERE IT WRITES
     Partitioning applies to this key prefix alone, in the three Hive-style segments and
     no fourth: the part is an element of the object name, and this tool states no
     distribution, sort or partition property for any warehouse relation.
+
+    The record object also carries its own land-time identity as user metadata of the
+    one request that writes it: the SHA-256 digest of the bytes written under
+    RECORDED_SHA256_METADATA and their byte count under RECORDED_LENGTH_METADATA. That
+    is what modernization/landing/load_local.py holds the bytes it downloads to before
+    it parses them, so an object rewritten under this key after the landing fails that
+    load rather than reaching the raw relation. It is metadata of the record object, not
+    a third object and not a member of the COPY manifest, so a landing still writes two
+    objects and the manifest stays in the shape Amazon Redshift's manifest schema fixes.
 
     The record is written first and the manifest second, so a manifest on the bucket
     never names an object that was not written. The manifest holds one entry carrying
@@ -560,6 +578,18 @@ TIMESTAMP_OUTPUT_PRECISION = "microseconds"
 SERVICE_NAME = "s3"
 OBJECT_CONTENT_TYPE = "application/json"
 
+# User-metadata names the landed object carries its own land-time identity under: the
+# SHA-256 digest of the body written, as 64 lower-case hexadecimal characters, and the
+# byte count of that body, as decimal digits. Both are written by the one PutObject
+# that writes the record, so a landing still writes exactly two objects, and
+# modernization/landing/load_local.py requires them to equal what it downloaded before
+# it parses anything. Object metadata names reach the wire as x-amz-meta-<name> and are
+# reported back lower-cased, so both are written lower-case here and compared
+# lower-cased there.
+# Decision rationale: modernization/docs/decision-log.md, row D-124.
+RECORDED_SHA256_METADATA = "genapp-sha256"
+RECORDED_LENGTH_METADATA = "genapp-content-length"
+
 # Semantic formats the landing schema asserts, and the exact representation the
 # genapp-timestamp checker parses.
 DATE_FORMAT_NAME = "date"
@@ -717,6 +747,19 @@ RENDERED_AUTHORED_SEQUENCE = (
 MAX_RECORD_BYTES = 1024 * 1024
 MAX_SCHEMA_BYTES = 4 * 1024 * 1024
 READ_CHUNK_BYTES = 65536
+
+# Arrays and objects one JSON document this tool parses may nest inside one another,
+# and the structural characters that count. A landed record is one flat object, so it
+# nests one level; the landing schema nests six; the bound leaves that room many times
+# over and is reached only by a document built to exhaust a parser. It is measured
+# before the document is handed to the parser, so a document past it is refused as a
+# rejected input rather than by the interpreter running out of stack.
+# Decision rationale: modernization/docs/decision-log.md, row D-122.
+MAX_JSON_NESTING_DEPTH = 64
+_JSON_STRING_DELIMITER = '"'
+_JSON_STRING_ESCAPE = "\\"
+_JSON_OPENERS = "[{"
+_JSON_CLOSERS = "]}"
 
 # Prefix, object name shape and payload of the object written by --probe. The prefix
 # is outside LANDING_KEY_ROOT, so a probe object can never be read as landed data.
@@ -1098,13 +1141,121 @@ def _distinct_members(pairs: Sequence[tuple[str, Any]]) -> dict[str, Any]:
     return members
 
 
-def parse_json_document(text: str) -> Any:
+class UnparsableDocumentError(ValueError):
+    """A JSON document is past what this tool parses, rather than malformed.
+
+    ``reason`` is the bounded fragment naming which bound was reached: the nesting
+    bound this tool applies, the interpreter's own nesting bound, or a value the
+    parser refused that is not a syntax error, such as an integer literal longer
+    than the interpreter converts. Each is a rejected input, reported as one line
+    with the tool's own status, never as a traceback of parser frames.
+    """
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(reason)
+        self.reason = reason
+
+
+def _end_of_json_string(text: str, opening: int) -> int:
+    """Return the index just past the string literal ``text`` opens at ``opening``.
+
+    The closing delimiter is the first one not escaped by an odd number of preceding
+    backslashes, which is the escaping the JSON grammar fixes, so a structural
+    character inside a string value is never counted as nesting. An unterminated
+    literal returns the end of ``text``: that document is not well-formed and the
+    parser reports it, and counting no nesting past the opener cannot admit a
+    document the parser would then nest deeply into.
+    """
+    index = opening + 1
+    while True:
+        closing = text.find(_JSON_STRING_DELIMITER, index)
+        if closing < 0:
+            return len(text)
+        backslashes = 0
+        probe = closing - 1
+        while probe > opening and text[probe] == _JSON_STRING_ESCAPE:
+            backslashes += 1
+            probe -= 1
+        if backslashes % 2 == 0:
+            return closing + 1
+        index = closing + 1
+
+
+def json_nesting_depth(text: str, limit: int = MAX_JSON_NESTING_DEPTH) -> int:
+    """Return how deeply the arrays and objects of ``text`` nest, bounded by ``limit``.
+
+    One pass over ``text`` counts an opening bracket or brace as one level and the
+    matching closing one as the end of that level, skipping every string literal, so
+    a bracket inside a landed value is not counted. Counting stops as soon as the
+    depth passes ``limit`` and the value returned is then ``limit + 1``: a document
+    built to exhaust a parser is refused after its first ``limit + 1`` characters
+    rather than being scanned in full. The pass is linear in the length of ``text``
+    and allocates nothing beyond the loop's own indices, so it cannot itself be the
+    denial of service it guards against.
+
+    A document this returns a depth for is not thereby well-formed; the parser is
+    what decides that. This is a bound, applied before parsing, and nothing else.
+    """
+    depth = 0
+    deepest = 0
+    index = 0
+    length = len(text)
+    while index < length:
+        character = text[index]
+        if character == _JSON_STRING_DELIMITER:
+            index = _end_of_json_string(text, index)
+            continue
+        if character in _JSON_OPENERS:
+            depth += 1
+            if depth > deepest:
+                deepest = depth
+                if deepest > limit:
+                    return limit + 1
+        elif character in _JSON_CLOSERS and depth > 0:
+            depth -= 1
+        index += 1
+    return deepest
+
+
+def parse_json_document(
+    text: str, *, depth_limit: int = MAX_JSON_NESTING_DEPTH
+) -> Any:
     """Return the JSON value ``text`` carries, refusing a repeated member.
 
+    The nesting of ``text`` is measured before it is parsed and a document nesting
+    deeper than ``depth_limit`` is refused unparsed, so no document this tool reads
+    can drive the parser into the interpreter's own nesting bound. Two further
+    outcomes of the parser itself are reported the same way rather than as a
+    traceback: the interpreter's nesting bound, which a document within
+    ``depth_limit`` reaches only when the stack was already nearly spent, and a value
+    the parser refuses without it being a syntax error, which an integer literal
+    longer than the interpreter converts to an int is. ``depth_limit`` is the module's
+    bound for every caller of this tool; a larger one is passed only by the self-test
+    case that exercises the interpreter's own bound with the real parser.
+
     Raises ``json.JSONDecodeError`` when ``text`` is not one well-formed JSON document,
-    and ``DuplicateMemberError`` when any object in it carries a member name twice.
+    ``DuplicateMemberError`` when any object in it carries a member name twice, and
+    ``UnparsableDocumentError`` when it is past one of the three bounds above.
     """
-    return json.loads(text, object_pairs_hook=_distinct_members)
+    depth = json_nesting_depth(text, depth_limit)
+    if depth > depth_limit:
+        raise UnparsableDocumentError(
+            f"its arrays and objects nest more than {depth_limit} levels deep, which "
+            f"is deeper than any document of the landing contract"
+        )
+    try:
+        return json.loads(text, object_pairs_hook=_distinct_members)
+    except (DuplicateMemberError, json.JSONDecodeError):
+        raise
+    except RecursionError as error:
+        raise UnparsableDocumentError(
+            f"it nests {depth} levels deep, which the interpreter running this tool "
+            f"cannot parse: {_reason(error)}"
+        ) from error
+    except ValueError as error:
+        raise UnparsableDocumentError(
+            f"the parser refused a value it carries: {_reason(error)}"
+        ) from error
 
 
 def _read_bounded_bytes(path: Path, limit: int, what: str) -> bytes:
@@ -1302,7 +1453,8 @@ def parse_record(raw: bytes, path: Path) -> Mapping[str, Any]:
     validation and every later reader see the same members.
 
     Raises ``RecordError`` when ``raw`` is not valid UTF-8, is not one well-formed JSON
-    document, carries a second document, carries a repeated member name, or carries a
+    document, nests deeper than ``MAX_JSON_NESTING_DEPTH``, carries a value the parser
+    refuses, carries a second document, carries a repeated member name, or carries a
     JSON value that is not an object.
     """
     try:
@@ -1318,6 +1470,12 @@ def parse_record(raw: bytes, path: Path) -> Mapping[str, Any]:
         raise RecordError(
             f"the landing record carries the member {_shown(error.name)} more than "
             f"once: {_path_shown(path)}; one value per member is required"
+        ) from error
+    except UnparsableDocumentError as error:
+        raise RecordError(
+            f"the landing record is not a document this tool parses: "
+            f"{_path_shown(path)}: {error.reason}; the landed record is one flat JSON "
+            "object of the 17 keys the landing contract fixes"
         ) from error
     except json.JSONDecodeError as error:
         if error.msg.startswith("Extra data"):
@@ -1346,7 +1504,8 @@ def load_schema(path: Path = DEFAULT_SCHEMA) -> Mapping[str, Any]:
     A member name that repeats at any nesting level of the schema is refused and named.
 
     Raises ``SchemaError`` when the file is missing, empty, larger than
-    ``MAX_SCHEMA_BYTES``, not valid UTF-8, not well-formed JSON, carries a repeated
+    ``MAX_SCHEMA_BYTES``, not valid UTF-8, not well-formed JSON, nests deeper than
+    ``MAX_JSON_NESTING_DEPTH``, carries a value the parser refuses, carries a repeated
     member name, or is not a JSON object.
     """
     try:
@@ -1359,6 +1518,11 @@ def load_schema(path: Path = DEFAULT_SCHEMA) -> Mapping[str, Any]:
         raise SchemaError(
             f"the landing schema carries the member {_shown(error.name)} more than "
             f"once: {_path_shown(path)}; one value per member is required"
+        ) from error
+    except UnparsableDocumentError as error:
+        raise SchemaError(
+            f"the landing schema is not a document this tool parses: "
+            f"{_path_shown(path)}: {error.reason}"
         ) from error
     except (UnicodeDecodeError, json.JSONDecodeError) as error:
         raise SchemaError(
@@ -2995,12 +3159,34 @@ def note_object_replaced(client: Any, bucket: str, key: str) -> bool:
     return True
 
 
+def recorded_object_metadata(body: bytes) -> dict[str, str]:
+    """Return the land-time identity written as user metadata of the landed object.
+
+    The digest is the SHA-256 of ``body`` as 64 lower-case hexadecimal characters,
+    which is the same digest ``object_identity`` records for the same bytes and the
+    same form ``modernization/landing/load_redshift.sql`` documents for its
+    OBJECT_SHA256 provenance line, and the byte count is the length of ``body`` in
+    decimal digits. Both are values of ``body`` alone: no setting, credential,
+    endpoint or record value reaches the metadata, so the object carries nothing a
+    diagnostic would have to redact.
+    """
+    return {
+        RECORDED_SHA256_METADATA: hashlib.sha256(body).hexdigest(),
+        RECORDED_LENGTH_METADATA: str(len(body)),
+    }
+
+
 def put_record(client: Any, bucket: str, key: str, body: bytes) -> None:
     """Write ``body`` to ``key`` in ``bucket`` as one object, and return None.
 
     ``body`` is written exactly as given, with content type ``OBJECT_CONTENT_TYPE``, so
-    the stored object is byte-identical to the record file the caller read. One object
-    is written and nothing else on the bucket is read, written or configured.
+    the stored object is byte-identical to the record file the caller read. The one
+    request also carries ``recorded_object_metadata`` of those bytes, so the object
+    itself records the digest and byte count of what was landed and a loader can hold
+    the bytes that arrive to the bytes that were validated. Recording it as metadata of
+    this same PutObject keeps a landing at two objects and leaves the COPY manifest in
+    the shape Amazon Redshift's manifest schema fixes. One object is written and nothing
+    else on the bucket is read, written or configured.
 
     Raises ``AccessError`` when the write did not succeed, and ``ConfigurationError``
     when a credential setting is missing.
@@ -3011,6 +3197,7 @@ def put_record(client: Any, bucket: str, key: str, body: bytes) -> None:
             Key=key,
             Body=body,
             ContentType=OBJECT_CONTENT_TYPE,
+            Metadata=recorded_object_metadata(body),
         )
     except (ClientError, BotoCoreError) as error:
         raise _failure_for(
@@ -4355,6 +4542,14 @@ def land_record(
     the landing and names the manifest key, leaving the record object in place. Both
     objects are written in either run mode.
 
+    The record object carries ``recorded_object_metadata`` of the bytes written, so its
+    land-time SHA-256 digest and byte count are stored with it by the same PutObject
+    rather than as a third object: modernization/landing/load_local.py requires the
+    recorded digest to equal the digest of the bytes it downloads, and the manifest to
+    name that object and its real length, before it parses anything, so an object
+    rewritten under this key after the landing fails that load instead of reaching the
+    raw relation.
+
     The landing key is head-requested through ``note_object_replaced`` before the record
     is written, so an object already there - which is one landed for this same part - is
     named in one warning line as one this landing replaces. That head request cannot
@@ -4379,8 +4574,10 @@ def land_record(
     carried_key = str(record[SOURCE_SYSTEM_KEY_FIELD])
     key = build_landing_key(carried_key, entity, extract_date, part)
     manifest_key = build_manifest_key(carried_key, entity, extract_date, part)
+    recorded = recorded_object_metadata(body)
     _note(
-        f"validated {_path_shown(record_path)} carrying {len(body)} bytes for key "
+        f"validated {_path_shown(record_path)} carrying {len(body)} bytes with sha256 "
+        f"{recorded[RECORDED_SHA256_METADATA]} for key "
         f"{_shown(key, MAX_DIAGNOSTIC_PATH_CHARACTERS)}"
     )
     client = resolve_s3_access(bucket, region, endpoint_url)
@@ -4456,6 +4653,16 @@ _SELF_TEST_CREDENTIALS = {
     "AWS_ACCESS_KEY_ID": "selftest-access-key",
     "AWS_SECRET_ACCESS_KEY": "selftest-secret-key",
 }
+
+# The two documents the parse-bound case is put to. The nesting is far past
+# MAX_JSON_NESTING_DEPTH and past what the interpreter's own parser takes, so one
+# document exercises this tool's bound and, with the bound raised to its own depth, the
+# fallback that reports the interpreter's; the digit count is past the 4300 digits the
+# interpreter converts to an int, which the parser refuses as a value rather than as
+# syntax. Both stay well inside MAX_RECORD_BYTES, so each is refused for what it is
+# rather than for its size.
+_SELF_TEST_DEEP_NESTING = 50000
+_SELF_TEST_LONG_INTEGER_DIGITS = 5000
 
 # The Redshift settings every probe case resolves, each shaped as the resolution
 # accepts it. Every value is distinctive, and no case may leave one of them in a
@@ -5067,6 +5274,14 @@ def _assert_in(fragment: str, text: str, what: str) -> None:
         )
 
 
+def _assert_absent(fragment: str, text: str, what: str) -> None:
+    """Raise ``_SelfTestFailure`` when ``text`` carries ``fragment``."""
+    if fragment in text:
+        raise _SelfTestFailure(
+            f"{what} carries {fragment!r}: {_escaped(text, 240)}"
+        )
+
+
 def _assert_raises(
     what: str,
     expected: type[BaseException] | tuple[type[BaseException], ...],
@@ -5489,6 +5704,152 @@ def _case_duplicate_members_refused(scratch: _Scratch) -> str:
         "a nested document without repetition",
     )
     return "3 repeated members refused, 2 documents still parsed"
+
+
+def _case_nesting_bounded(scratch: _Scratch) -> str:
+    """A document past a parser bound is a rejected input, never a traceback.
+
+    The depth scan is put to a document nested exactly at the bound, one nested one
+    level past it, a document whose brackets sit inside a string value, and one
+    carrying an escaped quote before them, so the bound admits every document of the
+    landing contract and counts nothing a landed value carries. The record funnel and
+    the schema funnel are then put to a document nested far past the bound and to an
+    integer literal longer than the interpreter converts, each of which reached the
+    caller as a parser traceback and a status outside this tool's contract before the
+    bound existed. The interpreter's own nesting bound is exercised with the real
+    parser, by admitting a document deeper than it can take, so the fallback that
+    reports it is the one a run would take.
+    """
+    at_bound = "[" * MAX_JSON_NESTING_DEPTH + "1" + "]" * MAX_JSON_NESTING_DEPTH
+    _assert_equal(
+        json_nesting_depth(at_bound),
+        MAX_JSON_NESTING_DEPTH,
+        "the depth of a document nested at the bound",
+    )
+    innermost = parse_json_document(at_bound)
+    for _ in range(MAX_JSON_NESTING_DEPTH):
+        innermost = innermost[0]
+    _assert_equal(
+        innermost, 1, "the value a document nested at the bound carries"
+    )
+    past_bound = "[" * (MAX_JSON_NESTING_DEPTH + 1) + "]" * (
+        MAX_JSON_NESTING_DEPTH + 1
+    )
+    _assert_equal(
+        json_nesting_depth(past_bound),
+        MAX_JSON_NESTING_DEPTH + 1,
+        "the depth reported for a document one level past the bound",
+    )
+    _assert_raises(
+        "a document nested one level past the bound",
+        UnparsableDocumentError,
+        f"nest more than {MAX_JSON_NESTING_DEPTH} levels deep",
+        lambda: parse_json_document(past_bound),
+    )
+    for label, text, depth in (
+        ("brackets inside a string value", '{"a": "[[[[[[["}', 1),
+        ("an escaped quote before them", '{"a": "\\"[[[[["}', 1),
+        ("a landed record", _motor_record_text(), 1),
+        ("the landing schema", DEFAULT_SCHEMA.read_text(encoding="utf-8"), 6),
+    ):
+        _assert_equal(json_nesting_depth(text), depth, f"the depth of {label}")
+
+    deep = "[" * _SELF_TEST_DEEP_NESTING + "]" * _SELF_TEST_DEEP_NESTING
+    record_path = scratch.write("record-deep.json", deep)
+    deep_error = _assert_raises(
+        "a record nested far past the bound",
+        RecordError,
+        "is not a document this tool parses",
+        lambda: parse_record(read_record_bytes(record_path), record_path),
+    )
+    _assert_in(
+        f"nest more than {MAX_JSON_NESTING_DEPTH} levels deep",
+        str(deep_error),
+        "the diagnostic of a record nested past the bound",
+    )
+    schema_path = scratch.write("schema-deep.json", deep)
+    _assert_raises(
+        "a schema nested far past the bound",
+        SchemaError,
+        "is not a document this tool parses",
+        lambda: load_schema(schema_path),
+    )
+
+    long_integer = f"{{\"policy_number\": {'9' * _SELF_TEST_LONG_INTEGER_DIGITS}}}\n"
+    integer_path = scratch.write("record-long-integer.json", long_integer)
+    integer_error = _assert_raises(
+        "a record carrying an integer literal longer than the interpreter converts",
+        RecordError,
+        "the parser refused a value it carries",
+        lambda: parse_record(read_record_bytes(integer_path), integer_path),
+    )
+    _assert_equal(
+        integer_error.exit_status,
+        EXIT_RECORD_REJECTED,
+        "the status a refused parse returns",
+    )
+
+    beyond_interpreter = "[" * _SELF_TEST_DEEP_NESTING + "]" * _SELF_TEST_DEEP_NESTING
+    interpreter_error = _assert_raises(
+        "a document within a raised bound that the interpreter cannot parse",
+        UnparsableDocumentError,
+        "which the interpreter running this tool cannot parse",
+        lambda: parse_json_document(
+            beyond_interpreter, depth_limit=_SELF_TEST_DEEP_NESTING
+        ),
+    )
+    _assert_in(
+        f"nests {_SELF_TEST_DEEP_NESTING} levels deep",
+        str(interpreter_error),
+        "the diagnostic naming the depth the interpreter refused",
+    )
+
+    def _rendered(path: Path) -> _CliResult:
+        """Return the result of a command line reading ``path`` as its record.
+
+        The render mode reads and parses the record and reaches no endpoint, so the
+        status and the single line a command line reports for a document past a parser
+        bound are established without a client, a bucket or a credential.
+        """
+        return _run_cli(
+            scratch,
+            [
+                "--render-redshift-load",
+                RENDER_DOCUMENT_SQL,
+                "--record",
+                str(path),
+                "--bucket",
+                _SELF_TEST_BUCKET,
+                "--region",
+                _SELF_TEST_REGION,
+                "--iam-role",
+                _SELF_TEST_IAM_ROLE,
+            ],
+        )
+
+    run = _rendered(record_path)
+    _assert_equal(run.status, EXIT_RECORD_REJECTED, "the status of a deep record")
+    _assert_equal(run.stdout, "", "the stdout of a deep record")
+    line = _assert_one_diagnostic(run.stderr)
+    _assert_in("is not a document this tool parses", line, "the reported diagnostic")
+    _assert_absent("Traceback", run.stderr, "the stderr of a deep record")
+    _assert_equal(
+        len([reported for reported in run.stderr.splitlines() if reported]),
+        1,
+        "the lines a deep record reports",
+    )
+    integer_run = _rendered(integer_path)
+    _assert_equal(
+        integer_run.status, EXIT_RECORD_REJECTED, "the status of a long integer literal"
+    )
+    _assert_equal(integer_run.stdout, "", "the stdout of a long integer literal")
+    _assert_absent("Traceback", integer_run.stderr, "the stderr of a long integer")
+    _assert_one_diagnostic(integer_run.stderr)
+    return (
+        f"the bound of {MAX_JSON_NESTING_DEPTH} admits every contract document, "
+        f"{_SELF_TEST_DEEP_NESTING}-deep and {_SELF_TEST_LONG_INTEGER_DIGITS}-digit "
+        f"documents refused as records with status {EXIT_RECORD_REJECTED}"
+    )
 
 
 def _case_control_characters_refused(scratch: _Scratch) -> str:
@@ -6032,6 +6393,104 @@ def _case_landing_uploads_bytes(scratch: _Scratch) -> str:
     )
 
 
+def _case_landing_records_object_identity(scratch: _Scratch) -> str:
+    """The landed object carries its own land-time digest and byte count.
+
+    One landing is performed and the stored object is read back, by a head request and
+    by a download, and both are required to report the digest of the bytes that were
+    written and their byte count as user metadata, in the names
+    modernization/landing/load_local.py requires before it parses anything. The
+    landing is still two objects: the metadata rides on the request that writes the
+    record, so no third object appears and the COPY manifest keeps the members Amazon
+    Redshift's manifest schema fixes. The recorded digest is required to equal what
+    ``object_identity`` records for the same bytes, which is the digest the rendered
+    Redshift load carries as its OBJECT_SHA256 provenance, so the local loader and a
+    real-target operator check the same value.
+    """
+    mock_aws, _ = _test_collaborators()
+    path = scratch.write("record-recorded-identity.json", _motor_record_text())
+    body = path.read_bytes()
+    expected = recorded_object_metadata(body)
+    _assert_equal(
+        expected[RECORDED_SHA256_METADATA],
+        object_identity(body).sha256,
+        "the recorded digest against the rendered object identity",
+    )
+    _assert_equal(
+        expected[RECORDED_LENGTH_METADATA],
+        str(len(body)),
+        "the recorded byte count",
+    )
+    with mock_aws():
+        with _controlled_environment(
+            scratch, AWS_DEFAULT_REGION=_SELF_TEST_REGION, **_SELF_TEST_CREDENTIALS
+        ):
+            raw = boto3.session.Session(region_name=_SELF_TEST_REGION).client(
+                SERVICE_NAME, config=_client_config()
+            )
+            raw.create_bucket(
+                Bucket=_SELF_TEST_BUCKET,
+                CreateBucketConfiguration={"LocationConstraint": _SELF_TEST_REGION},
+            )
+            with _captured_stderr() as progress:
+                land_record(
+                    path,
+                    _SELF_TEST_BUCKET,
+                    DEFAULT_SOURCE_SYSTEM_KEY,
+                    LANDING_ENTITY,
+                    _SELF_TEST_EXTRACT_DATE,
+                )
+            key = build_landing_key(
+                DEFAULT_SOURCE_SYSTEM_KEY, LANDING_ENTITY, _SELF_TEST_EXTRACT_DATE
+            )
+            for label, response in (
+                ("head", raw.head_object(Bucket=_SELF_TEST_BUCKET, Key=key)),
+                ("get", raw.get_object(Bucket=_SELF_TEST_BUCKET, Key=key)),
+            ):
+                metadata = {
+                    name.lower(): value
+                    for name, value in response.get("Metadata", {}).items()
+                }
+                _assert_equal(
+                    metadata.get(RECORDED_SHA256_METADATA),
+                    expected[RECORDED_SHA256_METADATA],
+                    f"the digest the {label} response reports",
+                )
+                _assert_equal(
+                    metadata.get(RECORDED_LENGTH_METADATA),
+                    expected[RECORDED_LENGTH_METADATA],
+                    f"the byte count the {label} response reports",
+                )
+            listing = raw.list_objects_v2(Bucket=_SELF_TEST_BUCKET)
+            _assert_equal(
+                listing.get("KeyCount"), 2, "objects a recorded landing wrote"
+            )
+            manifest_key = build_manifest_key(
+                DEFAULT_SOURCE_SYSTEM_KEY, LANDING_ENTITY, _SELF_TEST_EXTRACT_DATE
+            )
+            manifest = raw.get_object(Bucket=_SELF_TEST_BUCKET, Key=manifest_key)[
+                "Body"
+            ].read()
+            entry = parse_json_document(manifest.decode("ascii"))["entries"][0]
+            _assert_equal(
+                tuple(entry), ("url", "mandatory", "meta"), "the manifest entry members"
+            )
+            _assert_absent(
+                RECORDED_SHA256_METADATA,
+                manifest.decode("ascii"),
+                "the COPY manifest",
+            )
+            _assert_in(
+                expected[RECORDED_SHA256_METADATA],
+                progress.getvalue(),
+                "the progress line of a landing",
+            )
+    return (
+        f"sha256 and {len(body)} bytes recorded on the record object, 2 objects "
+        "written, manifest members unchanged"
+    )
+
+
 def _case_landing_replacement_noted(scratch: _Scratch) -> str:
     """A landing over a key that already carries an object names the replacement.
 
@@ -6442,6 +6901,7 @@ def _case_upload_failure_reported(scratch: _Scratch) -> str:
                 "Key": key,
                 "Body": b"{}\n",
                 "ContentType": OBJECT_CONTENT_TYPE,
+                "Metadata": recorded_object_metadata(b"{}\n"),
             },
         )
         put_record(client, _SELF_TEST_BUCKET, key, b"{}\n")
@@ -8227,6 +8687,10 @@ def run_self_test(*, quiet: bool = False, stream: Any = None) -> int:
             lambda: _case_duplicate_members_refused(scratch),
         )
         _run_case(
+            results, out, quiet, "nesting_bounded",
+            lambda: _case_nesting_bounded(scratch),
+        )
+        _run_case(
             results, out, quiet, "control_characters_refused",
             lambda: _case_control_characters_refused(scratch),
         )
@@ -8264,6 +8728,10 @@ def run_self_test(*, quiet: bool = False, stream: Any = None) -> int:
         _run_case(
             results, out, quiet, "landing_uploads_bytes",
             lambda: _case_landing_uploads_bytes(scratch),
+        )
+        _run_case(
+            results, out, quiet, "landing_records_object_identity",
+            lambda: _case_landing_records_object_identity(scratch),
         )
         _run_case(
             results, out, quiet, "landing_replacement_noted",

@@ -218,8 +218,12 @@
 --                          region code such as eu-west-2
 --   OBJECT_CONTENT_LENGTH  byte count of the validated landed object: 1 to 12 digits
 --                          with no leading zero
---   OBJECT_SHA256          SHA-256 digest of that object's bytes: 64 lower-case hex
---                          characters
+--   OBJECT_SHA256          SHA-256 digest of that object's bytes, computed at land
+--                          time: 64 lower-case hex characters. The landing writer
+--                          records the same digest as user metadata of the landed
+--                          object, under x-amz-meta-genapp-sha256, so the value below
+--                          and the value on the object come from one computation over
+--                          one set of bytes
 --   OBJECT_ETAG            ETag of that object: 32 lower-case hex characters,
 --                          optionally followed by a hyphen and a part count
 --   OBJECT_VERSION_ID      version id of that object on a versioned bucket: 1 to 1024
@@ -240,15 +244,35 @@
 -- load was bound to and is confirmed by the head-object call below rather than by the
 -- COPY. The same document, byte for byte, is printed by
 --     modernization/landing/land_to_s3.py --render-redshift-load manifest --record <record>
--- for reading it without an S3 request. Confirm the recorded identity below against
+-- for reading it without an S3 request.
+--
+-- What verifies the object's bytes, and where. Amazon Redshift computes no digest of a
+-- JSON object it copies and compares none: a COPY of this manifest establishes that the
+-- named object exists and is readable, and nothing about its content beyond the rows it
+-- yields. On the local-substitute branch modernization/landing/load_local.py performs
+-- that verification itself before it loads anything: it requires the land-time digest
+-- and byte count recorded on the object as user metadata, requires both to equal the
+-- digest and length of the bytes it downloaded, and requires the manifest above to name
+-- exactly that object URI and exactly that byte count, failing the load and writing
+-- nothing when any of those disagrees. No equivalent check runs inside Redshift, so on
+-- the real target the operator performs it before running these statements:
 --     aws s3api head-object --bucket ${S3_BUCKET} --key <key>
--- before running these statements; ETag, version id and byte count must all match, and
--- the SHA-256 digest is the digest of the bytes the landing step validated.
+-- ETag, version id and byte count must match the values below, and the Metadata of that
+-- response must carry genapp-sha256 equal to ${OBJECT_SHA256}; then
+--     aws s3 cp s3://${S3_BUCKET}/<key> - | sha256sum
+-- must produce that same digest, which establishes that the bytes on the bucket are the
+-- bytes the landing step validated. A mismatch means the object was rewritten after it
+-- was landed: do not run this load, and re-land the record. Nothing in the statements
+-- below enforces this - they cannot - so an operator who skips it copies whatever the
+-- key now holds. Decision rationale: modernization/docs/decision-log.md, row D-124.
 --
 -- Validated object bound to this load:
 --   key        landing/source_system_key=${SOURCE_SYSTEM_KEY}/entity=${ENTITY}/extract_date=${EXTRACT_DATE}/part-${LANDING_PART}.json
 --   bytes      ${OBJECT_CONTENT_LENGTH}
---   sha256     ${OBJECT_SHA256}
+--   sha256     ${OBJECT_SHA256}, the land-time digest, also recorded on the object as
+--              x-amz-meta-genapp-sha256 and verified there by
+--              modernization/landing/load_local.py. Verify it here as described above;
+--              this load does not
 --   etag       ${OBJECT_ETAG}
 --   version    ${OBJECT_VERSION_ID}
 --   policy     ${POLICY_NUMBER}, the policy_number the validated record carries. The

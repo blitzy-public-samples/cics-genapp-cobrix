@@ -1,7 +1,7 @@
 # run_harness.sh evidence manifest: one run, one published set
 # status label:        validated against local substitute, not AWS
-# run identifier:      20260822T225152Z-4054660
-# written (UTC):       2026-08-22T22:52:06Z
+# run identifier:      20260823T001518Z-52823
+# written (UTC):       2026-08-23T00:15:31Z
 # case selection:      01AMOT, 01ACOM, 01AMOT-RC70, 01AMOT-RC90, 01AMOT-LGSQ, 01ACOM-LGSQ, 01AMOT-RC80, 01AMOT-RC98, 01AMOT-LGCA, 01AXXX-RC99, 01AHOU-ROUTE, 01AHOU-LGSQ
 # success captures:    01AMOT, 01ACOM
 # policy number seed:  1000001
@@ -15,10 +15,21 @@
 3d1568c9445d49da113ce1d6baef5c63b26b30171b0b94e2caa07474eef0b4a8  compile.log
 52dae90f592de53eceeaae19b013e3c095ea59b3e83576b40f99ae8b7490c4ef  translation-report.json
 9ce3044c8058db34a25e698a04020a20be76a56099b02ae1b3d91d143b1e7a50  source-baseline.sha256
-4d3463eecff2c6bef18e6b9a01171ce877b34d61b11a075be3a9c4fb7d3669f1  readonly-check.log
+fa18b7ccdaeddbf38af0838e2368cddb2d3343cef11550421080c54a27ca3bba  readonly-check.log
 c70f478922aaeb72a276f811d1aa15a7e808456362d4907ec05bef50f5a12921  driver_01amot.log
 e66da30d2ee53797a686bb071e01b65e1fd69c3c0b7046497899b6b7231ce1cc  captures_01amot.txt
 0beb0508ef2b207078136e728b7de7c5abe1dcb0748e5d28f4fd365b1da3700b  commarea_post_01amot.dat
 77105ba785b7d281e937c7a392c45891c3bd8281ba4719774993f0b53a5d433c  driver_01acom.log
 f54e11600d5edfc95aad6823079c237b6e63e137ca63f14628240fdbd72edbb5  captures_01acom.txt
 4ff67bdb47727892c2c313e15a07b4b6b7794c4d02f82a9a6f0dc1118057ea85  commarea_post_01acom.dat
+2cf6dc58c60f728554ea3c3f68e11f5e4f44768404b81b4f9d0bc9d0cf0cb7a3  verify-env.txt
+51c778896e5c6cc5193edd8e341f11c5a344a42079cf7e8c8396c4a86a2c69fe  dbt-clean.log
+f4f1895e2a96355e67776641dccfa38c4136ff846ef256fcd965dc07a5b2beb2  dbt-run.log
+4b78c1ab6f43ed2c673915037ecddb90097940759a562b5cfd8f1708bf63882c  dbt-test.log
+9b759a810b64d2797cae53738a60e037f8eef267786304665ddca7e1acd330ed  gate-selection.json
+0af0c239a0a836c1e65f40e7fa9b3fc7b40be4676648f23d597eb81cc847712f  gate-probe-s3.log
+010143d018ed88213cd7cdab06de6cdeec56ed1ec19cb34687426f96058a7fa7  gate-probe-redshift.log
+6e1f46f64275c35f7322b6543f8de722ae1a09ab07cf8cd69131744c80273728  compile-modules.log
+75c110145bd67a9fc5ab94ce09f3143ed5a5aac144b5d13a8146a61886d8e657  execute-harness.log
+c2d6c10b846ababd925649c61ef6f89dab44c12819dcd0b7ba162dcc7e047c4c  diff-report.md
+ed9fd1bb352fed391dae59e0e6bc108c81a98a452da96d0099a49ec52db7c1db  diff-report.json

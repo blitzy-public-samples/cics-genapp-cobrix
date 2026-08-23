@@ -38,14 +38,20 @@ WHICH INPUTS IT ACCEPTS
                  nullability rule, return-code meaning and landing key, in a file of
                  at most ``MAX_FIELD_MAP_BYTES`` bytes (default:
                  ``copybook_field_map.yml`` beside this script; every working
-                 directory resolves the same default).
+                 directory resolves the same default). It is parsed by a
+                 ``yaml.SafeLoader`` subclass that refuses a repeated mapping key, a
+                 key it cannot compare, an alias, the merge key ``<<`` and nesting past
+                 ``MAX_DOCUMENT_DEPTH`` containers, which is the loader contract the
+                 map's own header states and the one every consumer of the map applies.
 
     Each read input is taken as the regular file its own name carries: a symbolic
     link standing at either path is refused by name with the status an unreadable
     input returns, and so is a name carrying anything other than a regular file.
-    --output     destination path for the landing JSON record; missing parent
-                 directories are created and an existing file is left in place unless
-                 ``--overwrite`` is given.
+    --output     destination path for the landing JSON record, which must canonicalise
+                 below one of the generated roots of this repository or below the
+                 temporary directory this run resolves; missing parent directories are
+                 created and an existing file is left in place unless ``--overwrite``
+                 is given.
     --overwrite  replace an existing regular file at the destination. Without it a
                  destination that already exists is refused by name and nothing is
                  written; with it the record replaces that file, which keeps the mode
@@ -74,17 +80,24 @@ WHICH INPUTS IT ACCEPTS
                  accepts ``--field-map`` and neither ``--commarea`` nor ``--output``.
 
 WHICH DESTINATIONS IT ACCEPTS
-    The destination is canonicalised - every component of its parent chain is
-    resolved, so a symbolic-link chain and a ``/proc/self/cwd`` style alias reach the
-    same check as the path they name. A canonical destination inside the repository
-    directory holding this script must stand below one of the generated roots
-    ``GENERATED_OUTPUT_ROOTS``; any other path inside that repository is refused by
-    name, an authored file, the committed evidence under
+    Two roots, and nothing else. The destination is canonicalised - every component of
+    its parent chain is resolved, so a symbolic-link chain, a symbolic-link parent
+    directory and a ``/proc/self/cwd`` style alias reach the same check as the path
+    they actually name rather than the path they spell. A canonical destination inside
+    the repository directory holding this script must stand below one of the generated
+    roots ``GENERATED_OUTPUT_ROOTS``; any other path inside that repository is refused
+    by name, an authored file, the committed evidence under
     modernization/validation/artifacts/ and anything below ``READ_ONLY_SOURCE_ROOT``
-    among them. A canonical destination outside that repository is accepted. A
-    destination whose final component is a symbolic link, one that resolves onto an
-    existing entry that is not a regular file, and one that resolves onto an existing
-    regular file without ``--overwrite``, are refused before anything is created.
+    among them. A canonical destination outside that repository must stand below the
+    temporary directory this run resolves - ``canonical_temporary_root()``, which reads
+    TMPDIR, TEMP and TMP before the platform default, so the documented ``--output
+    /tmp/landing_01amot.json`` workflow and an operator's own TMPDIR both stand. Every
+    other path of the filesystem is refused by name whether it is absent, an existing
+    file or a system file, and the refusal names the destination, the canonical path it
+    resolves to and the accepted roots on one line. A destination whose final component
+    is a symbolic link, one that resolves onto an existing entry that is not a regular
+    file, and one that resolves onto an existing regular file without ``--overwrite``,
+    are refused before anything is created.
 
 WHAT IT WRITES
     One JSON object serialised as a single line terminated by one line feed, holding
@@ -123,10 +136,12 @@ HOW IT FAILS
 WHAT --self-test CHECKS
     One case matrix, run in this process against the field map and records this module
     renders from the map's own windows: field-map validation and every way the map can
-    contradict itself, capture reading at, below and above the record length, window
-    decoding for every landing key including blank and all-zero windows, the window the
-    map records ``blank_window_lands_null`` for against the blank windows that stay
-    refused, a control character in every alphanumeric window, request-id
+    contradict itself, the loader refusals over a repeated key at the root and
+    nested, an alias of an anchor, the merge key ``<<`` and a document nested past
+    ``MAX_DOCUMENT_DEPTH``, capture reading at, below and above the record length,
+    window decoding for every landing key including blank and all-zero windows, the
+    window the map records ``blank_window_lands_null`` for against the blank windows
+    that stay refused, a control character in every alphanumeric window, request-id
     routing for the four routed ids and an unrouted one, all six return codes and an
     out-of-domain code, timestamp normalisation and calendar validity for both dates
     and the returned timestamp, the product-specific NULL pattern for M, C, E and H,
@@ -134,7 +149,11 @@ WHAT --self-test CHECKS
     ``--show-identifiers`` and under every ``GENAPP_SHOW_IDENTIFIERS`` value it
     resolves, the resolved source-system key and its origin on the summary line, the
     environment guard against the pinned runtime, destination confinement and refusal
-    including the committed evidence directory, the refusal of an existing destination
+    including the committed evidence directory, a name directly below the temporary root
+    accepted, a path outside both accepted roots refused with and without
+    ``--overwrite``, the system password file refused and left unchanged and a
+    destination carried through a symbolic-link parent directory that names a path
+    outside both roots refused, the refusal of an existing destination
     and its replacement under ``--overwrite``, the modes of the created directory and
     the landed record under a permissive umask and the mode an overwritten file keeps,
     and the output failure paths. Every case runs in one private scratch directory the
@@ -289,6 +308,14 @@ GENERATED_OUTPUT_ROOTS = (
     Path("modernization/dbt/genapp_rqi/logs"),
 )
 
+# The one root outside the repository a destination may stand below: the temporary
+# directory this run resolves, which is the TMPDIR, TEMP or TMP value when one of them
+# names a usable directory and the platform default otherwise. A destination that
+# canonicalises neither below a generated root nor below this root is refused by name,
+# so no path of the wider filesystem is written whether or not OVERWRITE_OPTION was
+# given. Decision rationale: modernization/docs/decision-log.md, row D-125.
+TEMPORARY_OUTPUT_ROOT_SOURCE = "the temporary directory (TMPDIR, TEMP, TMP)"
+
 # Record width the capture must carry: the sum of the four level-03 items declared at
 # base/src/lgcmarea.cpy:10-13, which are 6 + 2 + 10 + 32482 characters. The field map
 # must declare this same width under record.length.
@@ -304,6 +331,12 @@ _TRAILING_LINE_ENDINGS = ("\r\n", "\n", "\r")
 MAX_CAPTURE_BYTES = 64 * 1024
 MAX_FIELD_MAP_BYTES = 1024 * 1024
 READ_CHUNK_BYTES = 65536
+
+# Container nesting one field map may reach while its nodes are composed. A document
+# nesting deeper is refused at the level it breaches, so the parse is bounded before
+# the interpreter's own recursion limit is reached. It is the bound
+# modernization/extraction/build_sample_commarea.py applies to the same document.
+MAX_DOCUMENT_DEPTH = 32
 
 # Flags every read of an input is opened with: read-only, creating nothing, refusing a
 # symbolic link standing at the name, and failing rather than waiting on a name that
@@ -869,6 +902,65 @@ class _DuplicateRejectingLoader(yaml.SafeLoader):
                     node.start_mark,
                     f"found duplicate key {_display(key)}",
                     key_node.start_mark,
+                )
+        return super().construct_mapping(node, deep=deep)
+
+
+class _FieldMapLoader(_DuplicateRejectingLoader):
+    """Duplicate-rejecting loader that additionally refuses an alias and deep nesting.
+
+    Mapping construction rejects a repeated key and a key it cannot compare exactly as
+    ``_DuplicateRejectingLoader`` does, and rejects the merge key ``<<`` as well, so no
+    anchored mapping is folded into another one. Node composition rejects every alias,
+    so no anchor expands the document behind the byte bound the read applied, and bounds
+    container nesting to ``MAX_DOCUMENT_DEPTH`` levels while the nodes are composed,
+    so a document nested past the interpreter's recursion limit is named rather than
+    parsed.
+
+    Each refusal raises ``FieldMapError``, which carries
+    ``EXIT_FIELD_MAP_INVALID``, and names the anchor, the merge key or the line that
+    carries the offending node. It is the loader every consumer of the field map
+    applies: modernization/extraction/build_sample_commarea.py,
+    modernization/validation/diff_harness_vs_warehouse.py and this module, each raising
+    its own error type. Decision rationale: modernization/docs/decision-log.md, row
+    D-126.
+    """
+
+    def __init__(self, stream: Any) -> None:
+        super().__init__(stream)
+        self._depth = 0
+
+    def compose_node(self, parent: Any, index: Any) -> Any:
+        """Compose one node, refusing an alias and bounding the nesting depth."""
+        if self.check_event(yaml.events.AliasEvent):
+            event = self.peek_event()
+            raise FieldMapError(
+                f"the field map refers to anchor '*{_escaped(str(event.anchor))}' at "
+                f"line {event.start_mark.line + 1}; an alias is not accepted"
+            )
+        self._depth += 1
+        if self._depth > MAX_DOCUMENT_DEPTH:
+            raise FieldMapError(
+                f"the field map nests deeper than the accepted {MAX_DOCUMENT_DEPTH} "
+                f"levels at line {self.peek_event().start_mark.line + 1}"
+            )
+        try:
+            return super().compose_node(parent, index)
+        finally:
+            self._depth -= 1
+
+    def construct_mapping(
+        self, node: yaml.MappingNode, deep: bool = False
+    ) -> dict[Any, Any]:
+        """Construct one mapping, refusing the merge key as well as a repeated key."""
+        for key_node, _value_node in node.value:
+            if (
+                isinstance(key_node, yaml.nodes.ScalarNode)
+                and key_node.tag == "tag:yaml.org,2002:merge"
+            ):
+                raise FieldMapError(
+                    f"the field map uses the merge key '<<' at line "
+                    f"{key_node.start_mark.line + 1}; a merge key is not accepted"
                 )
         return super().construct_mapping(node, deep=deep)
 
@@ -1541,8 +1633,11 @@ def load_field_map(path: Path) -> FieldMap:
 
     ``path`` names ``copybook_field_map.yml``. Every offset, length, kind, routing
     entry, landing key, amount key and nullability rule is taken from it; none is
-    written into this tool. The document is parsed with a repeated mapping key rejected
-    rather than resolved to its last value.
+    written into this tool. The document is parsed by ``_FieldMapLoader``, which rejects
+    a repeated mapping key rather than resolving it to its last value, a key it cannot
+    compare, an alias, the merge key ``<<`` and nesting past ``MAX_DOCUMENT_DEPTH``
+    containers - the loader contract the field map's own header states and every
+    consumer of the map applies.
 
     Raises ``InputOutputError`` when the file cannot be read and ``FieldMapError``
     when it cannot be parsed, is missing a member this tool reads, or contradicts
@@ -1566,10 +1661,15 @@ def load_field_map(path: Path) -> FieldMap:
             f"the field map is not UTF-8 text: {_path_shown(path)}: {_reason(error)}"
         ) from error
     try:
-        document = yaml.load(text, Loader=_DuplicateRejectingLoader)
+        document = yaml.load(text, Loader=_FieldMapLoader)
     except yaml.YAMLError as error:
         raise FieldMapError(
             f"the field map cannot be parsed: {_path_shown(path)}: {_reason(error)}"
+        ) from error
+    except RecursionError as error:
+        raise FieldMapError(
+            f"the field map nests containers too deeply to parse: "
+            f"{_path_shown(path)}: {_reason(error)}"
         ) from error
     if not isinstance(document, Mapping):
         raise FieldMapError(
@@ -2295,6 +2395,34 @@ def _canonical_generated_roots() -> tuple[Path, ...]:
     )
 
 
+def canonical_temporary_root() -> Path:
+    """Return the temporary directory this run accepts, as the path it canonicalises to.
+
+    ``tempfile.gettempdir()`` reads TMPDIR, TEMP and TMP in that order and falls back to
+    the platform default, so the directory an operator points this run at is the one
+    accepted here. The value is canonicalised, so a temporary directory reached through
+    a symbolic link - ``/tmp`` standing for ``/private/tmp`` among them - is compared in
+    the same form a canonicalised destination carries. The value is absolute on every
+    platform ``tempfile`` supports, so a destination is compared against an absolute
+    root.
+    """
+    return Path(os.path.realpath(tempfile.gettempdir()))
+
+
+def _accepted_destination_roots() -> str:
+    """Return the roots a destination may stand below, as one diagnostic fragment.
+
+    Every refusal of ``confine_destination`` carries this fragment, so a rejected
+    command line is told the whole accepted set rather than the one rule it breached:
+    the generated roots inside the repository and the temporary directory outside it.
+    """
+    return (
+        f"below {_quote_all(str(root) for root in GENERATED_OUTPUT_ROOTS)} inside "
+        f"{_path_shown(Path(os.path.realpath(REPOSITORY_ROOT)))}, or below "
+        f"{_path_shown(canonical_temporary_root())}"
+    )
+
+
 def confine_destination(destination: Path, *, overwrite: bool = False) -> Path:
     """Return the canonical path ``destination`` names, or refuse it.
 
@@ -2308,9 +2436,12 @@ def confine_destination(destination: Path, *, overwrite: bool = False) -> Path:
     ``GENERATED_OUTPUT_ROOTS``: every other path inside it holds an authored artifact or
     committed evidence, modernization/validation/artifacts among them, and anything
     below ``READ_ONLY_SOURCE_ROOT`` is refused by that name. A canonical destination
-    outside the repository is accepted, which is the documented workflow of landing into
-    a temporary directory. A destination whose final component is a symbolic link, and
-    one that resolves onto an existing entry that is not a regular file, are refused.
+    outside the repository is accepted only below ``canonical_temporary_root()``, which
+    carries the documented workflow of landing into a temporary directory; every other
+    path of the filesystem is refused by name, whether it is absent, an existing file or
+    a system file such as /etc/passwd. A destination whose final component is a symbolic
+    link, and one that resolves onto an existing entry that is not a regular file, are
+    refused.
 
     A destination that resolves onto an existing regular file is refused unless
     ``overwrite`` is true, wherever it stands: a run that names an occupied path
@@ -2337,7 +2468,8 @@ def confine_destination(destination: Path, *, overwrite: bool = False) -> Path:
         raise InputOutputError(
             f"the destination resolves inside the read-only source directory "
             f"{_path_shown(read_only)}: {_path_shown(destination)} resolves to "
-            f"{_path_shown(canonical)}"
+            f"{_path_shown(canonical)}; a destination stands "
+            f"{_accepted_destination_roots()}"
         )
     if _stands_inside(canonical, repository):
         roots = _canonical_generated_roots()
@@ -2346,8 +2478,17 @@ def confine_destination(destination: Path, *, overwrite: bool = False) -> Path:
                 f"the destination resolves inside the repository directory "
                 f"{_path_shown(repository)} and outside every generated root "
                 f"{_quote_all(str(root) for root in GENERATED_OUTPUT_ROOTS)}: "
-                f"{_path_shown(destination)} resolves to {_path_shown(canonical)}"
+                f"{_path_shown(destination)} resolves to {_path_shown(canonical)}; a "
+                f"destination stands {_accepted_destination_roots()}"
             )
+    elif canonical_temporary_root() not in canonical.parents:
+        raise InputOutputError(
+            f"the destination resolves outside the repository directory "
+            f"{_path_shown(repository)} and outside the temporary directory "
+            f"{_path_shown(canonical_temporary_root())}: {_path_shown(destination)} "
+            f"resolves to {_path_shown(canonical)}; a destination stands "
+            f"{_accepted_destination_roots()}"
+        )
     try:
         status = os.lstat(canonical)
     except FileNotFoundError:
@@ -2760,6 +2901,14 @@ def summarise(
 _SCRATCH_PREFIX = "extract-commarea-selftest-"
 _SCRATCH_CAPTURE_NAME = "commarea_post.dat"
 _SCRATCH_RECORD_NAME = "landing.json"
+
+# Paths the destination-confinement cases aim at to exercise a path standing outside
+# both accepted roots: the system configuration directory, which no accepted root holds,
+# and the password file inside it. The cases validate them and never open them for
+# writing: the confinement decision is reached before the destination is examined, so a
+# refused case creates nothing there and changes nothing there.
+_SYSTEM_DIRECTORY = Path("/etc")
+_SYSTEM_PASSWORD_FILE = _SYSTEM_DIRECTORY / "passwd"
 
 # Window content the matrix renders a record from, keyed by the field map's landing key.
 # A value is padded to the declared window: left with zeros for a numeric_display item
@@ -3903,16 +4052,149 @@ def _case_generated_roots_accepted() -> str:
 
 
 def _case_out_of_tree_accepted(scratch: Path) -> str:
-    """Confirm a destination outside the repository directory is accepted."""
+    """Confirm a destination below the temporary root, outside the tree, is accepted.
+
+    The scratch directory of this run stands below the temporary directory the run
+    resolves, so a destination inside it exercises the one root accepted outside the
+    repository. The case also validates a name directly below that root, which does not
+    exist and is not created, so the accepted root itself is exercised rather than only
+    a directory below it.
+    """
     candidate = scratch / "out-of-tree" / _SCRATCH_RECORD_NAME
     target = confine_destination(candidate)
     repository = Path(os.path.realpath(REPOSITORY_ROOT))
+    temporary = canonical_temporary_root()
     if _stands_inside(target, repository):
         raise _SelfTestFailure(
             f"the scratch destination {_path_shown(target)} stands inside "
             f"the repository directory {_path_shown(repository)}"
         )
-    return f"{_path_shown(target)} accepted outside the repository"
+    if temporary not in target.parents:
+        raise _SelfTestFailure(
+            f"the scratch destination {_path_shown(target)} does not stand below the "
+            f"temporary directory {_path_shown(temporary)}"
+        )
+    directly_below = temporary / f"extractor-selftest-{os.getpid()}.json"
+    accepted = confine_destination(directly_below)
+    if accepted != directly_below:
+        raise _SelfTestFailure(
+            f"the destination directly below the temporary directory canonicalises to "
+            f"{_path_shown(accepted)}, expected {_path_shown(directly_below)}"
+        )
+    if os.path.lexists(accepted):
+        raise _SelfTestFailure(
+            f"validating the destination below the temporary directory created "
+            f"{_path_shown(accepted)}"
+        )
+    return (
+        f"{_path_shown(target)} and a name directly below "
+        f"{_path_shown(temporary)} accepted outside the repository"
+    )
+
+
+def _case_outside_both_roots_refused(
+    scratch: Path, map_path: Path, field_map: FieldMap
+) -> str:
+    """Confirm a destination outside the repository and the temporary root is refused.
+
+    The destination stands in the system configuration directory, outside the
+    repository and outside the temporary directory this run resolves, and carries a
+    name that does not exist there. It is validated directly and run through the
+    command line with and without ``OVERWRITE_OPTION``; each attempt is refused for
+    standing outside both accepted roots and creates nothing.
+    """
+    directory = _case_directory(scratch, "outside-both-roots")
+    capture = _prepared_capture(directory, field_map, _MOTOR_WINDOWS)
+    destination = _SYSTEM_DIRECTORY / f"extractor-selftest-{os.getpid()}.json"
+    diagnostic = _expect_raised(
+        InputOutputError,
+        EXIT_IO_ERROR,
+        ["outside the temporary directory", destination.name],
+        lambda: confine_destination(destination),
+        "validating a destination outside the repository and the temporary directory",
+    )
+    for extra in ((), (OVERWRITE_OPTION,)):
+        result = _run_cli(_extraction_argv(capture, destination, map_path, *extra))
+        _expect_cli_failure(
+            result,
+            EXIT_IO_ERROR,
+            ["outside the temporary directory", destination.name],
+            f"the extraction aimed outside both accepted roots "
+            f"{'with' if extra else 'without'} {OVERWRITE_OPTION}",
+        )
+        if os.path.lexists(destination):
+            raise _SelfTestFailure(
+                f"the refused extraction created {_path_shown(destination)}"
+            )
+    return f"refused with and without {OVERWRITE_OPTION}: {diagnostic}"
+
+
+def _case_system_file_destination_refused() -> str:
+    """Confirm the system password file is refused as a destination, and is unchanged.
+
+    ``confine_destination`` decides before it examines the destination, so validating
+    this path opens nothing at it; the file is fingerprinted either side of the refusal
+    to record that the run left the content and the modification time it carries.
+    """
+    destination = _SYSTEM_PASSWORD_FILE
+    if not destination.is_file():
+        raise _SelfTestFailure(
+            f"the case needs the system file {_path_shown(destination)}, which this "
+            f"host does not carry"
+        )
+    before = _fingerprint(destination)
+    diagnostic = _expect_raised(
+        InputOutputError,
+        EXIT_IO_ERROR,
+        ["outside the temporary directory", destination.name],
+        lambda: confine_destination(destination),
+        "validating the system password file as a destination",
+    )
+    _expect_untouched(destination, before, str(destination))
+    return f"refused and unchanged: {diagnostic}"
+
+
+def _case_symlinked_parent_refused(
+    scratch: Path, map_path: Path, field_map: FieldMap
+) -> str:
+    """Confirm a symbolic-link parent directory cannot carry a destination outside.
+
+    The link stands in this run's scratch directory, below the temporary root, and
+    names the system configuration directory, which stands outside both accepted roots.
+    The destination spelled through it therefore canonicalises outside both roots and is
+    refused by the path it names rather than accepted by the path it spells, which is
+    what the destination-is-a-symbolic-link check alone does not cover. Nothing is
+    created at either the spelled path or the path it names.
+    """
+    directory = _case_directory(scratch, "symlinked-parent")
+    capture = _prepared_capture(directory, field_map, _MOTOR_WINDOWS)
+    alias = directory / "link_system"
+    alias.symlink_to(_SYSTEM_DIRECTORY)
+    name = f"extractor-selftest-{os.getpid()}.json"
+    candidate = alias / name
+    named = _SYSTEM_DIRECTORY / name
+    diagnostic = _expect_raised(
+        InputOutputError,
+        EXIT_IO_ERROR,
+        ["outside the temporary directory", name],
+        lambda: confine_destination(candidate),
+        "validating a destination spelled through a symbolic-link parent directory",
+    )
+    result = _run_cli(
+        _extraction_argv(capture, candidate, map_path, OVERWRITE_OPTION)
+    )
+    _expect_cli_failure(
+        result,
+        EXIT_IO_ERROR,
+        ["outside the temporary directory", name],
+        f"the extraction aimed through a symbolic-link parent with {OVERWRITE_OPTION}",
+    )
+    for path in (candidate, named):
+        if os.path.lexists(path):
+            raise _SelfTestFailure(
+                f"the refused extraction created {_path_shown(path)}"
+            )
+    return f"refused and nothing created: {diagnostic}"
 
 
 def _case_authored_destination_refused(relative: str) -> str:
@@ -5010,6 +5292,33 @@ def _field_map_cases(
             ("cannot be parsed", "duplicate key 'name'"),
         ),
         (
+            "alias_of_an_anchor",
+            (map_text + "\nqa_anchor: &qa {a: 1}\nqa_alias: *qa\n").encode("utf-8"),
+            FieldMapError,
+            EXIT_FIELD_MAP_INVALID,
+            ("refers to anchor '*qa'", "an alias is not accepted"),
+        ),
+        (
+            "merge_key",
+            (map_text + "\nqa_merged:\n  <<: {a: 1}\n").encode("utf-8"),
+            FieldMapError,
+            EXIT_FIELD_MAP_INVALID,
+            ("uses the merge key '<<'", "a merge key is not accepted"),
+        ),
+        (
+            "nesting_above_the_depth_limit",
+            (
+                "qa_deep: "
+                + "{a: " * (MAX_DOCUMENT_DEPTH + 8)
+                + "1"
+                + "}" * (MAX_DOCUMENT_DEPTH + 8)
+                + "\n"
+            ).encode("utf-8"),
+            FieldMapError,
+            EXIT_FIELD_MAP_INVALID,
+            (f"nests deeper than the accepted {MAX_DOCUMENT_DEPTH} levels",),
+        ),
+        (
             "not_a_mapping",
             b"- one\n- two\n",
             FieldMapError,
@@ -5562,6 +5871,18 @@ def _output_cases(
         results, out, "destination_outside_the_repository_accepted",
         lambda: _case_out_of_tree_accepted(scratch),
     )
+    _run_case(
+        results, out, "destination_outside_both_roots_refused",
+        lambda: _case_outside_both_roots_refused(scratch, map_path, field_map),
+    )
+    _run_case(
+        results, out, "destination_system_password_file_refused",
+        lambda: _case_system_file_destination_refused(),
+    )
+    _run_case(
+        results, out, "destination_symlinked_parent_refused",
+        lambda: _case_symlinked_parent_refused(scratch, map_path, field_map),
+    )
     for relative in (
         "modernization/extraction/copybook_field_map.yml",
         "modernization/landing/landing-schema.json",
@@ -5861,7 +6182,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
             "file, the committed evidence under modernization/validation/artifacts, "
             "anything below the repository's base directory, a final component "
             "that is a symbolic link and an existing entry that is not a regular file "
-            "are refused. A destination outside that repository is accepted. An "
+            "are refused. A destination outside that repository is accepted only below "
+            f"{TEMPORARY_OUTPUT_ROOT_SOURCE}, which this run resolves to "
+            f"{_path_shown(canonical_temporary_root())}; every other path of the "
+            "filesystem is refused by name, and the refusal names the destination, the "
+            "canonical path it resolves to and the accepted roots. An "
             "existing regular file is refused wherever it stands unless "
             f"{OVERWRITE_OPTION} is given, and is then replaced keeping the mode it "
             f"carries. Each directory this tool creates carries mode "
@@ -5918,9 +6243,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
         type=Path,
         metavar="PATH",
         help=(
-            "destination for the landing JSON record; it must canonicalise outside the "
-            "repository directory holding this script or below one of its generated "
-            f"roots, its parent directories are created with mode {DIRECTORY_MODE:04o} "
+            "destination for the landing JSON record; it must canonicalise below one "
+            "of the generated roots of the repository directory holding this script or "
+            f"below {TEMPORARY_OUTPUT_ROOT_SOURCE}, which this run resolves to "
+            f"{canonical_temporary_root()}, and every other path is refused by name; "
+            f"its parent directories are created with mode {DIRECTORY_MODE:04o} "
             f"and a record this tool creates is written with mode {FILE_MODE:04o}; a "
             f"path that already exists is refused unless {OVERWRITE_OPTION} is given; "
             "required unless --self-test is given"
@@ -5935,7 +6262,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
             "name and nothing is written. It never widens where a record may land: a "
             "path inside the repository directory holding this script and outside "
             "every generated root, a path below that repository's base directory, a "
-            "symbolic link and an entry that is not a regular file stay refused"
+            "path outside both that repository and the temporary directory this run "
+            "resolves, a symbolic link and an entry that is not a regular file stay "
+            "refused"
         ),
     )
     parser.add_argument(

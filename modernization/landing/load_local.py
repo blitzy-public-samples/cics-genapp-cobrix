@@ -2,8 +2,10 @@
 """Load one landed GenApp Policy-Issue object into the local raw relation.
 
 WHAT THIS TOOL DOES
-    Downloads the single S3 object modernization/landing/land_to_s3.py wrote,
-    confirms it still carries the landing contract - the complete
+    Downloads the single S3 object modernization/landing/land_to_s3.py wrote, reads
+    the COPY manifest that landing wrote beside it to confirm the two are the pair
+    one landing produced, confirms the object still carries the landing contract -
+    the complete
     modernization/landing/landing-schema.json document, its date format, a real
     last_changed moment, unique member names and a key equal to the one the
     object's own source-system key rebuilds - and writes it as one row of
@@ -11,7 +13,19 @@ WHAT THIS TOOL DOES
     immutable metadata before it is read: a head request records its ETag, its
     version id where the bucket keeps versions and its byte count, the download
     then requires that same ETag and version, and the bytes that arrive are
-    confirmed against the recorded byte count and digest before they are parsed.
+    confirmed against the byte count and entity tag that head request reported.
+    Those bytes are then held to what the landing step recorded for them, still
+    before anything is parsed: the SHA-256 digest and byte count
+    modernization/landing/land_to_s3.py wrote as user metadata of the object at
+    land time must both equal what arrived, and the COPY manifest that landing
+    wrote beside the object - the sibling part-<NNNN>.manifest.json of the same
+    part - must name exactly this object's URI and exactly the byte count that
+    arrived. An ETag and a byte count describe whatever the bucket holds now, so an
+    object rewritten under the landing key after the landing satisfies them; the
+    recorded digest was computed before the upload, so it does not, and such an
+    object fails the load with the object status and nothing written rather than
+    reaching the raw relation. An object carrying no recorded digest is refused for
+    the same reason: it cannot be shown to be the object that was landed.
     The landing schema is applied in full to the bytes that were downloaded, not
     only to the object that was headed, so an object replaced between the two
     requests fails the load instead of reaching the relation. Every one of those
@@ -27,10 +41,16 @@ WHAT THIS TOOL DOES
     Typing is applied by the dbt models downstream, never here.
 
 WHICH BYTES IT ACCEPTS AS AN OBJECT
-    The downloaded body is checked to be the canonical landed form before the row
-    is written: the ASCII-escaped JSON serialisation of the parsed object
-    followed by one line feed, holding the landed keys in the order the landing
-    schema fixes. One comparison against that form refuses a pretty-printed or
+    The downloaded body is checked to be the bytes the landing step recorded and
+    then to be the canonical landed form before the row is written. Recorded means
+    the SHA-256 digest and byte count land_to_s3.py wrote as user metadata of the
+    object itself, both required and both compared with the bytes that arrived, and
+    the COPY manifest of the same part, required to name this object's URI and the
+    byte count that arrived; an object carrying no recorded digest, one whose digest
+    disagrees, and one whose manifest names another object or another length are all
+    refused unparsed. Canonical means the ASCII-escaped JSON serialisation of the
+    parsed object followed by one line feed, holding the landed keys in the order the
+    landing schema fixes. One comparison against that form refuses a pretty-printed or
     multi-line object, leading, surrounding or repeated whitespace, a carriage
     return, an absent or repeated terminal line feed, and a re-ordered key, and
     the diagnostic names the byte counts and the first differing offset. A
@@ -150,7 +170,12 @@ WHICH INPUTS IT ACCEPTS
 HOW IT VALIDATES THE LANDED OBJECT
     The object is parsed with duplicate member names refused, so a document
     carrying the same key twice is rejected rather than silently collapsed to its
-    last occurrence. The parsed document is then checked against
+    last occurrence. Its nesting is measured before it is parsed and a document
+    nesting deeper than MAX_JSON_NESTING_DEPTH is refused unparsed, so an object
+    built to exhaust a parser is a rejected object - one line and the object status -
+    rather than an interpreter that ran out of stack; the same line reports a value
+    the parser refuses without it being a syntax error, an integer literal longer
+    than the interpreter converts being one. The parsed document is then checked against
     modernization/landing/landing-schema.json as a Draft 2020-12 document with
     format assertion enabled - the same schema, the same dialect and the same
     assertions modernization/landing/land_to_s3.py applies - so enums, patterns,
@@ -170,7 +195,13 @@ WHAT --self-test CHECKS
     a repeated JSON member at every nesting level of the object and of the
     schema, the endpoint policy over accepted and refused forms, the download
     failures botocore reports, an object replaced between the head request and
-    the download, a digest that does not match the recorded one, the database
+    the download, a digest that does not match the recorded one, the land-time
+    digest and byte count required of every object and each way they can fail, the
+    COPY manifest required to name this object and its length and each way it can
+    fail, the nesting bound over a document at it, one past it and one far past it,
+    the interpreter's own nesting bound reached with the real parser, an integer
+    literal longer than the interpreter converts, the option and the environment
+    variable that carry identifiers producing the same output, the database
     path policy over accepted and refused paths, a path in a directory below the
     one directory a database may sit in refused as a setting before any request
     is made, SQL statement splitting, the physical shape of
@@ -475,6 +506,37 @@ _OBJECT_NAME_SHAPE = re.compile(
 DEFAULT_PART_TEXT = f"{DEFAULT_PART_NUMBER:0{PART_NUMBER_DIGITS}d}"
 OBJECT_NAME = OBJECT_NAME_TEMPLATE.format(part=DEFAULT_PART_TEXT)
 
+# Object name of the COPY manifest modernization/landing/land_to_s3.py writes beside
+# each landed part, and the members that manifest carries. The manifest is the second
+# of the two objects a landing writes and the document
+# modernization/landing/load_redshift.sql binds its real-target COPY to; this tool
+# reads it to confirm that the object it downloaded is the object the landing bound
+# that load to, and requires exactly one entry, in the shape Amazon Redshift's manifest
+# schema fixes, whose url is this object's own URI and whose nested content_length is
+# this object's real byte count.
+MANIFEST_OBJECT_NAME_TEMPLATE = "part-{part}.manifest.json"
+MANIFEST_OBJECT_NAME = MANIFEST_OBJECT_NAME_TEMPLATE.format(part=DEFAULT_PART_TEXT)
+MANIFEST_ENTRIES_MEMBER = "entries"
+MANIFEST_URL_MEMBER = "url"
+MANIFEST_MANDATORY_MEMBER = "mandatory"
+MANIFEST_META_MEMBER = "meta"
+MANIFEST_CONTENT_LENGTH_MEMBER = "content_length"
+MANIFEST_ENTRY_COUNT = 1
+
+# User-metadata names modernization/landing/land_to_s3.py records the land-time
+# identity of the landed object under: the SHA-256 digest of the bytes it wrote, as 64
+# lower-case hexadecimal characters, and their byte count, as decimal digits. Both are
+# required here and are compared with the bytes that arrive before anything is parsed,
+# so an object rewritten under the landing key after the landing fails this load
+# instead of reaching the raw relation. Object metadata names reach the wire as
+# x-amz-meta-<name> and are reported back lower-cased, so both are compared
+# lower-cased.
+# Decision rationale: modernization/docs/decision-log.md, row D-124.
+RECORDED_SHA256_METADATA = "genapp-sha256"
+RECORDED_LENGTH_METADATA = "genapp-content-length"
+_RECORDED_SHA256_SHAPE = re.compile(r"\A[0-9a-f]{64}\Z")
+_RECORDED_LENGTH_SHAPE = re.compile(r"\A[0-9]{1,12}\Z")
+
 # Value used when the matching option and environment variable are both absent.
 DEFAULT_SOURCE_SYSTEM_KEY = "GENAPP_CLASS_EXEMPLAR"
 
@@ -613,7 +675,23 @@ REDACTED_TEXT = "<redacted>"
 MAX_OBJECT_BYTES = 1024 * 1024
 MAX_SCHEMA_BYTES = 4 * 1024 * 1024
 MAX_DDL_BYTES = 1024 * 1024
+MAX_MANIFEST_BYTES = 64 * 1024
 READ_CHUNK_BYTES = 65536
+
+# Arrays and objects one JSON document this tool parses may nest inside one another,
+# and the structural characters that count. A landed object is one flat object, so it
+# nests one level; the landing schema nests six and the COPY manifest four. The bound
+# leaves that room many times over and is reached only by a document built to exhaust a
+# parser. It is measured before the document is handed to the parser, so a document
+# past it is refused as a rejected object rather than by the interpreter running out of
+# stack. The value matches modernization/landing/land_to_s3.py, so the tool that wrote
+# an object and the tool that reads it apply the same bound.
+# Decision rationale: modernization/docs/decision-log.md, row D-122.
+MAX_JSON_NESTING_DEPTH = 64
+_JSON_STRING_DELIMITER = '"'
+_JSON_STRING_ESCAPE = "\\"
+_JSON_OPENERS = "[{"
+_JSON_CLOSERS = "]}"
 
 # Rows one load removes and writes. A load carries one object, which carries one
 # record.
@@ -748,6 +826,21 @@ class DuplicateMemberError(ValueError):
         self.name = name
 
 
+class UnparsableDocumentError(ValueError):
+    """A JSON document is past what this tool parses, rather than malformed.
+
+    ``reason`` is the bounded fragment naming which bound was reached: the nesting
+    bound this tool applies, the interpreter's own nesting bound, or a value the
+    parser refused that is not a syntax error, such as an integer literal longer
+    than the interpreter converts. Each is a rejected input, reported as one line
+    with the tool's own status, never as a traceback of parser frames.
+    """
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(reason)
+        self.reason = reason
+
+
 # ---------------------------------------------------------------------------
 # Diagnostics
 # ---------------------------------------------------------------------------
@@ -777,6 +870,13 @@ def resolve_show_identifiers(supplied: bool) -> bool:
     enables display when it carries one of ``SHOW_IDENTIFIERS_ENABLING``, in any case
     and ignoring surrounding spaces; every other value, including an empty one
     and an absent variable, leaves record values withheld.
+
+    ``main`` resolves this once and holds it in the module through
+    ``set_show_identifiers``, and every caller reads it back through
+    ``show_identifiers_enabled`` rather than the option, so the option and the
+    variable select the same diagnostics, the same progress lines and the same
+    summary line.
+    Decision rationale: modernization/docs/decision-log.md, row D-123.
     """
     if supplied:
         return True
@@ -1015,14 +1115,108 @@ def _distinct_members(pairs: Sequence[tuple[str, Any]]) -> dict[str, Any]:
     return members
 
 
-def parse_json_document(text: str) -> Any:
+def _end_of_json_string(text: str, opening: int) -> int:
+    """Return the index just past the string literal ``text`` opens at ``opening``.
+
+    The closing delimiter is the first one not escaped by an odd number of
+    preceding backslashes, which is the escaping the JSON grammar fixes, so a
+    structural character inside a landed value is never counted as nesting. An
+    unterminated literal returns the end of ``text``: that document is not
+    well-formed and the parser reports it, and counting no nesting past the
+    opener cannot admit a document the parser would then nest deeply into.
+    """
+    index = opening + 1
+    while True:
+        closing = text.find(_JSON_STRING_DELIMITER, index)
+        if closing < 0:
+            return len(text)
+        backslashes = 0
+        probe = closing - 1
+        while probe > opening and text[probe] == _JSON_STRING_ESCAPE:
+            backslashes += 1
+            probe -= 1
+        if backslashes % 2 == 0:
+            return closing + 1
+        index = closing + 1
+
+
+def json_nesting_depth(text: str, limit: int = MAX_JSON_NESTING_DEPTH) -> int:
+    """Return how deeply the arrays and objects of ``text`` nest, bounded by ``limit``.
+
+    One pass over ``text`` counts an opening bracket or brace as one level and
+    the matching closing one as the end of that level, skipping every string
+    literal, so a bracket inside a landed value is not counted. Counting stops as
+    soon as the depth passes ``limit`` and the value returned is then
+    ``limit + 1``: an object built to exhaust a parser is refused after its first
+    ``limit + 1`` characters rather than being scanned in full. The pass is
+    linear in the length of ``text`` and allocates nothing beyond the loop's own
+    indices, so it cannot itself be the denial of service it guards against.
+
+    A document this returns a depth for is not thereby well-formed; the parser is
+    what decides that. This is a bound, applied before parsing, and nothing else.
+    """
+    depth = 0
+    deepest = 0
+    index = 0
+    length = len(text)
+    while index < length:
+        character = text[index]
+        if character == _JSON_STRING_DELIMITER:
+            index = _end_of_json_string(text, index)
+            continue
+        if character in _JSON_OPENERS:
+            depth += 1
+            if depth > deepest:
+                deepest = depth
+                if deepest > limit:
+                    return limit + 1
+        elif character in _JSON_CLOSERS and depth > 0:
+            depth -= 1
+        index += 1
+    return deepest
+
+
+def parse_json_document(
+    text: str, *, depth_limit: int = MAX_JSON_NESTING_DEPTH
+) -> Any:
     """Return the JSON value ``text`` carries, refusing a repeated member.
 
+    The nesting of ``text`` is measured before it is parsed and a document
+    nesting deeper than ``depth_limit`` is refused unparsed, so no document this
+    tool downloads or reads can drive the parser into the interpreter's own
+    nesting bound. Two further outcomes of the parser itself are reported the
+    same way rather than as a traceback: the interpreter's nesting bound, which a
+    document within ``depth_limit`` reaches only when the stack was already
+    nearly spent, and a value the parser refuses without it being a syntax error,
+    which an integer literal longer than the interpreter converts to an int is.
+    ``depth_limit`` is the module's bound for every caller of this tool; a larger
+    one is passed only by the self-test case that exercises the interpreter's own
+    bound with the real parser.
+
     Raises ``json.JSONDecodeError`` when ``text`` is not one well-formed JSON
-    document, and ``DuplicateMemberError`` when any object in it carries a
-    member name twice.
+    document, ``DuplicateMemberError`` when any object in it carries a member
+    name twice, and ``UnparsableDocumentError`` when it is past one of the three
+    bounds above.
     """
-    return json.loads(text, object_pairs_hook=_distinct_members)
+    depth = json_nesting_depth(text, depth_limit)
+    if depth > depth_limit:
+        raise UnparsableDocumentError(
+            f"its arrays and objects nest more than {depth_limit} levels deep, which "
+            f"is deeper than any document of the landing contract"
+        )
+    try:
+        return json.loads(text, object_pairs_hook=_distinct_members)
+    except (DuplicateMemberError, json.JSONDecodeError):
+        raise
+    except RecursionError as error:
+        raise UnparsableDocumentError(
+            f"it nests {depth} levels deep, which the interpreter running this tool "
+            f"cannot parse: {_reason(error)}"
+        ) from error
+    except ValueError as error:
+        raise UnparsableDocumentError(
+            f"the parser refused a value it carries: {_reason(error)}"
+        ) from error
 
 
 # ---------------------------------------------------------------------------
@@ -1073,7 +1267,8 @@ def load_schema(path: Path = DEFAULT_SCHEMA) -> Mapping[str, Any]:
     refused and named.
 
     Raises ``SchemaError`` when the file is missing, empty, larger than
-    ``MAX_SCHEMA_BYTES``, not valid UTF-8, not well-formed JSON, carries a
+    ``MAX_SCHEMA_BYTES``, not valid UTF-8, not well-formed JSON, nests deeper than
+    ``MAX_JSON_NESTING_DEPTH``, carries a value the parser refuses, carries a
     repeated member name, or is not a JSON object.
     """
     try:
@@ -1086,6 +1281,11 @@ def load_schema(path: Path = DEFAULT_SCHEMA) -> Mapping[str, Any]:
         raise SchemaError(
             f"the landing schema carries the member {_shown(error.name)} more than "
             f"once: {_path_shown(path)}; one value per member is required"
+        ) from error
+    except UnparsableDocumentError as error:
+        raise SchemaError(
+            f"the landing schema is not a document this tool parses: "
+            f"{_path_shown(path)}: {error.reason}"
         ) from error
     except (UnicodeDecodeError, json.JSONDecodeError) as error:
         raise SchemaError(
@@ -2034,6 +2234,47 @@ def build_object_uri(bucket: str, key: str) -> str:
     return f"{SERVICE_NAME}{URI_SCHEME_SEPARATOR}{bucket}{KEY_SEPARATOR}{key}"
 
 
+def manifest_object_name(part: int = DEFAULT_PART_NUMBER) -> str:
+    """Return the name of the COPY manifest of the landed part ``part``.
+
+    The name is ``MANIFEST_OBJECT_NAME_TEMPLATE`` carrying the part zero-padded to
+    ``PART_NUMBER_DIGITS`` digits, which is the name
+    modernization/landing/land_to_s3.py writes beside the record of that part.
+
+    Raises ``ConfigurationError`` when ``part`` is not an accepted part number.
+    """
+    return MANIFEST_OBJECT_NAME_TEMPLATE.format(part=part_number_text(part))
+
+
+def sibling_manifest_key(object_key: str) -> str:
+    """Return the key of the COPY manifest written beside ``object_key``.
+
+    The manifest sits under the same landing prefix with the object name replaced by
+    the manifest name of the same part, which is where
+    modernization/landing/land_to_s3.py writes it. Deriving it from the key that was
+    downloaded, rather than rebuilding it from the run's settings, keeps the manifest
+    read the sibling of the object read: the two differ in their object name alone,
+    the part they carry is the same, and no setting can point this read at the
+    manifest of another part or prefix.
+
+    Raises ``ObjectError`` when ``object_key`` is not the key of one landed record,
+    which the caller has already confirmed it is, so this states that invariant
+    rather than trusting it.
+    """
+    prefix, separator, name = object_key.rpartition(KEY_SEPARATOR)
+    if not separator or not _OBJECT_NAME_SHAPE.fullmatch(name):
+        raise ObjectError(
+            f"the landed object {_shown(object_key, MAX_DIAGNOSTIC_PATH_CHARACTERS)} "
+            f"is not named {OBJECT_NAME_TEMPLATE.format(part='NNNN')} under a landing "
+            "prefix, so the COPY manifest that binds it cannot be named"
+        )
+    carried_part = name[len("part-") : -len(".json")]
+    return (
+        f"{prefix}{separator}"
+        f"{MANIFEST_OBJECT_NAME_TEMPLATE.format(part=carried_part)}"
+    )
+
+
 def parse_object_reference(supplied: str, bucket: str) -> str:
     """Return the object key ``supplied`` names, confirming any bucket it carries.
 
@@ -2509,12 +2750,20 @@ class ObjectIdentity(NamedTuple):
     ``etag`` is the entity tag the store reported, with any surrounding double
     quotes removed, ``version_id`` the version the store assigned or
     ``NOT_VERSIONED`` on a bucket that keeps none, and ``content_length`` the
-    byte count the store reported.
+    byte count the store reported. ``recorded_sha256`` and
+    ``recorded_content_length`` are the land-time digest and byte count
+    modernization/landing/land_to_s3.py wrote as user metadata of the object, or
+    None where the object carries no usable value under that name, which
+    ``confirm_recorded_identity`` refuses: the store computes neither of them, so
+    they are what the landing step recorded rather than what this request
+    observed.
     """
 
     etag: str
     version_id: str
     content_length: int
+    recorded_sha256: str | None = None
+    recorded_content_length: int | None = None
 
 
 class DownloadedObject(NamedTuple):
@@ -2560,14 +2809,61 @@ def _reported_content_length(value: Any) -> int:
     return value
 
 
+def _recorded_metadata(response: Mapping[str, Any]) -> dict[str, str]:
+    """Return the user metadata ``response`` carries, keyed lower-case.
+
+    A store reports metadata names in the case it chooses, and the names this tool
+    compares are written lower-case, so the mapping is keyed lower-case and every
+    value that is not text is dropped: an absent name and a name carrying a
+    non-text value are then the same absence, which
+    ``confirm_recorded_identity`` refuses.
+    """
+    carried = response.get("Metadata")
+    if not isinstance(carried, Mapping):
+        return {}
+    return {
+        str(name).lower(): value
+        for name, value in carried.items()
+        if isinstance(value, str)
+    }
+
+
+def _recorded_sha256(metadata: Mapping[str, str]) -> str | None:
+    """Return the land-time digest ``metadata`` records, or None when it carries none.
+
+    A value of any other shape than 64 lower-case hexadecimal characters is
+    reported as absent rather than compared, so a digest this returns is one that
+    can equal the digest of the bytes that arrived.
+    """
+    carried = metadata.get(RECORDED_SHA256_METADATA, "").strip().lower()
+    if not _RECORDED_SHA256_SHAPE.fullmatch(carried):
+        return None
+    return carried
+
+
+def _recorded_content_length(metadata: Mapping[str, str]) -> int | None:
+    """Return the land-time byte count ``metadata`` records, or None for none.
+
+    A value of any other shape than 1 to 12 decimal digits is reported as absent
+    rather than compared, so a count this returns is one that can equal the byte
+    count of the bytes that arrived.
+    """
+    carried = metadata.get(RECORDED_LENGTH_METADATA, "").strip()
+    if not _RECORDED_LENGTH_SHAPE.fullmatch(carried):
+        return None
+    return int(carried, 10)
+
+
 def head_object_identity(client: Any, bucket: str, key: str) -> ObjectIdentity:
     """Return the immutable identity of the object ``key`` in ``bucket``.
 
     One head request records the entity tag, the version the store assigned
-    where the bucket keeps versions, and the byte count. Nothing is written to
-    the bucket, no body is transferred and nothing else in it is read. The
-    download that follows requires this same identity, so the bytes that are
-    parsed are the bytes this request described.
+    where the bucket keeps versions, the byte count, and the land-time digest and
+    byte count modernization/landing/land_to_s3.py wrote as user metadata of the
+    object. Nothing is written to the bucket, no body is transferred and nothing
+    else in it is read. The download that follows requires this same identity, so
+    the bytes that are parsed are the bytes this request described, and
+    ``confirm_recorded_identity`` holds those bytes to the recorded digest.
 
     Raises ``AccessError`` when the object or the bucket did not answer or
     reported no usable identity, and ``ConfigurationError`` when a credential or
@@ -2586,10 +2882,13 @@ def head_object_identity(client: Any, bucket: str, key: str) -> ObjectIdentity:
             f"landed object {shown_key}; a response object is required"
         )
     version = response.get("VersionId")
+    metadata = _recorded_metadata(response)
     return ObjectIdentity(
         etag=_reported_etag(response.get("ETag")),
         version_id=version if isinstance(version, str) and version else NOT_VERSIONED,
         content_length=_reported_content_length(response.get("ContentLength")),
+        recorded_sha256=_recorded_sha256(metadata),
+        recorded_content_length=_recorded_content_length(metadata),
     )
 
 
@@ -2709,6 +3008,229 @@ def _confirm_single_part_etag(
             f"{_shown(computed)} while its identity records the entity tag "
             f"{_shown(identity.etag)}; the bytes that arrived are not the bytes that "
             "were checked"
+        )
+
+
+def confirm_recorded_identity(downloaded: DownloadedObject, key: str) -> None:
+    """Confirm the bytes that arrived are the bytes the landing step recorded.
+
+    modernization/landing/land_to_s3.py writes the SHA-256 digest of the record it
+    landed, and that record's byte count, as user metadata of the landed object
+    itself. Both are required here and both are compared with the bytes that
+    arrived: the digest with their SHA-256 and the byte count with their length.
+    The entity tag and byte count the head request reported describe whatever the
+    bucket holds now, so they cannot detect an object rewritten under this key
+    after the landing; the recorded digest was computed before the upload and is
+    what makes that rewrite visible. An object carrying no recorded digest, or one
+    of an unusable shape, is refused rather than loaded on the strength of the
+    store's own headers: this loader is the step that admits data into the
+    warehouse, and an unverifiable object fails closed. Returns None when both
+    values agree.
+
+    Raises ``ObjectError`` naming the key, the recorded value and the observed one
+    when a value is absent or disagrees, before the database is opened and before
+    any statement runs.
+    """
+    shown_key = _shown(key, MAX_DIAGNOSTIC_PATH_CHARACTERS)
+    identity = downloaded.identity
+    if identity.recorded_sha256 is None:
+        raise ObjectError(
+            f"the landed object {shown_key} carries no land-time digest under the "
+            f"{_shown(RECORDED_SHA256_METADATA)} metadata name; the landing step "
+            "records one on every object it writes, so an object without it cannot "
+            "be confirmed to be the object that was landed and is not loaded"
+        )
+    if identity.recorded_sha256 != downloaded.sha256:
+        raise ObjectError(
+            f"the landed object {shown_key} arrived with the digest "
+            f"{_shown(downloaded.sha256)} while the landing step recorded "
+            f"{_shown(identity.recorded_sha256)}; the bytes on the bucket are not the "
+            "bytes that were landed, so nothing is loaded"
+        )
+    recorded_length = identity.recorded_content_length
+    if recorded_length is None:
+        raise ObjectError(
+            f"the landed object {shown_key} carries no land-time byte count under the "
+            f"{_shown(RECORDED_LENGTH_METADATA)} metadata name; the landing step "
+            "records one on every object it writes, so an object without it cannot "
+            "be confirmed to be the object that was landed and is not loaded"
+        )
+    if recorded_length != len(downloaded.body):
+        raise ObjectError(
+            f"the landed object {shown_key} arrived as {len(downloaded.body)} bytes "
+            f"while the landing step recorded {recorded_length}; the bytes on the "
+            "bucket are not the bytes that were landed, so nothing is loaded"
+        )
+
+
+def fetch_manifest_bytes(client: Any, bucket: str, key: str) -> bytes:
+    """Return the bytes of the COPY manifest ``key`` in ``bucket``.
+
+    One read takes at most ``MAX_MANIFEST_BYTES`` plus one byte, so an object
+    written at this key that is not a manifest is reported without being held in
+    memory in full. Nothing is written to the bucket and nothing else in it is
+    read.
+
+    Raises ``AccessError`` when the manifest or the bucket did not answer,
+    ``ConfigurationError`` when a credential or region setting is missing, and
+    ``ObjectError`` when the manifest is empty or longer than
+    ``MAX_MANIFEST_BYTES``.
+    """
+    shown_key = _shown(key, MAX_DIAGNOSTIC_PATH_CHARACTERS)
+    try:
+        response = client.get_object(Bucket=bucket, Key=key)
+    except (ClientError, BotoCoreError) as error:
+        raise _failure_for(
+            error, bucket, f"read the COPY manifest {shown_key}"
+        ) from error
+    body = response.get("Body") if isinstance(response, Mapping) else None
+    if body is None:
+        raise AccessError(
+            f"the endpoint returned no body for the COPY manifest {shown_key} in "
+            f"bucket {_shown(bucket)}"
+        )
+    try:
+        content = body.read(MAX_MANIFEST_BYTES + 1)
+    except (ClientError, BotoCoreError, OSError) as error:
+        raise _failure_for(
+            error, bucket, f"read the body of the COPY manifest {shown_key}"
+        ) from error
+    finally:
+        closer = getattr(body, "close", None)
+        if callable(closer):
+            try:
+                closer()
+            except (ClientError, BotoCoreError, OSError) as error:
+                _warn(
+                    f"the body of the COPY manifest {shown_key} could not be closed: "
+                    f"{_reason(error)}"
+                )
+    if not isinstance(content, bytes):
+        raise AccessError(
+            f"the endpoint returned {_json_shape(content)} as the body of the COPY "
+            f"manifest {shown_key}; bytes are required"
+        )
+    if not content:
+        raise ObjectError(f"the COPY manifest {shown_key} is empty")
+    if len(content) > MAX_MANIFEST_BYTES:
+        raise ObjectError(
+            f"the COPY manifest {shown_key} holds more than the accepted "
+            f"{MAX_MANIFEST_BYTES} bytes"
+        )
+    return content
+
+
+def confirm_manifest_binding(
+    manifest: bytes, manifest_key: str, object_uri: str, content_length: int
+) -> None:
+    """Confirm the COPY manifest binds this load to the object that was downloaded.
+
+    The manifest is the second object modernization/landing/land_to_s3.py writes
+    for a landing and the document modernization/landing/load_redshift.sql binds
+    its real-target COPY to. It is required to be one JSON object carrying exactly
+    one entry whose ``url`` is ``object_uri`` and whose nested ``meta``
+    ``content_length`` is ``content_length``, which is the byte count of the bytes
+    that actually arrived. A manifest naming another object, naming a byte count
+    the object does not carry, carrying a second entry or carrying no usable entry
+    is refused: the manifest was written after the object, so a landed object whose
+    manifest does not name it is not the object the landing bound the load to.
+    Returns None when the entry names this object and its length.
+
+    ``mandatory`` is required to be true, which is what makes a COPY of this
+    manifest fail on a removed object rather than load nothing; this tool reads the
+    object directly and does not depend on that flag, so it is confirmed rather
+    than acted on.
+
+    Raises ``ObjectError`` naming the manifest key and what disagreed when the
+    document is not that manifest, before the database is opened.
+    """
+    shown_key = _shown(manifest_key, MAX_DIAGNOSTIC_PATH_CHARACTERS)
+    try:
+        text = manifest.decode("utf-8")
+    except UnicodeDecodeError as error:
+        raise ObjectError(
+            f"the COPY manifest {shown_key} is not valid UTF-8: {_reason(error)}"
+        ) from error
+    try:
+        document = parse_json_document(text)
+    except DuplicateMemberError as error:
+        raise ObjectError(
+            f"the COPY manifest {shown_key} carries the member "
+            f"{_shown(error.name)} more than once; one value per member is required"
+        ) from error
+    except UnparsableDocumentError as error:
+        raise ObjectError(
+            f"the COPY manifest {shown_key} is not a document this tool parses: "
+            f"{error.reason}"
+        ) from error
+    except json.JSONDecodeError as error:
+        raise ObjectError(
+            f"the COPY manifest {shown_key} is not well-formed JSON at line "
+            f"{error.lineno} column {error.colno}: "
+            f"{_escaped(error.msg, MAX_DIAGNOSTIC_MESSAGE_CHARACTERS)}"
+        ) from error
+    if not isinstance(document, Mapping):
+        raise ObjectError(
+            f"the COPY manifest {shown_key} carries {_json_shape(document)} at its "
+            "top level; one JSON object naming its entries is required"
+        )
+    entries = document.get(MANIFEST_ENTRIES_MEMBER)
+    if not isinstance(entries, list):
+        raise ObjectError(
+            f"the COPY manifest {shown_key} carries {_json_shape(entries)} as "
+            f"{_shown(MANIFEST_ENTRIES_MEMBER)}; an array of entries is required"
+        )
+    if len(entries) != MANIFEST_ENTRY_COUNT:
+        raise ObjectError(
+            f"the COPY manifest {shown_key} names {len(entries)} entries; the landing "
+            f"step writes {MANIFEST_ENTRY_COUNT} naming the object of this part alone"
+        )
+    entry = entries[0]
+    if not isinstance(entry, Mapping):
+        raise ObjectError(
+            f"the COPY manifest {shown_key} carries {_json_shape(entry)} as its "
+            "entry; one JSON object naming the landed object is required"
+        )
+    named = entry.get(MANIFEST_URL_MEMBER)
+    if named != object_uri:
+        shown_named = (
+            _shown(named, MAX_DIAGNOSTIC_PATH_CHARACTERS)
+            if isinstance(named, str)
+            else _value_display(named)
+        )
+        raise ObjectError(
+            f"the COPY manifest {shown_key} names {shown_named} as the object of this "
+            f"load while the object downloaded is "
+            f"{_shown(object_uri, MAX_DIAGNOSTIC_PATH_CHARACTERS)}; the manifest and "
+            "the object must be the pair one landing wrote"
+        )
+    if entry.get(MANIFEST_MANDATORY_MEMBER) is not True:
+        raise ObjectError(
+            f"the COPY manifest {shown_key} carries "
+            f"{_value_display(entry.get(MANIFEST_MANDATORY_MEMBER))} as "
+            f"{_shown(MANIFEST_MANDATORY_MEMBER)}; the landing step writes true, so a "
+            "COPY of this manifest fails on a removed object rather than loading "
+            "nothing"
+        )
+    meta = entry.get(MANIFEST_META_MEMBER)
+    if not isinstance(meta, Mapping):
+        raise ObjectError(
+            f"the COPY manifest {shown_key} carries {_json_shape(meta)} as "
+            f"{_shown(MANIFEST_META_MEMBER)}; one JSON object carrying "
+            f"{_shown(MANIFEST_CONTENT_LENGTH_MEMBER)} is required"
+        )
+    named_length = meta.get(MANIFEST_CONTENT_LENGTH_MEMBER)
+    if isinstance(named_length, bool) or not isinstance(named_length, int):
+        raise ObjectError(
+            f"the COPY manifest {shown_key} carries {_value_display(named_length)} as "
+            f"{_shown(MANIFEST_CONTENT_LENGTH_MEMBER)}; the byte count of the landed "
+            "object is required"
+        )
+    if named_length != content_length:
+        raise ObjectError(
+            f"the COPY manifest {shown_key} names {named_length} bytes while the "
+            f"object downloaded holds {content_length}; the manifest and the object "
+            "must be the pair one landing wrote"
         )
 
 
@@ -2841,8 +3363,9 @@ def parse_record(raw: bytes, key: str) -> Mapping[str, Any]:
     document is resolved to its last occurrence.
 
     Raises ``ObjectError`` when ``raw`` is not valid UTF-8, is not one
-    well-formed JSON document, carries a repeated member name, carries a second
-    document, or carries a JSON value that is not an object.
+    well-formed JSON document, nests deeper than ``MAX_JSON_NESTING_DEPTH``,
+    carries a value the parser refuses, carries a repeated member name, carries a
+    second document, or carries a JSON value that is not an object.
     """
     shown_key = _shown(key, MAX_DIAGNOSTIC_PATH_CHARACTERS)
     try:
@@ -2857,6 +3380,12 @@ def parse_record(raw: bytes, key: str) -> Mapping[str, Any]:
         raise ObjectError(
             f"the landed object {shown_key} carries the member "
             f"{_shown(error.name)} more than once; one value per member is required"
+        ) from error
+    except UnparsableDocumentError as error:
+        raise ObjectError(
+            f"the landed object {shown_key} is not a document this tool parses: "
+            f"{error.reason}; the landed object is one flat JSON object of the "
+            f"{EXPECTED_COLUMN_COUNT} keys the landing contract fixes"
         ) from error
     except json.JSONDecodeError as error:
         if error.msg.startswith("Extra data"):
@@ -3834,7 +4363,21 @@ def load_record(
     document. The object is bound to its own immutable identity before it is read:
     a head request records the entity tag, the version where the bucket keeps
     versions and the byte count, the download requires that same identity, and the
-    bytes that arrive are confirmed against the recorded byte count and digest.
+    bytes that arrive are confirmed against the byte count and entity tag that
+    head request reported.
+
+    The bytes are then confirmed to be the bytes that were landed, before anything
+    is parsed: ``confirm_recorded_identity`` holds them to the SHA-256 digest and
+    byte count modernization/landing/land_to_s3.py recorded as user metadata of the
+    object at land time, and ``confirm_manifest_binding`` holds the COPY manifest of
+    this same part - the second object that landing wrote, at
+    ``sibling_manifest_key`` of the key being read - to naming exactly this object's
+    URI and exactly the byte count that arrived. The entity tag and byte count a
+    head request reports describe whatever the bucket holds now, so an object
+    rewritten under this key after the landing passes them; the recorded digest was
+    computed before the upload, so it does not. Either check failing ends the load
+    with the object status, one line and nothing written.
+
     Only then is the record parsed and validated in full: unique member names,
     every constraint of that schema including its asserted date format, a real
     last_changed moment, exactly the declared keys as text or null and in the order
@@ -3849,11 +4392,13 @@ def load_record(
     name no business identifier and no full object URI.
 
     Raises ``ObjectError`` when the landed object breaches the landing contract,
-    ``SchemaError`` when the landing schema cannot be used,
-    ``ConfigurationError`` when a setting or a script cannot be resolved,
-    ``AccessError`` when the bucket or the object did not answer or was replaced
-    between the identity check and the download, and ``WarehouseError`` when the
-    database or a statement did not succeed.
+    carries no land-time digest or one that disagrees with the bytes that arrived,
+    or is not the object its own COPY manifest names, ``SchemaError`` when the
+    landing schema cannot be used, ``ConfigurationError`` when a setting or a script
+    cannot be resolved, ``AccessError`` when the bucket, the object or the manifest
+    did not answer or the object was replaced between the identity check and the
+    download, and ``WarehouseError`` when the database or a statement did not
+    succeed.
     """
     contract = landing_contract(schema_path)
     columns = contract.columns
@@ -3866,6 +4411,19 @@ def load_record(
         f"{_reported_uri(uri, show_identifiers)}"
     )
     downloaded = fetch_object_bytes(client, bucket, key, identity)
+    confirm_recorded_identity(downloaded, key)
+    manifest_key = sibling_manifest_key(key)
+    confirm_manifest_binding(
+        fetch_manifest_bytes(client, bucket, manifest_key),
+        manifest_key,
+        uri,
+        len(downloaded.body),
+    )
+    _note(
+        f"confirmed the land-time digest {downloaded.sha256} and the COPY manifest "
+        f"{_shown(manifest_object_name(part))} naming {len(downloaded.body)} bytes of "
+        f"{_reported_uri(uri, show_identifiers)}"
+    )
     record = parse_record(downloaded.body, key)
     validate_record(record, contract.validator, key)
     confirm_calendar_values(record, key)
@@ -3975,6 +4533,22 @@ _SELF_TEST_CREDENTIALS = {
     "AWS_SECRET_ACCESS_KEY": "selftest-secret-key",
 }
 
+# Content type modernization/landing/land_to_s3.py writes both objects of a landing
+# with. A seeded fixture repeats it so the bucket a case reads is the bucket a landing
+# leaves; this tool reads the body and the recorded metadata and never the content type,
+# so no check of this module depends on it.
+_SELF_TEST_CONTENT_TYPE = "application/json"
+
+# The two documents the parse-bound case is put to. The nesting is far past
+# MAX_JSON_NESTING_DEPTH and past what the interpreter's own parser takes, so one
+# document exercises this tool's bound and, with the bound raised to its own depth, the
+# fallback that reports the interpreter's; the digit count is past the 4300 digits the
+# interpreter converts to an int, which the parser refuses as a value rather than as
+# syntax. Both stay well inside MAX_OBJECT_BYTES, so each is refused for what it is
+# rather than for its size.
+_SELF_TEST_DEEP_NESTING = 50000
+_SELF_TEST_LONG_INTEGER_DIGITS = 5000
+
 # Address moto's server binds for a command-line case. This tool runs on the local
 # branch alone, so such a case has to name a loopback endpoint; the port is assigned
 # by the operating system and nothing leaves this machine.
@@ -3992,11 +4566,14 @@ _ABSENT_BUCKET = "genapp-rqi-absent-bucket"
 # Every environment variable a case controls. The names after the credentials keep
 # a session from reading a profile, a credentials file or an instance metadata
 # service, and the two endpoint names establish that a configured endpoint cannot
-# redirect a request.
+# redirect a request. SHOW_IDENTIFIERS_VARIABLE is among them so a case that sets
+# it governs its own run alone: the variable is removed before every other case and
+# restored on the way out, and no case inherits the disclosure another one selected.
 _CONSULTED_VARIABLES = (
     BUCKET_VARIABLE,
     ENDPOINT_URL_VARIABLE,
     SOURCE_SYSTEM_KEY_VARIABLE,
+    SHOW_IDENTIFIERS_VARIABLE,
     *REGION_VARIABLES,
     *DATABASE_VARIABLES,
     "AWS_ACCESS_KEY_ID",
@@ -4387,7 +4964,7 @@ def _test_collaborators() -> tuple[Any, Any, Any]:
 
 
 @contextlib.contextmanager
-def _served_bucket(body: bytes | None = None) -> Any:
+def _served_bucket(body: bytes | None = None, **overrides: Any) -> Any:
     """Serve one bucket over a loopback endpoint, yielding the endpoint URL.
 
     moto's in-process mock patches the client and answers no HTTP request, so a
@@ -4395,8 +4972,11 @@ def _served_bucket(body: bytes | None = None) -> Any:
     requires of this loader - is served by moto's own server instead. The server
     listens on 127.0.0.1 on a port the operating system assigns, holds the bucket in
     memory, and is stopped on the way out whatever happened. ``body`` is written as
-    the landed object when it is given; with None the bucket stays absent, which is
-    the path an unreachable object takes.
+    the landed object when it is given, with the recorded metadata and the COPY
+    manifest one landing writes beside it, so a command-line case reads the bucket a
+    landing leaves; ``overrides`` reaches ``_put_landed_pair`` for a case that
+    requires one element of that pair replaced or absent. With ``body`` None the
+    bucket stays absent, which is the path an unreachable object takes.
 
     The server writes nothing of its own to this run's output. ``verbose=False``
     silences moto, and the request log of the WSGI server underneath it - one line
@@ -4438,8 +5018,8 @@ def _served_bucket(body: bytes | None = None) -> Any:
                 code = error.response.get("Error", {}).get("Code")
                 if code not in ("BucketAlreadyOwnedByYou", "BucketAlreadyExists"):
                     raise
-            client.put_object(
-                Bucket=_SELF_TEST_BUCKET, Key=_selftest_key(), Body=body
+            _put_landed_pair(
+                client, _SELF_TEST_BUCKET, _selftest_key(), body, **overrides
             )
         yield endpoint
     finally:
@@ -4639,11 +5219,89 @@ def _quoted_etag(body: bytes) -> str:
 
 
 def _identity_of(body: bytes, version_id: str = NOT_VERSIONED) -> ObjectIdentity:
-    """Return the identity a head request records for an object holding ``body``."""
+    """Return the identity a head request records for an object holding ``body``.
+
+    The recorded digest and byte count are the ones land_to_s3.py writes as user
+    metadata of an object holding ``body``, so this is the identity of a landed
+    object rather than of one that carries no recorded provenance.
+    """
     return ObjectIdentity(
         etag=_single_part_etag(body),
         version_id=version_id,
         content_length=len(body),
+        recorded_sha256=hashlib.sha256(body).hexdigest(),
+        recorded_content_length=len(body),
+    )
+
+
+def _recorded_object_metadata(body: bytes) -> dict[str, str]:
+    """Return the user metadata land_to_s3.py records on an object holding ``body``.
+
+    The two names and the two forms are the ones this module requires of every
+    landed object, so a fixture written with this metadata is a fixture a landing
+    would have produced.
+    """
+    return {
+        RECORDED_SHA256_METADATA: hashlib.sha256(body).hexdigest(),
+        RECORDED_LENGTH_METADATA: str(len(body)),
+    }
+
+
+def _copy_manifest_bytes(bucket: str, key: str, content_length: int) -> bytes:
+    """Return the COPY manifest land_to_s3.py writes beside a landed object.
+
+    The document carries one entry naming the object's URI, ``mandatory`` true and
+    the byte count under a nested ``meta`` member, indented by two spaces and
+    terminated by one line feed, which is byte for byte what that step writes for
+    the same object.
+    """
+    document = {
+        MANIFEST_ENTRIES_MEMBER: [
+            {
+                MANIFEST_URL_MEMBER: build_object_uri(bucket, key),
+                MANIFEST_MANDATORY_MEMBER: True,
+                MANIFEST_META_MEMBER: {
+                    MANIFEST_CONTENT_LENGTH_MEMBER: content_length
+                },
+            }
+        ]
+    }
+    text = json.dumps(document, indent=2, sort_keys=False) + "\n"
+    return text.encode("ascii")
+
+
+def _put_landed_pair(
+    client: Any, bucket: str, key: str, body: bytes, **overrides: Any
+) -> None:
+    """Write the two objects one landing writes: the record and its COPY manifest.
+
+    The record carries ``_recorded_object_metadata`` of ``body`` and the manifest
+    sits at ``sibling_manifest_key`` of ``key`` naming that object and its byte
+    count, so a seeded bucket holds what a successful landing left behind and a
+    case exercises the confirmations a run performs rather than a fixture the run
+    would refuse. ``overrides`` replaces one element of that pair for a case that
+    requires a bucket a landing would not have produced: ``metadata`` for the
+    record's user metadata, ``manifest`` for the manifest bytes, and ``manifest``
+    of None for a prefix carrying no manifest at all.
+    """
+    metadata = overrides.get("metadata", _recorded_object_metadata(body))
+    client.put_object(
+        Bucket=bucket,
+        Key=key,
+        Body=body,
+        ContentType=_SELF_TEST_CONTENT_TYPE,
+        Metadata=metadata,
+    )
+    manifest = overrides.get(
+        "manifest", _copy_manifest_bytes(bucket, key, len(body))
+    )
+    if manifest is None:
+        return
+    client.put_object(
+        Bucket=bucket,
+        Key=sibling_manifest_key(key),
+        Body=manifest,
+        ContentType=_SELF_TEST_CONTENT_TYPE,
     )
 
 
@@ -4655,14 +5313,19 @@ def _selftest_key(source_system_key: str = DEFAULT_SOURCE_SYSTEM_KEY) -> str:
 
 
 @contextlib.contextmanager
-def _seeded_bucket(body: bytes, *, versioned: bool = False) -> Any:
+def _seeded_bucket(
+    body: bytes, *, versioned: bool = False, **overrides: Any
+) -> Any:
     """Run a case against an in-process bucket holding one landed object.
 
     The bucket is created inside moto's in-process S3, so no request leaves this
     process and no AWS resource is created. ``versioned`` turns on bucket
     versioning before the object is written, which is how a case reaches the
-    version-pinned read. The client yielded is the pinned boto3 client carrying
-    this module's own connection behaviour.
+    version-pinned read. The object and its COPY manifest are written by
+    ``_put_landed_pair``, so the bucket holds what a successful landing left
+    behind; ``overrides`` reaches that helper for a case that requires one element
+    of the pair replaced or absent. The client yielded is the pinned boto3 client
+    carrying this module's own connection behaviour.
     """
     mock_aws, _, _ = _test_collaborators()
     with mock_aws():
@@ -4676,7 +5339,9 @@ def _seeded_bucket(body: bytes, *, versioned: bool = False) -> Any:
                 Bucket=_SELF_TEST_BUCKET,
                 VersioningConfiguration={"Status": "Enabled"},
             )
-        client.put_object(Bucket=_SELF_TEST_BUCKET, Key=_selftest_key(), Body=body)
+        _put_landed_pair(
+            client, _SELF_TEST_BUCKET, _selftest_key(), body, **overrides
+        )
         yield client
 
 
@@ -5177,6 +5842,575 @@ def _case_duplicate_members_refused(scratch: _Scratch) -> str:
         "the members of the landed record",
     )
     return f"{len(duplicates) + 1} repeated members refused, valid documents parsed"
+
+
+def _case_nesting_bounded(scratch: _Scratch) -> str:
+    """An object past a parser bound is a rejected object, never a traceback.
+
+    The depth scan is put to a document nested exactly at the bound, one nested one
+    level past it, and documents whose brackets sit inside a landed value, so the
+    bound admits every document of the landing contract - the landed object, the
+    landing schema and the COPY manifest - and counts nothing a value carries. The
+    object funnel and the schema funnel are then put to a document nested far past
+    the bound and to an integer literal longer than the interpreter converts, each of
+    which reached the caller as a parser traceback and a status outside this tool's
+    contract before the bound existed. The command line is put to the same document
+    served as the landed object, with the digest and the manifest of a real landing,
+    so the object passes every integrity check and is refused for what it carries
+    rather than for its provenance; nothing reaches the database. The interpreter's
+    own nesting bound is exercised with the real parser, by admitting a document
+    deeper than it can take, so the fallback that reports it is the one a run would
+    take.
+    """
+    key = _selftest_key()
+    at_bound = "[" * MAX_JSON_NESTING_DEPTH + "1" + "]" * MAX_JSON_NESTING_DEPTH
+    _assert_equal(
+        json_nesting_depth(at_bound),
+        MAX_JSON_NESTING_DEPTH,
+        "the depth of a document nested at the bound",
+    )
+    innermost = parse_json_document(at_bound)
+    for _ in range(MAX_JSON_NESTING_DEPTH):
+        innermost = innermost[0]
+    _assert_equal(innermost, 1, "the value a document nested at the bound carries")
+    past_bound = "[" * (MAX_JSON_NESTING_DEPTH + 1) + "]" * (
+        MAX_JSON_NESTING_DEPTH + 1
+    )
+    _assert_equal(
+        json_nesting_depth(past_bound),
+        MAX_JSON_NESTING_DEPTH + 1,
+        "the depth reported for a document one level past the bound",
+    )
+    _assert_raises(
+        "a document nested one level past the bound",
+        UnparsableDocumentError,
+        f"nest more than {MAX_JSON_NESTING_DEPTH} levels deep",
+        lambda: parse_json_document(past_bound),
+    )
+    for label, text, depth in (
+        ("brackets inside a landed value", '{"a": "[[[[[[["}', 1),
+        ("an escaped quote before them", '{"a": "\\"[[[[["}', 1),
+        ("a landed object", _record_text(), 1),
+        ("a COPY manifest", _copy_manifest_bytes(
+            _SELF_TEST_BUCKET, key, 499
+        ).decode("ascii"), 4),
+        ("the landing schema", DEFAULT_SCHEMA.read_text(encoding="utf-8"), 6),
+    ):
+        _assert_equal(json_nesting_depth(text), depth, f"the depth of {label}")
+
+    deep = "[" * _SELF_TEST_DEEP_NESTING + "]" * _SELF_TEST_DEEP_NESTING
+    deep_error = _assert_raises(
+        "an object nested far past the bound",
+        ObjectError,
+        "is not a document this tool parses",
+        lambda: parse_record(deep.encode("utf-8"), key),
+    )
+    _assert_in(
+        f"nest more than {MAX_JSON_NESTING_DEPTH} levels deep",
+        str(deep_error),
+        "the diagnostic of an object nested past the bound",
+    )
+    _assert_equal(
+        deep_error.exit_status,
+        EXIT_OBJECT_REJECTED,
+        "the status a refused parse returns",
+    )
+    schema_path = scratch.write("deep-schema.json", deep)
+    _assert_raises(
+        "a schema nested far past the bound",
+        SchemaError,
+        "is not a document this tool parses",
+        lambda: load_schema(schema_path),
+    )
+    long_integer = f"{{\"policy_number\": {'9' * _SELF_TEST_LONG_INTEGER_DIGITS}}}\n"
+    _assert_raises(
+        "an object carrying an integer literal longer than the interpreter converts",
+        ObjectError,
+        "the parser refused a value it carries",
+        lambda: parse_record(long_integer.encode("utf-8"), key),
+    )
+    interpreter_error = _assert_raises(
+        "a document within a raised bound that the interpreter cannot parse",
+        UnparsableDocumentError,
+        "which the interpreter running this tool cannot parse",
+        lambda: parse_json_document(deep, depth_limit=_SELF_TEST_DEEP_NESTING),
+    )
+    _assert_in(
+        f"nests {_SELF_TEST_DEEP_NESTING} levels deep",
+        str(interpreter_error),
+        "the diagnostic naming the depth the interpreter refused",
+    )
+
+    database = scratch.database("nesting.duckdb")
+    for label, served in (
+        ("nested far past the bound", deep.encode("utf-8")),
+        ("carrying a long integer literal", long_integer.encode("utf-8")),
+    ):
+        with _served_bucket(served) as endpoint:
+            run = _run_cli(
+                scratch,
+                [
+                    "--bucket",
+                    _SELF_TEST_BUCKET,
+                    "--region",
+                    _SELF_TEST_REGION,
+                    "--endpoint-url",
+                    endpoint,
+                    "--extract-date",
+                    _SELF_TEST_EXTRACT_DATE.isoformat(),
+                    "--database",
+                    str(database),
+                ],
+                **_SELF_TEST_CREDENTIALS,
+            )
+        _assert_equal(
+            run.status,
+            EXIT_OBJECT_REJECTED,
+            f"the status of a command line reading an object {label}",
+        )
+        _assert_equal(run.stdout, "", f"the stdout of an object {label}")
+        _assert_absent("Traceback", run.stderr, f"the stderr of an object {label}")
+        _assert_one_diagnostic(run.stderr)
+        _assert(
+            not database.exists(),
+            f"an object {label} reached the database at {database}",
+        )
+    return (
+        f"the bound of {MAX_JSON_NESTING_DEPTH} admits every contract document, "
+        f"{_SELF_TEST_DEEP_NESTING}-deep and {_SELF_TEST_LONG_INTEGER_DIGITS}-digit "
+        f"objects refused with status {EXIT_OBJECT_REJECTED} and no database opened"
+    )
+
+
+def _case_recorded_identity_confirmed(scratch: _Scratch) -> str:
+    """An object that is not the bytes the landing recorded is never loaded.
+
+    The land-time digest and byte count modernization/landing/land_to_s3.py records
+    as user metadata of the landed object are required and are compared with the
+    bytes that arrived. One bucket holds the object a landing left and loads; the
+    others hold an object whose metadata was rewritten out of band - absent, of an
+    unusable shape, the digest of other bytes, and a byte count the object does not
+    carry - and every one of them is refused with the object status and no database
+    opened. The tampered body is the same length as the landed one and is written
+    with its own entity tag, so neither the recorded byte count of the head request
+    nor the ETag check detects it: the land-time digest is what does.
+    """
+    body = _record_bytes()
+    tampered = _record_bytes(brokers_reference="TAMPERED")
+    _assert_equal(
+        len(tampered), len(body), "the tampered fixture's length against the landed one"
+    )
+    recorded = _recorded_object_metadata(body)
+    database = scratch.database("recorded-identity.duckdb")
+    ddl_paths = resolve_ddl_paths(True)
+
+    def _load(served: bytes, **overrides: Any) -> Any:
+        """Return what one load of ``served`` did, or raise what refused it."""
+        with _seeded_bucket(served, **overrides):
+            with _controlled_environment(scratch, **_SELF_TEST_CREDENTIALS):
+                with _captured_stderr():
+                    return load_record(
+                        _SELF_TEST_BUCKET,
+                        _selftest_key(),
+                        DEFAULT_SOURCE_SYSTEM_KEY,
+                        _SELF_TEST_EXTRACT_DATE,
+                        database,
+                        ddl_paths,
+                        region=_SELF_TEST_REGION,
+                    )
+
+    outcome = _load(body)
+    _assert_equal(outcome.written, 1, "the rows a recorded object wrote")
+    _assert_equal(
+        outcome.identity.recorded_sha256,
+        recorded[RECORDED_SHA256_METADATA],
+        "the digest the head request recorded",
+    )
+    _assert_equal(
+        outcome.identity.recorded_content_length,
+        len(body),
+        "the byte count the head request recorded",
+    )
+    connection = duckdb.connect(str(database))
+    try:
+        _assert_equal(_row_count(connection), 1, "the row a recorded object left")
+    finally:
+        connection.close()
+
+    faults = (
+        (
+            "an object carrying no recorded metadata",
+            body,
+            {"metadata": {}},
+            "carries no land-time digest",
+        ),
+        (
+            "an object whose recorded digest is not 64 hex characters",
+            body,
+            {
+                "metadata": {
+                    RECORDED_SHA256_METADATA: "not-a-digest",
+                    RECORDED_LENGTH_METADATA: str(len(body)),
+                }
+            },
+            "carries no land-time digest",
+        ),
+        (
+            "an object carrying no recorded byte count",
+            body,
+            {"metadata": {RECORDED_SHA256_METADATA: recorded[
+                RECORDED_SHA256_METADATA
+            ]}},
+            "carries no land-time byte count",
+        ),
+        (
+            "an object rewritten out of band to the same length",
+            tampered,
+            {"metadata": recorded},
+            "are not the bytes that were landed",
+        ),
+        (
+            "an object whose recorded byte count is not its length",
+            body,
+            {
+                "metadata": {
+                    RECORDED_SHA256_METADATA: recorded[RECORDED_SHA256_METADATA],
+                    RECORDED_LENGTH_METADATA: str(len(body) + 1),
+                }
+            },
+            "are not the bytes that were landed",
+        ),
+    )
+    for what, served, overrides, fragment in faults:
+        error = _assert_raises(
+            what,
+            ObjectError,
+            fragment,
+            lambda served=served, overrides=overrides: _load(served, **overrides),
+        )
+        _assert_equal(
+            error.exit_status,
+            EXIT_OBJECT_REJECTED,
+            f"the status {what} returns",
+        )
+        _assert_absent("TAMPERED", str(error), f"the diagnostic of {what}")
+    connection = duckdb.connect(str(database))
+    try:
+        _assert_equal(
+            _row_count(connection), 1, "the rows the refused loads left behind"
+        )
+        _assert_equal(
+            _rows_for_key(
+                connection, ("brokers_reference",), outcome.key_values
+            ),
+            (("BRMOT001",),),
+            "the value the row still carries after every refused load",
+        )
+    finally:
+        connection.close()
+    return (
+        f"1 recorded object loaded, {len(faults)} unverifiable or rewritten objects "
+        "refused with the landed row unchanged"
+    )
+
+
+def _case_manifest_binds_object(scratch: _Scratch) -> str:
+    """The COPY manifest of the part must name the object that was downloaded.
+
+    modernization/landing/land_to_s3.py writes the manifest after the object, so an
+    object whose manifest does not name it, or names another byte count, is not the
+    pair one landing produced. Every way that manifest can fail to bind this load -
+    absent, empty, malformed, not an object, naming no entries, naming two, naming
+    another object, carrying mandatory false, carrying no usable byte count and
+    carrying the wrong one - is refused with the object status and no database
+    opened, and the manifest of the part is derived from the key that was
+    downloaded rather than from a setting.
+    """
+    body = _record_bytes()
+    key = _selftest_key()
+    database = scratch.database("manifest-binding.duckdb")
+    ddl_paths = resolve_ddl_paths(True)
+    _assert_equal(
+        sibling_manifest_key(key),
+        key[: -len(OBJECT_NAME)] + MANIFEST_OBJECT_NAME,
+        "the manifest key derived from the object key",
+    )
+    _assert_equal(
+        sibling_manifest_key(
+            build_landing_key(
+                DEFAULT_SOURCE_SYSTEM_KEY, LANDING_ENTITY, _SELF_TEST_EXTRACT_DATE, 7
+            )
+        ).rsplit(KEY_SEPARATOR, 1)[-1],
+        manifest_object_name(7),
+        "the manifest name derived for another part",
+    )
+    _assert_raises(
+        "a key that is not the key of one landed record",
+        ObjectError,
+        "cannot be named",
+        lambda: sibling_manifest_key("landing/part-0000.manifest.json"),
+    )
+
+    def _load(**overrides: Any) -> Any:
+        """Return what one load did with ``overrides`` applied to the seeded pair."""
+        with _seeded_bucket(body, **overrides):
+            with _controlled_environment(scratch, **_SELF_TEST_CREDENTIALS):
+                with _captured_stderr():
+                    return load_record(
+                        _SELF_TEST_BUCKET,
+                        key,
+                        DEFAULT_SOURCE_SYSTEM_KEY,
+                        _SELF_TEST_EXTRACT_DATE,
+                        database,
+                        ddl_paths,
+                        region=_SELF_TEST_REGION,
+                    )
+
+    def _manifest(
+        url: Any, mandatory: Any, content_length: Any, entries: int = 1
+    ) -> bytes:
+        """Return a manifest carrying ``entries`` copies of one entry, as bytes."""
+        entry = {
+            MANIFEST_URL_MEMBER: url,
+            MANIFEST_MANDATORY_MEMBER: mandatory,
+            MANIFEST_META_MEMBER: {
+                MANIFEST_CONTENT_LENGTH_MEMBER: content_length
+            },
+        }
+        document = {MANIFEST_ENTRIES_MEMBER: [dict(entry) for _ in range(entries)]}
+        return (json.dumps(document, indent=2) + "\n").encode("ascii")
+
+    outcome = _load()
+    _assert_equal(outcome.written, 1, "the rows a bound object wrote")
+    uri = build_object_uri(_SELF_TEST_BUCKET, key)
+    other_uri = build_object_uri(
+        _SELF_TEST_BUCKET,
+        build_landing_key(
+            DEFAULT_SOURCE_SYSTEM_KEY, LANDING_ENTITY, _SELF_TEST_EXTRACT_DATE, 1
+        ),
+    )
+    faults = (
+        ("no manifest beside the object", None, AccessError, "COPY manifest"),
+        ("an empty manifest", b"", ObjectError, "is empty"),
+        (
+            "a manifest that is not well-formed JSON",
+            b'{"entries": [',
+            ObjectError,
+            "not well-formed JSON",
+        ),
+        (
+            "a manifest carrying an array at its top level",
+            b"[]\n",
+            ObjectError,
+            "at its top level",
+        ),
+        (
+            "a manifest naming no entries",
+            b'{"entries": null}\n',
+            ObjectError,
+            "an array of entries is required",
+        ),
+        (
+            "a manifest naming two entries",
+            _manifest(uri, True, len(body), entries=2),
+            ObjectError,
+            "names 2 entries",
+        ),
+        (
+            "a manifest whose entry is not an object",
+            b'{"entries": ["s3://elsewhere"]}\n',
+            ObjectError,
+            "as its entry",
+        ),
+        (
+            "a manifest naming another object",
+            _manifest(other_uri, True, len(body)),
+            ObjectError,
+            "as the object of this load",
+        ),
+        (
+            "a manifest naming no object at all",
+            _manifest(None, True, len(body)),
+            ObjectError,
+            "as the object of this load",
+        ),
+        (
+            "a manifest carrying mandatory false",
+            _manifest(uri, False, len(body)),
+            ObjectError,
+            f"as {_shown(MANIFEST_MANDATORY_MEMBER)}",
+        ),
+        (
+            "a manifest carrying no usable byte count",
+            _manifest(uri, True, str(len(body))),
+            ObjectError,
+            "the byte count of the landed object is required",
+        ),
+        (
+            "a manifest carrying a boolean byte count",
+            _manifest(uri, True, True),
+            ObjectError,
+            "the byte count of the landed object is required",
+        ),
+        (
+            "a manifest naming another byte count",
+            _manifest(uri, True, len(body) + 1),
+            ObjectError,
+            f"names {len(body) + 1} bytes",
+        ),
+        (
+            "a manifest carrying no meta member",
+            (
+                json.dumps(
+                    {
+                        MANIFEST_ENTRIES_MEMBER: [
+                            {
+                                MANIFEST_URL_MEMBER: uri,
+                                MANIFEST_MANDATORY_MEMBER: True,
+                            }
+                        ]
+                    },
+                    indent=2,
+                )
+                + "\n"
+            ).encode("ascii"),
+            ObjectError,
+            f"as {_shown(MANIFEST_META_MEMBER)}",
+        ),
+        (
+            "a manifest carrying its entry twice",
+            b'{"entries": [], "entries": []}\n',
+            ObjectError,
+            "more than once",
+        ),
+        (
+            "a manifest nested far past the parse bound",
+            ("[" * _SELF_TEST_DEEP_NESTING).encode("ascii"),
+            ObjectError,
+            "is not a document this tool parses",
+        ),
+    )
+    for what, manifest, expected, fragment in faults:
+        error = _assert_raises(
+            what,
+            expected,
+            fragment,
+            lambda manifest=manifest: _load(manifest=manifest),
+        )
+        _assert_equal(
+            error.exit_status,
+            EXIT_OBJECT_REJECTED if expected is ObjectError else EXIT_S3_UNAVAILABLE,
+            f"the status {what} returns",
+        )
+    connection = duckdb.connect(str(database))
+    try:
+        _assert_equal(
+            _row_count(connection), 1, "the rows the refused loads left behind"
+        )
+    finally:
+        connection.close()
+    return (
+        f"1 bound object loaded, {len(faults)} manifests that do not bind it refused"
+    )
+
+
+def _case_show_identifiers_environment_matches_flag(scratch: _Scratch) -> str:
+    """The option and the environment variable select the same output.
+
+    The same object is loaded three times over the same database: once with
+    ``--show-identifiers``, once with ``SHOW_IDENTIFIERS_VARIABLE`` carrying an
+    enabling value and no option, and once with neither. The two disclosing runs
+    are required to write byte-identical stdout, which is what this tool's help
+    states, and the third to withhold every identifier. The rows removed and
+    written differ between runs of one database, so the counts of each run are
+    replaced by a marker before the two lines are compared and the counts
+    themselves are asserted separately.
+    """
+    database = scratch.database("show-identifiers.duckdb")
+    body = _record_bytes()
+
+    def _arguments(endpoint: str, *extra: str) -> list[str]:
+        """Return the command line loading the served object into this database."""
+        return [
+            "--bucket",
+            _SELF_TEST_BUCKET,
+            "--region",
+            _SELF_TEST_REGION,
+            "--endpoint-url",
+            endpoint,
+            "--extract-date",
+            _SELF_TEST_EXTRACT_DATE.isoformat(),
+            "--database",
+            str(database),
+            *extra,
+        ]
+
+    with _served_bucket(body) as endpoint:
+        by_option = _run_cli(
+            scratch,
+            _arguments(endpoint, "--show-identifiers"),
+            **_SELF_TEST_CREDENTIALS,
+        )
+    with _served_bucket(body) as endpoint:
+        by_variable = _run_cli(
+            scratch,
+            _arguments(endpoint),
+            **{
+                **_SELF_TEST_CREDENTIALS,
+                SHOW_IDENTIFIERS_VARIABLE: SHOW_IDENTIFIERS_ENABLING[0],
+            },
+        )
+    with _served_bucket(body) as endpoint:
+        withheld = _run_cli(
+            scratch, _arguments(endpoint), **_SELF_TEST_CREDENTIALS
+        )
+    for what, run in (
+        ("--show-identifiers", by_option),
+        (SHOW_IDENTIFIERS_VARIABLE, by_variable),
+        ("neither", withheld),
+    ):
+        _assert_equal(run.status, EXIT_OK, f"the status of the load with {what}")
+    counts = ("removed=0 written=1", "removed=1 written=1")
+    _assert_in(counts[0], by_option.stdout, "the summary line of the first load")
+    for run in (by_variable, withheld):
+        _assert_in(counts[1], run.stdout, "the summary line of a repeated load")
+    _assert_equal(
+        by_option.stdout.replace(counts[0], "<counts>"),
+        by_variable.stdout.replace(counts[1], "<counts>"),
+        "the summary line the variable wrote against the one the option wrote",
+    )
+    for fragment in ("1000301", DEFAULT_SOURCE_SYSTEM_KEY):
+        for what, run in (
+            ("--show-identifiers", by_option),
+            (SHOW_IDENTIFIERS_VARIABLE, by_variable),
+        ):
+            _assert_in(fragment, run.stdout, f"the summary line with {what}")
+    for what, run in (
+        ("--show-identifiers", by_option),
+        (SHOW_IDENTIFIERS_VARIABLE, by_variable),
+    ):
+        _assert_absent(
+            "identifiers=redacted", run.stdout, f"the summary line with {what}"
+        )
+        _assert_in(
+            build_object_uri(_SELF_TEST_BUCKET, _selftest_key()),
+            run.stderr,
+            f"the progress lines with {what}",
+        )
+    incidental = _incidental_text(scratch, database, body=body)
+    _assert_identifiers_withheld(
+        withheld.stdout, incidental, "the summary line with neither"
+    )
+    _assert_identifiers_withheld(
+        withheld.stderr, incidental, "the progress lines with neither"
+    )
+    _assert_in(
+        "identifiers=redacted", withheld.stdout, "the summary line with neither"
+    )
+    return (
+        "the option and the variable wrote the same summary line and the same "
+        "progress lines, and neither withheld nothing"
+    )
 
 
 def _case_endpoint_accepted() -> str:
@@ -5971,18 +7205,20 @@ def _case_parts_replayed(scratch: _Scratch) -> str:
             CreateBucketConfiguration={"LocationConstraint": _SELF_TEST_REGION},
         )
         for part, body in bodies.items():
-            client.put_object(
-                Bucket=_SELF_TEST_BUCKET,
-                Key=build_landing_key(
+            _put_landed_pair(
+                client,
+                _SELF_TEST_BUCKET,
+                build_landing_key(
                     DEFAULT_SOURCE_SYSTEM_KEY,
                     LANDING_ENTITY,
                     _SELF_TEST_EXTRACT_DATE,
                     part,
                 ),
-                Body=body,
+                body,
             )
         listing = client.list_objects_v2(Bucket=_SELF_TEST_BUCKET)
-        _assert_equal(listing.get("KeyCount"), 2, "objects seeded under one prefix")
+        # Two parts, each landed as its record and the COPY manifest naming it.
+        _assert_equal(listing.get("KeyCount"), 4, "objects seeded under one prefix")
         with _controlled_environment(scratch, **_SELF_TEST_CREDENTIALS):
             for part in bodies:
                 with _captured_stderr():
@@ -7187,6 +8423,10 @@ def run_self_test(*, quiet: bool = False, stream: Any = None) -> int:
             results, out, quiet, "duplicate_members_refused",
             lambda: _case_duplicate_members_refused(scratch),
         )
+        _run_case(
+            results, out, quiet, "nesting_bounded",
+            lambda: _case_nesting_bounded(scratch),
+        )
         _run_case(results, out, quiet, "endpoint_accepted", _case_endpoint_accepted)
         _run_case(results, out, quiet, "endpoint_refused", _case_endpoint_refused)
         _run_case(
@@ -7213,6 +8453,14 @@ def run_self_test(*, quiet: bool = False, stream: Any = None) -> int:
         _run_case(
             results, out, quiet, "digest_and_length_confirmed",
             _case_digest_and_length_confirmed,
+        )
+        _run_case(
+            results, out, quiet, "recorded_identity_confirmed",
+            lambda: _case_recorded_identity_confirmed(scratch),
+        )
+        _run_case(
+            results, out, quiet, "manifest_binds_object",
+            lambda: _case_manifest_binds_object(scratch),
         )
         _run_case(
             results, out, quiet, "download_failures_reported",
@@ -7288,6 +8536,10 @@ def run_self_test(*, quiet: bool = False, stream: Any = None) -> int:
         _run_case(
             results, out, quiet, "cli_loads_and_redacts",
             lambda: _case_cli_loads_and_redacts(scratch),
+        )
+        _run_case(
+            results, out, quiet, "show_identifiers_environment_matches_flag",
+            lambda: _case_show_identifiers_environment_matches_flag(scratch),
         )
         _run_case(
             results, out, quiet, "leaked_identifier_still_caught",
@@ -7556,9 +8808,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
             "carry record values in diagnostics, the natural-key values on the "
             "summary line and the object URI on the progress lines; without it none "
             "of them reaches the output, and no policy number, customer number, "
-            "broker id or broker's reference is printed on any path. Also enabled by "
-            f"the {SHOW_IDENTIFIERS_VARIABLE} environment variable carrying one of "
-            f"{', '.join(SHOW_IDENTIFIERS_ENABLING)}"
+            "broker id or broker's reference is printed on any path. The "
+            f"{SHOW_IDENTIFIERS_VARIABLE} environment variable carrying one of "
+            f"{', '.join(SHOW_IDENTIFIERS_ENABLING)}, in any case and ignoring "
+            "surrounding spaces, selects the same diagnostics and the same summary "
+            "line as this option"
         ),
     )
     parser.add_argument(
@@ -7629,6 +8883,15 @@ def _run(args: argparse.Namespace) -> str:
     region, credential or script, a database path outside the one directory a
     database may sit in, and a run that belongs to the other branch are all
     reported before any object is downloaded and before the database is opened.
+
+    Whether identifiers are carried is read from ``show_identifiers_enabled``, which
+    ``main`` resolves once from ``--show-identifiers`` and the
+    ``SHOW_IDENTIFIERS_VARIABLE`` environment variable, rather than from the option
+    alone: the progress lines, the report and every diagnostic then answer to the same
+    resolution, so the option and the variable select the same diagnostics and the
+    same summary line, as this tool's help states and as
+    modernization/extraction/extract_commarea.py and
+    modernization/landing/land_to_s3.py already behave.
     """
     bucket = resolve_bucket(args.bucket)
     region = resolve_region(args.region)
@@ -7649,6 +8912,7 @@ def _run(args: argparse.Namespace) -> str:
         args.key, bucket, source_system_key, entity, extract_date, part
     )
     relation = qualified_relation_name()
+    show_identifiers = show_identifiers_enabled()
     outcome = load_record(
         bucket,
         key,
@@ -7659,7 +8923,7 @@ def _run(args: argparse.Namespace) -> str:
         part=part,
         region=region,
         endpoint_url=endpoint_url,
-        show_identifiers=args.show_identifiers,
+        show_identifiers=show_identifiers,
     )
     return _report(
         relation,
@@ -7667,7 +8931,7 @@ def _run(args: argparse.Namespace) -> str:
         outcome.removed,
         outcome.written,
         outcome.sha256,
-        show_identifiers=args.show_identifiers,
+        show_identifiers=show_identifiers,
     )
 
 
