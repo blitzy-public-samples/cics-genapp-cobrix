@@ -539,8 +539,11 @@ chain of the destination — so a symbolic link anywhere along it is judged by w
 the destination only below a generated root that tool owns inside this repository, or below the resolved system
 temporary directory, which honours `TMPDIR`. `base/`, `synthetic_class/`, every other path inside the repository and
 every path outside both roots are refused by name, with the destination, its canonical form and the accepted roots named
-on the refusal line (`D-125`). No landing tool writes a local artifact at all: a landing writes exactly two S3 objects,
-the record and the COPY manifest naming it.
+on the refusal line (`D-125`). The temporary allowance stops short of other working trees: a destination below that root
+that stands inside the directory holding this checkout, or inside any other repository checkout — a directory carrying a
+`.git` entry on the chain up to that root — is refused by that directory's name, which matters wherever a workspace
+keeps its checkouts below the temporary directory (`D-128`). No landing tool writes a local artifact at all: a landing
+writes exactly two S3 objects, the record and the COPY manifest naming it.
 
 ### 9.4 A source finding operators should know: the stale motor length
 

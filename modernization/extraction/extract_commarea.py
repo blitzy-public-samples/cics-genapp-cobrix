@@ -2414,13 +2414,35 @@ def _accepted_destination_roots() -> str:
 
     Every refusal of ``confine_destination`` carries this fragment, so a rejected
     command line is told the whole accepted set rather than the one rule it breached:
-    the generated roots inside the repository and the temporary directory outside it.
+    the generated roots inside the repository, and the temporary directory outside it
+    with every other repository checkout standing below it excluded.
     """
     return (
         f"below {_quote_all(str(root) for root in GENERATED_OUTPUT_ROOTS)} inside "
         f"{_path_shown(Path(os.path.realpath(REPOSITORY_ROOT)))}, or below "
-        f"{_path_shown(canonical_temporary_root())}"
+        f"{_path_shown(canonical_temporary_root())} and outside every repository "
+        f"checkout standing there"
     )
+
+
+def _enclosing_repository_checkout(canonical: Path, boundary: Path) -> Path | None:
+    """Return the repository checkout ``canonical`` stands in, or None.
+
+    The parent chain of ``canonical`` is walked upwards and stopped before ``boundary``,
+    so only the directories between the destination and the accepted temporary root are
+    examined. The first of them holding a ``.git`` entry - a directory in an ordinary
+    clone, a file in a worktree or a submodule - is returned as the checkout the
+    destination stands in. ``Path.exists`` reports False for a component that cannot be
+    examined, so an unreadable directory on the chain is passed over rather than raising.
+
+    Decision rationale: modernization/docs/decision-log.md, row D-128.
+    """
+    for ancestor in canonical.parents:
+        if ancestor == boundary or boundary not in ancestor.parents:
+            return None
+        if (ancestor / ".git").exists():
+            return ancestor
+    return None
 
 
 def confine_destination(destination: Path, *, overwrite: bool = False) -> Path:
@@ -2439,9 +2461,12 @@ def confine_destination(destination: Path, *, overwrite: bool = False) -> Path:
     outside the repository is accepted only below ``canonical_temporary_root()``, which
     carries the documented workflow of landing into a temporary directory; every other
     path of the filesystem is refused by name, whether it is absent, an existing file or
-    a system file such as /etc/passwd. A destination whose final component is a symbolic
-    link, and one that resolves onto an existing entry that is not a regular file, are
-    refused.
+    a system file such as /etc/passwd. A destination standing below that temporary root
+    but inside the directory that holds this checkout, or inside another repository
+    checkout, is refused by that directory's name, so a workspace whose checkouts stand
+    below the temporary directory keeps itself and its siblings out of reach. A
+    destination whose final component is a symbolic link, and one that resolves onto an
+    existing entry that is not a regular file, are refused.
 
     A destination that resolves onto an existing regular file is refused unless
     ``overwrite`` is true, wherever it stands: a run that names an occupied path
@@ -2481,14 +2506,34 @@ def confine_destination(destination: Path, *, overwrite: bool = False) -> Path:
                 f"{_path_shown(destination)} resolves to {_path_shown(canonical)}; a "
                 f"destination stands {_accepted_destination_roots()}"
             )
-    elif canonical_temporary_root() not in canonical.parents:
-        raise InputOutputError(
-            f"the destination resolves outside the repository directory "
-            f"{_path_shown(repository)} and outside the temporary directory "
-            f"{_path_shown(canonical_temporary_root())}: {_path_shown(destination)} "
-            f"resolves to {_path_shown(canonical)}; a destination stands "
-            f"{_accepted_destination_roots()}"
-        )
+    else:
+        temporary_root = canonical_temporary_root()
+        if temporary_root not in canonical.parents:
+            raise InputOutputError(
+                f"the destination resolves outside the repository directory "
+                f"{_path_shown(repository)} and outside the temporary directory "
+                f"{_path_shown(temporary_root)}: {_path_shown(destination)} "
+                f"resolves to {_path_shown(canonical)}; a destination stands "
+                f"{_accepted_destination_roots()}"
+            )
+        container = repository.parent
+        if container != temporary_root and _stands_inside(canonical, container):
+            raise InputOutputError(
+                f"the destination resolves inside the directory that holds this "
+                f"repository checkout {_path_shown(container)}, which is a workspace "
+                f"rather than a scratch area: {_path_shown(destination)} resolves to "
+                f"{_path_shown(canonical)}; a destination stands "
+                f"{_accepted_destination_roots()}"
+            )
+        checkout = _enclosing_repository_checkout(canonical, temporary_root)
+        if checkout is not None:
+            raise InputOutputError(
+                f"the destination resolves inside the repository checkout "
+                f"{_path_shown(checkout)}, which is not this repository "
+                f"{_path_shown(repository)}: {_path_shown(destination)} resolves to "
+                f"{_path_shown(canonical)}; a destination stands "
+                f"{_accepted_destination_roots()}"
+            )
     try:
         status = os.lstat(canonical)
     except FileNotFoundError:
@@ -4089,6 +4134,88 @@ def _case_out_of_tree_accepted(scratch: Path) -> str:
     return (
         f"{_path_shown(target)} and a name directly below "
         f"{_path_shown(temporary)} accepted outside the repository"
+    )
+
+
+def _case_other_checkout_destination_refused(
+    scratch: Path, map_path: Path, field_map: FieldMap
+) -> str:
+    """Confirm a destination in another checkout, or beside this one, is refused.
+
+    The temporary root carries the documented workflow of landing into a temporary
+    directory, and a workspace holding its checkouts below that root turns the same
+    allowance into a path inside someone else's working tree. Three situations are
+    exercised, each below the temporary root: a constructed clone whose ``.git`` is a
+    directory, a constructed worktree whose ``.git`` is a file, and the directory that
+    actually holds this checkout. The constructed clone is also driven through the
+    command line. A scratch path with no ``.git`` above it stays accepted in the same
+    case, so the rule is measured as a boundary rather than as a blanket refusal, and
+    none of the refused attempts creates anything.
+    """
+    directory = _case_directory(scratch, "other-checkout")
+    capture = _prepared_capture(directory, field_map, _MOTOR_WINDOWS)
+    clone = directory / "workspace-clone"
+    (clone / ".git").mkdir(parents=True, mode=DIRECTORY_MODE)
+    clone_target = clone / _SCRATCH_RECORD_NAME
+    diagnostic = _expect_raised(
+        InputOutputError,
+        EXIT_IO_ERROR,
+        ["repository checkout", clone.name],
+        lambda: confine_destination(clone_target),
+        "validating a destination inside a constructed clone",
+    )
+    result = _run_cli(_extraction_argv(capture, clone_target, map_path))
+    _expect_cli_failure(
+        result,
+        EXIT_IO_ERROR,
+        ["repository checkout", clone.name],
+        "the extraction aimed inside a constructed clone",
+    )
+    if os.path.lexists(clone_target):
+        raise _SelfTestFailure(
+            f"the refused extraction created {_path_shown(clone_target)}"
+        )
+    worktree = directory / "workspace-worktree"
+    worktree.mkdir(mode=DIRECTORY_MODE)
+    (worktree / ".git").write_text("gitdir: elsewhere\n", encoding="utf-8")
+    worktree_target = worktree / "below" / _SCRATCH_RECORD_NAME
+    _expect_raised(
+        InputOutputError,
+        EXIT_IO_ERROR,
+        ["repository checkout", worktree.name],
+        lambda: confine_destination(worktree_target),
+        "validating a destination inside a constructed worktree",
+    )
+    if os.path.lexists(worktree_target.parent):
+        raise _SelfTestFailure(
+            f"the refused validation created {_path_shown(worktree_target.parent)}"
+        )
+    container = Path(os.path.realpath(REPOSITORY_ROOT)).parent
+    temporary = canonical_temporary_root()
+    beside = container / f"extractor-selftest-{os.getpid()}.json"
+    fragment = (
+        "holds this repository checkout"
+        if container != temporary and temporary in container.parents
+        else "outside the temporary directory"
+    )
+    _expect_raised(
+        InputOutputError,
+        EXIT_IO_ERROR,
+        [fragment],
+        lambda: confine_destination(beside),
+        "validating a destination beside this checkout",
+    )
+    if os.path.lexists(beside):
+        raise _SelfTestFailure(f"the refused validation created {_path_shown(beside)}")
+    accepted = confine_destination(directory / "plain" / _SCRATCH_RECORD_NAME)
+    if temporary not in accepted.parents:
+        raise _SelfTestFailure(
+            f"the accepted scratch destination {_path_shown(accepted)} does not stand "
+            f"below {_path_shown(temporary)}"
+        )
+    return (
+        f"a constructed clone, a constructed worktree and a path beside this checkout "
+        f"each refused while a plain scratch destination is accepted: {diagnostic}"
     )
 
 
@@ -5870,6 +5997,12 @@ def _output_cases(
     _run_case(
         results, out, "destination_outside_the_repository_accepted",
         lambda: _case_out_of_tree_accepted(scratch),
+    )
+    _run_case(
+        results, out, "destination_other_checkout_refused",
+        lambda: _case_other_checkout_destination_refused(
+            scratch, map_path, field_map
+        ),
     )
     _run_case(
         results, out, "destination_outside_both_roots_refused",

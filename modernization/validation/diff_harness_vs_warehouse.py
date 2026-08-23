@@ -3227,8 +3227,29 @@ def _accepted_output_roots() -> str:
     return (
         f"below {_quote_all(OUTPUT_ROOTS)} inside "
         f"{_printable(str(REPO_ROOT))}, or below "
-        f"{_printable(str(canonical_temporary_root()))}"
+        f"{_printable(str(canonical_temporary_root()))} and outside every repository "
+        f"checkout standing there"
     )
+
+
+def _enclosing_repository_checkout(canonical: Path, boundary: Path) -> Path | None:
+    """Return the repository checkout ``canonical`` stands in, or None.
+
+    The parent chain of ``canonical`` is walked upwards and stopped before ``boundary``,
+    so only the directories between the output path and the accepted temporary root are
+    examined. The first of them holding a ``.git`` entry - a directory in an ordinary
+    clone, a file in a worktree or a submodule - is returned as the checkout the path
+    stands in. ``Path.exists`` reports False for a component that cannot be examined, so
+    an unreadable directory on the chain is passed over rather than raising.
+
+    Decision rationale: modernization/docs/decision-log.md, row D-128.
+    """
+    for ancestor in canonical.parents:
+        if ancestor == boundary or boundary not in ancestor.parents:
+            return None
+        if (ancestor / ".git").exists():
+            return ancestor
+    return None
 
 
 def _canonical_output_path(path: Path) -> Path:
@@ -3258,6 +3279,10 @@ def _refuse_protected_path(path: Path) -> None:
     * a path outside the repository must stand below ``canonical_temporary_root()``, and
       every other path of the filesystem is refused, /etc/passwd and every other system
       file among them;
+    * a path standing below that temporary root but inside the directory that holds this
+      checkout, or inside another repository checkout, is refused by that directory's
+      name, so a workspace whose checkouts stand below the temporary directory keeps
+      itself and its siblings out of reach;
     * a final component that is a symbolic link is refused, so a link cannot redirect
       the write to the file it names.
 
@@ -3284,14 +3309,36 @@ def _refuse_protected_path(path: Path) -> None:
                 f"{_printable(str(canonical))}; an output path stands "
                 f"{_accepted_output_roots()}"
             )
-    elif canonical_temporary_root() not in canonical.parents:
-        raise ConfigurationError(
-            f"the output path {_path_shown(path)} resolves outside the repository "
-            f"directory {_printable(str(repository))} and outside the temporary "
-            f"directory {_printable(str(canonical_temporary_root()))}: it resolves to "
-            f"{_printable(str(canonical))}; an output path stands "
-            f"{_accepted_output_roots()}"
-        )
+    else:
+        temporary_root = canonical_temporary_root()
+        if temporary_root not in canonical.parents:
+            raise ConfigurationError(
+                f"the output path {_path_shown(path)} resolves outside the repository "
+                f"directory {_printable(str(repository))} and outside the temporary "
+                f"directory {_printable(str(temporary_root))}: it resolves to "
+                f"{_printable(str(canonical))}; an output path stands "
+                f"{_accepted_output_roots()}"
+            )
+        container = repository.parent
+        if container != temporary_root and (
+            canonical == container or container in canonical.parents
+        ):
+            raise ConfigurationError(
+                f"the output path {_path_shown(path)} resolves inside the directory "
+                f"that holds this repository checkout {_printable(str(container))}, "
+                f"which is a workspace rather than a scratch area: it resolves to "
+                f"{_printable(str(canonical))}; an output path stands "
+                f"{_accepted_output_roots()}"
+            )
+        checkout = _enclosing_repository_checkout(canonical, temporary_root)
+        if checkout is not None:
+            raise ConfigurationError(
+                f"the output path {_path_shown(path)} resolves inside the repository "
+                f"checkout {_printable(str(checkout))}, which is not this repository "
+                f"{_printable(str(repository))}: it resolves to "
+                f"{_printable(str(canonical))}; an output path stands "
+                f"{_accepted_output_roots()}"
+            )
     if os.path.islink(canonical):
         raise ConfigurationError(
             f"the output path {_path_shown(path)} is a symbolic link, which this tool "
@@ -6876,6 +6923,73 @@ def _case_output_outside_both_roots_refused(scratch: _Scratch) -> str:
     )
 
 
+def _case_output_inside_another_checkout_refused(scratch: _Scratch) -> str:
+    """An output path in another checkout, or beside this one, is refused.
+
+    The temporary root accepts an output path for the documented workflow of writing a
+    report into a scratch directory, and a workspace that keeps its checkouts below that
+    root turns the same allowance into a path to someone else's working tree. Three
+    situations are exercised, each below the temporary root: a constructed clone whose
+    ``.git`` is a directory, a constructed worktree whose ``.git`` is a file, and the
+    directory that actually holds this checkout. A scratch path with no ``.git`` above it
+    is accepted in the same case, so the rule is measured as a boundary rather than as a
+    blanket refusal. Nothing is written by any of the refused attempts.
+    """
+    clone = scratch.absent("workspace-clone")
+    (clone / ".git").mkdir(parents=True, exist_ok=True)
+    clone_target = clone / "diff-report.md"
+    _assert_raises(
+        "an output path inside a constructed clone",
+        ConfigurationError,
+        "repository checkout",
+        lambda: _refuse_protected_path(clone_target),
+    )
+    _assert_raises(
+        "a write inside a constructed clone",
+        ConfigurationError,
+        "repository checkout",
+        lambda: _write_output(clone_target, _SELF_TEST_ORIGIN),
+    )
+    _assert(not clone_target.exists(), f"the refused run created {clone_target}")
+    worktree = scratch.absent("workspace-worktree")
+    worktree.mkdir(parents=True, exist_ok=True)
+    (worktree / ".git").write_text("gitdir: elsewhere\n", encoding="utf-8")
+    worktree_target = worktree / "sub" / "diff-report.json"
+    _assert_raises(
+        "an output path inside a constructed worktree",
+        ConfigurationError,
+        "repository checkout",
+        lambda: _refuse_protected_path(worktree_target),
+    )
+    _assert(
+        not worktree_target.parent.exists(),
+        f"the refused run created {worktree_target.parent}",
+    )
+    container = Path(os.path.realpath(REPO_ROOT)).parent
+    temporary = canonical_temporary_root()
+    beside = container / f"diff-harness-selftest-{os.getpid()}.md"
+    expected = (
+        "holds this repository checkout"
+        if container != temporary and temporary in container.parents
+        else "outside the temporary directory"
+    )
+    _assert_raises(
+        "an output path beside this checkout",
+        ConfigurationError,
+        expected,
+        lambda: _refuse_protected_path(beside),
+    )
+    _assert(not beside.exists(), f"the refused run created {beside}")
+    accepted = scratch.absent("plain-scratch") / "diff-report.md"
+    _write_output(accepted, _SELF_TEST_ORIGIN)
+    _assert(accepted.is_file(), f"the accepted write produced no file at {accepted}")
+    return (
+        f"a constructed clone, a constructed worktree and a path beside this checkout "
+        f"each refused with {EXIT_CONFIGURATION} while {accepted.parent.name} is "
+        f"accepted"
+    )
+
+
 def _case_output_inside_the_repository_refused(scratch: _Scratch) -> str:
     """An in-repository output path outside the two output roots is refused.
 
@@ -7797,6 +7911,10 @@ def run_self_test(*, quiet: bool = False, stream: Any = None) -> int:
         _run_case(
             results, out, quiet, "output_outside_both_roots_refused",
             lambda: _case_output_outside_both_roots_refused(scratch),
+        )
+        _run_case(
+            results, out, quiet, "output_inside_another_checkout_refused",
+            lambda: _case_output_inside_another_checkout_refused(scratch),
         )
         _run_case(
             results, out, quiet, "output_inside_the_repository_refused",

@@ -578,7 +578,7 @@ constructed values and needs no warehouse, no S3 endpoint and no harness output:
 .venv/bin/python validation/diff_harness_vs_warehouse.py --self-test
 ```
 
-Observed: `self-test summary cases=40 passed=40 failed=0`, exit status 0. Among the verdicts those cases reach — none of
+Observed: `self-test summary cases=41 passed=41 failed=0`, exit status 0. Among the verdicts those cases reach — none of
 which the passing run above produces — are a mismatched non-amount value reaching the failure status and the
 comparison-failure exit status 1, an absolute amount delta of exactly 0.01 reaching the in-tolerance pass status with the
 anomaly recorded, a delta above 0.01 failing, an absent harness authority reaching the missing status and exit status 2,
@@ -752,7 +752,7 @@ pointer and no argument.
 |---|---|---|---|---|
 | F-1 | Command injection through `DBT_PROFILES_DIR`, MEDIUM, blocking | The value was interpolated into the three dbt recipe lines unquoted, so the shell parsed it: `DBT_PROFILES_DIR='/tmp; touch <marker>' make dbt` created the marker | Both routes are refused before any recipe runs: `Makefile:394: *** DBT_PROFILES_DIR is set to "..." which carries ";"`, exit **2**, no marker created; a legitimate value renders as `--profiles-dir '/tmp/dbt_profiles_clone1'`, single-quoted | `CALLER_ACCEPTED_CHARACTERS`, `check_caller_word` and `check_caller_words` of `modernization/Makefile`, applied to `DBT_PROFILES_DIR`, `CASE`, `CASES`, `CASES_MODE`, `SOURCE_SYSTEM_KEY`, `EXTRACT_DATE`, `STAGE`, `COBC` and `COBFLAGS` (`D-116`) |
 | F-2 | `--output` writes to an arbitrary absolute path, LOW | Any canonical path outside the repository was a legal destination: `--output /etc/passwd --overwrite` was accepted by the confinement check | `--output /etc/passwd --overwrite` → exit **4**, and `/etc/passwd` unchanged (1171 bytes, 23 lines, mtime unchanged); a symlinked parent → exit **4** naming the canonical path it resolved to; the documented temporary-directory destination → exit 0, 17 keys written | `confine_destination` of `modernization/extraction/extract_commarea.py`: the generated roots this tool owns, or below the canonical system temporary directory, and nothing else (`D-125`) |
-| F-3 | `--json`, `--report` and `--expected-dir` write outside the repository, LOW | Only `base/` and `synthetic_class/` were refused; every other absolute path was accepted | `--json /etc/...` → exit **4**; `--expected-dir /etc` → exit **4**, naming the snapshot path it would have written; `--report base/src/...` → exit **4**; the default in-repo destinations → exit 0. Every destination is validated in `resolve_settings`, before the tool reads a warehouse or a capture | `_confine_destination` and `resolve_settings` of `modernization/validation/diff_harness_vs_warehouse.py`, one policy shared with the extraction tool (`D-125`) |
+| F-3 | `--json`, `--report` and `--expected-dir` write outside the repository, LOW | Only `base/` and `synthetic_class/` were refused; every other absolute path was accepted | `--json /etc/...` → exit **4**; `--expected-dir /etc` → exit **4**, naming the snapshot path it would have written; `--report base/src/...` → exit **4**; `--json` into a sibling clone of this repository → exit **4** naming that checkout; `--report ../base/src/qa.md`, which resolves beside this checkout in the shared workspace directory → exit **4** naming that directory; the default in-repo destinations → exit 0. Every destination is validated in `resolve_settings`, before the tool reads a warehouse or a capture | `_refuse_protected_path`, `_enclosing_repository_checkout` and `resolve_settings` of `modernization/validation/diff_harness_vs_warehouse.py`, one policy shared with the extraction tool (`D-125`, narrowed by `D-128`) |
 | F-4 | Unhandled `RecursionError` on deeply nested JSON, MEDIUM | A 200,000-deep document raised through the parser to the top level: a traceback naming absolute paths and exit status 1, outside the documented contract | A 200,000-deep document passed as `--record` → exit **2**, 2 lines on stderr, **0** tracebacks; the same document planted as the landed object, with a correct digest and a correct manifest so that every earlier gate accepts it → exit **2**, 0 tracebacks | `MAX_JSON_NESTING_DEPTH`, `json_nesting_depth` and `UnparsableDocumentError` in `modernization/landing/land_to_s3.py` and `modernization/landing/load_local.py`: a single-pass string-aware scan ahead of the parser, plus conversion of the parser's own `RecursionError` and of a non-`JSONDecodeError` `ValueError` — the second path a 5,000-digit integer reaches (`D-122`) |
 | F-5 | `HARNESS_LOCK_WAIT` silently defaulted on invalid input, LOW | The documented `HARNESS_LOCK_WAIT_SECONDS` was validated and failed closed; an ambient value under the internal name was overwritten without a word | All four payloads → exit **2** with `ambient HARNESS_LOCK_WAIT holds <value>; a whole number of seconds from 1 to 3600 is accepted under that name`, and no side effect | `HARNESS_INTERNAL_AMBIENT`, `seconds_value_accepted`, `check_seconds_contract` and `preflight_internal_names` of `modernization/harness/run_harness.sh` (`D-117`) |
 | F-6 | `GENAPP_SHOW_IDENTIFIERS=1` was not equivalent to `--show-identifiers`, LOW | The resolved value was computed and stored, but the two report call sites passed the flag alone, so the environment form never reached the output its own `--help` promised | `diff` of the two stdout captures — `--show-identifiers` against `GENAPP_SHOW_IDENTIFIERS=1` — is **IDENTICAL** | `_run` of `modernization/landing/load_local.py` now passes `show_identifiers_enabled()` at both call sites, and `SHOW_IDENTIFIERS_VARIABLE` joins `_CONSULTED_VARIABLES` (`D-123`) |
@@ -773,8 +773,8 @@ clean tree, which is the state the gate is designed for.
 
 **What the fixes changed in the measured test surface.** Every tool's self-test grew by the cases its own fix needed, and
 each suite passes in full in this checkout: `verify_readonly.sh` 61, `build_sample_commarea.py` 115,
-`extract_commarea.py` 219, `translate.py` 93, `land_to_s3.py` 47, `load_local.py` 43,
-`diff_harness_vs_warehouse.py` 40 — 618 cases in total. The harness case table is unchanged at 12 cases and 902
+`extract_commarea.py` 220, `translate.py` 93, `land_to_s3.py` 47, `load_local.py` 43,
+`diff_harness_vs_warehouse.py` 41 — 620 cases in total. The harness case table is unchanged at 12 cases and 902
 assertions, because the artifact-mode gate counts its checks separately from the assertion total; the dbt project is
 unchanged at 4 models and 64 data tests; and the comparison gate still reports 2 cases and 40 of 40 canonical column
 instances compared with 0 failures.
@@ -802,6 +802,11 @@ instances compared with 0 failures.
 - The digests of `modernization/requirements-lock.txt` are those of the `cp312` `linux-x86_64` wheels this project
   resolves; another interpreter series or platform requires the lock to be regenerated, and `pip` refuses the install
   rather than silently resolving something else (`D-120`).
+- The write-confinement policy still accepts any destination below the resolved temporary directory that is not a
+  repository checkout and is not the directory holding this checkout. That is the documented landing-into-a-temporary-
+  directory workflow, and it was deliberately kept: what was closed instead is the reach into another working tree. A
+  working tree with no `.git` entry — an exported archive — is not recognised as a checkout and is accepted as an
+  ordinary temporary destination (`D-128`).
 - Three file-mode exceptions stand by design: `modernization/validation/artifacts/runtime-versions.txt` stays at 644
   because no producer writes it and it carries no identifier; a directory that already existed keeps its mode, so a
   long-lived checkout can hold staging directories at 755 while a fresh clone creates them at 700, and the files inside
