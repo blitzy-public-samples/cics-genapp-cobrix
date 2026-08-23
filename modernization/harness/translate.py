@@ -293,8 +293,15 @@ NOFOLLOW_EXISTING_FILE_FLAGS = (
 NOFOLLOW_READ_FILE_FLAGS = (
     os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | getattr(os, "O_CLOEXEC", 0)
 )
-BUILD_DIR_MODE = 0o755
-BUILD_FILE_MODE = 0o644
+# Modes carried by a directory and a file this translator creates inside the
+# build tree.  Both are set on the created entry itself as well as requested at
+# creation, and a write over an entry that already stands normalises its mode,
+# so the ambient umask decides neither: the build tree is generated, is read
+# and compiled by its owner alone, and stands beside the run outputs and
+# samples that carry COMMAREA values.  Decision rationale:
+# modernization/docs/decision-log.md, row D-127.
+BUILD_DIR_MODE = 0o700
+BUILD_FILE_MODE = 0o600
 
 # The errno values a directory that denies writing raises for an unlink of an
 # entry below it.  A removal refused with one of these is followed by emptying
@@ -1418,6 +1425,7 @@ class BuildTree:
                     f"refusing to write {target}: it carries {info.st_nlink} hard "
                     f"links, so a write would reach content outside the build tree"
                 )
+            os.fchmod(handle, BUILD_FILE_MODE)
             os.ftruncate(handle, 0)
             written = 0
             while written < len(data):

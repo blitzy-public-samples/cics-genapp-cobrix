@@ -455,6 +455,25 @@ RESERVED_DATABASE_NAMES = (
     "verify_readonly.sh",
 )
 
+# Modes this tool sets on the entries it creates. A directory it creates carries
+# DIRECTORY_MODE and the database file it writes carries FILE_MODE, each set on the
+# entry itself through a descriptor as well as requested at creation, so the ambient
+# umask cannot widen either: every landed identifier of every extract this bridge
+# loads - the customer number, the policy number and the broker values of
+# raw.genapp_policy_issue - sits inside that one file.
+#
+# The mode is set on every successful open of the database, so a database standing at a
+# wider mode carries FILE_MODE from the next load on. A directory that already stands
+# keeps the mode it carries.
+#
+# WAL_SUFFIX names the write-ahead sidecar DuckDB writes beside an open database and
+# removes when it closes it cleanly. It carries the rows of the load in flight and is
+# narrowed the same way wherever it stands.
+# Decision rationale: modernization/docs/decision-log.md, row D-127.
+DIRECTORY_MODE = 0o700
+FILE_MODE = 0o600
+WAL_SUFFIX = ".wal"
+
 # Environment variables consulted when the matching option is omitted. No value
 # read from any of them is ever printed.
 BUCKET_VARIABLE = "S3_BUCKET"
@@ -3987,6 +4006,163 @@ def qualified_relation_name() -> str:
     return f"{schema}.{table}"
 
 
+def _create_database_directory(root: Path = ALLOWED_DATABASE_ROOT) -> None:
+    """Create ``root`` and every missing directory above it, mode DIRECTORY_MODE.
+
+    ``root`` is ``ALLOWED_DATABASE_ROOT`` for every caller of this tool; the self-test
+    passes a directory of its own so the creation is exercised where it can be
+    measured. Each missing component is created one at a time and its mode is then set
+    on the created directory itself, through a descriptor opened without following a
+    link, so it carries ``DIRECTORY_MODE`` whatever the ambient umask requested. A
+    directory that already exists keeps the mode it carries, so the tracked validation
+    directory of a checkout is left as that checkout holds it.
+
+    Raises ``WarehouseError`` when a directory cannot be created or its mode cannot be
+    set.
+    """
+    missing: list[Path] = []
+    probe = root
+    while not probe.exists():
+        missing.append(probe)
+        if probe.parent == probe:
+            break
+        probe = probe.parent
+    for path in reversed(missing):
+        try:
+            os.mkdir(path, DIRECTORY_MODE)
+        except FileExistsError:
+            continue
+        except OSError as error:
+            raise WarehouseError(
+                f"the database directory cannot be created: "
+                f"{_path_shown(path)}: {_reason(error)}"
+            ) from error
+        try:
+            descriptor = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        except OSError as error:
+            raise WarehouseError(
+                f"the created database directory cannot be opened to set its mode: "
+                f"{_path_shown(path)}: {_reason(error)}"
+            ) from error
+        try:
+            os.fchmod(descriptor, DIRECTORY_MODE)
+        except OSError as error:
+            raise WarehouseError(
+                f"the mode of the created database directory cannot be set to "
+                f"{DIRECTORY_MODE:04o}: {_path_shown(path)}: {_reason(error)}"
+            ) from error
+        finally:
+            os.close(descriptor)
+    if not root.is_dir():
+        raise WarehouseError(
+            f"the database directory is not a directory: {_path_shown(root)}"
+        )
+
+
+def _set_private_mode(
+    name: str, descriptor: int, shown: Path, opened: os.stat_result
+) -> int:
+    """Set ``FILE_MODE`` on ``name`` inside the held directory and return the mode.
+
+    The entry is opened relative to ``descriptor`` and without following a symbolic
+    link, its device and inode are compared with ``opened`` - the status the caller
+    read of the database it has just opened - and the mode is then set on that
+    descriptor. What is narrowed is therefore the file the caller opened, inside the
+    directory this tool holds open, rather than whatever the name resolves to at the
+    moment of the call. ``shown`` is the path the diagnostics name.
+
+    Raises ``WarehouseError`` when the entry cannot be opened, is no longer the file
+    the caller opened, or its mode cannot be set.
+    """
+    try:
+        entry = os.open(name, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=descriptor)
+    except OSError as error:
+        raise WarehouseError(
+            f"the database file cannot be opened to set its mode: "
+            f"{_path_shown(shown)}: {_reason(error)}"
+        ) from error
+    try:
+        settled = os.fstat(entry)
+        if (settled.st_dev, settled.st_ino) != (opened.st_dev, opened.st_ino):
+            raise WarehouseError(
+                f"the database file was replaced before its mode was set: "
+                f"{_path_shown(shown)}"
+            )
+        os.fchmod(entry, FILE_MODE)
+    except OSError as error:
+        raise WarehouseError(
+            f"the mode of the database file cannot be set to {FILE_MODE:04o}: "
+            f"{_path_shown(shown)}: {_reason(error)}"
+        ) from error
+    finally:
+        os.close(entry)
+    return FILE_MODE
+
+
+def narrow_write_ahead_log(path: Path) -> bool:
+    """Set ``FILE_MODE`` on the write-ahead sidecar of ``path`` and report it stood.
+
+    DuckDB writes ``<database>.wal`` beside an open database and removes it when the
+    database is closed cleanly, so the sidecar stands while a load is in flight and
+    normally not afterwards. It carries the rows of that load, so it is narrowed
+    wherever it stands: at the open of a database, where a sidecar left by an
+    interrupted run is narrowed before anything is written, and once the rows of a load
+    have been written, which is the window in which it holds them.
+
+    A sidecar that is absent, that is a symbolic link or that is not a regular file is
+    left alone and reported as not standing: this tool narrows the file DuckDB wrote and
+    never follows a name to something else. A mode that cannot be set is reported as a
+    warning rather than failing the load, because the rows are already written and the
+    load's own result is not in question.
+    """
+    sidecar = path.with_name(path.name + WAL_SUFFIX)
+    try:
+        info = os.stat(sidecar, follow_symlinks=False)
+    except FileNotFoundError:
+        return False
+    except OSError as error:
+        _warn(
+            f"the write-ahead sidecar {_path_shown(sidecar)} cannot be examined: "
+            f"{_reason(error)}"
+        )
+        return False
+    if not stat.S_ISREG(info.st_mode):
+        _warn(
+            f"the write-ahead sidecar {_path_shown(sidecar)} is not a regular file, "
+            "and its mode is left as it stands"
+        )
+        return False
+    if stat.S_IMODE(info.st_mode) == FILE_MODE:
+        return True
+    try:
+        descriptor = os.open(sidecar, os.O_RDONLY | os.O_NOFOLLOW)
+    except FileNotFoundError:
+        # DuckDB removed the sidecar between the status above and this open, which is
+        # what it does when it folds the rows of a load into the database file.
+        return False
+    except OSError as error:
+        _warn(
+            f"the write-ahead sidecar {_path_shown(sidecar)} cannot be opened to set "
+            f"its mode: {_reason(error)}"
+        )
+        return False
+    try:
+        os.fchmod(descriptor, FILE_MODE)
+    except OSError as error:
+        _warn(
+            f"the mode of the write-ahead sidecar {_path_shown(sidecar)} cannot be "
+            f"set to {FILE_MODE:04o}: {_reason(error)}"
+        )
+        return False
+    finally:
+        os.close(descriptor)
+    _note(
+        f"narrowed the write-ahead sidecar {_path_shown(sidecar)} to "
+        f"{FILE_MODE:04o}"
+    )
+    return True
+
+
 def _open_allowed_root() -> int:
     """Return a descriptor on ``ALLOWED_DATABASE_ROOT``, creating it when absent.
 
@@ -3998,13 +4174,7 @@ def _open_allowed_root() -> int:
     Raises ``WarehouseError`` when the directory cannot be created, cannot be
     opened as a directory, or is not the allowed root.
     """
-    try:
-        ALLOWED_DATABASE_ROOT.mkdir(parents=True, exist_ok=True)
-    except OSError as error:
-        raise WarehouseError(
-            f"the database directory cannot be created: "
-            f"{_path_shown(ALLOWED_DATABASE_ROOT)}: {_reason(error)}"
-        ) from error
+    _create_database_directory()
     try:
         descriptor = os.open(
             ALLOWED_DATABASE_ROOT, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
@@ -4104,6 +4274,13 @@ def open_database(path: Path) -> duckdb.DuckDBPyConnection:
     here guards the window between that resolution and this open rather than a
     rejected setting.
 
+    Once those checks hold, ``FILE_MODE`` is set on the database file through a
+    descriptor opened relative to the held directory and without following a link, and
+    a write-ahead sidecar left beside it by an interrupted run is narrowed the same
+    way. Every landed identifier this bridge loads sits in that file, so it is
+    readable and writable by its owner alone whatever the ambient umask requested, on
+    the run that creates it and on every run that opens it afterwards.
+
     Raises ``KeyboardInterrupt`` when the open was interrupted rather than refused,
     and ``WarehouseError`` when the parent is not the allowed root, when the name is
     refused, or when the database cannot be opened or confirmed.
@@ -4146,6 +4323,7 @@ def open_database(path: Path) -> duckdb.DuckDBPyConnection:
                     f"the database file was replaced while it was being opened: "
                     f"{_path_shown(path)}"
                 )
+            _set_private_mode(name, descriptor, path, after)
         except WarehouseError:
             try:
                 connection.close()
@@ -4157,7 +4335,9 @@ def open_database(path: Path) -> duckdb.DuckDBPyConnection:
             raise
     finally:
         os.close(descriptor)
+    narrow_write_ahead_log(path)
     _note(f"opened database {_path_shown(path)}")
+    _note(f"the database file carries mode {FILE_MODE:04o}")
     return connection
 
 
@@ -4444,6 +4624,10 @@ def load_record(
         removed, written = upsert_record(
             connection, columns, values, key_values, ddl_paths
         )
+        # The rows of this load stand in the write-ahead sidecar until the close
+        # below folds them into the database file, so the sidecar is narrowed here,
+        # where it holds them, rather than after it has been removed.
+        narrow_write_ahead_log(database_path)
     finally:
         try:
             connection.close()
@@ -6960,6 +7144,80 @@ def _case_load_one_row(scratch: _Scratch) -> str:
     return f"1 row written, {nulls} product premiums left null"
 
 
+def _case_database_mode_private(scratch: _Scratch) -> str:
+    """The database, its sidecar and a created directory are private to their owner."""
+    database = scratch.database("private-mode.duckdb")
+    body = _record_bytes()
+    # The ambient umask is set to zero for the load, which is the setting under which
+    # a mode taken from the umask would leave every landed identifier of the extract
+    # world-readable.
+    previous = os.umask(0o000)
+    try:
+        _load_into(scratch, database, body)
+        created = stat.S_IMODE(os.stat(database).st_mode)
+        # A database standing at a wider mode is narrowed by the load that opens it,
+        # so a file created before this discipline does not stay readable for ever.
+        os.chmod(database, 0o644)
+        _load_into(scratch, database, body)
+        reopened = stat.S_IMODE(os.stat(database).st_mode)
+        # A directory this tool creates carries DIRECTORY_MODE; one that already
+        # stands keeps the mode it carries.
+        made = scratch.absent("created-database-root")
+        _create_database_directory(made)
+        made_mode = stat.S_IMODE(os.stat(made).st_mode)
+        os.chmod(made, 0o755)
+        _create_database_directory(made)
+        kept_mode = stat.S_IMODE(os.stat(made).st_mode)
+        # The write-ahead sidecar: absent after a clean load, narrowed wherever it
+        # stands, and never followed when the name is a symbolic link.
+        sidecar = Path(f"{database}{WAL_SUFFIX}")
+        absent_reported = narrow_write_ahead_log(database)
+        sidecar.write_bytes(b"self-test write-ahead sidecar\n")
+        os.chmod(sidecar, 0o644)
+        narrowed_reported = narrow_write_ahead_log(database)
+        narrowed = stat.S_IMODE(os.stat(sidecar).st_mode)
+        sidecar.unlink()
+        target = scratch.write("sidecar-target.txt", "must not be narrowed\n")
+        os.chmod(target, 0o644)
+        sidecar.symlink_to(target)
+        try:
+            with _captured_stderr():
+                link_reported = narrow_write_ahead_log(database)
+            link_target_mode = stat.S_IMODE(os.stat(target).st_mode)
+        finally:
+            sidecar.unlink()
+    finally:
+        os.umask(previous)
+    _assert_equal(f"{created:04o}", f"{FILE_MODE:04o}", "the mode of a created database")
+    _assert_equal(
+        f"{reopened:04o}", f"{FILE_MODE:04o}", "the mode after a load reopened it"
+    )
+    _assert_equal(
+        f"{made_mode:04o}",
+        f"{DIRECTORY_MODE:04o}",
+        "the mode of a directory this tool created",
+    )
+    _assert_equal(
+        f"{kept_mode:04o}", "0755", "the mode of a directory that already stood"
+    )
+    _assert(not absent_reported, "an absent write-ahead sidecar was reported standing")
+    _assert(narrowed_reported, "a standing write-ahead sidecar was reported absent")
+    _assert_equal(
+        f"{narrowed:04o}", f"{FILE_MODE:04o}", "the mode of the narrowed sidecar"
+    )
+    _assert(not link_reported, "a sidecar name that is a symbolic link was narrowed")
+    _assert_equal(
+        f"{link_target_mode:04o}",
+        "0644",
+        "the mode of the file a sidecar link named",
+    )
+    return (
+        f"database {created:04o} on creation and {reopened:04o} after a wider mode, "
+        f"created directory {made_mode:04o} and an existing one {kept_mode:04o}, "
+        f"sidecar {narrowed:04o} and a sidecar link refused, all under a zero umask"
+    )
+
+
 def _case_repeated_load_idempotent(scratch: _Scratch) -> str:
     """Loading the same object again leaves one row carrying the same values."""
     database = scratch.database("idempotent.duckdb")
@@ -8473,6 +8731,10 @@ def run_self_test(*, quiet: bool = False, stream: Any = None) -> int:
         )
         _run_case(
             results, out, quiet, "load_one_row", lambda: _case_load_one_row(scratch)
+        )
+        _run_case(
+            results, out, quiet, "database_mode_private",
+            lambda: _case_database_mode_private(scratch),
         )
         _run_case(
             results, out, quiet, "repeated_load_idempotent",

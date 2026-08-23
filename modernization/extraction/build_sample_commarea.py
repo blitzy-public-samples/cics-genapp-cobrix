@@ -326,8 +326,16 @@ MAX_DIAGNOSTIC_MESSAGE_CHARACTERS = 200
 # Candidate names tried when creating the temporary entry the record is written through.
 MAX_TEMPORARY_ATTEMPTS = 8
 
-# Mode requested for a directory created below the anchor; the umask applies to it.
-DIRECTORY_MODE = 0o777
+# Modes carried by a directory this tool creates below the anchor and by the record it
+# writes. Both are set on the created entry itself as well as requested at creation, so
+# the ambient umask can neither widen nor narrow either: a generated sample carries the
+# whole 32,500-character COMMAREA, customer, policy and broker values included, and is
+# readable and writable by its owner alone. A record replaced through the temporary
+# entry carries FILE_MODE whatever mode the name carried before, because the replacement
+# rewrites the whole record. Decision rationale: modernization/docs/decision-log.md,
+# row D-127.
+DIRECTORY_MODE = 0o700
+FILE_MODE = 0o600
 
 # Bytes read back from the destination in one os.read call during verification.
 READ_BACK_CHUNK_BYTES = 65536
@@ -2653,13 +2661,6 @@ def render_record(
     return record
 
 
-def _default_file_mode() -> int:
-    """Return the mode a plainly created file receives under the current umask."""
-    mask = os.umask(0)
-    os.umask(mask)
-    return 0o666 & ~mask
-
-
 def _absolute_path(path: str | os.PathLike[str]) -> Path:
     """Return ``path`` made absolute, reporting a working directory it cannot read.
 
@@ -3187,6 +3188,10 @@ def _replaced_under_anchor(
         try:
             temporary, handle = _temporary_entry(name, dirfd, mode)
             try:
+                # The mode is set on the open descriptor as well as requested at
+                # creation, so neither an ambient umask nor an inherited default
+                # decides the mode the destination carries after the rename.
+                os.fchmod(handle, mode)
                 _write_through(handle, payload)
             finally:
                 os.close(handle)
@@ -3256,7 +3261,7 @@ def write_record(
             destination.anchor_fd,
             destination.path,
             payload,
-            _default_file_mode(),
+            FILE_MODE,
             len(payload) + 1,
         )
         if written != payload:
@@ -4519,7 +4524,7 @@ class _HeldTree:
         """
         flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW
         try:
-            handle = os.open(name, flags, _default_file_mode(), dir_fd=self.descriptor)
+            handle = os.open(name, flags, FILE_MODE, dir_fd=self.descriptor)
         except OSError as error:
             raise InputOutputError(
                 f"cannot create the self-test entry {_escaped(name)} below "
@@ -5766,6 +5771,60 @@ def _case_rerun_identical(
     if after != before:
         raise _SelfTestFailure("the second build differs from the first")
     return f"two builds produced the same {len(after)} bytes"
+
+
+def _case_record_mode_private(
+    map_path: Path, sample_path: Path, tree: _HeldTree, name: str
+) -> str:
+    """Confirm a written record carries FILE_MODE, whatever the umask or prior mode.
+
+    The case builds under ``umask 000``, which is the widest ambient setting a caller
+    can present, and then builds a second time over a destination it has widened to
+    ``0o644`` by hand, so both the creation path and the replacement path are measured.
+    """
+    output = f"{name}.mode.rec"
+    argv = [
+        "--field-map",
+        str(map_path),
+        "--sample",
+        str(sample_path),
+        "--output",
+        str(tree.handoff(output)),
+        "--quiet",
+    ]
+    previous = os.umask(0o000)
+    try:
+        created = _run_cli(tree, argv)
+        if created.status != EXIT_OK:
+            raise _SelfTestFailure(f"build exit {created.status}")
+        status = tree.status(output)
+        if status is None:
+            raise _SelfTestFailure("the record was not created")
+        mode = stat.S_IMODE(status.st_mode)
+        if mode != FILE_MODE:
+            raise _SelfTestFailure(
+                f"a record created under umask 000 carries {mode:04o}, "
+                f"not {FILE_MODE:04o}"
+            )
+        os.chmod(output, 0o644, dir_fd=tree.descriptor, follow_symlinks=False)
+        replaced = _run_cli(tree, argv)
+        if replaced.status != EXIT_OK:
+            raise _SelfTestFailure(f"rebuild exit {replaced.status}")
+        status = tree.status(output)
+        if status is None:
+            raise _SelfTestFailure("the record was not replaced")
+        mode = stat.S_IMODE(status.st_mode)
+        if mode != FILE_MODE:
+            raise _SelfTestFailure(
+                f"a record replaced over 0644 carries {mode:04o}, "
+                f"not {FILE_MODE:04o}"
+            )
+    finally:
+        os.umask(previous)
+    return (
+        f"a record created under umask 000 and one replacing a 0644 name both "
+        f"carry {FILE_MODE:04o}"
+    )
 
 
 def _case_commercial_status_placed(
@@ -7044,6 +7103,15 @@ def run_self_test(
             "motor_rerun_identical",
             lambda: _case_rerun_identical(
                 map_path, MOTOR_SAMPLE_DEFINITION, tree, "motor_rerun"
+            ),
+        )
+        _run_case(
+            results,
+            out,
+            quiet,
+            "record_mode_private",
+            lambda: _case_record_mode_private(
+                map_path, MOTOR_SAMPLE_DEFINITION, tree, "motor_mode"
             ),
         )
         _run_case(

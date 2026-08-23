@@ -153,6 +153,14 @@ WHAT IT WRITES
     summary. Nothing else is written: no database is modified, no AWS resource is
     created and no path under base/ is opened for writing.
 
+    Every one of those files carries mode 0600 and every directory this tool
+    creates above one carries 0700, set on the entry itself, so the compared
+    identifiers they hold are readable and writable by their owner alone whatever
+    the ambient umask requested. A report is rewritten in full on every run and a
+    matched snapshot holds the bytes the run would have written, so both are
+    brought to that mode even when an earlier run created them under a wider one;
+    a directory that already stands keeps its own mode.
+
 WHERE IT MAY WRITE
     Three roots, and nothing else. Every output path - both reports and every
     capture snapshot - is canonicalised, so a symbolic-link chain, a
@@ -295,6 +303,7 @@ import json
 import os
 import re
 import shutil
+import stat
 import sys
 import tempfile
 from collections.abc import Callable, Iterable, Mapping, Sequence
@@ -455,6 +464,22 @@ OUTPUT_ROOTS = (ARTIFACTS_DIR, DEFAULT_EXPECTED_DIR)
 # platform default, so a run directed at an operator's own temporary directory writes
 # its reports and snapshots there and nowhere else.
 TEMPORARY_OUTPUT_ROOT_SOURCE = "the temporary directory (TMPDIR, TEMP, TMP)"
+
+# Modes every output of this tool is written with. A directory this tool creates
+# carries DIRECTORY_MODE and a file it writes carries FILE_MODE, each set on the entry
+# itself as well as requested at creation, so the ambient umask cannot widen either:
+# the two comparison reports and every per-case capture snapshot carry the customer,
+# policy and broker values of the compared fixtures, in the report as compared columns
+# and in the snapshot as the captured values themselves.
+#
+# The mode is set on every write rather than on the creation of the name alone, and on
+# a capture snapshot whose stored document a comparison confirms equals this run's own
+# output, so a report or a snapshot standing at a wider mode carries FILE_MODE from the
+# next run on. A snapshot a comparison refuses is left exactly as it stands, and a
+# directory that already exists keeps the mode it carries.
+# Decision rationale: modernization/docs/decision-log.md, row D-127.
+DIRECTORY_MODE = 0o700
+FILE_MODE = 0o600
 
 # --------------------------------------------------------------------------
 # Declared canonical surface
@@ -3163,6 +3188,10 @@ def apply_snapshot(
             f"{_path_shown(path)} in {len(differences)} place"
             f"{'' if len(differences) == 1 else 's'}: " + "; ".join(differences[:20])
         )
+    # A matched snapshot holds the bytes this run would have written, so it is brought
+    # to the mode a write gives it. A snapshot that differs is left exactly as it
+    # stands, above, together with everything else about the failed comparison.
+    _narrow_output(path)
     return SNAPSHOT_STATE_MATCHED
 
 
@@ -3270,17 +3299,142 @@ def _refuse_protected_path(path: Path) -> None:
         )
 
 
+def _create_output_directory(directory: Path) -> None:
+    """Create ``directory`` and every missing directory above it, mode DIRECTORY_MODE.
+
+    Each missing component is created one at a time and its mode is then set on the
+    created directory itself, so a directory holding a report or a snapshot carries
+    ``DIRECTORY_MODE`` whatever the ambient umask requested rather than only the
+    innermost one carrying it. A directory that already exists keeps the mode it
+    carries, so the tracked artifacts and expected directories of a checkout are left
+    as that checkout holds them.
+
+    Raises ``ConfigurationError`` when a directory cannot be created or its mode
+    cannot be set.
+    """
+    missing: list[Path] = []
+    probe = directory
+    while not probe.exists():
+        missing.append(probe)
+        if probe.parent == probe:
+            break
+        probe = probe.parent
+    for component in reversed(missing):
+        try:
+            os.mkdir(component, DIRECTORY_MODE)
+        except FileExistsError:
+            continue
+        except OSError as error:
+            raise ConfigurationError(
+                f"the directory at {_path_shown(component)} could not be created: "
+                f"{_printable(error.strerror or type(error).__name__)}"
+            ) from error
+        try:
+            descriptor = os.open(
+                component, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+            )
+        except OSError as error:
+            raise ConfigurationError(
+                f"the directory at {_path_shown(component)} could not be opened to "
+                f"set its mode: "
+                f"{_printable(error.strerror or type(error).__name__)}"
+            ) from error
+        try:
+            os.fchmod(descriptor, DIRECTORY_MODE)
+        except OSError as error:
+            raise ConfigurationError(
+                f"the mode of the directory at {_path_shown(component)} could not be "
+                f"set to {DIRECTORY_MODE:04o}: "
+                f"{_printable(error.strerror or type(error).__name__)}"
+            ) from error
+        finally:
+            os.close(descriptor)
+
+
+def _narrow_output(path: Path) -> bool:
+    """Set ``FILE_MODE`` on an output of this tool that already carries its content.
+
+    It reaches the one output this tool leaves in place: a capture snapshot whose
+    stored document this run has just confirmed equals the document it would have
+    written, which carries the same bytes a rewrite would have left there. The two
+    reports and a written or refreshed snapshot pass through ``_write_output``, which
+    sets the mode at the creation instead.
+
+    The entry is opened without following a symbolic link and the mode is set on that
+    descriptor, so what is narrowed is the file the confinement check accepted. A mode
+    that already reads ``FILE_MODE`` is left alone and reported as unchanged, and an
+    entry that is not a regular file is left alone as well.
+
+    Returns whether the mode was changed. Raises ``ConfigurationError`` when the entry
+    cannot be opened or its mode cannot be set.
+    """
+    try:
+        descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+    except OSError as error:
+        raise ConfigurationError(
+            f"the file at {_path_shown(path)} could not be opened to set its mode: "
+            f"{_printable(error.strerror or type(error).__name__)}"
+        ) from error
+    try:
+        information = os.fstat(descriptor)
+        if not stat.S_ISREG(information.st_mode):
+            return False
+        if stat.S_IMODE(information.st_mode) == FILE_MODE:
+            return False
+        os.fchmod(descriptor, FILE_MODE)
+    except OSError as error:
+        raise ConfigurationError(
+            f"the mode of the file at {_path_shown(path)} could not be set to "
+            f"{FILE_MODE:04o}: "
+            f"{_printable(error.strerror or type(error).__name__)}"
+        ) from error
+    finally:
+        os.close(descriptor)
+    return True
+
+
 def _write_output(path: Path, text: str) -> None:
     """Write ``text`` to ``path``, creating the directories above it.
 
     ``_refuse_protected_path`` decides first, so a path outside the accepted roots is
     refused before a directory is created or a byte is written. It is the single funnel
     every output of this tool passes through: both reports and every capture snapshot.
+
+    The name is opened without following a symbolic link, so a link standing there is
+    refused here as well as by the guard above, and ``FILE_MODE`` is requested at the
+    creation and set on the open descriptor before the text is written: a report or a
+    snapshot is never readable by another user, not in the window between its creation
+    and its content and not afterwards, and one written under an earlier umask is
+    narrowed by the run that rewrites it.
     """
     _refuse_protected_path(path)
+    _create_output_directory(path.parent)
     try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(text, encoding="utf-8")
+        descriptor = os.open(
+            path,
+            os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW,
+            FILE_MODE,
+        )
+    except OSError as error:
+        raise ConfigurationError(
+            f"the file at {_path_shown(path)} could not be opened for writing: "
+            f"{_printable(error.strerror or type(error).__name__)}"
+        ) from error
+    try:
+        os.fchmod(descriptor, FILE_MODE)
+        handle = os.fdopen(descriptor, "w", encoding="utf-8")
+    except OSError as error:
+        os.close(descriptor)
+        raise ConfigurationError(
+            f"the mode of the file at {_path_shown(path)} could not be set to "
+            f"{FILE_MODE:04o}: "
+            f"{_printable(error.strerror or type(error).__name__)}"
+        ) from error
+    # The handle owns the descriptor from here, so the context manager closes it
+    # exactly once whether the write completes or fails.
+    try:
+        with handle:
+            handle.write(text)
     except OSError as error:
         raise ConfigurationError(
             f"the file at {_path_shown(path)} could not be written: "
@@ -6530,6 +6684,126 @@ def _case_output_roots_accepted() -> str:
     return f"{len(accepted)} documented destinations accepted: {', '.join(accepted)}"
 
 
+def _case_output_modes_private(scratch: _Scratch) -> str:
+    """Every report, snapshot and directory this tool writes is private to its owner.
+
+    The whole case runs under a zero umask, which is the setting under which a mode
+    taken from the umask would leave the compared identifiers of a report or a snapshot
+    world-readable. It measures the file this tool creates, the file it rewrites over a
+    wider mode, the directories it creates on the way and a directory that already
+    stood, all through ``_write_output`` - the one funnel both reports and every
+    capture snapshot pass through.
+    """
+    nested = scratch.absent("mode-check") / "expected" / "01amot"
+    document = nested / "captures.normalized.json"
+    previous = os.umask(0o000)
+    try:
+        _write_output(document, _SELF_TEST_ORIGIN + "\n")
+        created_file = stat.S_IMODE(os.stat(document).st_mode)
+        created_directories = tuple(
+            stat.S_IMODE(os.stat(directory).st_mode)
+            for directory in (nested.parent.parent, nested.parent, nested)
+        )
+        os.chmod(document, 0o644)
+        _write_output(document, _SELF_TEST_ORIGIN + " again\n")
+        rewritten_file = stat.S_IMODE(os.stat(document).st_mode)
+        os.chmod(nested, 0o755)
+        beside = nested / "diff-report.md"
+        _write_output(beside, _SELF_TEST_ORIGIN + "\n")
+        kept_directory = stat.S_IMODE(os.stat(nested).st_mode)
+        beside_file = stat.S_IMODE(os.stat(beside).st_mode)
+        # A snapshot reaches its mode by the route the comparison takes: written on
+        # the first run, and brought to that mode again on a run that confirms the
+        # stored document equals its own output. A comparison that fails leaves the
+        # snapshot exactly as it stands, mode included.
+        field_map = _self_test_field_map()
+        snapshot = scratch.absent("mode-check-snapshot") / _SELF_TEST_CASE.lower()
+        snapshot = snapshot / SNAPSHOT_NAME
+        stored = build_snapshot(
+            *_built_run_output(field_map, _SELF_TEST_SEED_A, _SELF_TEST_STAMP_A),
+            field_map,
+        )
+        apply_snapshot(snapshot, stored)
+        written_snapshot = stat.S_IMODE(os.stat(snapshot).st_mode)
+        os.chmod(snapshot, 0o644)
+        matched_state = apply_snapshot(snapshot, stored)
+        matched_snapshot = stat.S_IMODE(os.stat(snapshot).st_mode)
+        drifted = build_snapshot(
+            *_built_run_output(
+                field_map,
+                _SELF_TEST_SEED_A,
+                _SELF_TEST_STAMP_A,
+                customer_number="0000009009",
+            ),
+            field_map,
+        )
+        os.chmod(snapshot, 0o644)
+        try:
+            apply_snapshot(snapshot, drifted)
+        except HarnessInputError:
+            refused_snapshot = stat.S_IMODE(os.stat(snapshot).st_mode)
+        else:  # pragma: no cover - the drift is built to differ
+            refused_snapshot = -1
+    finally:
+        os.umask(previous)
+    _assert_equal(
+        f"{created_file:04o}", f"{FILE_MODE:04o}", "the mode of a created report"
+    )
+    for index, observed in enumerate(created_directories):
+        _assert_equal(
+            f"{observed:04o}",
+            f"{DIRECTORY_MODE:04o}",
+            f"the mode of created output directory {index + 1} of "
+            f"{len(created_directories)}",
+        )
+    _assert_equal(
+        f"{rewritten_file:04o}",
+        f"{FILE_MODE:04o}",
+        "the mode of a report rewritten over a wider mode",
+    )
+    _assert_equal(
+        f"{kept_directory:04o}",
+        "0755",
+        "the mode of an output directory that already stood",
+    )
+    _assert_equal(
+        f"{beside_file:04o}",
+        f"{FILE_MODE:04o}",
+        "the mode of a report written into a directory that already stood",
+    )
+    _assert_equal(
+        document.read_text(encoding="utf-8"),
+        _SELF_TEST_ORIGIN + " again\n",
+        "the text the rewritten report holds",
+    )
+    _assert_equal(
+        f"{written_snapshot:04o}",
+        f"{FILE_MODE:04o}",
+        "the mode of a written capture snapshot",
+    )
+    _assert_equal(
+        matched_state, SNAPSHOT_STATE_MATCHED, "the state of the matched comparison"
+    )
+    _assert_equal(
+        f"{matched_snapshot:04o}",
+        f"{FILE_MODE:04o}",
+        "the mode of a matched capture snapshot that stood at a wider mode",
+    )
+    _assert_equal(
+        f"{refused_snapshot:04o}",
+        "0644",
+        "the mode of a capture snapshot a refused comparison left behind",
+    )
+    return (
+        f"report {created_file:04o} on creation and {rewritten_file:04o} over a "
+        f"wider mode, {len(created_directories)} created directories at "
+        f"{DIRECTORY_MODE:04o} and an existing one at {kept_directory:04o}, "
+        f"snapshot {written_snapshot:04o} when written and {matched_snapshot:04o} "
+        f"when matched over a wider mode with {refused_snapshot:04o} left by a "
+        f"refused comparison, all under a zero umask"
+    )
+
+
 def _case_output_outside_both_roots_refused(scratch: _Scratch) -> str:
     """An output path outside the repository and the temporary root is refused.
 
@@ -7515,6 +7789,10 @@ def run_self_test(*, quiet: bool = False, stream: Any = None) -> int:
         _run_case(
             results, out, quiet, "output_roots_accepted",
             _case_output_roots_accepted,
+        )
+        _run_case(
+            results, out, quiet, "output_modes_private",
+            lambda: _case_output_modes_private(scratch),
         )
         _run_case(
             results, out, quiet, "output_outside_both_roots_refused",

@@ -12,7 +12,7 @@ Decision rationale: see modernization/docs/decision-log.md.
 
 | Item | Value |
 |---|---|
-| generated at (UTC) | 2026-08-23T00:15:47Z |
+| generated at (UTC) | 2026-08-23T02:43:34Z |
 | target | duckdb |
 | adapter | duckdb 1.5.5 |
 | python | 3.12.14 |
@@ -43,13 +43,13 @@ Decision rationale: see modernization/docs/decision-log.md.
 |---|---|
 | verdict | FRESH |
 | dbt run artifact | modernization/dbt/genapp_rqi/target/run_results.json |
-| dbt version | 1.12.2 |
+| dbt version | 1.12.3 |
 | artifact schema | https://schemas.getdbt.com/dbt/run-results/v6.json |
-| invocation id | 59421fdb-904b-4607-a321-e4ccf279b702 |
-| recorded at | 2026-08-23T00:15:47.067148Z |
+| invocation id | 89049bd5-1ec9-4ab3-bf0a-d5de9af64c97 |
+| recorded at | 2026-08-23T02:43:34.189103Z |
 | subcommand | test |
 | dbt target | local_substitute |
-| elapsed seconds | 1.5259580612182617 |
+| elapsed seconds | 1.4484243392944336 |
 | nodes recorded | 64 |
 | nodes successful | 64 |
 | nodes warned | 0 |

@@ -304,6 +304,13 @@
 # checked on the descriptor, and every externally supplied value reaches the
 # output as one line of "\xNN" escapes.
 #
+# A directory this script creates carries mode 0700 and a file it creates or
+# rewrites whole carries mode 0600, each set on the entry itself, so no artifact
+# of a run - a capture file, a post-chain record, a driver log, a stage log, a
+# staged copy, the manifest of the set or a published name - is readable by a
+# user other than its owner whatever the ambient umask requested. The final
+# stage checks the mode of every one of them before the run reports success.
+#
 # Driver exit statuses, reported for the operator when a case fails:
 #   0 every check passed
 #   1 the chain's return code differs from the expected code
@@ -992,6 +999,20 @@ readonly SOURCE_GUARD_LOG="modernization/harness/build/logs/readonly-check.log"
 readonly BUILD_DIR_RELATIVE="modernization/harness/build"
 readonly ARTIFACTS_DIR_RELATIVE="modernization/validation/artifacts"
 
+# Modes this script sets on the entries it creates. A directory it creates
+# carries OUTPUT_DIRECTORY_MODE and a file it creates carries OUTPUT_FILE_MODE,
+# each set on the created entry itself once it stands, so the ambient umask
+# cannot widen it: the fixture identifiers a capture file, a post-chain record,
+# a driver log and a staged or published copy of one of them carry are readable
+# and writable by their owner alone. The same modes are set on a file this
+# script rewrites whole: a stage log it empties at the start of a stage, and
+# every name of the published evidence set, which it replaces in full at every
+# publication. Two entries are left as they stand, the harness lock and the
+# compiler output under the module directory.
+# Decision rationale: modernization/docs/decision-log.md, row D-127.
+readonly OUTPUT_DIRECTORY_MODE="700"
+readonly OUTPUT_FILE_MODE="600"
+
 # The evidence directory of the build tree, and the retention the preflight of
 # a run applies to it. Every run stages its evidence in a directory of that
 # directory named after its run identifier, and the preflight keeps the newest
@@ -1283,6 +1304,12 @@ GUARD_PASSES=0
 CASE_ASSERTIONS=0
 TOTAL_ASSERTIONS=0
 declare -a SUMMARY_DEVIATIONS=()
+
+# Entries the mode check of stage 6 measured. It counts the artifacts this run
+# created whose mode it confirmed, and is reported in the step line of that
+# check; it is separate from the assertion counters above, which count the
+# checks a case makes on the behaviour of the chain.
+MODE_CHECKED=0
 
 # Summary state: one entry per executed case, one per executed probe, one per
 # published artifact and one per staged file awaiting publication, the latter
@@ -2503,6 +2530,69 @@ path_kind() {
   fi
 }
 
+# Prints the permission bits of one entry as the octal digits "stat" reports
+# for it, and nothing when the entry cannot be measured. The entry is measured
+# by name and never through a link: a name standing on a symbolic link is
+# refused by the callers of this function before it is reached.
+path_mode() {
+  local path="$1" reported=""
+
+  if ! reported="$(stat -c '%a' -- "$path" 2>/dev/null)"; then
+    return 1
+  fi
+  printf '%s' "$reported"
+}
+
+# Sets the supplied mode on one entry this run created or rewrote whole, and
+# confirms the entry carries it afterwards, so an artifact of a run cannot be
+# left at the wider mode the ambient umask asked for. The entry must stand and
+# must not be a symbolic link: the path rule refuses a link before anything is
+# created, and a name that became one between the creation and this call ends
+# the run rather than having the mode of the file it names changed.
+set_private_mode() {
+  local path="$1" mode="$2" status="$3" fd="${4:-}"
+  local observed=""
+
+  if [[ -L "$path" ]]; then
+    die "$status" \
+      "the mode of ${path} cannot be set: it is a symbolic link" \
+      "remove that link and run this script again"
+  fi
+  if [[ ! -e "$path" ]]; then
+    die "$status" "the mode of ${path} cannot be set: the entry is absent"
+  fi
+  if ! chmod -- "$mode" "$path" 2>/dev/null; then
+    die "$status" \
+      "unable to set mode ${mode} on: ${path}" \
+      "grant ownership of that path to the user this script runs as and run this script again"
+  fi
+  if [[ -n "$fd" ]]; then
+    # The mode is read back through the descriptor the caller holds open on the
+    # name, so a name replaced between the open and the change above is caught
+    # here: the change would have reached the entry that replaced it and the
+    # file the descriptor is open on would still report the mode it was created
+    # with.
+    if ! observed="$(stat -L -c '%a' -- "/dev/fd/${fd}" 2>/dev/null)"; then
+      die "$status" \
+        "unable to read the mode of descriptor ${fd}, opened on: ${path}"
+    fi
+    if [[ "$observed" != "$mode" ]]; then
+      die "$status" \
+        "descriptor ${fd} reports mode ${observed} after ${mode} was set on ${path}" \
+        "an entry replaced that name between the open and the change; run this script again"
+    fi
+    return 0
+  fi
+  if ! observed="$(path_mode "$path")"; then
+    die "$status" "unable to read the mode of: ${path}"
+  fi
+  if [[ "$observed" != "$mode" ]]; then
+    die "$status" \
+      "the mode of ${path} reads ${observed} after it was set to ${mode}" \
+      "run this script on a file system that carries permission bits"
+  fi
+}
+
 # Succeeds when the supplied absolute path lies inside one of the two roots
 # this script writes into. The comparison is textual and both roots are
 # physical paths, so it holds for every path built from them.
@@ -2700,7 +2790,11 @@ open_driver_input() {
 # existing file and a dangling symbolic link alike rather than writing through
 # it, and the descriptor is checked against the name it was created at. The
 # setting is turned off again on both paths out, so it applies to this creation
-# alone.
+# alone. The mode is set to OUTPUT_FILE_MODE once that descriptor check has
+# confirmed the name is the empty file this call created, and is read back
+# through the descriptor rather than the name, so the post-chain record and the
+# capture file of a case are narrowed before the driver writes a byte to them
+# and a name replaced in between ends the run.
 open_driver_output() {
   local slot="$1" path="$2" status="$3"
   local fd="" opened="N"
@@ -2740,6 +2834,7 @@ open_driver_output() {
     DRIVER_CAPT_FD="$fd"
   fi
   assert_open_descriptor "$path" "$fd" "$status" 0
+  set_private_mode "$path" "$OUTPUT_FILE_MODE" "$status" "$fd"
 }
 
 # Closes whichever of the three driver handles are open and records that none is
@@ -2775,7 +2870,11 @@ remove_output_path() {
 # Creates an empty file at the supplied path and leaves it owned by this run.
 # The path rule accepts it, the earlier entry is removed by name, and the
 # creation itself refuses to open an existing entry, so a name that appears
-# between the two ends the run instead of being written through.
+# between the two ends the run instead of being written through. The file
+# carries OUTPUT_FILE_MODE, set on it before anything is written to it, so the
+# ambient umask cannot widen an artifact of this run: every empty file of a run
+# - a stage log, a generated sample record, a staged evidence copy, the manifest
+# of the set and the temporary a publication writes through - is created here.
 create_private_file() {
   local path="$1" status="$2"
 
@@ -2788,12 +2887,17 @@ create_private_file() {
       "an entry appeared at that name while this run was creating it, or its directory is not writable"
   fi
   set +C
+  set_private_mode "$path" "$OUTPUT_FILE_MODE" "$status"
 }
 
 # Creates one directory below the repository root, one component at a time,
 # refusing a component that is a symbolic link and confirming that the result
 # is the directory the caller named. Nothing outside the two write roots is
-# created.
+# created. A component this call creates carries OUTPUT_DIRECTORY_MODE, set on
+# the created directory itself, so a generated tree holding the artifacts of a
+# run cannot be entered by another user whatever the ambient umask requested; a
+# component that already stands keeps the mode it carries, which leaves the
+# tracked validation artifacts directory as the checkout holds it.
 ensure_directory() {
   local path="$1" status="$2"
   local remainder="" walked="$REPO_ROOT" component="" resolved=""
@@ -2829,13 +2933,17 @@ ensure_directory() {
         "directory component exists as $(path_kind "$walked"): ${walked}" \
         "remove that entry and run this script again"
     fi
-    if [[ ! -d "$walked" ]] && ! mkdir -- "$walked" 2>/dev/null; then
-      if [[ -L "$walked" ]]; then
-        die "$status" \
-          "directory component became a symbolic link while it was created: ${walked}"
-      fi
-      if [[ ! -d "$walked" ]]; then
-        die "$status" "unable to create directory: ${walked}"
+    if [[ ! -d "$walked" ]]; then
+      if mkdir -- "$walked" 2>/dev/null; then
+        set_private_mode "$walked" "$OUTPUT_DIRECTORY_MODE" "$status"
+      else
+        if [[ -L "$walked" ]]; then
+          die "$status" \
+            "directory component became a symbolic link while it was created: ${walked}"
+        fi
+        if [[ ! -d "$walked" ]]; then
+          die "$status" "unable to create directory: ${walked}"
+        fi
       fi
     fi
   done
@@ -2852,6 +2960,13 @@ ensure_directory() {
 # written into a file created beside the destination, and the rename that
 # follows leaves either the previous content or the complete new content at the
 # destination name, never a partial file.
+#
+# The temporary is created through create_private_file, so it carries
+# OUTPUT_FILE_MODE before the first byte reaches it and carries that mode across
+# the rename onto the published name, which is confirmed afterwards: a published
+# artifact is readable by its owner alone at every point of the replacement, and
+# a name that stood at a wider mode carries this one once it is republished.
+# Decision rationale: modernization/docs/decision-log.md, row D-127.
 publish_file() {
   local source="$1" target="$2" status="$3"
   local temporary="${target%/*}/.publish-${RUN_ID}-${target##*/}"
@@ -2867,6 +2982,7 @@ publish_file() {
     rm -f -- "$temporary"
     die "$status" "unable to move ${temporary} onto ${target}"
   fi
+  set_private_mode "$target" "$OUTPUT_FILE_MODE" "$status"
 }
 
 # Prints the SHA-256 of one file outside this checkout, such as a file of the
@@ -3840,10 +3956,11 @@ prepare_directories() {
 
 # Empties the evidence log the source guard appends its blocks to, so the log
 # records the gates of this run and nothing that ran before it. The path rule
-# accepts the name first, and the log is emptied through that name: it keeps the
-# mode it carries, it is never absent while a run is in progress, and it is
-# created empty when it is absent. Runs once per run, after the harness lock is
-# held and before the first gate.
+# accepts the name first, and the log is emptied through that name: it is never
+# absent while a run is in progress, and it is created empty when it is absent.
+# The content of the log is this run's from here on, so the mode is set to
+# OUTPUT_FILE_MODE whether the name was created here or emptied here.
+# Runs once per run, after the harness lock is held and before the first gate.
 reset_source_guard_log() {
   local path="${REPO_ROOT}/${SOURCE_GUARD_LOG}"
 
@@ -3853,6 +3970,7 @@ reset_source_guard_log() {
       "unable to empty the evidence log of the source guard: ${path}" \
       "grant write permission on that path, or free space on its file system, and run this script again"
   fi
+  set_private_mode "$path" "$OUTPUT_FILE_MODE" "$EXIT_PREFLIGHT"
   emit_step "source guard evidence log emptied: ${SOURCE_GUARD_LOG}"
 }
 
@@ -6586,6 +6704,99 @@ verify_published_set() {
   return 0
 }
 
+# Confirms one entry this run created carries the private mode this script sets
+# on it, and adds the entry to the count the caller reports. A wider mode ends
+# the run, naming the path, the mode it carries and the mode required. An entry
+# this run did not create is not measured here.
+# Decision rationale: modernization/docs/decision-log.md, row D-127.
+require_private_mode() {
+  local path="$1" mode="$2" kind="$3"
+  local observed=""
+
+  if [[ -L "$path" ]]; then
+    die "$EXIT_EVIDENCE" \
+      "the ${kind} this run created is a symbolic link: ${path}"
+  fi
+  if [[ ! -e "$path" ]]; then
+    die "$EXIT_EVIDENCE" \
+      "the ${kind} this run created is no longer present: ${path}"
+  fi
+  if ! observed="$(path_mode "$path")"; then
+    die "$EXIT_EVIDENCE" \
+      "the mode of the ${kind} this run created cannot be read: ${path}"
+  fi
+  if [[ "$observed" != "$mode" ]]; then
+    die "$EXIT_EVIDENCE" \
+      "the ${kind} ${path} carries mode ${observed} where ${mode} is required" \
+      "every file this script creates carries ${OUTPUT_FILE_MODE} and every directory it creates carries ${OUTPUT_DIRECTORY_MODE}, so the identifiers of a fixture are readable by their owner alone" \
+      "set that mode on the path and run this script again"
+  fi
+  MODE_CHECKED=$((MODE_CHECKED + 1))
+}
+
+# Confirms every artifact this run created carries the private mode of its kind,
+# after the publication of stage 6 and its read-back have both passed, so what
+# it measures is the set the run leaves behind: the stage logs it wrote, the
+# driver log, capture file and post-chain record of every selected case, the
+# record of every derived fixture, the staging directory of the run with the
+# staged copies and the manifest inside it, and every name of the published set
+# in the validation artifacts directory.
+#
+# Four groups of generated paths stand outside this check: the records of the
+# built fixtures, written by modernization/extraction/build_sample_commarea.py;
+# the source baseline and the translation report of the build tree, written by
+# modernization/harness/translate.py, whose published copies are measured here;
+# the compiler output under the module directory; and the harness lock.
+# Decision rationale: modernization/docs/decision-log.md, row D-127.
+check_artifact_modes() {
+  local name="" label="" lower="" path="" fixture="" base=""
+  local -a present=()
+
+  MODE_CHECKED=0
+  for name in "translate.log" "compile.log" "$SOURCE_GUARD_LOG_NAME"; do
+    require_private_mode "${LOGS_DIR}/${name}" "$OUTPUT_FILE_MODE" "stage log"
+  done
+  for label in "${SELECTED_CASES[@]}"; do
+    lower="$(case_lower "$label")"
+    require_private_mode "${RUN_DIR}/${lower}/driver.log" \
+      "$OUTPUT_FILE_MODE" "driver log of case ${label}"
+    require_private_mode "${RUN_DIR}/${lower}/captures.txt" \
+      "$OUTPUT_FILE_MODE" "capture file of case ${label}"
+    require_private_mode "${RUN_DIR}/${lower}/commarea_post.dat" \
+      "$OUTPUT_FILE_MODE" "post-chain record of case ${label}"
+  done
+  for fixture in "${SELECTED_FIXTURES[@]}"; do
+    base="$(fixture_base "$fixture")"
+    if [[ -z "$base" ]]; then
+      continue
+    fi
+    require_private_mode "${SAMPLES_DIR}/commarea_${fixture}.dat" \
+      "$OUTPUT_FILE_MODE" "record of derived fixture ${fixture}"
+  done
+  require_private_mode "$STAGING_DIR" "$OUTPUT_DIRECTORY_MODE" \
+    "staging directory of this run"
+  mapfile -t present < <(directory_entry_names "$STAGING_DIR")
+  for name in "${present[@]}"; do
+    if [[ -z "$name" || "$name" == "$PUBLICATION_CHECK_NAME" ]]; then
+      continue
+    fi
+    require_private_mode "${STAGING_DIR}/${name}" "$OUTPUT_FILE_MODE" \
+      "staged evidence file"
+  done
+  while IFS= read -r name; do
+    if [[ -z "$name" ]]; then
+      continue
+    fi
+    path="${ARTIFACTS_DIR}/${name}"
+    if [[ ! -e "$path" && ! -L "$path" ]]; then
+      continue
+    fi
+    require_private_mode "$path" "$OUTPUT_FILE_MODE" "published artifact"
+  done < <(evidence_owned_names)
+  emit_step \
+    "artifact modes: ${MODE_CHECKED} entries this run created, each file at ${OUTPUT_FILE_MODE} and the staging directory at ${OUTPUT_DIRECTORY_MODE}"
+}
+
 # Creates one file of the publication check at the supplied path, holding the
 # supplied line. The check compares content it wrote itself, so no file of the
 # run is read or replaced by it.
@@ -6825,6 +7036,7 @@ stage_evidence() {
   publish_evidence
   install_signal_traps
   resume_deferred_signal
+  check_artifact_modes
 }
 
 # Prints the tool versions of the run, the compiler options every compile

@@ -437,6 +437,7 @@ try:
     import os
     import re
     import shutil
+    import stat
     import tempfile
     import urllib.parse
     import uuid
@@ -747,6 +748,19 @@ RENDERED_AUTHORED_SEQUENCE = (
 MAX_RECORD_BYTES = 1024 * 1024
 MAX_SCHEMA_BYTES = 4 * 1024 * 1024
 READ_CHUNK_BYTES = 65536
+
+# Modes an entry this tool creates carries. Every documented run of this tool - the
+# landing of a record, either probe and the Redshift load render - writes one S3 object
+# and creates no local file of its own: the record and the schema are read, the render
+# is written to stdout, and no temporary, cache, lock or copy is placed anywhere. The
+# only local entries this module creates are the private directory one self-test run
+# works inside and the fixtures it holds, which carry the same fixture identifiers a
+# landed record carries; both modes are set on the created entry itself, so the ambient
+# umask cannot widen either. The "no local artifact" property is a checked one: the
+# self-test measures the entries of that directory either side of a landing.
+# Decision rationale: modernization/docs/decision-log.md, row D-127.
+DIRECTORY_MODE = 0o700
+FILE_MODE = 0o600
 
 # Arrays and objects one JSON document this tool parses may nest inside one another,
 # and the structural characters that count. A landed record is one flat object, so it
@@ -4976,17 +4990,41 @@ class _Scratch:
     ``_SCRATCH_PREFIX``, so a run reaches no path inside the repository and two runs in
     parallel never share a name. ``write`` places one document in it and returns the
     path; ``removed`` deletes the whole directory and reports whether it is gone.
+
+    ``tempfile.mkdtemp`` creates the directory at ``DIRECTORY_MODE`` whatever the
+    ambient umask requested, and every document ``write`` places in it carries
+    ``FILE_MODE``, set on the created entry itself: the landing records a case builds
+    hold the same fixture identifiers a real landed record holds, and this tool writes
+    no other local file. ``entries`` reports what stands in the directory, which is
+    what a case measures either side of a landing to hold this tool to that.
     """
 
     def __init__(self) -> None:
         self.path = Path(tempfile.mkdtemp(prefix=_SCRATCH_PREFIX))
+        os.chmod(self.path, DIRECTORY_MODE)
 
     def write(self, name: str, content: str | bytes) -> Path:
         """Return the path of ``name`` inside this directory, holding ``content``."""
         destination = self.path / name
         payload = content.encode("utf-8") if isinstance(content, str) else content
-        destination.write_bytes(payload)
+        descriptor = os.open(
+            destination,
+            os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW,
+            FILE_MODE,
+        )
+        try:
+            os.fchmod(descriptor, FILE_MODE)
+            handle = os.fdopen(descriptor, "wb")
+        except OSError:
+            os.close(descriptor)
+            raise
+        with handle:
+            handle.write(payload)
         return destination
+
+    def entries(self) -> tuple[str, ...]:
+        """Return the sorted names standing directly inside this directory."""
+        return tuple(sorted(entry.name for entry in self.path.iterdir()))
 
     def absent(self, name: str) -> Path:
         """Return the path of ``name`` inside this directory without creating it."""
@@ -6390,6 +6428,75 @@ def _case_landing_uploads_bytes(scratch: _Scratch) -> str:
     return (
         f"{len(body)} bytes stored unchanged at the derived key, "
         f"{len(expected_manifest)} manifest bytes beside them"
+    )
+
+
+def _case_no_local_artifact_written(scratch: _Scratch) -> str:
+    """A landing writes no local file, and the fixtures it reads are private.
+
+    The whole case runs under a zero umask, which is the setting under which a mode
+    taken from the umask would leave a local artifact world-readable. The directory the
+    fixtures stand in and the fixture itself are measured, then one landing runs
+    through moto and the directory is listed again: the landing's outputs are the S3
+    object and its manifest, so no entry may appear beside the record, and the record's
+    own mode may not have moved. A local artifact this tool wrote would carry the
+    fixture identifiers of the record it landed.
+    """
+    mock_aws, _ = _test_collaborators()
+    previous = os.umask(0o000)
+    try:
+        path = scratch.write("record-no-local-artifact.json", _motor_record_text())
+        directory_mode = stat.S_IMODE(os.stat(scratch.path).st_mode)
+        record_mode = stat.S_IMODE(os.stat(path).st_mode)
+        before = scratch.entries()
+        with mock_aws():
+            with _controlled_environment(
+                scratch,
+                AWS_DEFAULT_REGION=_SELF_TEST_REGION,
+                **_SELF_TEST_CREDENTIALS,
+            ):
+                raw = boto3.session.Session(region_name=_SELF_TEST_REGION).client(
+                    SERVICE_NAME, config=_client_config()
+                )
+                raw.create_bucket(
+                    Bucket=_SELF_TEST_BUCKET,
+                    CreateBucketConfiguration={
+                        "LocationConstraint": _SELF_TEST_REGION
+                    },
+                )
+                with _captured_stderr():
+                    uri = land_record(
+                        path,
+                        _SELF_TEST_BUCKET,
+                        DEFAULT_SOURCE_SYSTEM_KEY,
+                        LANDING_ENTITY,
+                        _SELF_TEST_EXTRACT_DATE,
+                    )
+                stored = raw.list_objects_v2(Bucket=_SELF_TEST_BUCKET)
+        after = scratch.entries()
+        settled_mode = stat.S_IMODE(os.stat(path).st_mode)
+    finally:
+        os.umask(previous)
+    _assert_equal(
+        f"{directory_mode:04o}",
+        f"{DIRECTORY_MODE:04o}",
+        "the mode of the private directory",
+    )
+    _assert_equal(
+        f"{record_mode:04o}", f"{FILE_MODE:04o}", "the mode of a written fixture"
+    )
+    _assert_equal(
+        f"{settled_mode:04o}",
+        f"{FILE_MODE:04o}",
+        "the mode of that fixture after the landing",
+    )
+    _assert_equal(after, before, "the entries standing beside the landed record")
+    _assert_equal(stored.get("KeyCount"), 2, "the objects the landing wrote")
+    _assert(uri.startswith(f"{SERVICE_NAME}://"), f"the URI the landing returned: {uri}")
+    return (
+        f"{len(before)} local entries before and after the landing, the directory at "
+        f"{directory_mode:04o} and the record at {settled_mode:04o} under a zero "
+        f"umask, with the object and its manifest the only writes"
     )
 
 
@@ -8728,6 +8835,10 @@ def run_self_test(*, quiet: bool = False, stream: Any = None) -> int:
         _run_case(
             results, out, quiet, "landing_uploads_bytes",
             lambda: _case_landing_uploads_bytes(scratch),
+        )
+        _run_case(
+            results, out, quiet, "no_local_artifact_written",
+            lambda: _case_no_local_artifact_written(scratch),
         )
         _run_case(
             results, out, quiet, "landing_records_object_identity",

@@ -16,7 +16,7 @@
     }
   },
   "provisioned": [],
-  "recorded_utc": "2026-08-23T01:36:18Z",
+  "recorded_utc": "2026-08-23T02:42:23Z",
   "selected_target": "local_substitute",
   "source_system_key": "GENAPP_CLASS_EXEMPLAR",
   "status_label": "validated against local substitute, not AWS"

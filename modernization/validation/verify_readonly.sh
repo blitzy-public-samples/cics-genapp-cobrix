@@ -440,7 +440,14 @@ readonly EVIDENCE_DIGEST_PATTERN='^[0-9a-f]{64}$'
 # refreshed manifest is written beside the manifest and renamed over it in one
 # step, so a refresh that stops part way leaves the manifest exactly as it
 # stands. A verification run invokes neither.
-readonly RECORD_TOOLS=(mv rm)
+readonly RECORD_TOOLS=(mv rm chmod)
+
+# Mode the refreshed manifest carries. It is set on the temporary entry before
+# the rename, so the manifest a refresh leaves behind carries this mode whatever
+# the ambient umask of the caller and whatever mode the name carried before, in
+# step with every other generated artifact of this bridge.
+# Decision rationale: modernization/docs/decision-log.md, row D-127.
+readonly EVIDENCE_MANIFEST_MODE=600
 
 # Header of a manifest this script creates, written when a stage refreshes an
 # entry in a checkout that carries no manifest yet - the first stage of a run
@@ -1958,6 +1965,10 @@ record_evidence() {
       fail_env "unable to write the refreshed manifest ${temp}"
     fi
   done
+  if ! chmod "$EVIDENCE_MANIFEST_MODE" -- "$temp"; then
+    rm -f -- "$temp" 2>/dev/null || true
+    fail_env "unable to set mode ${EVIDENCE_MANIFEST_MODE} on ${temp}"
+  fi
   if ! mv -f -- "$temp" "$EVIDENCE_MANIFEST_REL"; then
     rm -f -- "$temp" 2>/dev/null || true
     fail_env "unable to replace ${EVIDENCE_MANIFEST_REL} with the refreshed manifest"

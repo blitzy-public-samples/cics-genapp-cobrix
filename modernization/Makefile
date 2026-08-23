@@ -305,6 +305,102 @@ LOCAL_DUCKDB := $(PROJECT_DIR)/validation/local.duckdb
 # would hand those gates a file that is still being appended to.
 HARNESS_OUTPUT_LOG := $(BUILD)/logs/execute-harness.log
 
+# Modes every generated file and directory a recipe of this file creates carries. A
+# stage log, a probe log, the version report and the gate selection all record the run
+# of a bridge whose fixtures carry customer, policy and broker values, so nothing a
+# recipe here creates is readable by another user of the host. Each mode is set on the
+# created entry itself, through the two shell functions below, so the ambient umask
+# cannot widen it. Two groups stand outside this: the compiler output of the compile
+# stage, which stays executable, and any entry a recipe does not create, a directory
+# that already stands keeping its own mode.
+# Decision rationale: docs/decision-log.md, row D-127.
+GENERATED_FILE_MODE := 600
+GENERATED_DIRECTORY_MODE := 700
+
+# The two functions every recipe creating a generated path uses, defined once and
+# inserted at the head of that recipe as $(private_paths).
+#
+# private_directory creates each named directory one component at a time, sets
+# $(GENERATED_DIRECTORY_MODE) on every component it creates and leaves a component that
+# already stands exactly as it is, including its mode. A component that appears between
+# the test and the creation is accepted when it is a directory and ends the recipe
+# otherwise, so two invocations racing on one tree cannot make a stage fail spuriously.
+#
+# private_file creates each named file when it is absent and sets
+# $(GENERATED_FILE_MODE) on it, and private_empty does the same and then empties it. A
+# name standing on a symbolic link or on anything other than a regular file ends the
+# recipe rather than being written to, so neither a truncation nor a mode reaches an
+# entry outside the generated tree.
+#
+# Both run ahead of the command that fills the file. A redirect, "tee", "tee -a" and
+# the embedded Python programs that open a destination for writing all leave the mode
+# of an existing file alone, so the mode set here is the mode the content is written
+# under and no reader sees a byte of that content at a wider mode; a file an earlier
+# run created under a wider umask is narrowed by the run that rewrites it. Only the two
+# stages whose writer appends - the version report and the compile log, each filled by
+# "tee -a" - empty the file here, which is what those recipes have always done; every
+# other stage leaves the content of the previous run in place until its own writer
+# truncates it, so a stage that fails early neither empties a published artifact nor
+# leaves the manifest of the evidence set stale.
+define private_paths
+private_directory() {
+  local target='' walked='' component='' remainder=''
+  for target in "$$@"; do
+    walked=''
+    remainder="$$target"
+    while [ -n "$$remainder" ]; do
+      component="$${remainder%%/*}"
+      if [ "$$component" = "$$remainder" ]; then
+        remainder=''
+      else
+        remainder="$${remainder#*/}"
+      fi
+      if [ -z "$$component" ]; then
+        continue
+      fi
+      if [ -z "$$walked" ]; then
+        walked="$$component"
+      else
+        walked="$$walked/$$component"
+      fi
+      if [ -d "$$walked" ]; then
+        continue
+      fi
+      if mkdir "$$walked" 2> /dev/null; then
+        chmod '$(GENERATED_DIRECTORY_MODE)' "$$walked"
+      elif [ ! -d "$$walked" ]; then
+        printf '%s: unable to create the directory %s\n' "$${stage_name:-make}" "$$walked" >&2
+        exit 1
+      fi
+    done
+  done
+}
+private_file() {
+  local target=''
+  for target in "$$@"; do
+    if [ -L "$$target" ]; then
+      printf '%s: the generated path %s is a symbolic link\n' "$${stage_name:-make}" "$$target" >&2
+      exit 1
+    fi
+    if [ -e "$$target" ] && [ ! -f "$$target" ]; then
+      printf '%s: the generated path %s is not a regular file\n' "$${stage_name:-make}" "$$target" >&2
+      exit 1
+    fi
+    if [ ! -e "$$target" ]; then
+      : > "$$target"
+    fi
+    chmod '$(GENERATED_FILE_MODE)' "$$target"
+  done
+}
+private_empty() {
+  local target=''
+  private_file "$$@"
+  for target in "$$@"; do
+    : > "$$target"
+  done
+}
+endef
+
 # Manifest refresh of the generated evidence set. Gate C of validation/verify_readonly.sh
 # exempts twenty-three exact paths under $(ARTIFACTS) from its tracked-modification check,
 # because the run of the stage that produces one rewrites it; its gate D measures the
@@ -313,12 +409,20 @@ HARNESS_OUTPUT_LOG := $(BUILD)/logs/execute-harness.log
 # writing it, so that manifest is never stale and no artifact of one stage is silenced by
 # another. The paths are repository-relative, which is what that option accepts, and only
 # the named entries change.
+#
+# That refresh writes the manifest through a file of its own and renames it over the
+# name, so the manifest carries the mode that write created rather than the one the
+# manifest carried before it. The stage that asked for the refresh therefore sets
+# $(GENERATED_FILE_MODE) on it immediately afterwards: the manifest names every
+# published artifact of the evidence set and is rewritten in full by each refresh, so it
+# is held to the same mode as the artifacts it describes.
 EVIDENCE_REL := modernization/$(ARTIFACTS)
-record_evidence = bash validation/verify_readonly.sh --record-evidence $(foreach evidence_name,$(1),'$(EVIDENCE_REL)/$(evidence_name)')
+EVIDENCE_MANIFEST := $(ARTIFACTS)/evidence-manifest.sha256
+record_evidence = bash validation/verify_readonly.sh --record-evidence $(foreach evidence_name,$(1),'$(EVIDENCE_REL)/$(evidence_name)') && chmod '$(GENERATED_FILE_MODE)' '$(EVIDENCE_MANIFEST)'
 
 # The generated files and the dbt project directory dbt clean, run and test write under,
 # measured by the same containment check as the generated directories above.
-$(foreach generated_path,VERSION_REPORT GATE_SELECTION GATE_LOG_S3 GATE_LOG_REDSHIFT COMPILE_LOG EXECUTE_LOG DBT_CLEAN_LOG DBT_RUN_LOG DBT_TEST_LOG DIFF_REPORT DIFF_JSON LOCAL_DUCKDB DBT_PROJECT,$(call check_generated_path,$(generated_path)))
+$(foreach generated_path,VERSION_REPORT GATE_SELECTION GATE_LOG_S3 GATE_LOG_REDSHIFT COMPILE_LOG EXECUTE_LOG DBT_CLEAN_LOG DBT_RUN_LOG DBT_TEST_LOG DIFF_REPORT DIFF_JSON LOCAL_DUCKDB DBT_PROJECT EVIDENCE_MANIFEST HARNESS_OUTPUT_LOG,$(call check_generated_path,$(generated_path)))
 
 # Run identity. The landing prefix and both canonical relations carry the source-system
 # key. The extract date is fixed once per invocation and reaches the landing writer and
@@ -884,6 +988,11 @@ READY_TIMEOUT_SECONDS = 30.0
 READY_POLL_SECONDS = 0.25
 CONNECT_TIMEOUT_SECONDS = 1.0
 STOP_TIMEOUT_SECONDS = 5.0
+# Mode the server log carries, the $(GENERATED_FILE_MODE) of this file. It is set on the
+# open descriptor, so the log a started server inherits is private to its owner whatever
+# the ambient umask requested and whether this run created the log or appended to one
+# an earlier run left.
+LOG_FILE_MODE = 0o$(GENERATED_FILE_MODE)
 REQUEST_CONNECT_TIMEOUT_SECONDS = 5
 REQUEST_READ_TIMEOUT_SECONDS = 15
 REGION_VARIABLES = ("AWS_REGION", "AWS_DEFAULT_REGION")
@@ -1038,8 +1147,9 @@ def start_server(host, port, log_path):
     """
     command = [interpreter, "-m", "moto.server", "-H", host, "-p", str(port)]
     try:
-        os.makedirs(log_directory, exist_ok=True)
+        os.makedirs(log_directory, mode=0o$(GENERATED_DIRECTORY_MODE), exist_ok=True)
         log = open(log_path, "a", encoding="utf-8")
+        os.fchmod(log.fileno(), LOG_FILE_MODE)
     except OSError as failure:
         refuse(
             "the server log %s cannot be opened: %s"
@@ -1266,9 +1376,10 @@ export LOCAL_ENDPOINT_PROGRAM
 # Stage 1. Runtime and dependency measurement.
 # ---------------------------------------------------------------------------------
 verify-env:
-	@mkdir -p '$(ARTIFACTS)'
+	@$(private_paths)
+	private_directory '$(ARTIFACTS)'
 	report='$(VERSION_REPORT)'
-	: > "$$report"
+	private_empty "$$report"
 	deviations=0
 	strict='no'
 	case "$$(printf '%s' "$${HARNESS_STRICT_TOOL_VERSIONS:-}" | tr 'A-Z' 'a-z')" in
@@ -1367,7 +1478,9 @@ verify-env:
 # Stage 2. Precondition gate. Probes only, and nothing is provisioned.
 # ---------------------------------------------------------------------------------
 gate:
-	@mkdir -p '$(ARTIFACTS)'
+	@$(private_paths)
+	private_directory '$(ARTIFACTS)'
+	private_file '$(GATE_LOG_S3)' '$(GATE_LOG_REDSHIFT)' '$(GATE_SELECTION)'
 	printf 'gate: probing the real S3 target through landing/land_to_s3.py --probe\n'
 	s3_status=0
 	$(PY) landing/land_to_s3.py --probe --run-mode redshift > '$(GATE_LOG_S3)' 2>&1 || s3_status=$$?
@@ -1397,7 +1510,8 @@ gate:
 # $(BUILD), and no source file is preprocessed in place.
 # ---------------------------------------------------------------------------------
 translate:
-	@mkdir -p '$(BUILD)/samples'
+	@$(private_paths)
+	private_directory '$(BUILD)/samples'
 	for case in $(CASES); do
 	  $(PY) extraction/build_sample_commarea.py --sample "$(SAMPLE_INPUT)/commarea_$$case.json" --field-map '$(FIELD_MAP)' --output "$(ABS_BUILD)/samples/commarea_$$case.dat"
 	  bytes="$$(wc -c < "$(ABS_BUILD)/samples/commarea_$$case.dat")"
@@ -1419,9 +1533,10 @@ translate:
 # Stage 4. Compilation of the translated programs, the twelve stubs and the driver.
 # ---------------------------------------------------------------------------------
 compile:
-	@mkdir -p '$(COMPILE_DIR)' '$(ARTIFACTS)'
+	@$(private_paths)
+	private_directory '$(COMPILE_DIR)' '$(ARTIFACTS)'
 	log='$(COMPILE_LOG)'
-	: > "$$log"
+	private_empty "$$log"
 	printf 'compile: %s %s\n' '$(COBC)' '$(COBFLAGS)' | tee -a "$$log"
 	'$(COBC)' --version 2>&1 | head -n 1 | tee -a "$$log"
 	built=0
@@ -1460,7 +1575,8 @@ compile:
 # stages below this one read the same evidence in either mode.
 # ---------------------------------------------------------------------------------
 execute:
-	@mkdir -p '$(ARTIFACTS)'
+	@$(private_paths)
+	private_directory '$(ARTIFACTS)'
 	case '$(strip $(CASES_MODE))' in
 	  all) selection='all' ;;
 	  success-only) selection='--success-only' ;;
@@ -1469,7 +1585,8 @@ execute:
 	    exit 1
 	    ;;
 	esac
-	mkdir -p '$(BUILD)/logs'
+	private_directory '$(BUILD)/logs'
+	private_file '$(HARNESS_OUTPUT_LOG)' '$(EXECUTE_LOG)'
 	PY='$(ABS_PY)' COBC='$(COBC)' bash harness/run_harness.sh "$$selection" 2>&1 | tee '$(HARNESS_OUTPUT_LOG)'
 	cat -- '$(HARNESS_OUTPUT_LOG)' > '$(EXECUTE_LOG)'
 	$(call record_evidence,execute-harness.log)
@@ -1554,7 +1671,8 @@ execute:
 # Stage 6. Extraction of one landing record per case from the returned COMMAREA.
 # ---------------------------------------------------------------------------------
 extract:
-	@mkdir -p '$(BUILD)/landing'
+	@$(private_paths)
+	private_directory '$(BUILD)/landing'
 	for case in $(CASES); do
 	  post="$(BUILD)/run/$$case/commarea_post.dat"
 	  if [ ! -s "$$post" ]; then
@@ -1628,8 +1746,10 @@ load:
 # ---------------------------------------------------------------------------------
 dbt:
 	@stage_name='dbt'
+	$(private_paths)
 	$(read_selection)
-	mkdir -p '$(ARTIFACTS)'
+	private_directory '$(ARTIFACTS)'
+	private_file '$(DBT_CLEAN_LOG)' '$(DBT_RUN_LOG)' '$(DBT_TEST_LOG)'
 	$(DBT) clean --project-dir '$(DBT_PROJECT)' $(DBT_PROFILES_FLAG) 2>&1 | tee '$(DBT_CLEAN_LOG)'
 	$(DBT) run --project-dir '$(DBT_PROJECT)' --target "$$selected" $(DBT_PROFILES_FLAG) 2>&1 | tee '$(DBT_RUN_LOG)'
 	$(DBT) test --project-dir '$(DBT_PROJECT)' --target "$$selected" $(DBT_PROFILES_FLAG) 2>&1 | tee '$(DBT_TEST_LOG)'
@@ -1642,8 +1762,9 @@ dbt:
 # ---------------------------------------------------------------------------------
 diff:
 	@stage_name='diff'
+	$(private_paths)
 	$(read_selection)
-	mkdir -p '$(ARTIFACTS)'
+	private_directory '$(ARTIFACTS)'
 	if [ "$$selected" = 'redshift' ]; then
 	  warehouse='redshift'
 	else
@@ -1656,7 +1777,8 @@ diff:
 # Source guard. Run after each generating stage and as the final gate.
 # ---------------------------------------------------------------------------------
 verify-readonly:
-	@mkdir -p '$(BUILD)/logs'
+	@$(private_paths)
+	private_directory '$(BUILD)/logs'
 	bash validation/verify_readonly.sh --stage '$(STAGE)'
 
 # ---------------------------------------------------------------------------------
@@ -1676,7 +1798,8 @@ local-endpoint:
 	  printf 'local-endpoint: no bucket is named: set S3_BUCKET to the bucket this target creates at the local endpoint when the endpoint does not already hold it; README.md records the setup\n' >&2
 	  exit 1
 	fi
-	mkdir -p '$(BUILD)/logs'
+	$(private_paths)
+	private_directory '$(BUILD)/logs'
 	$(PY) -c "$$LOCAL_ENDPOINT_PROGRAM" '$(ABS_PY)' "$$S3_ENDPOINT_URL" "$$S3_BUCKET" '$(ABS_BUILD)/logs'
 
 # ---------------------------------------------------------------------------------

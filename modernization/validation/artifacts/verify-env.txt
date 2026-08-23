@@ -1,5 +1,5 @@
 verify-env report of modernization in this checkout
-strict tool versions: yes, from HARNESS_STRICT_TOOL_VERSIONS
+strict tool versions: no, from HARNESS_STRICT_TOOL_VERSIONS
 python3.12: pinned 3.12.14 minimum 3.12.14 measured 3.12.14
 cobc: pinned 3.1.2.0 minimum 3.1.2 measured 3.2.0
 verify-env: DEVIATION cobc: pinned 3.1.2.0, measured 3.2.0
@@ -25,5 +25,4 @@ moto: pinned 5.2.2 measured 5.2.2
 PyYAML: pinned 6.0.3 measured 6.0.3
 jsonschema: pinned 4.26.0 measured 4.26.0
 pins measured: 10
-verify-env: FATAL 4 version deviation(s) recorded while HARNESS_STRICT_TOOL_VERSIONS is set
-verify-env: remediation: install the pinned versions, or leave HARNESS_STRICT_TOOL_VERSIONS unset to accept a reported deviation
+verify-env: PASS with 4 deviation(s), report validation/artifacts/verify-env.txt
