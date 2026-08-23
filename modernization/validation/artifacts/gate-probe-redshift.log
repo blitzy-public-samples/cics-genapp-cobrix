@@ -1,0 +1,1 @@
+land_to_s3: an endpoint is set from the S3_ENDPOINT_URL environment variable, which serves the local substitute, and --probe-redshift addresses Amazon Redshift: unset that setting to probe the real target, and probe the local substitute with --probe instead. The endpoint value is not echoed

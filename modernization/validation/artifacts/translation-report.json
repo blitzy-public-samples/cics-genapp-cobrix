@@ -1,0 +1,1814 @@
+{
+  "schema_version": 1,
+  "translator": "modernization/harness/translate.py",
+  "status_label": "validated against local substitute, not AWS",
+  "inputs": {
+    "source_dir": "base/src",
+    "build_dir": "modernization/harness/build",
+    "statement_map": "modernization/harness/statement_map.yml",
+    "copybook_dir": "modernization/harness/copybooks"
+  },
+  "source_baseline": {
+    "lgapdb01.cbl": {
+      "path": "base/src/lgapdb01.cbl",
+      "sha256": "3d21ad353a03c63d05defc511372e14477613fa4c51068a51a84d3c840c29815"
+    },
+    "lgapol01.cbl": {
+      "path": "base/src/lgapol01.cbl",
+      "sha256": "4dddd29539dd96aaec9f6885d3d62d19d40a1c6c888636623164bc5f5b232f6f"
+    },
+    "lgapvs01.cbl": {
+      "path": "base/src/lgapvs01.cbl",
+      "sha256": "e0bca62eed2d6390852befdbaddd684833040c8be183d23f4fca368834709215"
+    },
+    "lgcmarea.cpy": {
+      "path": "base/src/lgcmarea.cpy",
+      "sha256": "4ecc9ed8dbf0936a8b0738cbb03a947e937206100b0e34f749fbb9e0b03f701d"
+    },
+    "lgpolicy.cpy": {
+      "path": "base/src/lgpolicy.cpy",
+      "sha256": "717c8f5c50738a2ef4d432e4b397e21bdc0423a9fc789246eb3360aa3f99eaa5"
+    }
+  },
+  "harness_copybooks": {
+    "dfheiblk.cpy": {
+      "path": "modernization/harness/copybooks/dfheiblk.cpy",
+      "sha256": "dd73bb12948fe032293a7cb7a4b54ddd2ea5da51dd96b37d08362723e9b8028b"
+    },
+    "dfhresp.cpy": {
+      "path": "modernization/harness/copybooks/dfhresp.cpy",
+      "sha256": "2122d747ca0f3952daa10278e0dbde740b9e5c1fa585840a8c31099d1f84235d"
+    },
+    "hcapture.cpy": {
+      "path": "modernization/harness/copybooks/hcapture.cpy",
+      "sha256": "1fd1ee803a0606b593f03f55b26bf0dba25129af9cc481270d9da2821690e320"
+    },
+    "hsqlca.cpy": {
+      "path": "modernization/harness/copybooks/hsqlca.cpy",
+      "sha256": "a54a79a7dcf36c51b03010312a821c2c3c90e22953e6ea7aa8287e5d73d7a678"
+    }
+  },
+  "verbatim_copies": [
+    {
+      "origin": "base/src/lgcmarea.cpy",
+      "copy": "modernization/harness/build/src/lgcmarea.cpy",
+      "sha256": "4ecc9ed8dbf0936a8b0738cbb03a947e937206100b0e34f749fbb9e0b03f701d",
+      "kind": "authorized source copybook"
+    },
+    {
+      "origin": "base/src/lgpolicy.cpy",
+      "copy": "modernization/harness/build/src/lgpolicy.cpy",
+      "sha256": "717c8f5c50738a2ef4d432e4b397e21bdc0423a9fc789246eb3360aa3f99eaa5",
+      "kind": "authorized source copybook"
+    },
+    {
+      "origin": "modernization/harness/copybooks/dfheiblk.cpy",
+      "copy": "modernization/harness/build/src/dfheiblk.cpy",
+      "sha256": "dd73bb12948fe032293a7cb7a4b54ddd2ea5da51dd96b37d08362723e9b8028b",
+      "kind": "harness copybook"
+    },
+    {
+      "origin": "modernization/harness/copybooks/dfhresp.cpy",
+      "copy": "modernization/harness/build/src/dfhresp.cpy",
+      "sha256": "2122d747ca0f3952daa10278e0dbde740b9e5c1fa585840a8c31099d1f84235d",
+      "kind": "harness copybook"
+    },
+    {
+      "origin": "modernization/harness/copybooks/hsqlca.cpy",
+      "copy": "modernization/harness/build/src/hsqlca.cpy",
+      "sha256": "a54a79a7dcf36c51b03010312a821c2c3c90e22953e6ea7aa8287e5d73d7a678",
+      "kind": "harness copybook"
+    },
+    {
+      "origin": "modernization/harness/copybooks/hcapture.cpy",
+      "copy": "modernization/harness/build/src/hcapture.cpy",
+      "sha256": "1fd1ee803a0606b593f03f55b26bf0dba25129af9cc481270d9da2821690e320",
+      "kind": "harness copybook"
+    }
+  ],
+  "programs": [
+    {
+      "source": "base/src/lgapol01.cbl",
+      "generated": "modernization/harness/build/src/lgapol01.cbl",
+      "source_lines": 169,
+      "generated_lines": 162,
+      "exec_cics_sites": 9,
+      "exec_sql_blocks": 0,
+      "rewritten_source_lines": 26,
+      "unchanged_source_lines": 143,
+      "rule_emitted_lines": 19,
+      "abend_sites_followed_by_return": 0,
+      "applications": [
+        {
+          "rule_id": "R4",
+          "source_lines": "lgapol01.cbl:19",
+          "source_text": "       WORKING-STORAGE SECTION.",
+          "generated_text": "       COPY DFHEIBLK.\n       01  HARNESS-ABEND-CODE           PIC X(4)  VALUE SPACES.\n       01  HARNESS-DIAG-LEN             PIC S9(8) COMP VALUE +0.",
+          "notes": "inserted after the anchor line, which is copied unchanged: DFHEIBLK, HARNESS-ABEND-CODE, HARNESS-DIAG-LEN"
+        },
+        {
+          "rule_id": "R3",
+          "source_lines": "lgapol01.cbl:77",
+          "source_text": "       PROCEDURE DIVISION.",
+          "generated_text": "       PROCEDURE DIVISION USING DFHCOMMAREA.",
+          "notes": "PROCEDURE DIVISION bound to DFHCOMMAREA for dynamic CALL by reference"
+        },
+        {
+          "rule_id": "R8",
+          "source_lines": "lgapol01.cbl:101",
+          "source_text": "               EXEC CICS ABEND ABCODE('LGCA') NODUMP END-EXEC",
+          "generated_text": "               MOVE 'LGCA' TO HARNESS-ABEND-CODE\n               CALL 'CICS-ABEND' USING HARNESS-ABEND-CODE\n               GOBACK",
+          "notes": "abend code 'LGCA' captured before returning; the NODUMP option has no harness counterpart"
+        },
+        {
+          "rule_id": "R7",
+          "source_lines": "lgapol01.cbl:115",
+          "source_text": "             EXEC CICS RETURN END-EXEC",
+          "generated_text": "             GOBACK",
+          "notes": "control returns to the caller at this point; see modernization/docs/decision-log.md, row: no called RETURN stub"
+        },
+        {
+          "rule_id": "R5",
+          "source_lines": "lgapol01.cbl:121-124",
+          "source_text": "           EXEC CICS Link Program(LGAPDB01)\n                Commarea(DFHCOMMAREA)\n                LENGTH(32500)\n           END-EXEC.",
+          "generated_text": "           MOVE 32500 TO EIBCALEN\n           CALL LGAPDB01 USING DFHCOMMAREA.",
+          "notes": "PROGRAM(LGAPDB01) names a data item whose VALUE is 'LGAPDB01' at lgapol01.cbl:51 and the dynamic CALL passes that item; LENGTH(32500) is carried into EIBCALEN and COMMAREA(DFHCOMMAREA) is passed by reference",
+          "details": {
+            "chain_link": {
+              "program": "lgapol01.cbl",
+              "locator": "121-124",
+              "program_operand": "LGAPDB01",
+              "target_program": "LGAPDB01",
+              "target_declared_at": "lgapol01.cbl:51",
+              "target_declaration": "01 LGAPDB01 PIC X(8) VALUE 'LGAPDB01'.",
+              "commarea_operand": "DFHCOMMAREA",
+              "length": 32500
+            }
+          }
+        },
+        {
+          "rule_id": "R7",
+          "source_lines": "lgapol01.cbl:126",
+          "source_text": "           EXEC CICS RETURN END-EXEC.",
+          "generated_text": "           GOBACK.",
+          "notes": "control returns to the caller at this point; see modernization/docs/decision-log.md, row: no called RETURN stub"
+        },
+        {
+          "rule_id": "R10",
+          "source_lines": "lgapol01.cbl:140-141",
+          "source_text": "           EXEC CICS ASKTIME ABSTIME(ABS-TIME)\n           END-EXEC",
+          "generated_text": "           CALL 'CICS-ASKTIME' USING ABS-TIME",
+          "notes": "ABSTIME(ABS-TIME) receives the harness clock value"
+        },
+        {
+          "rule_id": "R11",
+          "source_lines": "lgapol01.cbl:142-145",
+          "source_text": "           EXEC CICS FORMATTIME ABSTIME(ABS-TIME)\n                     MMDDYYYY(DATE1)\n                     TIME(TIME1)\n           END-EXEC",
+          "generated_text": "           CALL 'CICS-FORMATTIME' USING ABS-TIME DATE1 TIME1",
+          "notes": "ABSTIME(ABS-TIME) is formatted into MMDDYYYY(DATE1) and TIME(TIME1)"
+        },
+        {
+          "rule_id": "R6",
+          "source_lines": "lgapol01.cbl:149-152",
+          "source_text": "           EXEC CICS LINK PROGRAM('LGSTSQ')\n                     COMMAREA(ERROR-MSG)\n                     LENGTH(LENGTH OF ERROR-MSG)\n           END-EXEC.",
+          "generated_text": "           MOVE LENGTH OF ERROR-MSG TO HARNESS-DIAG-LEN\n           CALL 'CICS-DIAG-LINK' USING ERROR-MSG HARNESS-DIAG-LEN.",
+          "notes": "diagnostic area ERROR-MSG and its length are passed to CICS-DIAG-LINK; the source spelling of the length operand was 'LENGTH OF ERROR-MSG'"
+        },
+        {
+          "rule_id": "R6",
+          "source_lines": "lgapol01.cbl:157-160",
+          "source_text": "               EXEC CICS LINK PROGRAM('LGSTSQ')\n                         COMMAREA(CA-ERROR-MSG)\n                         LENGTH(LENGTH OF CA-ERROR-MSG)\n               END-EXEC",
+          "generated_text": "               MOVE LENGTH OF CA-ERROR-MSG TO HARNESS-DIAG-LEN\n               CALL 'CICS-DIAG-LINK' USING CA-ERROR-MSG HARNESS-DIAG-LEN",
+          "notes": "diagnostic area CA-ERROR-MSG and its length are passed to CICS-DIAG-LINK; the source spelling of the length operand was 'LENGTH OF CA-ERROR-MSG'"
+        },
+        {
+          "rule_id": "R6",
+          "source_lines": "lgapol01.cbl:163-166",
+          "source_text": "               EXEC CICS LINK PROGRAM('LGSTSQ')\n                         COMMAREA(CA-ERROR-MSG)\n                         LENGTH(LENGTH OF CA-ERROR-MSG)\n               END-EXEC",
+          "generated_text": "               MOVE LENGTH OF CA-ERROR-MSG TO HARNESS-DIAG-LEN\n               CALL 'CICS-DIAG-LINK' USING CA-ERROR-MSG HARNESS-DIAG-LEN",
+          "notes": "diagnostic area CA-ERROR-MSG and its length are passed to CICS-DIAG-LINK; the source spelling of the length operand was 'LENGTH OF CA-ERROR-MSG'"
+        }
+      ]
+    },
+    {
+      "source": "base/src/lgapdb01.cbl",
+      "generated": "modernization/harness/build/src/lgapdb01.cbl",
+      "source_lines": 595,
+      "generated_lines": 514,
+      "exec_cics_sites": 20,
+      "exec_sql_blocks": 11,
+      "rewritten_source_lines": 204,
+      "unchanged_source_lines": 391,
+      "rule_emitted_lines": 123,
+      "abend_sites_followed_by_return": 4,
+      "applications": [
+        {
+          "rule_id": "R1",
+          "source_lines": "lgapdb01.cbl:1",
+          "source_text": "       PROCESS SQL",
+          "generated_text": "      *PROCESS SQL  (R1: commented for the harness build)",
+          "notes": "compiler directive 'PROCESS SQL' commented; the indicator column carries '*' and the line stays within column 72"
+        },
+        {
+          "rule_id": "R4",
+          "source_lines": "lgapdb01.cbl:19",
+          "source_text": "       WORKING-STORAGE SECTION.",
+          "generated_text": "       COPY DFHEIBLK.\n       01  HARNESS-ABEND-CODE           PIC X(4)  VALUE SPACES.\n       01  HARNESS-DIAG-LEN             PIC S9(8) COMP VALUE +0.",
+          "notes": "inserted after the anchor line, which is copied unchanged: DFHEIBLK, HARNESS-ABEND-CODE, HARNESS-DIAG-LEN"
+        },
+        {
+          "rule_id": "R2",
+          "source_lines": "lgapdb01.cbl:75-77",
+          "source_text": "           EXEC SQL\n             INCLUDE LGPOLICY\n           END-EXEC.",
+          "generated_text": "           COPY LGPOLICY.",
+          "notes": "statement map entry 'include_lgpolicy'; the COPY resolves to lgpolicy.cpy under -ffold-copy=LOWER -ext cpy",
+          "details": {
+            "include_contract": {
+              "entry_id": "include_lgpolicy",
+              "include_name": "LGPOLICY",
+              "replacement": "COPY LGPOLICY.",
+              "resolves_to": "lgpolicy.cpy",
+              "enclosing_group": null,
+              "enclosing_group_at": null
+            }
+          }
+        },
+        {
+          "rule_id": "R2",
+          "source_lines": "lgapdb01.cbl:124-126",
+          "source_text": "           EXEC SQL\n               INCLUDE SQLCA\n           END-EXEC.",
+          "generated_text": "           COPY HSQLCA.",
+          "notes": "statement map entry 'include_sqlca'; the COPY resolves to hsqlca.cpy under -ffold-copy=LOWER -ext cpy",
+          "details": {
+            "include_contract": {
+              "entry_id": "include_sqlca",
+              "include_name": "SQLCA",
+              "replacement": "COPY HSQLCA.",
+              "resolves_to": "hsqlca.cpy",
+              "enclosing_group": null,
+              "enclosing_group_at": null
+            }
+          }
+        },
+        {
+          "rule_id": "R2",
+          "source_lines": "lgapdb01.cbl:135-137",
+          "source_text": "           EXEC SQL\n             INCLUDE LGCMAREA\n           END-EXEC.",
+          "generated_text": "           COPY LGCMAREA.",
+          "notes": "statement map entry 'include_lgcmarea'; the COPY resolves to lgcmarea.cpy under -ffold-copy=LOWER -ext cpy; the copybook is included beneath '01  DFHCOMMAREA.' at lgapdb01.cbl:134",
+          "details": {
+            "include_contract": {
+              "entry_id": "include_lgcmarea",
+              "include_name": "LGCMAREA",
+              "replacement": "COPY LGCMAREA.",
+              "resolves_to": "lgcmarea.cpy",
+              "enclosing_group": "01  DFHCOMMAREA.",
+              "enclosing_group_at": "lgapdb01.cbl:134"
+            }
+          }
+        },
+        {
+          "rule_id": "R3",
+          "source_lines": "lgapdb01.cbl:143",
+          "source_text": "       PROCEDURE DIVISION.",
+          "generated_text": "       PROCEDURE DIVISION USING DFHCOMMAREA.",
+          "notes": "PROCEDURE DIVISION bound to DFHCOMMAREA for dynamic CALL by reference"
+        },
+        {
+          "rule_id": "R8",
+          "source_lines": "lgapdb01.cbl:168",
+          "source_text": "               EXEC CICS ABEND ABCODE('LGCA') NODUMP END-EXEC",
+          "generated_text": "               MOVE 'LGCA' TO HARNESS-ABEND-CODE\n               CALL 'CICS-ABEND' USING HARNESS-ABEND-CODE\n               GOBACK",
+          "notes": "abend code 'LGCA' captured before returning; the NODUMP option has no harness counterpart"
+        },
+        {
+          "rule_id": "R7",
+          "source_lines": "lgapdb01.cbl:205",
+          "source_text": "               EXEC CICS RETURN END-EXEC",
+          "generated_text": "               GOBACK",
+          "notes": "control returns to the caller at this point; see modernization/docs/decision-log.md, row: no called RETURN stub"
+        },
+        {
+          "rule_id": "R7",
+          "source_lines": "lgapdb01.cbl:212",
+          "source_text": "             EXEC CICS RETURN END-EXEC",
+          "generated_text": "             GOBACK",
+          "notes": "control returns to the caller at this point; see modernization/docs/decision-log.md, row: no called RETURN stub"
+        },
+        {
+          "rule_id": "R5",
+          "source_lines": "lgapdb01.cbl:243-246",
+          "source_text": "             EXEC CICS Link Program(LGAPVS01)\n                  Commarea(DFHCOMMAREA)\n                LENGTH(32500)\n             END-EXEC.",
+          "generated_text": "             MOVE 32500 TO EIBCALEN\n             CALL LGAPVS01 USING DFHCOMMAREA.",
+          "notes": "PROGRAM(LGAPVS01) names a data item whose VALUE is 'LGAPVS01' at lgapdb01.cbl:119 and the dynamic CALL passes that item; LENGTH(32500) is carried into EIBCALEN and COMMAREA(DFHCOMMAREA) is passed by reference",
+          "details": {
+            "chain_link": {
+              "program": "lgapdb01.cbl",
+              "locator": "243-246",
+              "program_operand": "LGAPVS01",
+              "target_program": "LGAPVS01",
+              "target_declared_at": "lgapdb01.cbl:119",
+              "target_declaration": "01 LGAPVS01 PIC X(8) VALUE 'LGAPVS01'.",
+              "commarea_operand": "DFHCOMMAREA",
+              "length": 32500
+            }
+          }
+        },
+        {
+          "rule_id": "R7",
+          "source_lines": "lgapdb01.cbl:250",
+          "source_text": "           EXEC CICS RETURN END-EXEC.",
+          "generated_text": "           GOBACK.",
+          "notes": "control returns to the caller at this point; see modernization/docs/decision-log.md, row: no called RETURN stub"
+        },
+        {
+          "rule_id": "R13",
+          "source_lines": "lgapdb01.cbl:268-288",
+          "source_text": "           EXEC SQL\n             INSERT INTO POLICY\n                       ( POLICYNUMBER,\n                         CUSTOMERNUMBER,\n                         ISSUEDATE,\n                         EXPIRYDATE,\n                         POLICYTYPE,\n                         LASTCHANGED,\n                         BROKERID,\n                         BROKERSREFERENCE,\n                         PAYMENT           )\n                VALUES ( DEFAULT,\n                         :DB2-CUSTOMERNUM-INT,\n                         :CA-ISSUE-DATE,\n                         :CA-EXPIRY-DATE,\n                         :DB2-POLICYTYPE,\n                         CURRENT TIMESTAMP,\n                         :DB2-BROKERID-INT,\n                         :CA-BROKERSREF,\n                         :DB2-PAYMENT-INT      )\n           END-EXEC",
+          "generated_text": "           CALL 'SQL-INSERT-POLICY' USING\n                DB2-CUSTOMERNUM-INT\n                CA-ISSUE-DATE\n                CA-EXPIRY-DATE\n                DB2-POLICYTYPE\n                DB2-BROKERID-INT\n                CA-BROKERSREF\n                DB2-PAYMENT-INT\n           END-CALL",
+          "notes": "statement map entry 'insert_policy' -> SQL-INSERT-POLICY; 7 host variable(s) passed by reference in source order; INSERT contract verified against the source block; no predicate declared and none found; column(s) supplied by an SQL expression: POLICYNUMBER=DEFAULT, LASTCHANGED=CURRENT TIMESTAMP",
+          "details": {
+            "call_program": "SQL-INSERT-POLICY",
+            "using": [
+              "DB2-CUSTOMERNUM-INT",
+              "CA-ISSUE-DATE",
+              "CA-EXPIRY-DATE",
+              "DB2-POLICYTYPE",
+              "DB2-BROKERID-INT",
+              "CA-BROKERSREF",
+              "DB2-PAYMENT-INT"
+            ],
+            "sql_contract": {
+              "entry_id": "insert_policy",
+              "sql_verb": "INSERT",
+              "source_block": "268-288",
+              "normalised_source": "INSERT INTO POLICY ( POLICYNUMBER, CUSTOMERNUMBER, ISSUEDATE, EXPIRYDATE, POLICYTYPE, LASTCHANGED, BROKERID, BROKERSREFERENCE, PAYMENT ) VALUES ( DEFAULT, :DB2-CUSTOMERNUM-INT, :CA-ISSUE-DATE, :CA-EXPIRY-DATE, :DB2-POLICYTYPE, CURRENT TIMESTAMP, :DB2-BROKERID-INT, :CA-BROKERSREF, :DB2-PAYMENT-INT )",
+              "hosts_referenced": [
+                "DB2-CUSTOMERNUM-INT",
+                "CA-ISSUE-DATE",
+                "CA-EXPIRY-DATE",
+                "DB2-POLICYTYPE",
+                "DB2-BROKERID-INT",
+                "CA-BROKERSREF",
+                "DB2-PAYMENT-INT"
+              ],
+              "hosts_omitted": [],
+              "non_host_values": {
+                "POLICYNUMBER": "DEFAULT",
+                "LASTCHANGED": "CURRENT TIMESTAMP"
+              },
+              "predicates": [],
+              "table": "POLICY",
+              "columns": [
+                "POLICYNUMBER",
+                "CUSTOMERNUMBER",
+                "ISSUEDATE",
+                "EXPIRYDATE",
+                "POLICYTYPE",
+                "LASTCHANGED",
+                "BROKERID",
+                "BROKERSREFERENCE",
+                "PAYMENT"
+              ],
+              "column_bindings": [
+                {
+                  "column": "POLICYNUMBER",
+                  "value": "DEFAULT",
+                  "host": null,
+                  "direction": "expression"
+                },
+                {
+                  "column": "CUSTOMERNUMBER",
+                  "value": ":DB2-CUSTOMERNUM-INT",
+                  "host": "DB2-CUSTOMERNUM-INT",
+                  "direction": "in"
+                },
+                {
+                  "column": "ISSUEDATE",
+                  "value": ":CA-ISSUE-DATE",
+                  "host": "CA-ISSUE-DATE",
+                  "direction": "in"
+                },
+                {
+                  "column": "EXPIRYDATE",
+                  "value": ":CA-EXPIRY-DATE",
+                  "host": "CA-EXPIRY-DATE",
+                  "direction": "in"
+                },
+                {
+                  "column": "POLICYTYPE",
+                  "value": ":DB2-POLICYTYPE",
+                  "host": "DB2-POLICYTYPE",
+                  "direction": "in"
+                },
+                {
+                  "column": "LASTCHANGED",
+                  "value": "CURRENT TIMESTAMP",
+                  "host": null,
+                  "direction": "expression"
+                },
+                {
+                  "column": "BROKERID",
+                  "value": ":DB2-BROKERID-INT",
+                  "host": "DB2-BROKERID-INT",
+                  "direction": "in"
+                },
+                {
+                  "column": "BROKERSREFERENCE",
+                  "value": ":CA-BROKERSREF",
+                  "host": "CA-BROKERSREF",
+                  "direction": "in"
+                },
+                {
+                  "column": "PAYMENT",
+                  "value": ":DB2-PAYMENT-INT",
+                  "host": "DB2-PAYMENT-INT",
+                  "direction": "in"
+                }
+              ],
+              "predicate": null
+            }
+          }
+        },
+        {
+          "rule_id": "R7",
+          "source_lines": "lgapdb01.cbl:298",
+          "source_text": "               EXEC CICS RETURN END-EXEC",
+          "generated_text": "               GOBACK",
+          "notes": "control returns to the caller at this point; see modernization/docs/decision-log.md, row: no called RETURN stub"
+        },
+        {
+          "rule_id": "R7",
+          "source_lines": "lgapdb01.cbl:303",
+          "source_text": "               EXEC CICS RETURN END-EXEC",
+          "generated_text": "               GOBACK",
+          "notes": "control returns to the caller at this point; see modernization/docs/decision-log.md, row: no called RETURN stub"
+        },
+        {
+          "rule_id": "R13",
+          "source_lines": "lgapdb01.cbl:308-310",
+          "source_text": "           EXEC SQL\n             SET :DB2-POLICYNUM-INT = IDENTITY_VAL_LOCAL()\n           END-EXEC",
+          "generated_text": "           CALL 'SQL-SET-IDENTITY' USING\n                DB2-POLICYNUM-INT\n           END-CALL",
+          "notes": "statement map entry 'set_identity' -> SQL-SET-IDENTITY; 1 host variable(s) passed by reference in source order; SET contract verified against the source block; no predicate declared and none found",
+          "details": {
+            "call_program": "SQL-SET-IDENTITY",
+            "using": [
+              "DB2-POLICYNUM-INT"
+            ],
+            "sql_contract": {
+              "entry_id": "set_identity",
+              "sql_verb": "SET",
+              "source_block": "308-310",
+              "normalised_source": "SET :DB2-POLICYNUM-INT = IDENTITY_VAL_LOCAL()",
+              "hosts_referenced": [
+                "DB2-POLICYNUM-INT"
+              ],
+              "hosts_omitted": [],
+              "non_host_values": {},
+              "predicates": [],
+              "table": null,
+              "columns": [
+                "IDENTITY_VAL_LOCAL()"
+              ],
+              "column_bindings": [
+                {
+                  "column": "IDENTITY_VAL_LOCAL()",
+                  "value": "IDENTITY_VAL_LOCAL()",
+                  "host": "DB2-POLICYNUM-INT",
+                  "direction": "out"
+                }
+              ],
+              "predicate": null
+            }
+          }
+        },
+        {
+          "rule_id": "R13",
+          "source_lines": "lgapdb01.cbl:316-321",
+          "source_text": "           EXEC SQL\n             SELECT LASTCHANGED\n               INTO :CA-LASTCHANGED\n               FROM POLICY\n               WHERE POLICYNUMBER = :DB2-POLICYNUM-INT\n           END-EXEC.",
+          "generated_text": "           CALL 'SQL-SELECT-LASTCHANGED' USING\n                CA-LASTCHANGED\n                DB2-POLICYNUM-INT\n           END-CALL.",
+          "notes": "statement map entry 'select_lastchanged' -> SQL-SELECT-LASTCHANGED; 2 host variable(s) passed by reference in source order; SELECT contract verified against the source block; predicate held to WHERE POLICYNUMBER = :DB2-POLICYNUM-INT",
+          "details": {
+            "call_program": "SQL-SELECT-LASTCHANGED",
+            "using": [
+              "CA-LASTCHANGED",
+              "DB2-POLICYNUM-INT"
+            ],
+            "sql_contract": {
+              "entry_id": "select_lastchanged",
+              "sql_verb": "SELECT",
+              "source_block": "316-321",
+              "normalised_source": "SELECT LASTCHANGED INTO :CA-LASTCHANGED FROM POLICY WHERE POLICYNUMBER = :DB2-POLICYNUM-INT",
+              "hosts_referenced": [
+                "CA-LASTCHANGED",
+                "DB2-POLICYNUM-INT"
+              ],
+              "hosts_omitted": [],
+              "non_host_values": {},
+              "predicates": [
+                {
+                  "host": "DB2-POLICYNUM-INT",
+                  "predicate": "WHERE POLICYNUMBER =",
+                  "connector": "WHERE",
+                  "column": "POLICYNUMBER",
+                  "operator": "=",
+                  "tokens": [
+                    "WHERE",
+                    "POLICYNUMBER",
+                    "=",
+                    ":DB2-POLICYNUM-INT"
+                  ]
+                }
+              ],
+              "table": "POLICY",
+              "columns": [
+                "LASTCHANGED"
+              ],
+              "column_bindings": [
+                {
+                  "column": "LASTCHANGED",
+                  "value": ":CA-LASTCHANGED",
+                  "host": "CA-LASTCHANGED",
+                  "direction": "out"
+                }
+              ],
+              "predicate": "WHERE POLICYNUMBER = :DB2-POLICYNUM-INT"
+            }
+          }
+        },
+        {
+          "rule_id": "R13",
+          "source_lines": "lgapdb01.cbl:346-366",
+          "source_text": "              EXEC SQL\n                INSERT INTO ENDOWMENT\n                          ( POLICYNUMBER,\n                            WITHPROFITS,\n                            EQUITIES,\n                            MANAGEDFUND,\n                            FUNDNAME,\n                            TERM,\n                            SUMASSURED,\n                            LIFEASSURED,\n                            PADDINGDATA    )\n                   VALUES ( :DB2-POLICYNUM-INT,\n                            :CA-E-WITH-PROFITS,\n                            :CA-E-EQUITIES,\n                            :CA-E-MANAGED-FUND,\n                            :CA-E-FUND-NAME,\n                            :DB2-E-TERM-SINT,\n                            :DB2-E-SUMASSURED-INT,\n                            :CA-E-LIFE-ASSURED,\n                            :WS-VARY-FIELD )\n              END-EXEC",
+          "generated_text": "              CALL 'SQL-INSERT-ENDOWMENT' USING\n                   DB2-POLICYNUM-INT\n                   CA-E-WITH-PROFITS\n                   CA-E-EQUITIES\n                   CA-E-MANAGED-FUND\n                   CA-E-FUND-NAME\n                   DB2-E-TERM-SINT\n                   DB2-E-SUMASSURED-INT\n                   CA-E-LIFE-ASSURED\n                   WS-VARY-FIELD\n              END-CALL",
+          "notes": "statement map entry 'insert_endowment_varchar' -> SQL-INSERT-ENDOWMENT; 9 host variable(s) passed by reference in source order; INSERT contract verified against the source block; no predicate declared and none found",
+          "details": {
+            "call_program": "SQL-INSERT-ENDOWMENT",
+            "using": [
+              "DB2-POLICYNUM-INT",
+              "CA-E-WITH-PROFITS",
+              "CA-E-EQUITIES",
+              "CA-E-MANAGED-FUND",
+              "CA-E-FUND-NAME",
+              "DB2-E-TERM-SINT",
+              "DB2-E-SUMASSURED-INT",
+              "CA-E-LIFE-ASSURED",
+              "WS-VARY-FIELD"
+            ],
+            "sql_contract": {
+              "entry_id": "insert_endowment_varchar",
+              "sql_verb": "INSERT",
+              "source_block": "346-366",
+              "normalised_source": "INSERT INTO ENDOWMENT ( POLICYNUMBER, WITHPROFITS, EQUITIES, MANAGEDFUND, FUNDNAME, TERM, SUMASSURED, LIFEASSURED, PADDINGDATA ) VALUES ( :DB2-POLICYNUM-INT, :CA-E-WITH-PROFITS, :CA-E-EQUITIES, :CA-E-MANAGED-FUND, :CA-E-FUND-NAME, :DB2-E-TERM-SINT, :DB2-E-SUMASSURED-INT, :CA-E-LIFE-ASSURED, :WS-VARY-FIELD )",
+              "hosts_referenced": [
+                "DB2-POLICYNUM-INT",
+                "CA-E-WITH-PROFITS",
+                "CA-E-EQUITIES",
+                "CA-E-MANAGED-FUND",
+                "CA-E-FUND-NAME",
+                "DB2-E-TERM-SINT",
+                "DB2-E-SUMASSURED-INT",
+                "CA-E-LIFE-ASSURED",
+                "WS-VARY-FIELD"
+              ],
+              "hosts_omitted": [],
+              "non_host_values": {},
+              "predicates": [],
+              "table": "ENDOWMENT",
+              "columns": [
+                "POLICYNUMBER",
+                "WITHPROFITS",
+                "EQUITIES",
+                "MANAGEDFUND",
+                "FUNDNAME",
+                "TERM",
+                "SUMASSURED",
+                "LIFEASSURED",
+                "PADDINGDATA"
+              ],
+              "column_bindings": [
+                {
+                  "column": "POLICYNUMBER",
+                  "value": ":DB2-POLICYNUM-INT",
+                  "host": "DB2-POLICYNUM-INT",
+                  "direction": "in"
+                },
+                {
+                  "column": "WITHPROFITS",
+                  "value": ":CA-E-WITH-PROFITS",
+                  "host": "CA-E-WITH-PROFITS",
+                  "direction": "in"
+                },
+                {
+                  "column": "EQUITIES",
+                  "value": ":CA-E-EQUITIES",
+                  "host": "CA-E-EQUITIES",
+                  "direction": "in"
+                },
+                {
+                  "column": "MANAGEDFUND",
+                  "value": ":CA-E-MANAGED-FUND",
+                  "host": "CA-E-MANAGED-FUND",
+                  "direction": "in"
+                },
+                {
+                  "column": "FUNDNAME",
+                  "value": ":CA-E-FUND-NAME",
+                  "host": "CA-E-FUND-NAME",
+                  "direction": "in"
+                },
+                {
+                  "column": "TERM",
+                  "value": ":DB2-E-TERM-SINT",
+                  "host": "DB2-E-TERM-SINT",
+                  "direction": "in"
+                },
+                {
+                  "column": "SUMASSURED",
+                  "value": ":DB2-E-SUMASSURED-INT",
+                  "host": "DB2-E-SUMASSURED-INT",
+                  "direction": "in"
+                },
+                {
+                  "column": "LIFEASSURED",
+                  "value": ":CA-E-LIFE-ASSURED",
+                  "host": "CA-E-LIFE-ASSURED",
+                  "direction": "in"
+                },
+                {
+                  "column": "PADDINGDATA",
+                  "value": ":WS-VARY-FIELD",
+                  "host": "WS-VARY-FIELD",
+                  "direction": "in"
+                }
+              ],
+              "predicate": null
+            }
+          }
+        },
+        {
+          "rule_id": "R13",
+          "source_lines": "lgapdb01.cbl:368-386",
+          "source_text": "              EXEC SQL\n                INSERT INTO ENDOWMENT\n                          ( POLICYNUMBER,\n                            WITHPROFITS,\n                            EQUITIES,\n                            MANAGEDFUND,\n                            FUNDNAME,\n                            TERM,\n                            SUMASSURED,\n                            LIFEASSURED    )\n                   VALUES ( :DB2-POLICYNUM-INT,\n                            :CA-E-WITH-PROFITS,\n                            :CA-E-EQUITIES,\n                            :CA-E-MANAGED-FUND,\n                            :CA-E-FUND-NAME,\n                            :DB2-E-TERM-SINT,\n                            :DB2-E-SUMASSURED-INT,\n                            :CA-E-LIFE-ASSURED )\n              END-EXEC",
+          "generated_text": "              CALL 'SQL-INSERT-ENDOWMENT' USING\n                   DB2-POLICYNUM-INT\n                   CA-E-WITH-PROFITS\n                   CA-E-EQUITIES\n                   CA-E-MANAGED-FUND\n                   CA-E-FUND-NAME\n                   DB2-E-TERM-SINT\n                   DB2-E-SUMASSURED-INT\n                   CA-E-LIFE-ASSURED\n                   WS-VARY-FIELD\n              END-CALL",
+          "notes": "statement map entry 'insert_endowment_novarchar' -> SQL-INSERT-ENDOWMENT; 9 host variable(s) passed by reference in source order; INSERT contract verified against the source block; no predicate declared and none found; superset argument(s) ['WS-VARY-FIELD'] appear in the mapped USING list but not in this source branch",
+          "details": {
+            "call_program": "SQL-INSERT-ENDOWMENT",
+            "using": [
+              "DB2-POLICYNUM-INT",
+              "CA-E-WITH-PROFITS",
+              "CA-E-EQUITIES",
+              "CA-E-MANAGED-FUND",
+              "CA-E-FUND-NAME",
+              "DB2-E-TERM-SINT",
+              "DB2-E-SUMASSURED-INT",
+              "CA-E-LIFE-ASSURED",
+              "WS-VARY-FIELD"
+            ],
+            "sql_contract": {
+              "entry_id": "insert_endowment_novarchar",
+              "sql_verb": "INSERT",
+              "source_block": "368-386",
+              "normalised_source": "INSERT INTO ENDOWMENT ( POLICYNUMBER, WITHPROFITS, EQUITIES, MANAGEDFUND, FUNDNAME, TERM, SUMASSURED, LIFEASSURED ) VALUES ( :DB2-POLICYNUM-INT, :CA-E-WITH-PROFITS, :CA-E-EQUITIES, :CA-E-MANAGED-FUND, :CA-E-FUND-NAME, :DB2-E-TERM-SINT, :DB2-E-SUMASSURED-INT, :CA-E-LIFE-ASSURED )",
+              "hosts_referenced": [
+                "DB2-POLICYNUM-INT",
+                "CA-E-WITH-PROFITS",
+                "CA-E-EQUITIES",
+                "CA-E-MANAGED-FUND",
+                "CA-E-FUND-NAME",
+                "DB2-E-TERM-SINT",
+                "DB2-E-SUMASSURED-INT",
+                "CA-E-LIFE-ASSURED"
+              ],
+              "hosts_omitted": [
+                "WS-VARY-FIELD"
+              ],
+              "non_host_values": {},
+              "predicates": [],
+              "table": "ENDOWMENT",
+              "columns": [
+                "POLICYNUMBER",
+                "WITHPROFITS",
+                "EQUITIES",
+                "MANAGEDFUND",
+                "FUNDNAME",
+                "TERM",
+                "SUMASSURED",
+                "LIFEASSURED"
+              ],
+              "column_bindings": [
+                {
+                  "column": "POLICYNUMBER",
+                  "value": ":DB2-POLICYNUM-INT",
+                  "host": "DB2-POLICYNUM-INT",
+                  "direction": "in"
+                },
+                {
+                  "column": "WITHPROFITS",
+                  "value": ":CA-E-WITH-PROFITS",
+                  "host": "CA-E-WITH-PROFITS",
+                  "direction": "in"
+                },
+                {
+                  "column": "EQUITIES",
+                  "value": ":CA-E-EQUITIES",
+                  "host": "CA-E-EQUITIES",
+                  "direction": "in"
+                },
+                {
+                  "column": "MANAGEDFUND",
+                  "value": ":CA-E-MANAGED-FUND",
+                  "host": "CA-E-MANAGED-FUND",
+                  "direction": "in"
+                },
+                {
+                  "column": "FUNDNAME",
+                  "value": ":CA-E-FUND-NAME",
+                  "host": "CA-E-FUND-NAME",
+                  "direction": "in"
+                },
+                {
+                  "column": "TERM",
+                  "value": ":DB2-E-TERM-SINT",
+                  "host": "DB2-E-TERM-SINT",
+                  "direction": "in"
+                },
+                {
+                  "column": "SUMASSURED",
+                  "value": ":DB2-E-SUMASSURED-INT",
+                  "host": "DB2-E-SUMASSURED-INT",
+                  "direction": "in"
+                },
+                {
+                  "column": "LIFEASSURED",
+                  "value": ":CA-E-LIFE-ASSURED",
+                  "host": "CA-E-LIFE-ASSURED",
+                  "direction": "in"
+                }
+              ],
+              "predicate": null
+            }
+          }
+        },
+        {
+          "rule_id": "R8",
+          "source_lines": "lgapdb01.cbl:393",
+          "source_text": "             EXEC CICS ABEND ABCODE('LGSQ') NODUMP END-EXEC",
+          "generated_text": "             MOVE 'LGSQ' TO HARNESS-ABEND-CODE\n             CALL 'CICS-ABEND' USING HARNESS-ABEND-CODE\n             GOBACK",
+          "notes": "abend code 'LGSQ' captured before returning; the NODUMP option has no harness counterpart; source line 394 is an EXEC CICS RETURN that R7 emits as a second GOBACK, which is unreachable"
+        },
+        {
+          "rule_id": "R7",
+          "source_lines": "lgapdb01.cbl:394",
+          "source_text": "             EXEC CICS RETURN END-EXEC",
+          "generated_text": "             GOBACK",
+          "notes": "control returns to the caller at this point; see modernization/docs/decision-log.md, row: no called RETURN stub"
+        },
+        {
+          "rule_id": "R13",
+          "source_lines": "lgapdb01.cbl:409-425",
+          "source_text": "           EXEC SQL\n             INSERT INTO HOUSE\n                       ( POLICYNUMBER,\n                         PROPERTYTYPE,\n                         BEDROOMS,\n                         VALUE,\n                         HOUSENAME,\n                         HOUSENUMBER,\n                         POSTCODE          )\n                VALUES ( :DB2-POLICYNUM-INT,\n                         :CA-H-PROPERTY-TYPE,\n                         :DB2-H-BEDROOMS-SINT,\n                         :DB2-H-VALUE-INT,\n                         :CA-H-HOUSE-NAME,\n                         :CA-H-HOUSE-NUMBER,\n                         :CA-H-POSTCODE      )\n           END-EXEC",
+          "generated_text": "           CALL 'SQL-INSERT-HOUSE' USING\n                DB2-POLICYNUM-INT\n                CA-H-PROPERTY-TYPE\n                DB2-H-BEDROOMS-SINT\n                DB2-H-VALUE-INT\n                CA-H-HOUSE-NAME\n                CA-H-HOUSE-NUMBER\n                CA-H-POSTCODE\n           END-CALL",
+          "notes": "statement map entry 'insert_house' -> SQL-INSERT-HOUSE; 7 host variable(s) passed by reference in source order; INSERT contract verified against the source block; no predicate declared and none found",
+          "details": {
+            "call_program": "SQL-INSERT-HOUSE",
+            "using": [
+              "DB2-POLICYNUM-INT",
+              "CA-H-PROPERTY-TYPE",
+              "DB2-H-BEDROOMS-SINT",
+              "DB2-H-VALUE-INT",
+              "CA-H-HOUSE-NAME",
+              "CA-H-HOUSE-NUMBER",
+              "CA-H-POSTCODE"
+            ],
+            "sql_contract": {
+              "entry_id": "insert_house",
+              "sql_verb": "INSERT",
+              "source_block": "409-425",
+              "normalised_source": "INSERT INTO HOUSE ( POLICYNUMBER, PROPERTYTYPE, BEDROOMS, VALUE, HOUSENAME, HOUSENUMBER, POSTCODE ) VALUES ( :DB2-POLICYNUM-INT, :CA-H-PROPERTY-TYPE, :DB2-H-BEDROOMS-SINT, :DB2-H-VALUE-INT, :CA-H-HOUSE-NAME, :CA-H-HOUSE-NUMBER, :CA-H-POSTCODE )",
+              "hosts_referenced": [
+                "DB2-POLICYNUM-INT",
+                "CA-H-PROPERTY-TYPE",
+                "DB2-H-BEDROOMS-SINT",
+                "DB2-H-VALUE-INT",
+                "CA-H-HOUSE-NAME",
+                "CA-H-HOUSE-NUMBER",
+                "CA-H-POSTCODE"
+              ],
+              "hosts_omitted": [],
+              "non_host_values": {},
+              "predicates": [],
+              "table": "HOUSE",
+              "columns": [
+                "POLICYNUMBER",
+                "PROPERTYTYPE",
+                "BEDROOMS",
+                "VALUE",
+                "HOUSENAME",
+                "HOUSENUMBER",
+                "POSTCODE"
+              ],
+              "column_bindings": [
+                {
+                  "column": "POLICYNUMBER",
+                  "value": ":DB2-POLICYNUM-INT",
+                  "host": "DB2-POLICYNUM-INT",
+                  "direction": "in"
+                },
+                {
+                  "column": "PROPERTYTYPE",
+                  "value": ":CA-H-PROPERTY-TYPE",
+                  "host": "CA-H-PROPERTY-TYPE",
+                  "direction": "in"
+                },
+                {
+                  "column": "BEDROOMS",
+                  "value": ":DB2-H-BEDROOMS-SINT",
+                  "host": "DB2-H-BEDROOMS-SINT",
+                  "direction": "in"
+                },
+                {
+                  "column": "VALUE",
+                  "value": ":DB2-H-VALUE-INT",
+                  "host": "DB2-H-VALUE-INT",
+                  "direction": "in"
+                },
+                {
+                  "column": "HOUSENAME",
+                  "value": ":CA-H-HOUSE-NAME",
+                  "host": "CA-H-HOUSE-NAME",
+                  "direction": "in"
+                },
+                {
+                  "column": "HOUSENUMBER",
+                  "value": ":CA-H-HOUSE-NUMBER",
+                  "host": "CA-H-HOUSE-NUMBER",
+                  "direction": "in"
+                },
+                {
+                  "column": "POSTCODE",
+                  "value": ":CA-H-POSTCODE",
+                  "host": "CA-H-POSTCODE",
+                  "direction": "in"
+                }
+              ],
+              "predicate": null
+            }
+          }
+        },
+        {
+          "rule_id": "R8",
+          "source_lines": "lgapdb01.cbl:431",
+          "source_text": "             EXEC CICS ABEND ABCODE('LGSQ') NODUMP END-EXEC",
+          "generated_text": "             MOVE 'LGSQ' TO HARNESS-ABEND-CODE\n             CALL 'CICS-ABEND' USING HARNESS-ABEND-CODE\n             GOBACK",
+          "notes": "abend code 'LGSQ' captured before returning; the NODUMP option has no harness counterpart; source line 432 is an EXEC CICS RETURN that R7 emits as a second GOBACK, which is unreachable"
+        },
+        {
+          "rule_id": "R7",
+          "source_lines": "lgapdb01.cbl:432",
+          "source_text": "             EXEC CICS RETURN END-EXEC",
+          "generated_text": "             GOBACK",
+          "notes": "control returns to the caller at this point; see modernization/docs/decision-log.md, row: no called RETURN stub"
+        },
+        {
+          "rule_id": "R13",
+          "source_lines": "lgapdb01.cbl:449-471",
+          "source_text": "           EXEC SQL\n             INSERT INTO MOTOR\n                       ( POLICYNUMBER,\n                         MAKE,\n                         MODEL,\n                         VALUE,\n                         REGNUMBER,\n                         COLOUR,\n                         CC,\n                         YEAROFMANUFACTURE,\n                         PREMIUM,\n                         ACCIDENTS )\n                VALUES ( :DB2-POLICYNUM-INT,\n                         :CA-M-MAKE,\n                         :CA-M-MODEL,\n                         :DB2-M-VALUE-INT,\n                         :CA-M-REGNUMBER,\n                         :CA-M-COLOUR,\n                         :DB2-M-CC-SINT,\n                         :CA-M-MANUFACTURED,\n                         :DB2-M-PREMIUM-INT,\n                         :DB2-M-ACCIDENTS-INT )\n           END-EXEC",
+          "generated_text": "           CALL 'SQL-INSERT-MOTOR' USING\n                DB2-POLICYNUM-INT\n                CA-M-MAKE\n                CA-M-MODEL\n                DB2-M-VALUE-INT\n                CA-M-REGNUMBER\n                CA-M-COLOUR\n                DB2-M-CC-SINT\n                CA-M-MANUFACTURED\n                DB2-M-PREMIUM-INT\n                DB2-M-ACCIDENTS-INT\n           END-CALL",
+          "notes": "statement map entry 'insert_motor' -> SQL-INSERT-MOTOR; 10 host variable(s) passed by reference in source order; INSERT contract verified against the source block; no predicate declared and none found",
+          "details": {
+            "call_program": "SQL-INSERT-MOTOR",
+            "using": [
+              "DB2-POLICYNUM-INT",
+              "CA-M-MAKE",
+              "CA-M-MODEL",
+              "DB2-M-VALUE-INT",
+              "CA-M-REGNUMBER",
+              "CA-M-COLOUR",
+              "DB2-M-CC-SINT",
+              "CA-M-MANUFACTURED",
+              "DB2-M-PREMIUM-INT",
+              "DB2-M-ACCIDENTS-INT"
+            ],
+            "sql_contract": {
+              "entry_id": "insert_motor",
+              "sql_verb": "INSERT",
+              "source_block": "449-471",
+              "normalised_source": "INSERT INTO MOTOR ( POLICYNUMBER, MAKE, MODEL, VALUE, REGNUMBER, COLOUR, CC, YEAROFMANUFACTURE, PREMIUM, ACCIDENTS ) VALUES ( :DB2-POLICYNUM-INT, :CA-M-MAKE, :CA-M-MODEL, :DB2-M-VALUE-INT, :CA-M-REGNUMBER, :CA-M-COLOUR, :DB2-M-CC-SINT, :CA-M-MANUFACTURED, :DB2-M-PREMIUM-INT, :DB2-M-ACCIDENTS-INT )",
+              "hosts_referenced": [
+                "DB2-POLICYNUM-INT",
+                "CA-M-MAKE",
+                "CA-M-MODEL",
+                "DB2-M-VALUE-INT",
+                "CA-M-REGNUMBER",
+                "CA-M-COLOUR",
+                "DB2-M-CC-SINT",
+                "CA-M-MANUFACTURED",
+                "DB2-M-PREMIUM-INT",
+                "DB2-M-ACCIDENTS-INT"
+              ],
+              "hosts_omitted": [],
+              "non_host_values": {},
+              "predicates": [],
+              "table": "MOTOR",
+              "columns": [
+                "POLICYNUMBER",
+                "MAKE",
+                "MODEL",
+                "VALUE",
+                "REGNUMBER",
+                "COLOUR",
+                "CC",
+                "YEAROFMANUFACTURE",
+                "PREMIUM",
+                "ACCIDENTS"
+              ],
+              "column_bindings": [
+                {
+                  "column": "POLICYNUMBER",
+                  "value": ":DB2-POLICYNUM-INT",
+                  "host": "DB2-POLICYNUM-INT",
+                  "direction": "in"
+                },
+                {
+                  "column": "MAKE",
+                  "value": ":CA-M-MAKE",
+                  "host": "CA-M-MAKE",
+                  "direction": "in"
+                },
+                {
+                  "column": "MODEL",
+                  "value": ":CA-M-MODEL",
+                  "host": "CA-M-MODEL",
+                  "direction": "in"
+                },
+                {
+                  "column": "VALUE",
+                  "value": ":DB2-M-VALUE-INT",
+                  "host": "DB2-M-VALUE-INT",
+                  "direction": "in"
+                },
+                {
+                  "column": "REGNUMBER",
+                  "value": ":CA-M-REGNUMBER",
+                  "host": "CA-M-REGNUMBER",
+                  "direction": "in"
+                },
+                {
+                  "column": "COLOUR",
+                  "value": ":CA-M-COLOUR",
+                  "host": "CA-M-COLOUR",
+                  "direction": "in"
+                },
+                {
+                  "column": "CC",
+                  "value": ":DB2-M-CC-SINT",
+                  "host": "DB2-M-CC-SINT",
+                  "direction": "in"
+                },
+                {
+                  "column": "YEAROFMANUFACTURE",
+                  "value": ":CA-M-MANUFACTURED",
+                  "host": "CA-M-MANUFACTURED",
+                  "direction": "in"
+                },
+                {
+                  "column": "PREMIUM",
+                  "value": ":DB2-M-PREMIUM-INT",
+                  "host": "DB2-M-PREMIUM-INT",
+                  "direction": "in"
+                },
+                {
+                  "column": "ACCIDENTS",
+                  "value": ":DB2-M-ACCIDENTS-INT",
+                  "host": "DB2-M-ACCIDENTS-INT",
+                  "direction": "in"
+                }
+              ],
+              "predicate": null
+            }
+          }
+        },
+        {
+          "rule_id": "R8",
+          "source_lines": "lgapdb01.cbl:477",
+          "source_text": "             EXEC CICS ABEND ABCODE('LGSQ') NODUMP END-EXEC",
+          "generated_text": "             MOVE 'LGSQ' TO HARNESS-ABEND-CODE\n             CALL 'CICS-ABEND' USING HARNESS-ABEND-CODE\n             GOBACK",
+          "notes": "abend code 'LGSQ' captured before returning; the NODUMP option has no harness counterpart; source line 478 is an EXEC CICS RETURN that R7 emits as a second GOBACK, which is unreachable"
+        },
+        {
+          "rule_id": "R7",
+          "source_lines": "lgapdb01.cbl:478",
+          "source_text": "             EXEC CICS RETURN END-EXEC",
+          "generated_text": "             GOBACK",
+          "notes": "control returns to the caller at this point; see modernization/docs/decision-log.md, row: no called RETURN stub"
+        },
+        {
+          "rule_id": "R13",
+          "source_lines": "lgapdb01.cbl:499-545",
+          "source_text": "           EXEC SQL\n             INSERT INTO COMMERCIAL\n                       (\n                         PolicyNumber,\n                         RequestDate,\n                         StartDate,\n                         RenewalDate,\n                         Address,\n                         Zipcode,\n                         LatitudeN,\n                         LongitudeW,\n                         Customer,\n                         PropertyType,\n                         FirePeril,\n                         FirePremium,\n                         CrimePeril,\n                         CrimePremium,\n                         FloodPeril,\n                         FloodPremium,\n                         WeatherPeril,\n                         WeatherPremium,\n                         Status,\n                         RejectionReason\n                                             )\n                VALUES (\n                         :DB2-POLICYNUM-INT,\n                         :CA-LASTCHANGED,\n                         :CA-ISSUE-DATE,\n                         :CA-EXPIRY-DATE,\n                         :CA-B-Address,\n                         :CA-B-Postcode,\n                         :CA-B-Latitude,\n                         :CA-B-Longitude,\n                         :CA-B-Customer,\n                         :CA-B-PropType,\n                         :DB2-B-FirePeril-Int,\n                         :DB2-B-FirePremium-Int,\n                         :DB2-B-CrimePeril-Int,\n                         :DB2-B-CrimePremium-Int,\n                         :DB2-B-FloodPeril-Int,\n                         :DB2-B-FloodPremium-Int,\n                         :DB2-B-WeatherPeril-Int,\n                         :DB2-B-WeatherPremium-Int,\n                         :DB2-B-Status-Int,\n                         :CA-B-RejectReason\n                                             )\n           END-EXEC",
+          "generated_text": "           CALL 'SQL-INSERT-COMMERCIAL' USING\n                DB2-POLICYNUM-INT\n                CA-LASTCHANGED\n                CA-ISSUE-DATE\n                CA-EXPIRY-DATE\n                CA-B-Address\n                CA-B-Postcode\n                CA-B-Latitude\n                CA-B-Longitude\n                CA-B-Customer\n                CA-B-PropType\n                DB2-B-FirePeril-Int\n                DB2-B-FirePremium-Int\n                DB2-B-CrimePeril-Int\n                DB2-B-CrimePremium-Int\n                DB2-B-FloodPeril-Int\n                DB2-B-FloodPremium-Int\n                DB2-B-WeatherPeril-Int\n                DB2-B-WeatherPremium-Int\n                DB2-B-Status-Int\n                CA-B-RejectReason\n           END-CALL",
+          "notes": "statement map entry 'insert_commercial' -> SQL-INSERT-COMMERCIAL; 20 host variable(s) passed by reference in source order; INSERT contract verified against the source block; no predicate declared and none found",
+          "details": {
+            "call_program": "SQL-INSERT-COMMERCIAL",
+            "using": [
+              "DB2-POLICYNUM-INT",
+              "CA-LASTCHANGED",
+              "CA-ISSUE-DATE",
+              "CA-EXPIRY-DATE",
+              "CA-B-Address",
+              "CA-B-Postcode",
+              "CA-B-Latitude",
+              "CA-B-Longitude",
+              "CA-B-Customer",
+              "CA-B-PropType",
+              "DB2-B-FirePeril-Int",
+              "DB2-B-FirePremium-Int",
+              "DB2-B-CrimePeril-Int",
+              "DB2-B-CrimePremium-Int",
+              "DB2-B-FloodPeril-Int",
+              "DB2-B-FloodPremium-Int",
+              "DB2-B-WeatherPeril-Int",
+              "DB2-B-WeatherPremium-Int",
+              "DB2-B-Status-Int",
+              "CA-B-RejectReason"
+            ],
+            "sql_contract": {
+              "entry_id": "insert_commercial",
+              "sql_verb": "INSERT",
+              "source_block": "499-545",
+              "normalised_source": "INSERT INTO COMMERCIAL ( PolicyNumber, RequestDate, StartDate, RenewalDate, Address, Zipcode, LatitudeN, LongitudeW, Customer, PropertyType, FirePeril, FirePremium, CrimePeril, CrimePremium, FloodPeril, FloodPremium, WeatherPeril, WeatherPremium, Status, RejectionReason ) VALUES ( :DB2-POLICYNUM-INT, :CA-LASTCHANGED, :CA-ISSUE-DATE, :CA-EXPIRY-DATE, :CA-B-Address, :CA-B-Postcode, :CA-B-Latitude, :CA-B-Longitude, :CA-B-Customer, :CA-B-PropType, :DB2-B-FirePeril-Int, :DB2-B-FirePremium-Int, :DB2-B-CrimePeril-Int, :DB2-B-CrimePremium-Int, :DB2-B-FloodPeril-Int, :DB2-B-FloodPremium-Int, :DB2-B-WeatherPeril-Int, :DB2-B-WeatherPremium-Int, :DB2-B-Status-Int, :CA-B-RejectReason )",
+              "hosts_referenced": [
+                "DB2-POLICYNUM-INT",
+                "CA-LASTCHANGED",
+                "CA-ISSUE-DATE",
+                "CA-EXPIRY-DATE",
+                "CA-B-Address",
+                "CA-B-Postcode",
+                "CA-B-Latitude",
+                "CA-B-Longitude",
+                "CA-B-Customer",
+                "CA-B-PropType",
+                "DB2-B-FirePeril-Int",
+                "DB2-B-FirePremium-Int",
+                "DB2-B-CrimePeril-Int",
+                "DB2-B-CrimePremium-Int",
+                "DB2-B-FloodPeril-Int",
+                "DB2-B-FloodPremium-Int",
+                "DB2-B-WeatherPeril-Int",
+                "DB2-B-WeatherPremium-Int",
+                "DB2-B-Status-Int",
+                "CA-B-RejectReason"
+              ],
+              "hosts_omitted": [],
+              "non_host_values": {},
+              "predicates": [],
+              "table": "COMMERCIAL",
+              "columns": [
+                "PolicyNumber",
+                "RequestDate",
+                "StartDate",
+                "RenewalDate",
+                "Address",
+                "Zipcode",
+                "LatitudeN",
+                "LongitudeW",
+                "Customer",
+                "PropertyType",
+                "FirePeril",
+                "FirePremium",
+                "CrimePeril",
+                "CrimePremium",
+                "FloodPeril",
+                "FloodPremium",
+                "WeatherPeril",
+                "WeatherPremium",
+                "Status",
+                "RejectionReason"
+              ],
+              "column_bindings": [
+                {
+                  "column": "PolicyNumber",
+                  "value": ":DB2-POLICYNUM-INT",
+                  "host": "DB2-POLICYNUM-INT",
+                  "direction": "in"
+                },
+                {
+                  "column": "RequestDate",
+                  "value": ":CA-LASTCHANGED",
+                  "host": "CA-LASTCHANGED",
+                  "direction": "in"
+                },
+                {
+                  "column": "StartDate",
+                  "value": ":CA-ISSUE-DATE",
+                  "host": "CA-ISSUE-DATE",
+                  "direction": "in"
+                },
+                {
+                  "column": "RenewalDate",
+                  "value": ":CA-EXPIRY-DATE",
+                  "host": "CA-EXPIRY-DATE",
+                  "direction": "in"
+                },
+                {
+                  "column": "Address",
+                  "value": ":CA-B-Address",
+                  "host": "CA-B-Address",
+                  "direction": "in"
+                },
+                {
+                  "column": "Zipcode",
+                  "value": ":CA-B-Postcode",
+                  "host": "CA-B-Postcode",
+                  "direction": "in"
+                },
+                {
+                  "column": "LatitudeN",
+                  "value": ":CA-B-Latitude",
+                  "host": "CA-B-Latitude",
+                  "direction": "in"
+                },
+                {
+                  "column": "LongitudeW",
+                  "value": ":CA-B-Longitude",
+                  "host": "CA-B-Longitude",
+                  "direction": "in"
+                },
+                {
+                  "column": "Customer",
+                  "value": ":CA-B-Customer",
+                  "host": "CA-B-Customer",
+                  "direction": "in"
+                },
+                {
+                  "column": "PropertyType",
+                  "value": ":CA-B-PropType",
+                  "host": "CA-B-PropType",
+                  "direction": "in"
+                },
+                {
+                  "column": "FirePeril",
+                  "value": ":DB2-B-FirePeril-Int",
+                  "host": "DB2-B-FirePeril-Int",
+                  "direction": "in"
+                },
+                {
+                  "column": "FirePremium",
+                  "value": ":DB2-B-FirePremium-Int",
+                  "host": "DB2-B-FirePremium-Int",
+                  "direction": "in"
+                },
+                {
+                  "column": "CrimePeril",
+                  "value": ":DB2-B-CrimePeril-Int",
+                  "host": "DB2-B-CrimePeril-Int",
+                  "direction": "in"
+                },
+                {
+                  "column": "CrimePremium",
+                  "value": ":DB2-B-CrimePremium-Int",
+                  "host": "DB2-B-CrimePremium-Int",
+                  "direction": "in"
+                },
+                {
+                  "column": "FloodPeril",
+                  "value": ":DB2-B-FloodPeril-Int",
+                  "host": "DB2-B-FloodPeril-Int",
+                  "direction": "in"
+                },
+                {
+                  "column": "FloodPremium",
+                  "value": ":DB2-B-FloodPremium-Int",
+                  "host": "DB2-B-FloodPremium-Int",
+                  "direction": "in"
+                },
+                {
+                  "column": "WeatherPeril",
+                  "value": ":DB2-B-WeatherPeril-Int",
+                  "host": "DB2-B-WeatherPeril-Int",
+                  "direction": "in"
+                },
+                {
+                  "column": "WeatherPremium",
+                  "value": ":DB2-B-WeatherPremium-Int",
+                  "host": "DB2-B-WeatherPremium-Int",
+                  "direction": "in"
+                },
+                {
+                  "column": "Status",
+                  "value": ":DB2-B-Status-Int",
+                  "host": "DB2-B-Status-Int",
+                  "direction": "in"
+                },
+                {
+                  "column": "RejectionReason",
+                  "value": ":CA-B-RejectReason",
+                  "host": "CA-B-RejectReason",
+                  "direction": "in"
+                }
+              ],
+              "predicate": null
+            }
+          }
+        },
+        {
+          "rule_id": "R8",
+          "source_lines": "lgapdb01.cbl:551",
+          "source_text": "             EXEC CICS ABEND ABCODE('LGSQ') NODUMP END-EXEC",
+          "generated_text": "             MOVE 'LGSQ' TO HARNESS-ABEND-CODE\n             CALL 'CICS-ABEND' USING HARNESS-ABEND-CODE\n             GOBACK",
+          "notes": "abend code 'LGSQ' captured before returning; the NODUMP option has no harness counterpart; source line 552 is an EXEC CICS RETURN that R7 emits as a second GOBACK, which is unreachable"
+        },
+        {
+          "rule_id": "R7",
+          "source_lines": "lgapdb01.cbl:552",
+          "source_text": "             EXEC CICS RETURN END-EXEC",
+          "generated_text": "             GOBACK",
+          "notes": "control returns to the caller at this point; see modernization/docs/decision-log.md, row: no called RETURN stub"
+        },
+        {
+          "rule_id": "R10",
+          "source_lines": "lgapdb01.cbl:566-567",
+          "source_text": "           EXEC CICS ASKTIME ABSTIME(ABS-TIME)\n           END-EXEC",
+          "generated_text": "           CALL 'CICS-ASKTIME' USING ABS-TIME",
+          "notes": "ABSTIME(ABS-TIME) receives the harness clock value"
+        },
+        {
+          "rule_id": "R11",
+          "source_lines": "lgapdb01.cbl:568-571",
+          "source_text": "           EXEC CICS FORMATTIME ABSTIME(ABS-TIME)\n                     MMDDYYYY(DATE1)\n                     TIME(TIME1)\n           END-EXEC",
+          "generated_text": "           CALL 'CICS-FORMATTIME' USING ABS-TIME DATE1 TIME1",
+          "notes": "ABSTIME(ABS-TIME) is formatted into MMDDYYYY(DATE1) and TIME(TIME1)"
+        },
+        {
+          "rule_id": "R6",
+          "source_lines": "lgapdb01.cbl:575-578",
+          "source_text": "           EXEC CICS LINK PROGRAM('LGSTSQ')\n                     COMMAREA(ERROR-MSG)\n                     LENGTH(LENGTH OF ERROR-MSG)\n           END-EXEC.",
+          "generated_text": "           MOVE LENGTH OF ERROR-MSG TO HARNESS-DIAG-LEN\n           CALL 'CICS-DIAG-LINK' USING ERROR-MSG HARNESS-DIAG-LEN.",
+          "notes": "diagnostic area ERROR-MSG and its length are passed to CICS-DIAG-LINK; the source spelling of the length operand was 'LENGTH OF ERROR-MSG'"
+        },
+        {
+          "rule_id": "R6",
+          "source_lines": "lgapdb01.cbl:583-586",
+          "source_text": "               EXEC CICS LINK PROGRAM('LGSTSQ')\n                         COMMAREA(CA-ERROR-MSG)\n                         LENGTH(LENGTH OF CA-ERROR-MSG)\n               END-EXEC",
+          "generated_text": "               MOVE LENGTH OF CA-ERROR-MSG TO HARNESS-DIAG-LEN\n               CALL 'CICS-DIAG-LINK' USING CA-ERROR-MSG HARNESS-DIAG-LEN",
+          "notes": "diagnostic area CA-ERROR-MSG and its length are passed to CICS-DIAG-LINK; the source spelling of the length operand was 'LENGTH OF CA-ERROR-MSG'"
+        },
+        {
+          "rule_id": "R6",
+          "source_lines": "lgapdb01.cbl:589-592",
+          "source_text": "               EXEC CICS LINK PROGRAM('LGSTSQ')\n                         COMMAREA(CA-ERROR-MSG)\n                         LENGTH(LENGTH OF CA-ERROR-MSG)\n               END-EXEC",
+          "generated_text": "               MOVE LENGTH OF CA-ERROR-MSG TO HARNESS-DIAG-LEN\n               CALL 'CICS-DIAG-LINK' USING CA-ERROR-MSG HARNESS-DIAG-LEN",
+          "notes": "diagnostic area CA-ERROR-MSG and its length are passed to CICS-DIAG-LINK; the source spelling of the length operand was 'LENGTH OF CA-ERROR-MSG'"
+        }
+      ]
+    },
+    {
+      "source": "base/src/lgapvs01.cbl",
+      "generated": "modernization/harness/build/src/lgapvs01.cbl",
+      "source_lines": 188,
+      "generated_lines": 183,
+      "exec_cics_sites": 7,
+      "exec_sql_blocks": 0,
+      "rewritten_source_lines": 28,
+      "unchanged_source_lines": 160,
+      "rule_emitted_lines": 23,
+      "abend_sites_followed_by_return": 0,
+      "applications": [
+        {
+          "rule_id": "R4",
+          "source_lines": "lgapvs01.cbl:16",
+          "source_text": "       WORKING-STORAGE SECTION.",
+          "generated_text": "       COPY DFHEIBLK.\n       01  HARNESS-ABEND-CODE           PIC X(4)  VALUE SPACES.\n       01  HARNESS-DIAG-LEN             PIC S9(8) COMP VALUE +0.\n       COPY DFHRESP.",
+          "notes": "inserted after the anchor line, which is copied unchanged: DFHEIBLK, HARNESS-ABEND-CODE, HARNESS-DIAG-LEN, DFHRESP"
+        },
+        {
+          "rule_id": "R3",
+          "source_lines": "lgapvs01.cbl:91",
+          "source_text": "       PROCEDURE DIVISION.",
+          "generated_text": "       PROCEDURE DIVISION USING DFHCOMMAREA.",
+          "notes": "PROCEDURE DIVISION bound to DFHCOMMAREA for dynamic CALL by reference"
+        },
+        {
+          "rule_id": "R9",
+          "source_lines": "lgapvs01.cbl:135-141",
+          "source_text": "           Exec CICS Write File('KSDSPOLY')\n                     From(WF-Policy-Info)\n                     Length(64)\n                     Ridfld(WF-Policy-Key)\n                     KeyLength(21)\n                     RESP(WS-RESP)\n           End-Exec.",
+          "generated_text": "           CALL 'CICS-WRITE' USING\n                'KSDSPOLY'\n                WF-Policy-Info\n                '00064'\n                WF-Policy-Key\n                '00021'\n                WS-RESP\n           END-CALL.",
+          "notes": "FILE('KSDSPOLY'), FROM(WF-Policy-Info), LENGTH(64), RIDFLD(WF-Policy-Key), KEYLENGTH(21) and RESP(WS-RESP) are all passed to CICS-WRITE in source-operand order; the two lengths travel as the 5-digit literals '00064' and '00021'",
+          "details": {
+            "file_write": {
+              "program": "lgapvs01.cbl",
+              "locator": "135-141",
+              "file": "KSDSPOLY",
+              "file_length": 8,
+              "from_item": "WF-Policy-Info",
+              "record_length": 64,
+              "record_length_literal": "00064",
+              "ridfld_item": "WF-Policy-Key",
+              "key_length": 21,
+              "key_length_literal": "00021",
+              "resp_item": "WS-RESP",
+              "call_program": "CICS-WRITE"
+            }
+          }
+        },
+        {
+          "rule_id": "R12",
+          "source_lines": "lgapvs01.cbl:142",
+          "source_text": "           If WS-RESP Not = DFHRESP(NORMAL)",
+          "generated_text": "           If WS-RESP Not = DFHRESP-NORMAL",
+          "notes": "DFHRESP(NORMAL) replaced by DFHRESP-NORMAL; the rest of the condition is unchanged"
+        },
+        {
+          "rule_id": "R7",
+          "source_lines": "lgapvs01.cbl:146",
+          "source_text": "             EXEC CICS RETURN END-EXEC",
+          "generated_text": "             GOBACK",
+          "notes": "control returns to the caller at this point; see modernization/docs/decision-log.md, row: no called RETURN stub"
+        },
+        {
+          "rule_id": "R10",
+          "source_lines": "lgapvs01.cbl:156-157",
+          "source_text": "           EXEC CICS ASKTIME ABSTIME(WS-ABSTIME)\n           END-EXEC",
+          "generated_text": "           CALL 'CICS-ASKTIME' USING WS-ABSTIME",
+          "notes": "ABSTIME(WS-ABSTIME) receives the harness clock value"
+        },
+        {
+          "rule_id": "R11",
+          "source_lines": "lgapvs01.cbl:158-161",
+          "source_text": "           EXEC CICS FORMATTIME ABSTIME(WS-ABSTIME)\n                     MMDDYYYY(WS-DATE)\n                     TIME(WS-TIME)\n           END-EXEC",
+          "generated_text": "           CALL 'CICS-FORMATTIME' USING WS-ABSTIME WS-DATE WS-TIME",
+          "notes": "ABSTIME(WS-ABSTIME) is formatted into MMDDYYYY(WS-DATE) and TIME(WS-TIME)"
+        },
+        {
+          "rule_id": "R6",
+          "source_lines": "lgapvs01.cbl:169-172",
+          "source_text": "           EXEC CICS LINK PROGRAM('LGSTSQ')\n                     COMMAREA(ERROR-MSG)\n                     LENGTH(LENGTH OF ERROR-MSG)\n           END-EXEC.",
+          "generated_text": "           MOVE LENGTH OF ERROR-MSG TO HARNESS-DIAG-LEN\n           CALL 'CICS-DIAG-LINK' USING ERROR-MSG HARNESS-DIAG-LEN.",
+          "notes": "diagnostic area ERROR-MSG and its length are passed to CICS-DIAG-LINK; the source spelling of the length operand was 'LENGTH OF ERROR-MSG'"
+        },
+        {
+          "rule_id": "R6",
+          "source_lines": "lgapvs01.cbl:176-179",
+          "source_text": "               EXEC CICS LINK PROGRAM('LGSTSQ')\n                         COMMAREA(CA-ERROR-MSG)\n                         LENGTH(Length Of CA-ERROR-MSG)\n               END-EXEC",
+          "generated_text": "               MOVE LENGTH OF CA-ERROR-MSG TO HARNESS-DIAG-LEN\n               CALL 'CICS-DIAG-LINK' USING CA-ERROR-MSG HARNESS-DIAG-LEN",
+          "notes": "diagnostic area CA-ERROR-MSG and its length are passed to CICS-DIAG-LINK; the source spelling of the length operand was 'Length Of CA-ERROR-MSG'"
+        },
+        {
+          "rule_id": "R6",
+          "source_lines": "lgapvs01.cbl:182-185",
+          "source_text": "               EXEC CICS LINK PROGRAM('LGSTSQ')\n                         COMMAREA(CA-ERROR-MSG)\n                         LENGTH(Length Of CA-ERROR-MSG)\n               END-EXEC",
+          "generated_text": "               MOVE LENGTH OF CA-ERROR-MSG TO HARNESS-DIAG-LEN\n               CALL 'CICS-DIAG-LINK' USING CA-ERROR-MSG HARNESS-DIAG-LEN",
+          "notes": "diagnostic area CA-ERROR-MSG and its length are passed to CICS-DIAG-LINK; the source spelling of the length operand was 'Length Of CA-ERROR-MSG'"
+        }
+      ]
+    }
+  ],
+  "rule_totals": {
+    "R1": {
+      "expected": 1,
+      "observed": 1
+    },
+    "R2": {
+      "expected": 3,
+      "observed": 3
+    },
+    "R3": {
+      "expected": 3,
+      "observed": 3
+    },
+    "R4": {
+      "expected": 3,
+      "observed": 3
+    },
+    "R5": {
+      "expected": 2,
+      "observed": 2
+    },
+    "R6": {
+      "expected": 9,
+      "observed": 9
+    },
+    "R7": {
+      "expected": 12,
+      "observed": 12
+    },
+    "R8": {
+      "expected": 6,
+      "observed": 6
+    },
+    "R9": {
+      "expected": 1,
+      "observed": 1
+    },
+    "R10": {
+      "expected": 3,
+      "observed": 3
+    },
+    "R11": {
+      "expected": 3,
+      "observed": 3
+    },
+    "R12": {
+      "expected": 1,
+      "observed": 1
+    },
+    "R13": {
+      "expected": 8,
+      "observed": 8
+    },
+    "R14": {
+      "expected": 694,
+      "observed": 694,
+      "unit": "source lines carried through byte-for-byte"
+    }
+  },
+  "totals": {
+    "exec_cics_sites": 36,
+    "exec_sql_blocks": 11,
+    "expected_exec_cics_sites": 36,
+    "expected_exec_sql_blocks": 11,
+    "abend_sites_followed_by_return": 4
+  },
+  "structural_counts": {
+    "COPY DFHEIBLK.": {
+      "expected": 3,
+      "observed": 3
+    },
+    "COPY DFHRESP.": {
+      "expected": 1,
+      "observed": 1
+    },
+    "COPY HSQLCA.": {
+      "expected": 1,
+      "observed": 1
+    },
+    "COPY LGCMAREA.": {
+      "expected": 3,
+      "observed": 3
+    },
+    "COPY LGPOLICY.": {
+      "expected": 1,
+      "observed": 1
+    },
+    "PROCEDURE DIVISION USING DFHCOMMAREA.": {
+      "expected": 3,
+      "observed": 3
+    }
+  },
+  "resolved_copies": [
+    {
+      "program": "lgapol01.cbl",
+      "line": 20,
+      "member": "DFHEIBLK"
+    },
+    {
+      "program": "lgapol01.cbl",
+      "line": 74,
+      "member": "LGCMAREA"
+    },
+    {
+      "program": "lgapdb01.cbl",
+      "line": 20,
+      "member": "DFHEIBLK"
+    },
+    {
+      "program": "lgapdb01.cbl",
+      "line": 78,
+      "member": "LGPOLICY"
+    },
+    {
+      "program": "lgapdb01.cbl",
+      "line": 125,
+      "member": "HSQLCA"
+    },
+    {
+      "program": "lgapdb01.cbl",
+      "line": 134,
+      "member": "LGCMAREA"
+    },
+    {
+      "program": "lgapvs01.cbl",
+      "line": 17,
+      "member": "DFHEIBLK"
+    },
+    {
+      "program": "lgapvs01.cbl",
+      "line": 20,
+      "member": "DFHRESP"
+    },
+    {
+      "program": "lgapvs01.cbl",
+      "line": 91,
+      "member": "LGCMAREA"
+    }
+  ],
+  "chain_link_contract": {
+    "expected_sites": 2,
+    "observed_sites": 2,
+    "commarea_operand": "DFHCOMMAREA",
+    "length": 32500,
+    "expected_targets": {
+      "lgapdb01.cbl": "LGAPVS01",
+      "lgapol01.cbl": "LGAPDB01"
+    },
+    "sites": [
+      {
+        "program": "lgapdb01.cbl",
+        "locator": "243-246",
+        "program_operand": "LGAPVS01",
+        "target_program": "LGAPVS01",
+        "target_declared_at": "lgapdb01.cbl:119",
+        "target_declaration": "01 LGAPVS01 PIC X(8) VALUE 'LGAPVS01'.",
+        "commarea_operand": "DFHCOMMAREA",
+        "length": 32500
+      },
+      {
+        "program": "lgapol01.cbl",
+        "locator": "121-124",
+        "program_operand": "LGAPDB01",
+        "target_program": "LGAPDB01",
+        "target_declared_at": "lgapol01.cbl:51",
+        "target_declaration": "01 LGAPDB01 PIC X(8) VALUE 'LGAPDB01'.",
+        "commarea_operand": "DFHCOMMAREA",
+        "length": 32500
+      }
+    ]
+  },
+  "execution_order_contract": {
+    "declared_constraints": 8,
+    "validated_constraints": 8,
+    "witness_copybook": "modernization/harness/copybooks/hcapture.cpy",
+    "sequence_item": "HC-EVENT-SEQ",
+    "unstamped_value": 0,
+    "ordinal_pic": "9(4)",
+    "ordinal_by_dml_id": {
+      "insert_commercial": "HC-COM-SEQ",
+      "insert_endowment_novarchar": "HC-END-SEQ",
+      "insert_endowment_varchar": "HC-END-SEQ",
+      "insert_house": "HC-HOU-SEQ",
+      "insert_motor": "HC-MOT-SEQ",
+      "insert_policy": "HC-POL-SEQ",
+      "select_lastchanged": "HC-LCHG-SEQ",
+      "set_identity": "HC-IDENT-SEQ"
+    },
+    "vsam_write_ordinal_item": "HC-VSAM-SEQ",
+    "constraints": [
+      {
+        "id": "policy_first_captured",
+        "predecessor": "none",
+        "successor": "insert_policy",
+        "reason_kind": "control_flow",
+        "predecessor_ordinal_item": "none",
+        "successor_ordinal_item": "HC-POL-SEQ",
+        "alternative_predecessor_ordinal_items": [],
+        "enforced_by": "modernization/harness/stubs/sql_insert_policy.cbl",
+        "assertions": 1
+      },
+      {
+        "id": "policy_before_identity",
+        "predecessor": "insert_policy",
+        "successor": "set_identity",
+        "reason_kind": "data_dependency",
+        "predecessor_ordinal_item": "HC-POL-SEQ",
+        "successor_ordinal_item": "HC-IDENT-SEQ",
+        "alternative_predecessor_ordinal_items": [],
+        "enforced_by": "modernization/harness/stubs/sql_set_identity.cbl",
+        "assertions": 3
+      },
+      {
+        "id": "identity_before_lastchanged",
+        "predecessor": "set_identity",
+        "successor": "select_lastchanged",
+        "reason_kind": "data_dependency",
+        "predecessor_ordinal_item": "HC-IDENT-SEQ",
+        "successor_ordinal_item": "HC-LCHG-SEQ",
+        "alternative_predecessor_ordinal_items": [],
+        "enforced_by": "modernization/harness/stubs/sql_select_lastchanged.cbl",
+        "assertions": 3
+      },
+      {
+        "id": "lastchanged_before_motor",
+        "predecessor": "select_lastchanged",
+        "successor": "insert_motor",
+        "reason_kind": "control_flow",
+        "predecessor_ordinal_item": "HC-LCHG-SEQ",
+        "successor_ordinal_item": "HC-MOT-SEQ",
+        "alternative_predecessor_ordinal_items": [],
+        "enforced_by": "modernization/harness/stubs/sql_insert_motor.cbl",
+        "assertions": 3
+      },
+      {
+        "id": "lastchanged_before_house",
+        "predecessor": "select_lastchanged",
+        "successor": "insert_house",
+        "reason_kind": "control_flow",
+        "predecessor_ordinal_item": "HC-LCHG-SEQ",
+        "successor_ordinal_item": "HC-HOU-SEQ",
+        "alternative_predecessor_ordinal_items": [],
+        "enforced_by": "modernization/harness/stubs/sql_insert_house.cbl",
+        "assertions": 3
+      },
+      {
+        "id": "lastchanged_before_endowment",
+        "predecessor": "select_lastchanged",
+        "successor": "insert_endowment_varchar",
+        "reason_kind": "control_flow",
+        "predecessor_ordinal_item": "HC-LCHG-SEQ",
+        "successor_ordinal_item": "HC-END-SEQ",
+        "alternative_predecessor_ordinal_items": [],
+        "enforced_by": "modernization/harness/stubs/sql_insert_endowment.cbl",
+        "assertions": 3
+      },
+      {
+        "id": "policy_and_product_before_vsam_write",
+        "predecessor": "insert_policy",
+        "successor": "cics_write",
+        "reason_kind": "control_flow",
+        "predecessor_ordinal_item": "HC-POL-SEQ",
+        "successor_ordinal_item": "HC-VSAM-SEQ",
+        "alternative_predecessor_ordinal_items": [
+          "HC-MOT-SEQ",
+          "HC-COM-SEQ",
+          "HC-END-SEQ",
+          "HC-HOU-SEQ"
+        ],
+        "enforced_by": "modernization/harness/stubs/cics_write.cbl",
+        "assertions": 7
+      },
+      {
+        "id": "lastchanged_before_commercial",
+        "predecessor": "select_lastchanged",
+        "successor": "insert_commercial",
+        "reason_kind": "data_dependency",
+        "predecessor_ordinal_item": "HC-LCHG-SEQ",
+        "successor_ordinal_item": "HC-COM-SEQ",
+        "alternative_predecessor_ordinal_items": [],
+        "enforced_by": "modernization/harness/stubs/sql_insert_commercial.cbl",
+        "assertions": 3
+      }
+    ]
+  },
+  "capture_order_contract": {
+    "copybook": "modernization/harness/copybooks/hcapture.cpy",
+    "sequence_item": "HC-EVENT-SEQ",
+    "ordinal_items_declared": [
+      "HC-ABEND-SEQ",
+      "HC-COM-SEQ",
+      "HC-END-SEQ",
+      "HC-EVENT-SEQ",
+      "HC-HOU-SEQ",
+      "HC-IDENT-SEQ",
+      "HC-LCHG-SEQ",
+      "HC-MOT-SEQ",
+      "HC-POL-SEQ",
+      "HC-VSAM-SEQ"
+    ],
+    "non_statement_ordinal_items": [
+      "HC-ABEND-SEQ"
+    ],
+    "event_ordinals": {
+      "cics_write": "HC-VSAM-SEQ",
+      "insert_commercial": "HC-COM-SEQ",
+      "insert_endowment_novarchar": "HC-END-SEQ",
+      "insert_endowment_varchar": "HC-END-SEQ",
+      "insert_house": "HC-HOU-SEQ",
+      "insert_motor": "HC-MOT-SEQ",
+      "insert_policy": "HC-POL-SEQ",
+      "select_lastchanged": "HC-LCHG-SEQ",
+      "set_identity": "HC-IDENT-SEQ"
+    },
+    "entries": [
+      {
+        "entry": "policy_and_product_before_vsam_write",
+        "predecessor": "insert_policy",
+        "successor": "cics_write",
+        "enforced_by": "modernization/harness/stubs/cics_write.cbl",
+        "prerequisite_ordinal_items": [
+          "HC-COM-SEQ",
+          "HC-END-SEQ",
+          "HC-HOU-SEQ",
+          "HC-MOT-SEQ",
+          "HC-POL-SEQ"
+        ],
+        "successor_ordinal_item": "HC-VSAM-SEQ",
+        "first_captured_ordinal": null,
+        "guard_line": 279
+      },
+      {
+        "entry": "lastchanged_before_commercial",
+        "predecessor": "select_lastchanged",
+        "successor": "insert_commercial",
+        "enforced_by": "modernization/harness/stubs/sql_insert_commercial.cbl",
+        "prerequisite_ordinal_items": [
+          "HC-LCHG-SEQ"
+        ],
+        "successor_ordinal_item": "HC-COM-SEQ",
+        "first_captured_ordinal": null,
+        "guard_line": 412
+      },
+      {
+        "entry": "lastchanged_before_endowment",
+        "predecessor": "select_lastchanged",
+        "successor": "insert_endowment_varchar",
+        "enforced_by": "modernization/harness/stubs/sql_insert_endowment.cbl",
+        "prerequisite_ordinal_items": [
+          "HC-LCHG-SEQ"
+        ],
+        "successor_ordinal_item": "HC-END-SEQ",
+        "first_captured_ordinal": null,
+        "guard_line": 350
+      },
+      {
+        "entry": "lastchanged_before_house",
+        "predecessor": "select_lastchanged",
+        "successor": "insert_house",
+        "enforced_by": "modernization/harness/stubs/sql_insert_house.cbl",
+        "prerequisite_ordinal_items": [
+          "HC-LCHG-SEQ"
+        ],
+        "successor_ordinal_item": "HC-HOU-SEQ",
+        "first_captured_ordinal": null,
+        "guard_line": 240
+      },
+      {
+        "entry": "lastchanged_before_motor",
+        "predecessor": "select_lastchanged",
+        "successor": "insert_motor",
+        "enforced_by": "modernization/harness/stubs/sql_insert_motor.cbl",
+        "prerequisite_ordinal_items": [
+          "HC-LCHG-SEQ"
+        ],
+        "successor_ordinal_item": "HC-MOT-SEQ",
+        "first_captured_ordinal": null,
+        "guard_line": 261
+      },
+      {
+        "entry": "policy_first_captured",
+        "predecessor": "none",
+        "successor": "insert_policy",
+        "enforced_by": "modernization/harness/stubs/sql_insert_policy.cbl",
+        "prerequisite_ordinal_items": [
+          "HC-POL-SEQ"
+        ],
+        "successor_ordinal_item": "HC-POL-SEQ",
+        "first_captured_ordinal": 1,
+        "guard_line": 366
+      },
+      {
+        "entry": "identity_before_lastchanged",
+        "predecessor": "set_identity",
+        "successor": "select_lastchanged",
+        "enforced_by": "modernization/harness/stubs/sql_select_lastchanged.cbl",
+        "prerequisite_ordinal_items": [
+          "HC-IDENT-SEQ"
+        ],
+        "successor_ordinal_item": "HC-LCHG-SEQ",
+        "first_captured_ordinal": null,
+        "guard_line": 426
+      },
+      {
+        "entry": "policy_before_identity",
+        "predecessor": "insert_policy",
+        "successor": "set_identity",
+        "enforced_by": "modernization/harness/stubs/sql_set_identity.cbl",
+        "prerequisite_ordinal_items": [
+          "HC-POL-SEQ"
+        ],
+        "successor_ordinal_item": "HC-IDENT-SEQ",
+        "first_captured_ordinal": null,
+        "guard_line": 182
+      }
+    ],
+    "driver_agreement": {
+      "driver": "modernization/harness/driver.cbl",
+      "order_table_events": {
+        "cics_write": "HC-VSAM-SEQ",
+        "insert_commercial": "HC-COM-SEQ",
+        "insert_endowment": "HC-END-SEQ",
+        "insert_house": "HC-HOU-SEQ",
+        "insert_motor": "HC-MOT-SEQ",
+        "insert_policy": "HC-POL-SEQ",
+        "select_lastchanged": "HC-LCHG-SEQ",
+        "set_identity": "HC-IDENT-SEQ"
+      },
+      "reads_order_violation": true
+    }
+  },
+  "response_condition_item": "DFHRESP-NORMAL",
+  "commented_source_tokens": {
+    "lgapdb01.cbl": {
+      "PROCESS SQL": [
+        1
+      ]
+    }
+  },
+  "read_only_checks": {
+    "source_digests_reverified": true,
+    "git_working_tree": {
+      "checked": true,
+      "pathspec": "base/src/",
+      "reported_changes": 0
+    }
+  }
+}

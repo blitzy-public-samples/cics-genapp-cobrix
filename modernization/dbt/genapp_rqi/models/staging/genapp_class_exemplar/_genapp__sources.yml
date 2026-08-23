@@ -1,0 +1,328 @@
+# _genapp__sources.yml
+# Source declaration for the GenApp Policy-Issue cloud-warehouse bridge.
+# Declares raw.genapp_policy_issue, the landing relation created by
+# modernization/warehouse/ddl/02_raw_genapp_policy_issue.sql in the schema created by
+# modernization/warehouse/ddl/01_schemas.sql, and the only dbt source of the genapp_rqi
+# project. dbt discovers this file through the model-paths entry of dbt_project.yml;
+# nothing imports it.
+# Callable binding: source('genapp', 'genapp_policy_issue') resolves to
+# raw.genapp_policy_issue.
+# Consumers: stg_genapp__policy_issue.sql beside this file holds the only source() call of
+# the project, and every model downstream of it reaches this relation through ref() alone.
+# Milestone status: every member of the dbt project is present — dbt_project.yml,
+# profiles.example.yml, macros/generate_schema_name.sql, this file, the staging model
+# stg_genapp__policy_issue.sql with _genapp__models.yml beside it, the intermediate model
+# int_policy_issue_decoded.sql with _int__models.yml beside it, the two mart models
+# canonical_issued_policy.sql and canonical_preissued_rating.sql with
+# _canonical__models.yml beside them, and the four singular tests under tests/. This file
+# claims no run of its own; per-target run status is recorded in
+# modernization/validation/validation-evidence.md, which records the DuckDB local_substitute
+# run and no Amazon Redshift run.
+# The 17 columns declared below carry the column names, column order and VARCHAR widths of
+# modernization/warehouse/ddl/02_raw_genapp_policy_issue.sql, which are the 17 landing keys
+# of modernization/landing/landing-schema.json ordered by the landing.field_order block of
+# modernization/extraction/copybook_field_map.yml, the naming authority for this contract.
+# Every column is VARCHAR and accepts null. Typing is applied by the dbt models:
+# models/intermediate/int_policy_issue_decoded.sql applies every cast of the bridge and the
+# two enforced contracts of models/marts/canonical/_canonical__models.yml declare the
+# resulting canonical types.
+# dbt supports no enforced contract on a source, so the 17 columns below are documentation
+# and generic-test attachment points; the physical column set of raw.genapp_policy_issue is
+# created by modernization/warehouse/ddl/02_raw_genapp_policy_issue.sql. A column this file
+# names and the relation does not carry fails the staging model, which selects all 17 by
+# name. The exact output column set of each dbt model is carried by the enforced model
+# contracts of _genapp__models.yml beside this file and of
+# models/intermediate/_int__models.yml.
+# Landed rows are successful executions only: modernization/extraction/extract_commarea.py
+# refuses a record whose returned CA-RETURN-CODE is not 00, so return_code holds 00 in every
+# landed row, and the accepted_values test on that column admits the six codes the chain
+# assigns, so a row carrying any of the other five is retained by this relation and by the
+# staging and intermediate models rather than stopping the run.
+# No adapter-specific value is declared; this file is applied unchanged on Amazon Redshift
+# and DuckDB.
+# Diagram reference: Figure 4 — dbt Transformation DAG and Field Allocation
+# in modernization/docs/architecture.md.
+# Rationale for every choice in this file: modernization/docs/decision-log.md
+
+version: 2
+
+sources:
+  - name: genapp
+    description: >-
+      GenApp Policy-Issue landing data of the class-exemplar source system. The group holds
+      one relation, raw.genapp_policy_issue, and is the only dbt source of the genapp_rqi
+      project. Each row is one post-chain COMMAREA record of one execution of the LGAPOL01,
+      LGAPDB01 and LGAPVS01 policy-issue chain, decoded by
+      modernization/extraction/extract_commarea.py. The relation is populated by
+      modernization/landing/load_redshift.sql on Amazon Redshift and by
+      modernization/landing/load_local.py on DuckDB.
+    schema: raw
+    tables:
+      - name: genapp_policy_issue
+        description: >-
+          One landed GenApp Policy-Issue record per row: the warehouse-assigned
+          source_system_key and the 16 runtime business values one execution of the
+          LGAPOL01, LGAPDB01 and LGAPVS01 chain produces. Landing admits exactly one record
+          per successful execution of that chain, so every row of this relation carries
+          return_code 00 together with the policy number and the last-changed timestamp the
+          chain assigned. All 17 columns are VARCHAR and
+          accept null; every landed value reaches the relation as a JSON string or null and
+          no value arrives as a JSON number or boolean. A landed null reaches its column as
+          SQL NULL. The natural key both loaders guard on is
+          (source_system_key, policy_number): each loader removes any row already carrying
+          the key it is about to write and then inserts, so a repeated run leaves one row
+          and a row carrying any other key survives. The motor sample row and the commercial
+          sample row coexist in this relation. Landed contract: only a successful record
+          reaches this relation. modernization/extraction/extract_commarea.py rejects every
+          returned CA-RETURN-CODE other than 00, so every row carries return code 00 and
+          every column documented below as never null holds a value. The four peril
+          declarations CA-B-FirePeril, CA-B-CrimePeril, CA-B-FloodPeril and
+          CA-B-WeatherPeril, each PIC 9(4) at base/src/lgcmarea.cpy:84, :86, :88 and :90,
+          are code items and not amount items, and no column of this relation carries one;
+          the amount items are the adjacent PIC 9(8) premium declarations at
+          base/src/lgcmarea.cpy:85, :87, :89 and :91.
+        columns:
+          - name: source_system_key
+            description: >-
+              Source-system discriminator assigned by the warehouse. No COBOL item supplies
+              it: this is the sole warehouse-assigned column of the landed record and its
+              evidence is the user requirement rather than a source locator. The value
+              modernization/extraction/extract_commarea.py writes for this exemplar is
+              GENAPP_CLASS_EXEMPLAR. The same value is the leading element of the S3 key
+              prefix and the first element of the natural key the loaders guard on.
+              VARCHAR(64); never null in a landed record.
+            data_tests:
+              - not_null
+
+          - name: policy_number
+            description: >-
+              Policy number recovered after the policy insert. CA-POLICY-NUM PIC 9(10),
+              base/src/lgcmarea.cpy:35. The policy insert supplies DEFAULT for POLICYNUMBER
+              at base/src/lgapdb01.cbl:279; IDENTITY_VAL_LOCAL() loads the integer host
+              variable DB2-POLICYNUM-INT PIC S9(9) COMP, declared at
+              base/src/lgapdb01.cbl:117, at base/src/lgapdb01.cbl:308-310, and
+              base/src/lgapdb01.cbl:311 moves the recovered value into the COMMAREA item,
+              so the value exists only in the returned COMMAREA. The Db2-side counterpart
+              DB2-POLICYNUMBER PIC 9(10), base/src/lgpolicy.cpy:44, is declaration-only and
+              carries no runtime value. Landed as an unsigned digit string with leading
+              zeros stripped. VARCHAR(10); never null in a landed record, which the landed
+              contract admits only for a successful record. Second element of the natural key
+              the loaders guard on.
+            data_tests:
+              - not_null
+
+          - name: policy_type
+            description: >-
+              Single-letter product discriminator. This is not a COMMAREA item:
+              DB2-POLICYTYPE PIC X, base/src/lgpolicy.cpy:43, is assigned by the
+              request-routing EVALUATE at base/src/lgapdb01.cbl:184-207, in which 01AEND
+              yields E at base/src/lgapdb01.cbl:188, 01AHOU yields H at
+              base/src/lgapdb01.cbl:192, 01AMOT yields M at base/src/lgapdb01.cbl:196 and
+              01ACOM yields C at base/src/lgapdb01.cbl:200, and is passed to the policy
+              insert at base/src/lgapdb01.cbl:283.
+              modernization/extraction/extract_commarea.py derives the letter from the
+              trimmed CA-REQUEST-ID through that same routing before landing and derives no
+              other value from it. VARCHAR(1); never null in a landed record, which the
+              landed contract admits only for a successful record.
+            data_tests:
+              - not_null
+              - accepted_values:
+                  arguments:
+                    values: ["E", "H", "M", "C"]
+
+          - name: customer_number
+            description: >-
+              Customer number supplied in the request. CA-CUSTOMER-NUM PIC 9(10),
+              base/src/lgcmarea.cpy:12, moved to the integer host variable
+              DB2-CUSTOMERNUM-INT at base/src/lgapdb01.cbl:176 and passed to the policy
+              insert at base/src/lgapdb01.cbl:280. Landed as an unsigned digit string with
+              leading zeros stripped. VARCHAR(10); never null in a landed record.
+            data_tests:
+              - not_null
+
+          - name: request_id
+            description: >-
+              Request identifier the chain routes on. CA-REQUEST-ID PIC X(6),
+              base/src/lgcmarea.cpy:10, evaluated at base/src/lgapdb01.cbl:184. Landed with
+              surrounding spaces trimmed. The accepted values are the four request ids the
+              routing EVALUATE at base/src/lgapdb01.cbl:184-207 recognises, one branch each:
+              01AEND at base/src/lgapdb01.cbl:188 yields policy type E, 01AHOU at :192
+              yields H, 01AMOT at :196 yields M and 01ACOM at :200 yields C. Any other id
+              reaches the WHEN OTHER branch at base/src/lgapdb01.cbl:202-205, which sets
+              return code 99 and returns without assigning a policy type, and
+              modernization/extraction/extract_commarea.py refuses to land such a record.
+              The authored sample definitions under
+              modernization/extraction/sample_input/ cover 01AMOT and 01ACOM. VARCHAR(6);
+              never null in a landed record, which the landed contract admits only for a
+              successful record.
+            data_tests:
+              - not_null
+              - accepted_values:
+                  arguments:
+                    values: ["01AEND", "01AHOU", "01AMOT", "01ACOM"]
+
+          - name: return_code
+            description: >-
+              Return code read from the returned COMMAREA. CA-RETURN-CODE PIC 9(2),
+              base/src/lgcmarea.cpy:11. Each of the fourteen write sites moves a quoted
+              two-character literal, so the value is carried as the two-character string 00
+              rather than as a number and its leading zero is preserved:
+              base/src/lgapol01.cbl:105 and :114; base/src/lgapdb01.cbl:172, :204, :211,
+              :239, :293, :296, :301, :390, :428, :474 and :548; and
+              base/src/lgapvs01.cbl:144. The six values the chain assigns are 00 success, 70
+              policy insert returned SQLCODE -530, 80 VSAM write response was not normal, 90
+              SQL failure, 98 COMMAREA shorter than the required length, and 99 unsupported
+              request id; the harness captures under modernization/validation/artifacts/ hold
+              the returned code of each executed sample. Only a successful execution is
+              landed: modernization/landing/landing-schema.json admits the single value 00,
+              enforced by modernization/extraction/extract_commarea.py, which refuses a record
+              whose returned code is not 00, so every landed row of this relation carries 00.
+              The accepted_values test below admits all six codes the chain assigns, so a row
+              carrying 70, 80, 90, 98 or 99 that reaches this relation by any other route is
+              retained here and by the staging and intermediate models as evidence for failure
+              analysis; the two models of models/marts/canonical apply
+              where return_code = '00', the one gate a row passes to reach a canonical
+              relation. The column is retained
+              through the raw, staging and intermediate layers because
+              canonical.issued_policy carries it, and the filter to 00 is applied in the
+              marts. VARCHAR(2); never null in a landed record.
+            data_tests:
+              - not_null
+              - accepted_values:
+                  arguments:
+                    values: ["00", "70", "80", "90", "98", "99"]
+
+          - name: issue_date
+            description: >-
+              Policy issue date supplied in the request. CA-ISSUE-DATE PIC X(10),
+              base/src/lgcmarea.cpy:38; Db2-side counterpart DB2-ISSUEDATE PIC X(10),
+              base/src/lgpolicy.cpy:46; passed to the policy insert as a character host
+              variable at base/src/lgapdb01.cbl:281. Landed trimmed as a calendar date
+              written YYYY-MM-DD; a window holding only spaces lands as null. VARCHAR(10);
+              nullable.
+
+          - name: expiry_date
+            description: >-
+              Policy expiry date supplied in the request. CA-EXPIRY-DATE PIC X(10),
+              base/src/lgcmarea.cpy:39; Db2-side counterpart DB2-EXPIRYDATE PIC X(10),
+              base/src/lgpolicy.cpy:47; passed to the policy insert as a character host
+              variable at base/src/lgapdb01.cbl:282. Landed trimmed as a calendar date
+              written YYYY-MM-DD; a window holding only spaces lands as null. VARCHAR(10);
+              nullable.
+
+          - name: last_changed
+            description: >-
+              Policy last-changed timestamp read back after the policy insert.
+              CA-LASTCHANGED PIC X(26), base/src/lgcmarea.cpy:40; Db2-side counterpart
+              DB2-LASTCHANGED PIC X(26), base/src/lgpolicy.cpy:48. The insert writes CURRENT
+              TIMESTAMP at base/src/lgapdb01.cbl:284 and the SELECT keyed on the recovered
+              policy number at base/src/lgapdb01.cbl:316-321 reads the assigned value back
+              into the COMMAREA item, so the value exists only in the returned COMMAREA.
+              modernization/extraction/extract_commarea.py normalises the returned
+              26-character timestamp to ISO-8601 with a T separator and microsecond
+              precision, written YYYY-MM-DDTHH:MM:SS.ffffff in 26 characters. VARCHAR(26);
+              never null in a landed record, which the landed contract admits only for a
+              successful record.
+            data_tests:
+              - not_null
+
+          - name: broker_id
+            description: >-
+              Broker identifier supplied in the request. CA-BROKERID PIC 9(10),
+              base/src/lgcmarea.cpy:41; Db2-side counterpart DB2-BROKERID PIC 9(10),
+              base/src/lgpolicy.cpy:49; moved to the integer host variable DB2-BROKERID-INT
+              at base/src/lgapdb01.cbl:264 and passed to the policy insert at
+              base/src/lgapdb01.cbl:285. Landed as an unsigned digit string with leading
+              zeros stripped. VARCHAR(10); nullable.
+
+          - name: brokers_reference
+            description: >-
+              Broker's reference supplied in the request. CA-BROKERSREF PIC X(10),
+              base/src/lgcmarea.cpy:42; Db2-side counterpart DB2-BROKERSREF PIC X(10),
+              base/src/lgpolicy.cpy:50; passed to the policy insert as a character host
+              variable at base/src/lgapdb01.cbl:286. A blank-padded fixed-width
+              alphanumeric window, landed trimmed, so the value holds at most the 10
+              characters the PICTURE declares and a window holding only spaces lands as null
+              rather than as an empty string. VARCHAR(10); nullable.
+
+          - name: payment_amount
+            description: >-
+              Policy payment amount supplied in the request. CA-PAYMENT PIC 9(6),
+              base/src/lgcmarea.cpy:43; Db2-side counterpart DB2-PAYMENT PIC 9(6),
+              base/src/lgpolicy.cpy:51; moved by MOVE CA-PAYMENT TO DB2-PAYMENT-INT at
+              base/src/lgapdb01.cbl:265 into the integer host variable PIC S9(9) COMP
+              declared at base/src/lgapdb01.cbl:92, and passed to the policy insert at
+              base/src/lgapdb01.cbl:287. The MOVE applies no arithmetic and the value is
+              inserted unchanged. The declaration is an unsigned DISPLAY numeric without an
+              implied decimal, so the landed value is a whole number carried as an unsigned
+              digit string with leading zeros stripped. Carried for every policy type.
+              VARCHAR(6); nullable.
+
+          - name: motor_premium_amount
+            description: >-
+              Motor policy premium amount supplied in the request. CA-M-PREMIUM PIC 9(6),
+              base/src/lgcmarea.cpy:73; Db2-side counterpart DB2-M-PREMIUM PIC 9(6),
+              base/src/lgpolicy.cpy:80; moved by MOVE CA-M-PREMIUM TO DB2-M-PREMIUM-INT at
+              base/src/lgapdb01.cbl:445 into the integer host variable PIC S9(9) COMP
+              declared at base/src/lgapdb01.cbl:100, and passed to the motor insert at
+              base/src/lgapdb01.cbl:469. The MOVE applies no arithmetic and the value is
+              inserted unchanged. The declaration is an unsigned DISPLAY numeric without an
+              implied decimal, so the landed value is a whole number carried as an unsigned
+              digit string with leading zeros stripped. Carried for policy type M and null
+              for every other policy type. VARCHAR(6); nullable.
+
+          - name: fire_premium_amount
+            description: >-
+              Commercial fire premium amount supplied in the request. CA-B-FirePremium
+              PIC 9(8), base/src/lgcmarea.cpy:85; Db2-side counterpart DB2-B-FirePremium
+              PIC 9(8), base/src/lgpolicy.cpy:91; moved by
+              MOVE CA-B-FirePremium TO DB2-B-FirePremium-Int at base/src/lgapdb01.cbl:489
+              into the integer host variable PIC S9(9) COMP declared at
+              base/src/lgapdb01.cbl:103, and passed to the commercial insert at
+              base/src/lgapdb01.cbl:535. The MOVE applies no arithmetic and the value is
+              inserted unchanged. The declaration is an unsigned DISPLAY numeric without an
+              implied decimal, so the landed value is a whole number carried as an unsigned
+              digit string with leading zeros stripped. Carried for policy type C and null
+              for every other policy type. VARCHAR(8); nullable.
+
+          - name: crime_premium_amount
+            description: >-
+              Commercial crime premium amount supplied in the request. CA-B-CrimePremium
+              PIC 9(8), base/src/lgcmarea.cpy:87; Db2-side counterpart DB2-B-CrimePremium
+              PIC 9(8), base/src/lgpolicy.cpy:93; moved by
+              MOVE CA-B-CrimePremium TO DB2-B-CrimePremium-Int at base/src/lgapdb01.cbl:491
+              into the integer host variable PIC S9(9) COMP declared at
+              base/src/lgapdb01.cbl:105, and passed to the commercial insert at
+              base/src/lgapdb01.cbl:537. The MOVE applies no arithmetic and the value is
+              inserted unchanged. The declaration is an unsigned DISPLAY numeric without an
+              implied decimal, so the landed value is a whole number carried as an unsigned
+              digit string with leading zeros stripped. Carried for policy type C and null
+              for every other policy type. VARCHAR(8); nullable.
+
+          - name: flood_premium_amount
+            description: >-
+              Commercial flood premium amount supplied in the request. CA-B-FloodPremium
+              PIC 9(8), base/src/lgcmarea.cpy:89; Db2-side counterpart DB2-B-FloodPremium
+              PIC 9(8), base/src/lgpolicy.cpy:95; moved by
+              MOVE CA-B-FloodPremium TO DB2-B-FloodPremium-Int at base/src/lgapdb01.cbl:493
+              into the integer host variable PIC S9(9) COMP declared at
+              base/src/lgapdb01.cbl:107, and passed to the commercial insert at
+              base/src/lgapdb01.cbl:539. The MOVE applies no arithmetic and the value is
+              inserted unchanged. The declaration is an unsigned DISPLAY numeric without an
+              implied decimal, so the landed value is a whole number carried as an unsigned
+              digit string with leading zeros stripped. Carried for policy type C and null
+              for every other policy type. VARCHAR(8); nullable.
+
+          - name: weather_premium_amount
+            description: >-
+              Commercial weather premium amount supplied in the request.
+              CA-B-WeatherPremium PIC 9(8), base/src/lgcmarea.cpy:91; Db2-side counterpart
+              DB2-B-WeatherPremium PIC 9(8), base/src/lgpolicy.cpy:97; moved by
+              MOVE CA-B-WeatherPremium TO DB2-B-WeatherPremium-Int at
+              base/src/lgapdb01.cbl:495 into the integer host variable PIC S9(9) COMP
+              declared at base/src/lgapdb01.cbl:109, and passed to the commercial insert at
+              base/src/lgapdb01.cbl:541. The MOVE applies no arithmetic and the value is
+              inserted unchanged. The declaration is an unsigned DISPLAY numeric without an
+              implied decimal, so the landed value is a whole number carried as an unsigned
+              digit string with leading zeros stripped. Carried for policy type C and null
+              for every other policy type. VARCHAR(8); nullable.

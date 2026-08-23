@@ -1,0 +1,35 @@
+status_label: validated against local substitute, not AWS
+compiler: 3.2.0 (cobc)
+compiler options: -std=ibm -fbinary-truncate -ffold-copy=LOWER -ext cpy
+COB_CONFIG_DIR: /usr/share/gnucobol/config (pinned)
+COB_RUNTIME_CONFIG: unset (pinned)
+COB_CFLAGS: -std=c17 -finline-functions -pipe -Wdate-time -Wno-unused -fsigned-char -Wno-pointer-sign -D_FORTIFY_SOURCE=3
+ambient compiler environment ignored: none
+dialect chain of ibm.conf (file, kind, sha256):
+  ibm.conf dialect 9220624ee67056073268e58bd16fdf819afd1e17f249c4603c06270717a3995c
+  ibm-strict.conf dialect e1eebcdcebae06278a533875e20e7cac809465dac8ba2211d7d41dd3b1a25ce6
+  ibm.words words e13017258080c6a41f596724aec3d4aa6c65082368d3dd94d1bbb6344ab8054d
+  lax.conf-inc dialect f813b082f706e369eac184f653b0af82566f88448af277acc2c9c149d7454f3d
+dialect keys (key, resolved value, file that set it):
+  binary-size 2-4-8 ibm-strict.conf
+  binary-truncate no ibm-strict.conf
+  binary-byteorder big-endian ibm-strict.conf
+  hostsign yes ibm-strict.conf
+  defaultbyte 0 ibm-strict.conf
+binary truncation in force: yes (-fbinary-truncate of the mandated options, over the chain value no)
++ cobc -m -std=ibm -fbinary-truncate -ffold-copy=LOWER -ext cpy -I modernization/harness/build/src -o modernization/harness/build/bin/CICS-ABEND.so modernization/harness/stubs/cics_abend.cbl
++ cobc -m -std=ibm -fbinary-truncate -ffold-copy=LOWER -ext cpy -I modernization/harness/build/src -o modernization/harness/build/bin/CICS-WRITE.so modernization/harness/stubs/cics_write.cbl
++ cobc -m -std=ibm -fbinary-truncate -ffold-copy=LOWER -ext cpy -I modernization/harness/build/src -o modernization/harness/build/bin/CICS-ASKTIME.so modernization/harness/stubs/cics_asktime.cbl
++ cobc -m -std=ibm -fbinary-truncate -ffold-copy=LOWER -ext cpy -I modernization/harness/build/src -o modernization/harness/build/bin/CICS-FORMATTIME.so modernization/harness/stubs/cics_formattime.cbl
++ cobc -m -std=ibm -fbinary-truncate -ffold-copy=LOWER -ext cpy -I modernization/harness/build/src -o modernization/harness/build/bin/CICS-DIAG-LINK.so modernization/harness/stubs/cics_diag_link.cbl
++ cobc -m -std=ibm -fbinary-truncate -ffold-copy=LOWER -ext cpy -I modernization/harness/build/src -o modernization/harness/build/bin/SQL-INSERT-POLICY.so modernization/harness/stubs/sql_insert_policy.cbl
++ cobc -m -std=ibm -fbinary-truncate -ffold-copy=LOWER -ext cpy -I modernization/harness/build/src -o modernization/harness/build/bin/SQL-INSERT-MOTOR.so modernization/harness/stubs/sql_insert_motor.cbl
++ cobc -m -std=ibm -fbinary-truncate -ffold-copy=LOWER -ext cpy -I modernization/harness/build/src -o modernization/harness/build/bin/SQL-INSERT-COMMERCIAL.so modernization/harness/stubs/sql_insert_commercial.cbl
++ cobc -m -std=ibm -fbinary-truncate -ffold-copy=LOWER -ext cpy -I modernization/harness/build/src -o modernization/harness/build/bin/SQL-INSERT-ENDOWMENT.so modernization/harness/stubs/sql_insert_endowment.cbl
++ cobc -m -std=ibm -fbinary-truncate -ffold-copy=LOWER -ext cpy -I modernization/harness/build/src -o modernization/harness/build/bin/SQL-INSERT-HOUSE.so modernization/harness/stubs/sql_insert_house.cbl
++ cobc -m -std=ibm -fbinary-truncate -ffold-copy=LOWER -ext cpy -I modernization/harness/build/src -o modernization/harness/build/bin/SQL-SET-IDENTITY.so modernization/harness/stubs/sql_set_identity.cbl
++ cobc -m -std=ibm -fbinary-truncate -ffold-copy=LOWER -ext cpy -I modernization/harness/build/src -o modernization/harness/build/bin/SQL-SELECT-LASTCHANGED.so modernization/harness/stubs/sql_select_lastchanged.cbl
++ cobc -m -std=ibm -fbinary-truncate -ffold-copy=LOWER -ext cpy -I modernization/harness/build/src -o modernization/harness/build/bin/LGAPOL01.so modernization/harness/build/src/lgapol01.cbl
++ cobc -m -std=ibm -fbinary-truncate -ffold-copy=LOWER -ext cpy -I modernization/harness/build/src -o modernization/harness/build/bin/LGAPDB01.so modernization/harness/build/src/lgapdb01.cbl
++ cobc -m -std=ibm -fbinary-truncate -ffold-copy=LOWER -ext cpy -I modernization/harness/build/src -o modernization/harness/build/bin/LGAPVS01.so modernization/harness/build/src/lgapvs01.cbl
++ cobc -x -std=ibm -fbinary-truncate -ffold-copy=LOWER -ext cpy -I modernization/harness/build/src -o modernization/harness/build/bin/driver modernization/harness/driver.cbl

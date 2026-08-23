@@ -1,0 +1,640 @@
+# _int__models.yml
+# Model properties for int_policy_issue_decoded, the only model of the models/intermediate
+# subtree of the GenApp Policy-Issue cloud-warehouse bridge. This file carries that model's
+# typed contract, its descriptions, its generic data tests and its source-lineage metadata.
+# dbt discovers this file through the model-paths entry of
+# modernization/dbt/genapp_rqi/dbt_project.yml; nothing imports it.
+# The documented column set is exactly the output of int_policy_issue_decoded.sql beside this
+# file: 17 columns, carrying the warehouse-assigned source_system_key and the 16 runtime
+# business values one execution of the named chain produces. Column names, column order and
+# every lineage fact below are those of modernization/extraction/copybook_field_map.yml, the
+# naming authority for this contract; the per-column config.meta keys reuse that map's own
+# logical_entry and runtime_status vocabulary.
+# Enforced typed contract — contract.enforced is set for this model and every column below
+# declares the data_type the model casts to, so dbt compares the name, data type and number of
+# columns the model emits with the 17 columns declared here before materializing it, and fails
+# the model on an extra column, a missing column or a column at another data type. Staging
+# carries all 17 values as text and the models of models/marts/canonical convert nothing out of
+# text, so these are the types both canonical relations carry. The five text columns declare
+# their exact bounded types and the model casts each value to that type: varchar(64)
+# source_system_key, char(1) policy_type, varchar(6) request_id, char(2) return_code and
+# varchar(10) brokers_reference, the same widths the enforced contract of
+# models/marts/canonical/_canonical__models.yml declares. payment_amount and
+# motor_premium_amount declare decimal(8,2); fire_premium_amount, crime_premium_amount,
+# flood_premium_amount and weather_premium_amount declare decimal(10,2). The landed widths of
+# those same six values are VARCHAR(6) and VARCHAR(8) in
+# modernization/warehouse/ddl/02_raw_genapp_policy_issue.sql.
+# dbt renders the yaml data_type and the model's own column through the connected database and
+# compares what the database reports for each, so a declared type matches when the database
+# reports the same type. DuckDB stores every varchar(n) and char(n) as VARCHAR and enforces no
+# declared width, so a string width declared here is compared on Amazon Redshift and not on
+# DuckDB; Amazon Redshift enforces the declared width.
+# The enforced declaration of the canonical column set is
+# models/marts/canonical/_canonical__models.yml.
+# Nullability follows modernization/landing/landing-schema.json: seven columns are never null
+# in a landed record and ten accept null. Each key of a landed record is always present; a key
+# present with a null value reaches its column as SQL NULL. Nullability is asserted by the
+# not_null data tests below and by no column constraint: this model declares no constraints
+# block, so its columns carry the name and data type declared below and no DDL constraint. The
+# not_null constraints of the two canonical relations are declared in
+# models/marts/canonical/_canonical__models.yml and assert nullability at that layer.
+# Landed contract: only a successful record is landed.
+# modernization/extraction/extract_commarea.py rejects every returned CA-RETURN-CODE other
+# than 00, so every row this model reads carries return code 00 and each column documented
+# below as never null holds a value.
+# The table materialization and the intermediate schema come from the models/intermediate key
+# of dbt_project.yml and are not restated here; macros/generate_schema_name.sql returns that
+# schema name verbatim. No relation alias is set.
+# Landed rows are successful executions only: modernization/extraction/extract_commarea.py
+# refuses a record whose returned CA-RETURN-CODE is not 00, so return_code holds 00 in every
+# landed row and every not_null test below is satisfied by the landing contract; the
+# accepted_values test on that column admits the six codes the chain assigns, so a row
+# carrying any of the other five is carried through this model rather than stopping the run.
+# Every data test below is a dbt built-in test. This project declares no packages.yml and no
+# dbt package. Uniqueness of the natural key (source_system_key, policy_number) is asserted by
+# the singular tests of modernization/dbt/genapp_rqi/tests/.
+# Value preservation of the six amounts and of issue_date, expiry_date and last_changed is
+# asserted by the relationships tests below: each compares the typed value of this model with
+# the landed string of the same column in stg_genapp__policy_issue, cast to the same type, so a
+# typed value that is any other expression of the same type fails its test. Those nine tests
+# read the built relation, because this model materializes as a table: dbt evaluates every date,
+# timestamp and amount cast of the model once, while the model builds, ahead of both models of
+# models/marts/canonical. A landed value outside the landing contract, such as 2026-02-30, fails
+# its cast and fails this model itself; dbt then skips both marts together, the row reaches no
+# canonical relation, and both canonical relations keep the state of the last run that built
+# them both. The product-specific pattern is asserted from both sides: the not_null tests scoped
+# by policy type below require the applicable premium of a motor row and of a commercial row, and
+# modernization/dbt/genapp_rqi/tests/assert_product_premium_nullability.sql requires every
+# inapplicable premium to be null.
+# Applied unchanged on Amazon Redshift and DuckDB.
+# Diagram reference: Figure 4 — dbt Transformation DAG and Field Allocation
+# in modernization/docs/architecture.md.
+# Rationale for every choice in this file: modernization/docs/decision-log.md
+
+version: 2
+
+models:
+  - name: int_policy_issue_decoded
+    config:
+      contract:
+        enforced: true
+    description: >-
+      Typed intermediate projection of the GenApp Policy-Issue landing record. The model reads
+      the single staging model of this project, stg_genapp__policy_issue, and emits the same 17
+      columns under the same names and in the same order as the landing.field_order block of
+      modernization/extraction/copybook_field_map.yml: the warehouse-assigned
+      source_system_key and the 16 runtime business values one execution of the LGAPOL01,
+      LGAPDB01 and LGAPVS01 policy-issue chain produces. Those 17 columns are the union of the
+      two canonical relations, which share source_system_key, policy_number and policy_type:
+      the 11 columns of canonical.issued_policy and the 9 columns of
+      canonical.preissued_rating give 11 + (9 - 3) = 17. No column is added and no column is
+      dropped. This model applies every type conversion of the bridge, listed per column
+      below: bigint for policy_number, customer_number and broker_id; date for issue_date and
+      expiry_date; timestamp for last_changed; decimal(8,2) for payment_amount and
+      motor_premium_amount; decimal(10,2) for fire_premium_amount, crime_premium_amount,
+      flood_premium_amount and weather_premium_amount; and the exact character type of each
+      text column, varchar(64) for source_system_key, char(1) for policy_type, varchar(6) for
+      request_id, char(2) for return_code and varchar(10) for brokers_reference. Each type is
+      the type the enforced contracts of models/marts/canonical/_canonical__models.yml declare,
+      so the marts inherit their declared physical types from this model on both adapters. A
+      value holding only whitespace becomes null before each cast is applied. The grain is one output
+      row per staging row, unchanged from the staging relation: no row is combined, no row is
+      removed and no row is added, and the motor sample row and the commercial sample row both
+      reach the output. Every landed row carries return code 00, because
+      modernization/extraction/extract_commarea.py refuses a record whose returned
+      CA-RETURN-CODE is not 00, and the models of models/marts/canonical restate that filter on
+      their own reads. Two values are populated after the policy insert rather than
+      supplied in the request: policy_number is recovered by IDENTITY_VAL_LOCAL() at
+      base/src/lgapdb01.cbl:308-311 and last_changed is read back by the SELECT at
+      base/src/lgapdb01.cbl:316-321, so both exist only in the returned COMMAREA. policy_type
+      is not a COMMAREA item at all: it is derived from the request routing of
+      base/src/lgapdb01.cbl:184-207 before landing, and this model verifies the landed letter
+      against request_id through those same four branches. Those three values are the three the
+      chain assigns rather than receives: every landed record carries return code 00, so every
+      row of this model carries all three, the not_null tests declared on policy_number,
+      policy_type and last_changed below assert that at this layer, and the not_null
+      constraints of the two canonical relations assert it at theirs. The model derives no
+      value and applies no arithmetic to any amount: none of base/src/lgapol01.cbl,
+      base/src/lgapdb01.cbl and base/src/lgapvs01.cbl carries a COMPUTE, MULTIPLY, DIVIDE or
+      COMP-3 statement, each amount reaches its Db2 host variable through a plain MOVE, and no
+      value is rounded or rescaled. The product overlays of base/src/lgcmarea.cpy each REDEFINE
+      the same CA-POLICY-SPECIFIC PIC X(32400) storage at base/src/lgcmarea.cpy:44, so one
+      record carries the storage of one product only and a premium column that does not apply
+      to the row's policy type is null rather than zero; payment_amount instead sits in the
+      product-independent group CA-POLICY-COMMON at base/src/lgcmarea.cpy:37-43 and carries a
+      value for every policy type. No column carries a rating formula, rating factor, derived
+      factor, commission, provenance, audit, surrogate key, hash or load timestamp. Two source
+      constructs contribute no column of this model. The four commercial peril declarations
+      CA-B-FirePeril, CA-B-CrimePeril, CA-B-FloodPeril and CA-B-WeatherPeril, each PIC 9(4) at
+      base/src/lgcmarea.cpy:84, :86, :88 and :90, are code items and not amount items; the
+      amount items documented below are the adjacent PIC 9(8) premium declarations at
+      base/src/lgcmarea.cpy:85, :87, :89 and :91. DB2-POLICYNUMBER PIC 9(10),
+      base/src/lgpolicy.cpy:44, is declaration-only and carries no runtime value. No column
+      derives from base/src/lgapvs01.cbl.
+      Figure 4 — dbt Transformation DAG and Field Allocation in
+      modernization/docs/architecture.md places this model in the bridge and
+      shows the allocation of these columns across the two canonical relations. Rationale for
+      every choice in this file: modernization/docs/decision-log.md
+
+    columns:
+
+      - name: source_system_key
+        data_type: varchar(64)
+        description: >-
+          Source-system discriminator assigned by the warehouse. No COBOL item supplies it:
+          this is the sole warehouse-assigned column of the record and the one declared
+          exception to complete COBOL lineage in this design, and its evidence is the user
+          requirement rather than a source locator. The value
+          modernization/extraction/extract_commarea.py writes for this exemplar is
+          GENAPP_CLASS_EXEMPLAR. The same value is the leading element of the S3 key prefix and
+          the first element of the natural key (source_system_key, policy_number) both raw
+          loaders guard on. Carried unchanged from staging as trimmed text and cast to
+          varchar(64), the type both canonical relations carry. Never null.
+        config:
+          meta:
+            logical_entry: source_system_key
+            runtime_status: warehouse_assigned
+            commarea_item: null
+            commarea_locator: null
+            db2_item: null
+            db2_locator: null
+        data_tests:
+          - not_null
+
+      - name: policy_number
+        data_type: bigint
+        description: >-
+          Policy number recovered after the policy insert. CA-POLICY-NUM PIC 9(10),
+          base/src/lgcmarea.cpy:35. The policy insert supplies the literal DEFAULT for
+          POLICYNUMBER at base/src/lgapdb01.cbl:279, IDENTITY_VAL_LOCAL() loads the integer
+          host variable DB2-POLICYNUM-INT at base/src/lgapdb01.cbl:308-310, and
+          base/src/lgapdb01.cbl:311 moves the recovered value into the COMMAREA item, so the
+          value exists only in the returned COMMAREA. The Db2-side counterpart DB2-POLICYNUMBER
+          PIC 9(10), base/src/lgpolicy.cpy:44, is declaration-only and carries no runtime
+          value. Cast from the staged digit string to bigint; BIGINT in both canonical
+          relations. Never null: every landed record carries return code 00 together with the
+          identity the chain recovered, and modernization/landing/landing-schema.json admits
+          only a digit string whose first digit is not 0 for this value, so neither a null nor
+          a 0 reaches this column. Second element of the natural key
+          (source_system_key, policy_number), whose uniqueness is asserted by the singular
+          tests of modernization/dbt/genapp_rqi/tests/.
+        config:
+          meta:
+            logical_entry: policy_number
+            runtime_status: active
+            commarea_item: CA-POLICY-NUM
+            commarea_locator: base/src/lgcmarea.cpy:35
+            db2_item: DB2-POLICYNUMBER
+            db2_locator: base/src/lgpolicy.cpy:44
+        data_tests:
+          - not_null
+
+      - name: policy_type
+        data_type: char(1)
+        description: >-
+          Single-letter product discriminator. This is not a COMMAREA item: DB2-POLICYTYPE
+          PIC X, base/src/lgpolicy.cpy:43, is assigned by the request-routing EVALUATE at
+          base/src/lgapdb01.cbl:184-207, in which 01AEND yields E at base/src/lgapdb01.cbl:188,
+          01AHOU yields H at base/src/lgapdb01.cbl:192, 01AMOT yields M at
+          base/src/lgapdb01.cbl:196 and 01ACOM yields C at base/src/lgapdb01.cbl:200, and it is
+          passed to the policy insert at base/src/lgapdb01.cbl:283.
+          modernization/extraction/extract_commarea.py derives the letter from the trimmed
+          CA-REQUEST-ID through that same routing before landing, and this model verifies the
+          landed letter against request_id through those same four branches, yielding null for
+          a letter that agrees with no branch. Those four branches are the whole routing, so
+          the observed domain is exactly E, H, M and C. The letter decides which premium
+          columns of the row carry a value. Carried as trimmed text and cast to char(1), the
+          type both canonical relations carry. Never null.
+        config:
+          meta:
+            logical_entry: policy_type
+            runtime_status: derived
+            commarea_item: null
+            commarea_locator: null
+            db2_item: DB2-POLICYTYPE
+            db2_locator: base/src/lgpolicy.cpy:43
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ["E", "H", "M", "C"]
+
+      - name: customer_number
+        data_type: bigint
+        description: >-
+          Customer number supplied in the request. CA-CUSTOMER-NUM PIC 9(10),
+          base/src/lgcmarea.cpy:12, moved to the integer host variable DB2-CUSTOMERNUM-INT at
+          base/src/lgapdb01.cbl:176 and passed to the policy insert at
+          base/src/lgapdb01.cbl:280. Cast from the staged digit string to bigint; BIGINT in
+          canonical.issued_policy. Never null.
+        config:
+          meta:
+            logical_entry: customer_number
+            runtime_status: active
+            commarea_item: CA-CUSTOMER-NUM
+            commarea_locator: base/src/lgcmarea.cpy:12
+            db2_item: null
+            db2_locator: null
+        data_tests:
+          - not_null
+
+      - name: request_id
+        data_type: varchar(6)
+        description: >-
+          Request identifier the chain routes on. CA-REQUEST-ID PIC X(6),
+          base/src/lgcmarea.cpy:10, evaluated at base/src/lgapdb01.cbl:184. The routing
+          EVALUATE recognises 01AEND, 01AHOU, 01AMOT and 01ACOM, and those four are the
+          production domain of this column; an unrouted id reaches its WHEN OTHER branch at
+          base/src/lgapdb01.cbl:202-205, which sets return code 99 and returns, and
+          modernization/extraction/extract_commarea.py refuses to land a record carrying an
+          unrouted id, so those four ids are the whole domain reaching this model and no row
+          arrives without a policy_type letter. The two authored sample definitions under
+          modernization/extraction/sample_input/ carry 01AMOT, which resolves policy type M,
+          and 01ACOM, which resolves policy type C. This model reads the value to verify
+          policy_type against the routing. The accepted values are those four ids: 01AEND
+          resolves E at base/src/lgapdb01.cbl:188, 01AHOU resolves H at
+          base/src/lgapdb01.cbl:192, 01AMOT resolves M at base/src/lgapdb01.cbl:196 and 01ACOM
+          resolves C at base/src/lgapdb01.cbl:200. Carried unchanged from staging as trimmed
+          text, cast to varchar(6), the type canonical.issued_policy carries. Never null.
+        config:
+          meta:
+            logical_entry: request_id
+            runtime_status: active
+            commarea_item: CA-REQUEST-ID
+            commarea_locator: base/src/lgcmarea.cpy:10
+            db2_item: null
+            db2_locator: null
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ["01AEND", "01AHOU", "01AMOT", "01ACOM"]
+
+      - name: return_code
+        data_type: char(2)
+        description: >-
+          Return code read from the returned COMMAREA. CA-RETURN-CODE PIC 9(2),
+          base/src/lgcmarea.cpy:11. Each of the fourteen write sites of the chain moves a
+          quoted two-character literal, so the value is carried as the two-character string 00
+          rather than as a number and its leading zero is preserved:
+          base/src/lgapol01.cbl:105 and :114; base/src/lgapdb01.cbl:172, :204, :211, :239,
+          :293, :296, :301, :390, :428, :474 and :548; and base/src/lgapvs01.cbl:144. Those
+          fourteen sites are every assignment the chain makes, so the six values the chain
+          assigns are 00 success, 70 policy insert returned SQLCODE -530, 80 VSAM write
+          response was not normal, 90 SQL failure, 98 COMMAREA shorter than the required length
+          and 99 unsupported request id; the harness captures under
+          modernization/validation/artifacts/ hold the returned code of each executed sample.
+          Only a successful execution is landed: modernization/landing/landing-schema.json
+          admits the single value 00, enforced by
+          modernization/extraction/extract_commarea.py, which refuses a record whose returned
+          code is not 00, so every landed row carries 00. The accepted_values test below admits
+          all six codes the chain assigns, so a row carrying 70, 80, 90, 98 or 99 that reaches
+          the source relation by any other route is carried through the staging model and this
+          model as evidence for failure analysis; the two models of models/marts/canonical
+          apply where return_code = '00', the one gate a row passes to reach a canonical
+          relation. The column
+          is retained because canonical.issued_policy carries it, and the models of
+          models/marts/canonical restate the filter to 00 on their own reads. Carried
+          unchanged from staging, cast to char(2), the type canonical.issued_policy carries.
+          Never null.
+        config:
+          meta:
+            logical_entry: return_code
+            runtime_status: active
+            commarea_item: CA-RETURN-CODE
+            commarea_locator: base/src/lgcmarea.cpy:11
+            db2_item: null
+            db2_locator: null
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ["00", "70", "80", "90", "98", "99"]
+
+      - name: issue_date
+        data_type: date
+        description: >-
+          Policy issue date supplied in the request. CA-ISSUE-DATE PIC X(10),
+          base/src/lgcmarea.cpy:38; Db2-side counterpart DB2-ISSUEDATE PIC X(10),
+          base/src/lgpolicy.cpy:46; passed to the policy insert as a character host variable at
+          base/src/lgapdb01.cbl:281. Landed as a real calendar date written YYYY-MM-DD:
+          modernization/extraction/extract_commarea.py resolves the window as a calendar date
+          before landing, and modernization/landing/landing-schema.json restates the written
+          form as a pattern, so a value such as 2026-02-30 reaches no landed record. Cast to
+          date, which yields the same calendar day and no time part; DATE in
+          canonical.issued_policy. A value outside that contract fails the cast, and the
+          failing cast aborts the model, so no such row reaches a canonical relation. A landed
+          null and a window holding only spaces both reach this column as null.
+        config:
+          meta:
+            logical_entry: issue_date
+            runtime_status: active
+            commarea_item: CA-ISSUE-DATE
+            commarea_locator: base/src/lgcmarea.cpy:38
+            db2_item: DB2-ISSUEDATE
+            db2_locator: base/src/lgpolicy.cpy:46
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('stg_genapp__policy_issue')
+                field: cast(issue_date as date)
+
+      - name: expiry_date
+        data_type: date
+        description: >-
+          Policy expiry date supplied in the request. CA-EXPIRY-DATE PIC X(10),
+          base/src/lgcmarea.cpy:39; Db2-side counterpart DB2-EXPIRYDATE PIC X(10),
+          base/src/lgpolicy.cpy:47; passed to the policy insert as a character host variable at
+          base/src/lgapdb01.cbl:282. Landed as a real calendar date written YYYY-MM-DD, on the
+          same terms as issue_date above. Cast to date, which yields the same calendar day and
+          no time part; DATE in canonical.issued_policy. A value outside that contract fails
+          the cast, and the failing cast aborts the model, so no such row reaches a canonical
+          relation. No ordering against issue_date is asserted: the chain asserts none. A
+          landed null and a window holding only spaces both reach this column as null.
+        config:
+          meta:
+            logical_entry: expiry_date
+            runtime_status: active
+            commarea_item: CA-EXPIRY-DATE
+            commarea_locator: base/src/lgcmarea.cpy:39
+            db2_item: DB2-EXPIRYDATE
+            db2_locator: base/src/lgpolicy.cpy:47
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('stg_genapp__policy_issue')
+                field: cast(expiry_date as date)
+
+      - name: last_changed
+        data_type: timestamp
+        description: >-
+          Policy last-changed timestamp read back after the policy insert. CA-LASTCHANGED
+          PIC X(26), base/src/lgcmarea.cpy:40; Db2-side counterpart DB2-LASTCHANGED PIC X(26),
+          base/src/lgpolicy.cpy:48. The insert writes CURRENT TIMESTAMP at
+          base/src/lgapdb01.cbl:284 and the SELECT keyed on the recovered policy number at
+          base/src/lgapdb01.cbl:316-321 reads the assigned value back into the COMMAREA item,
+          so the value exists only in the returned COMMAREA.
+          modernization/extraction/extract_commarea.py resolves the returned 26-character value
+          as a calendar date and a clock time and normalises it to ISO-8601 with a T separator
+          and microsecond precision, written YYYY-MM-DDTHH:MM:SS.ffffff in 26 characters,
+          before landing; modernization/landing/landing-schema.json restates that written form
+          as a pattern, so a value such as 2026-08-19T25:00:00.000000 reaches no landed record.
+          Cast to timestamp, which yields the same instant to microsecond precision and applies
+          no time zone; TIMESTAMP in canonical.issued_policy. A value outside that contract
+          fails the cast, and the failing cast aborts the model, so no such row reaches a
+          canonical relation. Never null.
+        config:
+          meta:
+            logical_entry: last_changed
+            runtime_status: active
+            commarea_item: CA-LASTCHANGED
+            commarea_locator: base/src/lgcmarea.cpy:40
+            db2_item: DB2-LASTCHANGED
+            db2_locator: base/src/lgpolicy.cpy:48
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('stg_genapp__policy_issue')
+                field: cast(last_changed as timestamp)
+
+      - name: broker_id
+        data_type: bigint
+        description: >-
+          Broker identifier supplied in the request. CA-BROKERID PIC 9(10),
+          base/src/lgcmarea.cpy:41; Db2-side counterpart DB2-BROKERID PIC 9(10),
+          base/src/lgpolicy.cpy:49; moved to the integer host variable DB2-BROKERID-INT at
+          base/src/lgapdb01.cbl:264 and passed to the policy insert at
+          base/src/lgapdb01.cbl:285. Cast from the staged digit string to bigint; BIGINT in
+          canonical.issued_policy. A landed null and a window holding only spaces both reach
+          this column as null.
+        config:
+          meta:
+            logical_entry: broker_id
+            runtime_status: active
+            commarea_item: CA-BROKERID
+            commarea_locator: base/src/lgcmarea.cpy:41
+            db2_item: DB2-BROKERID
+            db2_locator: base/src/lgpolicy.cpy:49
+
+      - name: brokers_reference
+        data_type: varchar(10)
+        description: >-
+          Broker's reference supplied in the request. CA-BROKERSREF PIC X(10),
+          base/src/lgcmarea.cpy:42; Db2-side counterpart DB2-BROKERSREF PIC X(10),
+          base/src/lgpolicy.cpy:50; passed to the policy insert as a character host variable at
+          base/src/lgapdb01.cbl:286. A blank-padded fixed-width alphanumeric window, so the
+          value holds at most the 10 characters the PICTURE declares. Carried unchanged from
+          staging as trimmed text and cast to varchar(10), the type canonical.issued_policy
+          carries. A window holding only spaces reaches this column as null rather than as an
+          empty string.
+        config:
+          meta:
+            logical_entry: brokers_reference
+            runtime_status: active
+            commarea_item: CA-BROKERSREF
+            commarea_locator: base/src/lgcmarea.cpy:42
+            db2_item: DB2-BROKERSREF
+            db2_locator: base/src/lgpolicy.cpy:50
+
+      - name: payment_amount
+        data_type: decimal(8,2)
+        description: >-
+          Policy payment amount supplied in the request. CA-PAYMENT PIC 9(6),
+          base/src/lgcmarea.cpy:43; Db2-side counterpart DB2-PAYMENT PIC 9(6),
+          base/src/lgpolicy.cpy:51; moved by MOVE CA-PAYMENT TO DB2-PAYMENT-INT at
+          base/src/lgapdb01.cbl:265 into the integer host variable PIC S9(9) COMP declared at
+          base/src/lgapdb01.cbl:92, and passed to the policy insert at
+          base/src/lgapdb01.cbl:287. The MOVE applies no arithmetic and the value is inserted
+          unchanged: none of base/src/lgapol01.cbl, base/src/lgapdb01.cbl and
+          base/src/lgapvs01.cbl carries a COMPUTE, MULTIPLY, DIVIDE or COMP-3 statement, so
+          this amount is a passthrough. The declaration is an unsigned DISPLAY numeric without
+          an implied decimal, declaring 6 digits, and the landed digit string is cast to
+          decimal(8,2); DECIMAL(8,2) in canonical.preissued_rating. Declared in the
+          product-independent group CA-POLICY-COMMON at base/src/lgcmarea.cpy:37-43, so this
+          column carries a value for every policy type and no product test is applied to it.
+        config:
+          meta:
+            logical_entry: payment
+            runtime_status: active
+            commarea_item: CA-PAYMENT
+            commarea_locator: base/src/lgcmarea.cpy:43
+            db2_item: DB2-PAYMENT
+            db2_locator: base/src/lgpolicy.cpy:51
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('stg_genapp__policy_issue')
+                field: cast(payment_amount as decimal(8, 2))
+
+      - name: motor_premium_amount
+        data_type: decimal(8,2)
+        description: >-
+          Motor policy premium amount supplied in the request. CA-M-PREMIUM PIC 9(6),
+          base/src/lgcmarea.cpy:73; Db2-side counterpart DB2-M-PREMIUM PIC 9(6),
+          base/src/lgpolicy.cpy:80; moved by MOVE CA-M-PREMIUM TO DB2-M-PREMIUM-INT at
+          base/src/lgapdb01.cbl:445 into the integer host variable PIC S9(9) COMP declared at
+          base/src/lgapdb01.cbl:100, and passed to the motor insert at
+          base/src/lgapdb01.cbl:469. The MOVE applies no arithmetic and the value is inserted
+          unchanged, and no COMPUTE, MULTIPLY, DIVIDE or COMP-3 statement appears in the three
+          named programs, so this amount is a passthrough. The declaration is an unsigned
+          DISPLAY numeric without an implied decimal, declaring 6 digits, and the landed digit
+          string is cast to decimal(8,2); DECIMAL(8,2) in canonical.preissued_rating. Declared
+          in the CA-MOTOR overlay at base/src/lgcmarea.cpy:65, one of the overlays that REDEFINE
+          CA-POLICY-SPECIFIC PIC X(32400) at base/src/lgcmarea.cpy:44, so one record carries
+          the storage of one product only. Carries a value for policy type M; null for every
+          other policy type, and never zero.
+        config:
+          meta:
+            logical_entry: motor_premium
+            runtime_status: active
+            commarea_item: CA-M-PREMIUM
+            commarea_locator: base/src/lgcmarea.cpy:73
+            db2_item: DB2-M-PREMIUM
+            db2_locator: base/src/lgpolicy.cpy:80
+        data_tests:
+          - not_null:
+              config:
+                where: "policy_type = 'M'"
+          - relationships:
+              arguments:
+                to: ref('stg_genapp__policy_issue')
+                field: cast(motor_premium_amount as decimal(8, 2))
+
+      - name: fire_premium_amount
+        data_type: decimal(10,2)
+        description: >-
+          Commercial fire premium amount supplied in the request. CA-B-FirePremium PIC 9(8),
+          base/src/lgcmarea.cpy:85; Db2-side counterpart DB2-B-FirePremium PIC 9(8),
+          base/src/lgpolicy.cpy:91; moved by MOVE CA-B-FirePremium TO DB2-B-FirePremium-Int at
+          base/src/lgapdb01.cbl:489 into the integer host variable PIC S9(9) COMP declared at
+          base/src/lgapdb01.cbl:103, and passed to the commercial insert at
+          base/src/lgapdb01.cbl:535. The MOVE applies no arithmetic and the value is inserted
+          unchanged, and no COMPUTE, MULTIPLY, DIVIDE or COMP-3 statement appears in the three named
+          programs. The declaration is an unsigned DISPLAY numeric without an implied decimal. The
+          landed digit string is cast to decimal(10,2); DECIMAL(10,2) in canonical.preissued_rating.
+          Declared in the CA-COMMERCIAL overlay at base/src/lgcmarea.cpy:77, one of the overlays
+          that REDEFINE CA-POLICY-SPECIFIC PIC X(32400) at base/src/lgcmarea.cpy:44, so one
+          record carries the storage of one product only. The adjacent CA-B-FirePeril PIC 9(4)
+          at base/src/lgcmarea.cpy:84 is a code item and carries no column. Carries a value for
+          policy type C; null for every other policy type, and never zero.
+        config:
+          meta:
+            logical_entry: fire_premium
+            runtime_status: active
+            commarea_item: CA-B-FirePremium
+            commarea_locator: base/src/lgcmarea.cpy:85
+            db2_item: DB2-B-FirePremium
+            db2_locator: base/src/lgpolicy.cpy:91
+        data_tests:
+          - not_null:
+              config:
+                where: "policy_type = 'C'"
+          - relationships:
+              arguments:
+                to: ref('stg_genapp__policy_issue')
+                field: cast(fire_premium_amount as decimal(10, 2))
+
+      - name: crime_premium_amount
+        data_type: decimal(10,2)
+        description: >-
+          Commercial crime premium amount supplied in the request. CA-B-CrimePremium PIC 9(8),
+          base/src/lgcmarea.cpy:87; Db2-side counterpart DB2-B-CrimePremium PIC 9(8),
+          base/src/lgpolicy.cpy:93; moved by MOVE CA-B-CrimePremium TO DB2-B-CrimePremium-Int at
+          base/src/lgapdb01.cbl:491 into the integer host variable PIC S9(9) COMP declared at
+          base/src/lgapdb01.cbl:105, and passed to the commercial insert at
+          base/src/lgapdb01.cbl:537. The MOVE applies no arithmetic and the value is inserted
+          unchanged, and no COMPUTE, MULTIPLY, DIVIDE or COMP-3 statement appears in the three named
+          programs. The declaration is an unsigned DISPLAY numeric without an implied decimal. The
+          landed digit string is cast to decimal(10,2); DECIMAL(10,2) in canonical.preissued_rating.
+          Declared in the CA-COMMERCIAL overlay at base/src/lgcmarea.cpy:77, one of the overlays
+          that REDEFINE CA-POLICY-SPECIFIC PIC X(32400) at base/src/lgcmarea.cpy:44, so one
+          record carries the storage of one product only. The adjacent CA-B-CrimePeril PIC 9(4)
+          at base/src/lgcmarea.cpy:86 is a code item and carries no column. Carries a value for
+          policy type C; null for every other policy type, and never zero.
+        config:
+          meta:
+            logical_entry: crime_premium
+            runtime_status: active
+            commarea_item: CA-B-CrimePremium
+            commarea_locator: base/src/lgcmarea.cpy:87
+            db2_item: DB2-B-CrimePremium
+            db2_locator: base/src/lgpolicy.cpy:93
+        data_tests:
+          - not_null:
+              config:
+                where: "policy_type = 'C'"
+          - relationships:
+              arguments:
+                to: ref('stg_genapp__policy_issue')
+                field: cast(crime_premium_amount as decimal(10, 2))
+
+      - name: flood_premium_amount
+        data_type: decimal(10,2)
+        description: >-
+          Commercial flood premium amount supplied in the request. CA-B-FloodPremium PIC 9(8),
+          base/src/lgcmarea.cpy:89; Db2-side counterpart DB2-B-FloodPremium PIC 9(8),
+          base/src/lgpolicy.cpy:95; moved by MOVE CA-B-FloodPremium TO DB2-B-FloodPremium-Int at
+          base/src/lgapdb01.cbl:493 into the integer host variable PIC S9(9) COMP declared at
+          base/src/lgapdb01.cbl:107, and passed to the commercial insert at
+          base/src/lgapdb01.cbl:539. The MOVE applies no arithmetic and the value is inserted
+          unchanged, and no COMPUTE, MULTIPLY, DIVIDE or COMP-3 statement appears in the three named
+          programs. The declaration is an unsigned DISPLAY numeric without an implied decimal. The
+          landed digit string is cast to decimal(10,2); DECIMAL(10,2) in canonical.preissued_rating.
+          Declared in the CA-COMMERCIAL overlay at base/src/lgcmarea.cpy:77, one of the overlays
+          that REDEFINE CA-POLICY-SPECIFIC PIC X(32400) at base/src/lgcmarea.cpy:44, so one
+          record carries the storage of one product only. The adjacent CA-B-FloodPeril PIC 9(4)
+          at base/src/lgcmarea.cpy:88 is a code item and carries no column. Carries a value for
+          policy type C; null for every other policy type, and never zero.
+        config:
+          meta:
+            logical_entry: flood_premium
+            runtime_status: active
+            commarea_item: CA-B-FloodPremium
+            commarea_locator: base/src/lgcmarea.cpy:89
+            db2_item: DB2-B-FloodPremium
+            db2_locator: base/src/lgpolicy.cpy:95
+        data_tests:
+          - not_null:
+              config:
+                where: "policy_type = 'C'"
+          - relationships:
+              arguments:
+                to: ref('stg_genapp__policy_issue')
+                field: cast(flood_premium_amount as decimal(10, 2))
+
+      - name: weather_premium_amount
+        data_type: decimal(10,2)
+        description: >-
+          Commercial weather premium amount supplied in the request. CA-B-WeatherPremium
+          PIC 9(8), base/src/lgcmarea.cpy:91; Db2-side counterpart DB2-B-WeatherPremium
+          PIC 9(8), base/src/lgpolicy.cpy:97; moved by
+          MOVE CA-B-WeatherPremium TO DB2-B-WeatherPremium-Int at base/src/lgapdb01.cbl:495 into
+          the integer host variable PIC S9(9) COMP declared at base/src/lgapdb01.cbl:109, and
+          passed to the commercial insert at base/src/lgapdb01.cbl:541. The MOVE applies no
+          arithmetic and the value is inserted unchanged, and no COMPUTE, MULTIPLY, DIVIDE or
+          COMP-3 statement appears in the three named programs, so this amount is a
+          passthrough. The declaration is an unsigned DISPLAY numeric without an implied
+          decimal, declaring 8 digits, and the landed digit string is cast to decimal(10,2);
+          DECIMAL(10,2) in canonical.preissued_rating. Declared in the CA-COMMERCIAL overlay at
+          base/src/lgcmarea.cpy:77, one of the overlays that REDEFINE CA-POLICY-SPECIFIC
+          PIC X(32400) at base/src/lgcmarea.cpy:44, so one record carries the storage of one
+          product only. The adjacent CA-B-WeatherPeril PIC 9(4) at base/src/lgcmarea.cpy:90 is
+          a code item and carries no column. Carries a value for policy type C; null for every
+          other policy type, and never zero.
+        config:
+          meta:
+            logical_entry: weather_premium
+            runtime_status: active
+            commarea_item: CA-B-WeatherPremium
+            commarea_locator: base/src/lgcmarea.cpy:91
+            db2_item: DB2-B-WeatherPremium
+            db2_locator: base/src/lgpolicy.cpy:97
+        data_tests:
+          - not_null:
+              config:
+                where: "policy_type = 'C'"
+          - relationships:
+              arguments:
+                to: ref('stg_genapp__policy_issue')
+                field: cast(weather_premium_amount as decimal(10, 2))

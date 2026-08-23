@@ -1,0 +1,198 @@
+      ******************************************************************
+      *                                                                *
+      *                     SQL-SET-IDENTITY                           *
+      *                                                                *
+      *   Harness stand-in for the SET IDENTITY_VAL_LOCAL() statement  *
+      *   of the translated LGAPDB01                                   *
+      *                                                                *
+      ******************************************************************
+      *
+      * Emulates the SQL block at [base/src/lgapdb01.cbl:308-310] in
+      * paragraph INSERT-POLICY, SET :DB2-POLICYNUM-INT =
+      * IDENTITY_VAL_LOCAL(). The translated LGAPDB01 calls this module
+      * in place of that block and passes the single host variable of
+      * the block BY REFERENCE, as recorded by the dml entry
+      * set_identity of modernization/harness/statement_map.yml. That
+      * entry gives the block arity 1 and direction out, and
+      * checks.using_counts records set_identity 1.
+      *
+      * Parameter, with the value it stands for and the capture item
+      * that witnesses it:
+      *   1  DB2-POLICYNUM-INT  IDENTITY_VAL_LOCAL()  HC-IDENT-POLICYNUM
+      * The parameter is written here and never read here.
+      *
+      * The value returned is the identity that
+      * modernization/harness/stubs/sql_insert_policy.cbl resolved and
+      * left in HC-SEED-POLICYNUM. That module runs first: the source
+      * performs INSERT-POLICY at [base/src/lgapdb01.cbl:219] and its
+      * INSERT INTO POLICY block at [base/src/lgapdb01.cbl:268-288]
+      * precedes this block inside that paragraph. No environment
+      * variable is read here, no default is applied here, and no value
+      * is generated, incremented or randomised here.
+      *
+      * The translated LGAPDB01 moves the returned value to
+      * CA-POLICY-NUM PIC 9(10) [base/src/lgcmarea.cpy:35] at
+      * [base/src/lgapdb01.cbl:311] and on to EM-POLNUM at
+      * [base/src/lgapdb01.cbl:313]. The same host variable is host 1 of
+      * every product insert and the WHERE predicate host of the
+      * LASTCHANGED read-back at [base/src/lgapdb01.cbl:316-321].
+      *
+      * HC-SEED-POLICYNUM at zero or below reports that the INSERT INTO
+      * POLICY block did not run before this one. The stored value is
+      * returned unaltered and the condition is reported on the run
+      * log; no substitute value is supplied.
+      *
+      * Capture control, following the contract stated by
+      * modernization/harness/copybooks/hcapture.cpy: HC-IDENT-PRESENT
+      * becomes 'Y', HC-IDENT-COUNT counts the executions of the block,
+      * HC-EVENT-SEQ is advanced and its new value is stamped into
+      * HC-IDENT-SEQ, and HC-ORDER-LAST-STMT receives this statement's
+      * key set_identity.
+      *
+      * Order guard. The predecessor of this block is the INSERT INTO
+      * POLICY block at [base/src/lgapdb01.cbl:268-288]: both sit in
+      * paragraph INSERT-POLICY and the insert stands ahead of the SET
+      * at [base/src/lgapdb01.cbl:308-310], which is reached only once
+      * the insert reported SQLCODE zero at
+      * [base/src/lgapdb01.cbl:290-292]. HC-POL-SEQ carries that
+      * predecessor. This module reads it after stamping its own
+      * ordinal: a HC-POL-SEQ still at zero reports the predecessor
+      * unrun in HC-ORDER-VIOLATION and HC-ORDER-VIOLATION-STMT, and a
+      * non-zero HC-POL-SEQ leaves both items as
+      * modernization/harness/driver.cbl set them. This is the
+      * constraint the execution_order entry policy_before_identity of
+      * modernization/harness/statement_map.yml declares, which
+      * modernization/harness/translate.py reconciles with this guard
+      * on every run.
+      *
+      * The execution_order block of
+      * modernization/harness/statement_map.yml declares eight ordering
+      * constraints, and each names in its enforced_by field the one
+      * stub that tests it at run time. This module is the enforced_by
+      * module of policy_before_identity, the constraint the guard above
+      * tests: predecessor insert_policy, successor set_identity,
+      * reason_kind data_dependency on DB2-POLICYNUM-INT, witness
+      * ordinals HC-POL-SEQ and HC-IDENT-SEQ.
+      *
+      * set_identity is named by one further constraint that this module
+      * does not enforce, identity_before_lastchanged: set_identity is
+      * its predecessor, select_lastchanged its successor, reason_kind
+      * data_dependency on DB2-POLICYNUM-INT, and
+      * modernization/harness/stubs/sql_select_lastchanged.cbl its
+      * enforced_by module, which reads the HC-IDENT-SEQ stamped here.
+      * The other six constraints name neither set_identity nor
+      * HC-IDENT-SEQ.
+      *
+      * SQLCODE of the shared SQLCA is set to zero on every call.
+      *
+      * No item of the caller's COMMAREA is addressed here. Of the
+      * shared capture state, only HC-SQL-SET-IDENTITY, HC-EVENT-SEQ,
+      * HC-ORDER-LAST-STMT and the two order-guard items named above
+      * are written. HC-POL-SEQ and HC-SEED-POLICYNUM are read here and
+      * never written, and the seed is left holding the identity that
+      * the product insert stubs and the KSDSPOLY key of the translated
+      * LGAPVS01 receive after this call.
+      *
+      * Rationale for the deterministic seeding of the identity, for
+      * the order guard and for the always-zero SQLCODE belongs to
+      * modernization/docs/decision-log.md, row: uniform stub-side
+      * capture-order guard.
+      *
+      * Harness topology: Figure 5 — Validation Harness Control Flow
+      * in modernization/docs/architecture.md.
+      *
+      ******************************************************************
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. SQL-SET-IDENTITY.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+      *
+      * Shared capture state. This module writes the SET-IDENTITY
+      * group, the shared event sequence and the last-statement name,
+      * and reads the seeded identity.
+       COPY HCAPTURE.
+      *
+      * Shared SQL communications area read by the translated LGAPDB01.
+       COPY HSQLCA.
+      *
+      ******************************************************************
+      *    L I N K A G E     S E C T I O N
+      ******************************************************************
+      * The single host variable of the block at
+      * [base/src/lgapdb01.cbl:308-310], in the order the dml entry
+      * set_identity of modernization/harness/statement_map.yml lists
+      * it. The shape follows the declaration cited against it.
+       LINKAGE SECTION.
+      *
+      * Slot 1, IDENTITY_VAL_LOCAL(), direction out. Receives the
+      * caller's DB2-POLICYNUM-INT PIC S9(9) COMP
+      * [base/src/lgapdb01.cbl:117] BY REFERENCE.
+       01  LK-POLICYNUM-INT        PIC S9(9) COMP.
+      *
+      ******************************************************************
+      *    P R O C E D U R E S
+      ******************************************************************
+       PROCEDURE DIVISION USING LK-POLICYNUM-INT.
+      *
+      *----------------------------------------------------------------*
+      * Supplies the seeded identity, stamps the capture control       *
+      * items, tests the predecessor ordinal, reports an unseeded      *
+      * identity and reports success.                                  *
+      *----------------------------------------------------------------*
+       MAINLINE.
+           PERFORM SUPPLY-SEEDED-IDENTITY
+           PERFORM STAMP-CAPTURE-CONTROL
+           PERFORM CHECK-CAPTURE-ORDER
+           PERFORM CHECK-SEEDED-IDENTITY
+           MOVE ZERO TO SQLCODE
+           GOBACK.
+      *
+      *----------------------------------------------------------------*
+      * Moves the identity held in HC-SEED-POLICYNUM into the output   *
+      * parameter and into its capture slot. The seed item is left     *
+      * unchanged.                                                     *
+      *----------------------------------------------------------------*
+       SUPPLY-SEEDED-IDENTITY.
+           MOVE HC-SEED-POLICYNUM TO LK-POLICYNUM-INT
+           MOVE HC-SEED-POLICYNUM TO HC-IDENT-POLICYNUM.
+      *
+      *----------------------------------------------------------------*
+      * Marks the block captured, counts the execution, stamps the     *
+      * ordinal from the shared event sequence and names the           *
+      * statement. The order-guard items are written by                *
+      * CHECK-CAPTURE-ORDER below and not here.                        *
+      *----------------------------------------------------------------*
+       STAMP-CAPTURE-CONTROL.
+           MOVE 'Y' TO HC-IDENT-PRESENT
+           ADD 1 TO HC-IDENT-COUNT END-ADD
+           ADD 1 TO HC-EVENT-SEQ END-ADD
+           MOVE HC-EVENT-SEQ TO HC-IDENT-SEQ
+           MOVE 'set_identity' TO HC-ORDER-LAST-STMT.
+      *
+      *----------------------------------------------------------------*
+      * Tests the predecessor ordinal of this block, read after it     *
+      * stamped its own. HC-POL-SEQ at zero reports that the INSERT    *
+      * INTO POLICY block at [base/src/lgapdb01.cbl:268-288] was not   *
+      * captured ahead of the SET at [base/src/lgapdb01.cbl:308-310],  *
+      * which leaves no assigned identity for this block to return. A  *
+      * non-zero HC-POL-SEQ leaves both order items as the driver set  *
+      * them.                                                          *
+      *----------------------------------------------------------------*
+       CHECK-CAPTURE-ORDER.
+           IF HC-POL-SEQ = ZERO
+               MOVE 'Y' TO HC-ORDER-VIOLATION
+               MOVE 'set_identity' TO HC-ORDER-VIOLATION-STMT
+           END-IF.
+      *
+      *----------------------------------------------------------------*
+      * Reports on the run log an identity of zero or below. The       *
+      * value already returned is not altered and no substitute is     *
+      * supplied.                                                      *
+      *----------------------------------------------------------------*
+       CHECK-SEEDED-IDENTITY.
+           IF HC-SEED-POLICYNUM IS NOT GREATER THAN ZERO
+               DISPLAY 'SQL-SET-IDENTITY: HC-SEED-POLICYNUM HOLDS '
+                       HC-SEED-POLICYNUM
+                       ' - SQL-INSERT-POLICY DID NOT RUN FIRST'
+               END-DISPLAY
+           END-IF.

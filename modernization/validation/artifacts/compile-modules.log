@@ -1,0 +1,50 @@
+compile: cobc -std=ibm -fbinary-truncate -ffold-copy=LOWER -ext cpy
+cobc (GnuCOBOL) 3.2.0
+=== module harness/build/compile/lgapol01.so from harness/build/src/lgapol01.cbl
+<command-line>: warning: ‘_FORTIFY_SOURCE’ redefined
+<command-line>: note: this is the location of the previous definition
+=== module harness/build/compile/lgapdb01.so from harness/build/src/lgapdb01.cbl
+<command-line>: warning: ‘_FORTIFY_SOURCE’ redefined
+<command-line>: note: this is the location of the previous definition
+=== module harness/build/compile/lgapvs01.so from harness/build/src/lgapvs01.cbl
+<command-line>: warning: ‘_FORTIFY_SOURCE’ redefined
+<command-line>: note: this is the location of the previous definition
+=== module harness/build/compile/cics_abend.so from harness/stubs/cics_abend.cbl
+<command-line>: warning: ‘_FORTIFY_SOURCE’ redefined
+<command-line>: note: this is the location of the previous definition
+=== module harness/build/compile/cics_write.so from harness/stubs/cics_write.cbl
+<command-line>: warning: ‘_FORTIFY_SOURCE’ redefined
+<command-line>: note: this is the location of the previous definition
+=== module harness/build/compile/cics_asktime.so from harness/stubs/cics_asktime.cbl
+<command-line>: warning: ‘_FORTIFY_SOURCE’ redefined
+<command-line>: note: this is the location of the previous definition
+=== module harness/build/compile/cics_formattime.so from harness/stubs/cics_formattime.cbl
+<command-line>: warning: ‘_FORTIFY_SOURCE’ redefined
+<command-line>: note: this is the location of the previous definition
+=== module harness/build/compile/cics_diag_link.so from harness/stubs/cics_diag_link.cbl
+<command-line>: warning: ‘_FORTIFY_SOURCE’ redefined
+<command-line>: note: this is the location of the previous definition
+=== module harness/build/compile/sql_insert_policy.so from harness/stubs/sql_insert_policy.cbl
+<command-line>: warning: ‘_FORTIFY_SOURCE’ redefined
+<command-line>: note: this is the location of the previous definition
+=== module harness/build/compile/sql_insert_motor.so from harness/stubs/sql_insert_motor.cbl
+<command-line>: warning: ‘_FORTIFY_SOURCE’ redefined
+<command-line>: note: this is the location of the previous definition
+=== module harness/build/compile/sql_insert_commercial.so from harness/stubs/sql_insert_commercial.cbl
+<command-line>: warning: ‘_FORTIFY_SOURCE’ redefined
+<command-line>: note: this is the location of the previous definition
+=== module harness/build/compile/sql_insert_endowment.so from harness/stubs/sql_insert_endowment.cbl
+<command-line>: warning: ‘_FORTIFY_SOURCE’ redefined
+<command-line>: note: this is the location of the previous definition
+=== module harness/build/compile/sql_insert_house.so from harness/stubs/sql_insert_house.cbl
+<command-line>: warning: ‘_FORTIFY_SOURCE’ redefined
+<command-line>: note: this is the location of the previous definition
+=== module harness/build/compile/sql_set_identity.so from harness/stubs/sql_set_identity.cbl
+<command-line>: warning: ‘_FORTIFY_SOURCE’ redefined
+<command-line>: note: this is the location of the previous definition
+=== module harness/build/compile/sql_select_lastchanged.so from harness/stubs/sql_select_lastchanged.cbl
+<command-line>: warning: ‘_FORTIFY_SOURCE’ redefined
+<command-line>: note: this is the location of the previous definition
+=== driver harness/build/compile/driver from harness/driver.cbl
+<command-line>: warning: ‘_FORTIFY_SOURCE’ redefined
+<command-line>: note: this is the location of the previous definition

@@ -1,0 +1,9 @@
+# Generated modernization artifacts only. Each root below is produced by the
+# environment, harness, dbt or local-warehouse step that owns it and is never
+# committed; every authored file stays tracked.
+# See also modernization/docs/decision-log.md
+/.venv/
+/harness/build/
+/dbt/genapp_rqi/target/
+/dbt/genapp_rqi/logs/
+/validation/local.duckdb

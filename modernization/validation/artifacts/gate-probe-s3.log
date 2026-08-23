@@ -1,0 +1,1 @@
+land_to_s3: run mode 'redshift' from --run-mode addresses AWS S3, but an endpoint is set from the S3_ENDPOINT_URL environment variable; unset it to address AWS S3, or select run mode 'local_substitute' to address the local substitute. The endpoint value is not echoed

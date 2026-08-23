@@ -1,0 +1,6 @@
+[0m03:39:36  Running with dbt=1.12.3
+[0m03:39:36  Checking /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4_93f37d/modernization/dbt/genapp_rqi/target/*
+[0m03:39:36  Cleaned /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4_93f37d/modernization/dbt/genapp_rqi/target/*
+[0m03:39:36  Checking /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4_93f37d/modernization/dbt/genapp_rqi/dbt_packages/*
+[0m03:39:36  Cleaned /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4_93f37d/modernization/dbt/genapp_rqi/dbt_packages/*
+[0m03:39:36  Finished cleaning all paths.

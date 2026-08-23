@@ -1,0 +1,93 @@
+# dbt_project.yml
+# Project manifest for the GenApp Policy-Issue cloud-warehouse bridge.
+# Single dbt project of the bridge: the source declaration, the four models, the two
+# property files of each layer, macros/generate_schema_name.sql and the four singular
+# tests all resolve through this file, and the bridge declares no second project.
+# Project members this file binds, every one of them present at this milestone:
+#   models/staging/genapp_class_exemplar/  the source declaration and
+#                                          stg_genapp__policy_issue
+#   models/intermediate/                   int_policy_issue_decoded
+#   models/marts/canonical/                canonical_issued_policy and
+#                                          canonical_preissued_rating
+#   macros/                                generate_schema_name.sql
+#   tests/                                 the four singular tests of the two canonical
+#                                          relations
+# The connection values of the profile named below are held by profiles.example.yml.
+# No adapter-specific value is declared here; the same model SQL and the same text serve
+# the Amazon Redshift and the DuckDB output of profiles.example.yml. Execution against
+# real Amazon Redshift has not yet happened; per-target run status is recorded in
+# modernization/validation/validation-evidence.md, which records the local_substitute run
+# and no Amazon Redshift run.
+# Diagram reference: Figure 4 — dbt Transformation DAG and Field Allocation
+# in modernization/docs/architecture.md.
+# Rationale for every choice in this file: modernization/docs/decision-log.md
+
+name: genapp_rqi
+version: '1.0.0'
+config-version: 2
+
+# Connection profile. Matches the top-level profile block name of
+# profiles.example.yml.
+profile: genapp_rqi
+
+# Authored directories of this project, all three present: models holds the source
+# declaration, the four models and their property files; macros holds
+# generate_schema_name.sql; tests holds the four singular tests. This project declares no
+# packages.yml, no seed and no snapshot, so no seed, snapshot or package path is declared
+# here.
+model-paths: ["models"]
+macro-paths: ["macros"]
+test-paths: ["tests"]
+
+# Directories removed by dbt clean. target holds the run artifacts of the last
+# invocation, so cleaning it is what invalidates them.
+#
+# Reading target/run_results.json. dbt-core writes that file only for a run that
+# reaches its first node: a run that ends before then - a connection that is refused,
+# a profile that does not render, a target name that does not exist - leaves the
+# previous run's file in place while rewriting target/manifest.json for the target it
+# just tried, so the directory can hold a successful result of one target beside a
+# manifest of another. Two rules follow, and they are the contract for every step that
+# drives this project:
+#   run
+#     "dbt clean --project-dir modernization/dbt/genapp_rqi" before each invocation, so
+#     no artifact of an earlier invocation survives into the next one;
+#   read
+#     metadata.invocation_id and args.target of run_results.json, and treat the file as
+#     the current result only where both match the invocation just run.
+# A step that reports a dbt outcome from this directory without those two checks can
+# report a previous success for a run that failed.
+clean-targets: ["target", "dbt_packages"]
+
+# Supported dbt-core range. Matches the dbt-core pin in modernization/requirements.txt.
+require-dbt-version: [">=1.12.0", "<1.13.0"]
+
+# Per-layer defaults for the model tree, keyed by project name and then by model
+# directory. dbt passes each +schema value verbatim to the generate_schema_name macro in
+# macros/generate_schema_name.sql, which returns the literal schemas staging, intermediate
+# and canonical on both adapters. Each mart sets its own relation alias in its own model
+# config block: canonical_issued_policy sets issued_policy and canonical_preissued_rating
+# sets preissued_rating, so the two tables of the canonical schema are named after those
+# aliases rather than after their model files.
+#
+# Where each cast of the bridge is evaluated. staging renames and trims and converts no
+# value, so it materializes as a view. models/intermediate/int_policy_issue_decoded.sql
+# applies every cast of the bridge and materializes as a table, so dbt evaluates those
+# casts once, while that model builds, ahead of either mart: a landed value the landing
+# contract does not admit - 2026-02-30, 2026-08-19T25:00:00.000000 or a non-numeric amount
+# - fails the intermediate model itself, dbt skips both models of models/marts/canonical,
+# and the two canonical relations keep the state of the last run that built them both.
+# Both marts materialize as tables, the two relations the canonical contract declares.
+models:
+  genapp_rqi:
+    staging:
+      genapp_class_exemplar:
+        +materialized: view
+        +schema: staging
+    intermediate:
+      +materialized: table
+      +schema: intermediate
+    marts:
+      canonical:
+        +materialized: table
+        +schema: canonical

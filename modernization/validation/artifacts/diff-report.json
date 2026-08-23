@@ -1,0 +1,2418 @@
+{
+  "adapter": {
+    "name": "duckdb",
+    "version": "1.5.5"
+  },
+  "amount_scale": 2,
+  "amount_tolerance": "0.01",
+  "aws_diff_requirement": "OPEN",
+  "aws_statement": "These results do not satisfy the formal AWS diff requirement, which remains OPEN: it closes only when the same dbt models run unmodified against real S3 and Amazon Redshift.",
+  "canonical_inventory": {
+    "columns": {
+      "issued_policy": [
+        "source_system_key",
+        "policy_number",
+        "policy_type",
+        "customer_number",
+        "request_id",
+        "return_code",
+        "issue_date",
+        "expiry_date",
+        "last_changed",
+        "broker_id",
+        "brokers_reference"
+      ],
+      "preissued_rating": [
+        "source_system_key",
+        "policy_number",
+        "policy_type",
+        "payment_amount",
+        "motor_premium_amount",
+        "fire_premium_amount",
+        "crime_premium_amount",
+        "flood_premium_amount",
+        "weather_premium_amount"
+      ]
+    },
+    "relations": [
+      "issued_policy",
+      "preissued_rating"
+    ],
+    "schema": "canonical",
+    "verdict": "PASS"
+  },
+  "cases": [
+    {
+      "assertions": [
+        {
+          "expected": "01AMOT",
+          "group": "Chain completion",
+          "locator": "modernization/harness/driver.cbl",
+          "name": "CASE",
+          "notes": [],
+          "observed": "01AMOT",
+          "status": "PASS"
+        },
+        {
+          "expected": "PASS",
+          "group": "Chain completion",
+          "locator": "modernization/harness/driver.cbl",
+          "name": "DRIVER_STATUS",
+          "notes": [],
+          "observed": "PASS",
+          "status": "PASS"
+        },
+        {
+          "expected": "00",
+          "group": "Chain completion",
+          "locator": "modernization/harness/driver.cbl",
+          "name": "DRIVER_EXIT_STATUS",
+          "notes": [],
+          "observed": "00",
+          "status": "PASS"
+        },
+        {
+          "expected": "00",
+          "group": "Chain completion",
+          "locator": "base/src/lgapdb01.cbl:293",
+          "name": "CA_RETURN_CODE",
+          "notes": [],
+          "observed": "00",
+          "status": "PASS"
+        },
+        {
+          "expected": "N",
+          "group": "Chain completion",
+          "locator": "base/src/lgapdb01.cbl:393",
+          "name": "ABEND_PRESENT",
+          "notes": [],
+          "observed": "N",
+          "status": "PASS"
+        },
+        {
+          "expected": "",
+          "group": "Chain completion",
+          "locator": "base/src/lgapdb01.cbl:393",
+          "name": "ABEND_CODE",
+          "notes": [],
+          "observed": "",
+          "status": "PASS"
+        },
+        {
+          "expected": "0",
+          "group": "Chain completion",
+          "locator": "base/src/lgapdb01.cbl:393",
+          "name": "ABEND_COUNT",
+          "notes": [],
+          "observed": "0000",
+          "status": "PASS"
+        },
+        {
+          "expected": "0",
+          "group": "Chain completion",
+          "locator": "base/src/lgapdb01.cbl:575-592",
+          "name": "DIAG_LINK_COUNT",
+          "notes": [],
+          "observed": "0000",
+          "status": "PASS"
+        },
+        {
+          "expected": "Y",
+          "group": "Chain completion",
+          "locator": "base/src/lgapdb01.cbl:268-287",
+          "name": "SQL_POLICY_PRESENT",
+          "notes": [],
+          "observed": "Y",
+          "status": "PASS"
+        },
+        {
+          "expected": "N",
+          "group": "Chain completion",
+          "locator": "base/src/lgapdb01.cbl:223-241",
+          "name": "SQL_COMMERCIAL_PRESENT",
+          "notes": [],
+          "observed": "N",
+          "status": "PASS"
+        },
+        {
+          "expected": "N",
+          "group": "Chain completion",
+          "locator": "base/src/lgapdb01.cbl:223-241",
+          "name": "SQL_ENDOWMENT_PRESENT",
+          "notes": [],
+          "observed": "N",
+          "status": "PASS"
+        },
+        {
+          "expected": "N",
+          "group": "Chain completion",
+          "locator": "base/src/lgapdb01.cbl:223-241",
+          "name": "SQL_HOUSE_PRESENT",
+          "notes": [],
+          "observed": "N",
+          "status": "PASS"
+        },
+        {
+          "expected": "Y",
+          "group": "Chain completion",
+          "locator": "base/src/lgapdb01.cbl:223-241",
+          "name": "SQL_MOTOR_PRESENT",
+          "notes": [],
+          "observed": "Y",
+          "status": "PASS"
+        },
+        {
+          "expected": "Y",
+          "group": "VSAM corroboration",
+          "locator": "base/src/lgapvs01.cbl:135-141",
+          "name": "VSAM_PRESENT",
+          "notes": [],
+          "observed": "Y",
+          "status": "PASS"
+        },
+        {
+          "expected": "64",
+          "group": "VSAM corroboration",
+          "locator": "base/src/lgapvs01.cbl:137",
+          "name": "VSAM_LENGTH",
+          "notes": [],
+          "observed": "0064",
+          "status": "PASS"
+        },
+        {
+          "expected": "21",
+          "group": "VSAM corroboration",
+          "locator": "base/src/lgapvs01.cbl:139",
+          "name": "VSAM_KEYLENGTH",
+          "notes": [],
+          "observed": "0021",
+          "status": "PASS"
+        },
+        {
+          "expected": "M00000010010001000001",
+          "group": "VSAM corroboration",
+          "locator": "base/src/lgapvs01.cbl:26-29",
+          "name": "VSAM_KEY",
+          "notes": [],
+          "observed": "M00000010010001000001",
+          "status": "PASS"
+        },
+        {
+          "expected": "M",
+          "group": "VSAM corroboration",
+          "locator": "base/src/lgapvs01.cbl:26-29",
+          "name": "VSAM_REQUEST_ID",
+          "notes": [],
+          "observed": "M",
+          "status": "PASS"
+        },
+        {
+          "expected": "0000001001",
+          "group": "VSAM corroboration",
+          "locator": "base/src/lgapvs01.cbl:26-29",
+          "name": "VSAM_CUSTOMER_NUM",
+          "notes": [],
+          "observed": "0000001001",
+          "status": "PASS"
+        },
+        {
+          "expected": "0001000001",
+          "group": "VSAM corroboration",
+          "locator": "base/src/lgapvs01.cbl:26-29",
+          "name": "VSAM_POLICY_NUM",
+          "notes": [],
+          "observed": "0001000001",
+          "status": "PASS"
+        },
+        {
+          "expected": "43 bytes, mapped to no canonical column",
+          "group": "VSAM corroboration",
+          "locator": "base/src/lgapvs01.cbl:30",
+          "name": "product payload",
+          "notes": [
+            "the payload corroborates the write and the composite key alone"
+          ],
+          "observed": "43 bytes, not compared",
+          "status": "PASS"
+        },
+        {
+          "expected": "canonical.issued_policy carries [GENAPP_CLASS_EXEMPLAR]",
+          "group": "Cross-relation identity",
+          "locator": "modernization/extraction/copybook_field_map.yml: targets",
+          "name": "source_system_key",
+          "notes": [],
+          "observed": "canonical.preissued_rating carries [GENAPP_CLASS_EXEMPLAR]",
+          "status": "PASS"
+        },
+        {
+          "expected": "canonical.issued_policy carries [1000001]",
+          "group": "Cross-relation identity",
+          "locator": "modernization/extraction/copybook_field_map.yml: targets",
+          "name": "policy_number",
+          "notes": [],
+          "observed": "canonical.preissued_rating carries [1000001]",
+          "status": "PASS"
+        },
+        {
+          "expected": "canonical.issued_policy carries [M]",
+          "group": "Cross-relation identity",
+          "locator": "modernization/extraction/copybook_field_map.yml: targets",
+          "name": "policy_type",
+          "notes": [],
+          "observed": "canonical.preissued_rating carries [M]",
+          "status": "PASS"
+        }
+      ],
+      "case": "01AMOT",
+      "comparisons": [
+        {
+          "cobol_item": "none (warehouse-assigned)",
+          "column": "source_system_key",
+          "delta": null,
+          "evidence": [
+            "user requirement (no COBOL item supplies it)"
+          ],
+          "harness_authority": "configured run value (--source-system-key)",
+          "harness_value": "GENAPP_CLASS_EXEMPLAR",
+          "in_tolerance_anomaly": false,
+          "kind": "exact string",
+          "locator": "user requirement (no COBOL item supplies it)",
+          "normalisations": [
+            "trailing-space trim"
+          ],
+          "notes": [],
+          "relation": "canonical.issued_policy",
+          "scale_anomaly": false,
+          "status": "PASS",
+          "warehouse_value": "GENAPP_CLASS_EXEMPLAR",
+          "witnesses": [
+            {
+              "absent": null,
+              "family": "configured",
+              "key": null,
+              "source": "configured run value (--source-system-key)",
+              "value": "GENAPP_CLASS_EXEMPLAR"
+            }
+          ]
+        },
+        {
+          "cobol_item": "CA-POLICY-NUM",
+          "column": "policy_number",
+          "delta": null,
+          "evidence": [
+            "base/src/lgcmarea.cpy:35",
+            "base/src/lgapdb01.cbl:117",
+            "base/src/lgapdb01.cbl:308-310",
+            "base/src/lgapdb01.cbl:311"
+          ],
+          "harness_authority": "returned COMMAREA bytes 19-28 (CA-POLICY-NUM); returned COMMAREA capture (capture key CA_POLICY_NUM); policy insert capture (capture key SQL_POLICY_ASSIGNED_NUMBER)",
+          "harness_value": "1000001",
+          "in_tolerance_anomaly": false,
+          "kind": "integer",
+          "locator": "base/src/lgcmarea.cpy:35",
+          "normalisations": [
+            "leading-zero-insensitive integer"
+          ],
+          "notes": [],
+          "relation": "canonical.issued_policy",
+          "scale_anomaly": false,
+          "status": "PASS",
+          "warehouse_value": "1000001",
+          "witnesses": [
+            {
+              "absent": null,
+              "family": "commarea",
+              "key": "CA-POLICY-NUM",
+              "source": "returned COMMAREA bytes 19-28 (CA-POLICY-NUM)",
+              "value": "0001000001"
+            },
+            {
+              "absent": null,
+              "family": "capture",
+              "key": "CA_POLICY_NUM",
+              "source": "returned COMMAREA capture (capture key CA_POLICY_NUM)",
+              "value": "0001000001"
+            },
+            {
+              "absent": null,
+              "family": "capture",
+              "key": "SQL_POLICY_ASSIGNED_NUMBER",
+              "source": "policy insert capture (capture key SQL_POLICY_ASSIGNED_NUMBER)",
+              "value": "1000001"
+            }
+          ]
+        },
+        {
+          "cobol_item": "DB2-POLICYTYPE",
+          "column": "policy_type",
+          "delta": null,
+          "evidence": [
+            "base/src/lgpolicy.cpy:43",
+            "base/src/lgapdb01.cbl:184-207",
+            "base/src/lgapdb01.cbl:283"
+          ],
+          "harness_authority": "request routing derivation from CA-REQUEST-ID [base/src/lgapdb01.cbl:184-207]; policy insert capture (capture key SQL_POLICY_POLICYTYPE)",
+          "harness_value": "M",
+          "in_tolerance_anomaly": false,
+          "kind": "single char",
+          "locator": "base/src/lgpolicy.cpy:43",
+          "normalisations": [
+            "trailing-space trim"
+          ],
+          "notes": [],
+          "relation": "canonical.issued_policy",
+          "scale_anomaly": false,
+          "status": "PASS",
+          "warehouse_value": "M",
+          "witnesses": [
+            {
+              "absent": null,
+              "family": "derived",
+              "key": null,
+              "source": "request routing derivation from CA-REQUEST-ID [base/src/lgapdb01.cbl:184-207]",
+              "value": "M"
+            },
+            {
+              "absent": null,
+              "family": "capture",
+              "key": "SQL_POLICY_POLICYTYPE",
+              "source": "policy insert capture (capture key SQL_POLICY_POLICYTYPE)",
+              "value": "M"
+            }
+          ]
+        },
+        {
+          "cobol_item": "CA-CUSTOMER-NUM",
+          "column": "customer_number",
+          "delta": null,
+          "evidence": [
+            "base/src/lgcmarea.cpy:12",
+            "base/src/lgapdb01.cbl:90",
+            "base/src/lgapdb01.cbl:176",
+            "base/src/lgapdb01.cbl:280"
+          ],
+          "harness_authority": "returned COMMAREA bytes 9-18 (CA-CUSTOMER-NUM); returned COMMAREA capture (capture key CA_CUSTOMER_NUM); driver input bytes 9-18; policy insert capture (capture key SQL_POLICY_CUSTOMERNUM)",
+          "harness_value": "1001",
+          "in_tolerance_anomaly": false,
+          "kind": "integer",
+          "locator": "base/src/lgcmarea.cpy:12",
+          "normalisations": [
+            "leading-zero-insensitive integer"
+          ],
+          "notes": [],
+          "relation": "canonical.issued_policy",
+          "scale_anomaly": false,
+          "status": "PASS",
+          "warehouse_value": "1001",
+          "witnesses": [
+            {
+              "absent": null,
+              "family": "commarea",
+              "key": "CA-CUSTOMER-NUM",
+              "source": "returned COMMAREA bytes 9-18 (CA-CUSTOMER-NUM)",
+              "value": "0000001001"
+            },
+            {
+              "absent": null,
+              "family": "capture",
+              "key": "CA_CUSTOMER_NUM",
+              "source": "returned COMMAREA capture (capture key CA_CUSTOMER_NUM)",
+              "value": "0000001001"
+            },
+            {
+              "absent": null,
+              "family": "driver-input",
+              "key": "CA-CUSTOMER-NUM",
+              "source": "driver input bytes 9-18",
+              "value": "0000001001"
+            },
+            {
+              "absent": null,
+              "family": "capture",
+              "key": "SQL_POLICY_CUSTOMERNUM",
+              "source": "policy insert capture (capture key SQL_POLICY_CUSTOMERNUM)",
+              "value": "1001"
+            }
+          ]
+        },
+        {
+          "cobol_item": "CA-REQUEST-ID",
+          "column": "request_id",
+          "delta": null,
+          "evidence": [
+            "base/src/lgcmarea.cpy:10",
+            "base/src/lgapdb01.cbl:184"
+          ],
+          "harness_authority": "returned COMMAREA bytes 1-6 (CA-REQUEST-ID); returned COMMAREA capture (capture key CA_REQUEST_ID); driver input bytes 1-6",
+          "harness_value": "01AMOT",
+          "in_tolerance_anomaly": false,
+          "kind": "exact string",
+          "locator": "base/src/lgcmarea.cpy:10",
+          "normalisations": [
+            "trailing-space trim"
+          ],
+          "notes": [],
+          "relation": "canonical.issued_policy",
+          "scale_anomaly": false,
+          "status": "PASS",
+          "warehouse_value": "01AMOT",
+          "witnesses": [
+            {
+              "absent": null,
+              "family": "commarea",
+              "key": "CA-REQUEST-ID",
+              "source": "returned COMMAREA bytes 1-6 (CA-REQUEST-ID)",
+              "value": "01AMOT"
+            },
+            {
+              "absent": null,
+              "family": "capture",
+              "key": "CA_REQUEST_ID",
+              "source": "returned COMMAREA capture (capture key CA_REQUEST_ID)",
+              "value": "01AMOT"
+            },
+            {
+              "absent": null,
+              "family": "driver-input",
+              "key": "CA-REQUEST-ID",
+              "source": "driver input bytes 1-6",
+              "value": "01AMOT"
+            }
+          ]
+        },
+        {
+          "cobol_item": "CA-RETURN-CODE",
+          "column": "return_code",
+          "delta": null,
+          "evidence": [
+            "base/src/lgcmarea.cpy:11",
+            "base/src/lgapol01.cbl:105",
+            "base/src/lgapdb01.cbl:172",
+            "base/src/lgapdb01.cbl:293",
+            "base/src/lgapvs01.cbl:144"
+          ],
+          "harness_authority": "returned COMMAREA bytes 7-8 (CA-RETURN-CODE); returned COMMAREA capture (capture key CA_RETURN_CODE)",
+          "harness_value": "00",
+          "in_tolerance_anomaly": false,
+          "kind": "exact string",
+          "locator": "base/src/lgcmarea.cpy:11",
+          "normalisations": [
+            "trailing-space trim"
+          ],
+          "notes": [],
+          "relation": "canonical.issued_policy",
+          "scale_anomaly": false,
+          "status": "PASS",
+          "warehouse_value": "00",
+          "witnesses": [
+            {
+              "absent": null,
+              "family": "commarea",
+              "key": "CA-RETURN-CODE",
+              "source": "returned COMMAREA bytes 7-8 (CA-RETURN-CODE)",
+              "value": "00"
+            },
+            {
+              "absent": null,
+              "family": "capture",
+              "key": "CA_RETURN_CODE",
+              "source": "returned COMMAREA capture (capture key CA_RETURN_CODE)",
+              "value": "00"
+            }
+          ]
+        },
+        {
+          "cobol_item": "CA-ISSUE-DATE / DB2-ISSUEDATE",
+          "column": "issue_date",
+          "delta": null,
+          "evidence": [
+            "base/src/lgcmarea.cpy:38",
+            "base/src/lgpolicy.cpy:46",
+            "base/src/lgapdb01.cbl:281"
+          ],
+          "harness_authority": "returned COMMAREA bytes 29-38 (CA-ISSUE-DATE); returned COMMAREA capture (capture key CA_ISSUE_DATE); driver input bytes 29-38; policy insert capture (capture key SQL_POLICY_ISSUEDATE)",
+          "harness_value": "2026-08-19",
+          "in_tolerance_anomaly": false,
+          "kind": "date",
+          "locator": "base/src/lgcmarea.cpy:38",
+          "normalisations": [
+            "ISO calendar date"
+          ],
+          "notes": [],
+          "relation": "canonical.issued_policy",
+          "scale_anomaly": false,
+          "status": "PASS",
+          "warehouse_value": "2026-08-19",
+          "witnesses": [
+            {
+              "absent": null,
+              "family": "commarea",
+              "key": "CA-ISSUE-DATE",
+              "source": "returned COMMAREA bytes 29-38 (CA-ISSUE-DATE)",
+              "value": "2026-08-19"
+            },
+            {
+              "absent": null,
+              "family": "capture",
+              "key": "CA_ISSUE_DATE",
+              "source": "returned COMMAREA capture (capture key CA_ISSUE_DATE)",
+              "value": "2026-08-19"
+            },
+            {
+              "absent": null,
+              "family": "driver-input",
+              "key": "CA-ISSUE-DATE",
+              "source": "driver input bytes 29-38",
+              "value": "2026-08-19"
+            },
+            {
+              "absent": null,
+              "family": "capture",
+              "key": "SQL_POLICY_ISSUEDATE",
+              "source": "policy insert capture (capture key SQL_POLICY_ISSUEDATE)",
+              "value": "2026-08-19"
+            }
+          ]
+        },
+        {
+          "cobol_item": "CA-EXPIRY-DATE / DB2-EXPIRYDATE",
+          "column": "expiry_date",
+          "delta": null,
+          "evidence": [
+            "base/src/lgcmarea.cpy:39",
+            "base/src/lgpolicy.cpy:47",
+            "base/src/lgapdb01.cbl:282"
+          ],
+          "harness_authority": "returned COMMAREA bytes 39-48 (CA-EXPIRY-DATE); returned COMMAREA capture (capture key CA_EXPIRY_DATE); driver input bytes 39-48; policy insert capture (capture key SQL_POLICY_EXPIRYDATE)",
+          "harness_value": "2027-08-18",
+          "in_tolerance_anomaly": false,
+          "kind": "date",
+          "locator": "base/src/lgcmarea.cpy:39",
+          "normalisations": [
+            "ISO calendar date"
+          ],
+          "notes": [],
+          "relation": "canonical.issued_policy",
+          "scale_anomaly": false,
+          "status": "PASS",
+          "warehouse_value": "2027-08-18",
+          "witnesses": [
+            {
+              "absent": null,
+              "family": "commarea",
+              "key": "CA-EXPIRY-DATE",
+              "source": "returned COMMAREA bytes 39-48 (CA-EXPIRY-DATE)",
+              "value": "2027-08-18"
+            },
+            {
+              "absent": null,
+              "family": "capture",
+              "key": "CA_EXPIRY_DATE",
+              "source": "returned COMMAREA capture (capture key CA_EXPIRY_DATE)",
+              "value": "2027-08-18"
+            },
+            {
+              "absent": null,
+              "family": "driver-input",
+              "key": "CA-EXPIRY-DATE",
+              "source": "driver input bytes 39-48",
+              "value": "2027-08-18"
+            },
+            {
+              "absent": null,
+              "family": "capture",
+              "key": "SQL_POLICY_EXPIRYDATE",
+              "source": "policy insert capture (capture key SQL_POLICY_EXPIRYDATE)",
+              "value": "2027-08-18"
+            }
+          ]
+        },
+        {
+          "cobol_item": "CA-LASTCHANGED / DB2-LASTCHANGED",
+          "column": "last_changed",
+          "delta": null,
+          "evidence": [
+            "base/src/lgcmarea.cpy:40",
+            "base/src/lgpolicy.cpy:48",
+            "base/src/lgapdb01.cbl:284",
+            "base/src/lgapdb01.cbl:316-321"
+          ],
+          "harness_authority": "returned COMMAREA bytes 49-74 (CA-LASTCHANGED); returned COMMAREA capture (capture key CA_LASTCHANGED); policy insert capture (capture key SQL_POLICY_ASSIGNED_LASTCHANGED)",
+          "harness_value": "2026-08-19 12:00:00.000000",
+          "in_tolerance_anomaly": false,
+          "kind": "timestamp",
+          "locator": "base/src/lgcmarea.cpy:40",
+          "normalisations": [
+            "Db2 timestamp to microsecond precision"
+          ],
+          "notes": [],
+          "relation": "canonical.issued_policy",
+          "scale_anomaly": false,
+          "status": "PASS",
+          "warehouse_value": "2026-08-19 12:00:00.000000",
+          "witnesses": [
+            {
+              "absent": null,
+              "family": "commarea",
+              "key": "CA-LASTCHANGED",
+              "source": "returned COMMAREA bytes 49-74 (CA-LASTCHANGED)",
+              "value": "2026-08-19-12.00.00.000000"
+            },
+            {
+              "absent": null,
+              "family": "capture",
+              "key": "CA_LASTCHANGED",
+              "source": "returned COMMAREA capture (capture key CA_LASTCHANGED)",
+              "value": "2026-08-19-12.00.00.000000"
+            },
+            {
+              "absent": null,
+              "family": "capture",
+              "key": "SQL_POLICY_ASSIGNED_LASTCHANGED",
+              "source": "policy insert capture (capture key SQL_POLICY_ASSIGNED_LASTCHANGED)",
+              "value": "2026-08-19-12.00.00.000000"
+            }
+          ]
+        },
+        {
+          "cobol_item": "CA-BROKERID / DB2-BROKERID",
+          "column": "broker_id",
+          "delta": null,
+          "evidence": [
+            "base/src/lgcmarea.cpy:41",
+            "base/src/lgpolicy.cpy:49",
+            "base/src/lgapdb01.cbl:91",
+            "base/src/lgapdb01.cbl:264",
+            "base/src/lgapdb01.cbl:285"
+          ],
+          "harness_authority": "returned COMMAREA bytes 75-84 (CA-BROKERID); returned COMMAREA capture (capture key CA_BROKERID); driver input bytes 75-84; policy insert capture (capture key SQL_POLICY_BROKERID)",
+          "harness_value": "42",
+          "in_tolerance_anomaly": false,
+          "kind": "integer",
+          "locator": "base/src/lgcmarea.cpy:41",
+          "normalisations": [
+            "leading-zero-insensitive integer"
+          ],
+          "notes": [],
+          "relation": "canonical.issued_policy",
+          "scale_anomaly": false,
+          "status": "PASS",
+          "warehouse_value": "42",
+          "witnesses": [
+            {
+              "absent": null,
+              "family": "commarea",
+              "key": "CA-BROKERID",
+              "source": "returned COMMAREA bytes 75-84 (CA-BROKERID)",
+              "value": "0000000042"
+            },
+            {
+              "absent": null,
+              "family": "capture",
+              "key": "CA_BROKERID",
+              "source": "returned COMMAREA capture (capture key CA_BROKERID)",
+              "value": "0000000042"
+            },
+            {
+              "absent": null,
+              "family": "driver-input",
+              "key": "CA-BROKERID",
+              "source": "driver input bytes 75-84",
+              "value": "0000000042"
+            },
+            {
+              "absent": null,
+              "family": "capture",
+              "key": "SQL_POLICY_BROKERID",
+              "source": "policy insert capture (capture key SQL_POLICY_BROKERID)",
+              "value": "42"
+            }
+          ]
+        },
+        {
+          "cobol_item": "CA-BROKERSREF / DB2-BROKERSREF",
+          "column": "brokers_reference",
+          "delta": null,
+          "evidence": [
+            "base/src/lgcmarea.cpy:42",
+            "base/src/lgpolicy.cpy:50",
+            "base/src/lgapdb01.cbl:286"
+          ],
+          "harness_authority": "returned COMMAREA bytes 85-94 (CA-BROKERSREF); returned COMMAREA capture (capture key CA_BROKERSREF); driver input bytes 85-94; policy insert capture (capture key SQL_POLICY_BROKERSREF)",
+          "harness_value": "BRMOT001",
+          "in_tolerance_anomaly": false,
+          "kind": "exact string",
+          "locator": "base/src/lgcmarea.cpy:42",
+          "normalisations": [
+            "trailing-space trim"
+          ],
+          "notes": [],
+          "relation": "canonical.issued_policy",
+          "scale_anomaly": false,
+          "status": "PASS",
+          "warehouse_value": "BRMOT001",
+          "witnesses": [
+            {
+              "absent": null,
+              "family": "commarea",
+              "key": "CA-BROKERSREF",
+              "source": "returned COMMAREA bytes 85-94 (CA-BROKERSREF)",
+              "value": "BRMOT001  "
+            },
+            {
+              "absent": null,
+              "family": "capture",
+              "key": "CA_BROKERSREF",
+              "source": "returned COMMAREA capture (capture key CA_BROKERSREF)",
+              "value": "BRMOT001"
+            },
+            {
+              "absent": null,
+              "family": "driver-input",
+              "key": "CA-BROKERSREF",
+              "source": "driver input bytes 85-94",
+              "value": "BRMOT001  "
+            },
+            {
+              "absent": null,
+              "family": "capture",
+              "key": "SQL_POLICY_BROKERSREF",
+              "source": "policy insert capture (capture key SQL_POLICY_BROKERSREF)",
+              "value": "BRMOT001"
+            }
+          ]
+        },
+        {
+          "cobol_item": "none (warehouse-assigned)",
+          "column": "source_system_key",
+          "delta": null,
+          "evidence": [
+            "user requirement (no COBOL item supplies it)"
+          ],
+          "harness_authority": "configured run value (--source-system-key)",
+          "harness_value": "GENAPP_CLASS_EXEMPLAR",
+          "in_tolerance_anomaly": false,
+          "kind": "exact string",
+          "locator": "user requirement (no COBOL item supplies it)",
+          "normalisations": [
+            "trailing-space trim"
+          ],
+          "notes": [],
+          "relation": "canonical.preissued_rating",
+          "scale_anomaly": false,
+          "status": "PASS",
+          "warehouse_value": "GENAPP_CLASS_EXEMPLAR",
+          "witnesses": [
+            {
+              "absent": null,
+              "family": "configured",
+              "key": null,
+              "source": "configured run value (--source-system-key)",
+              "value": "GENAPP_CLASS_EXEMPLAR"
+            }
+          ]
+        },
+        {
+          "cobol_item": "CA-POLICY-NUM",
+          "column": "policy_number",
+          "delta": null,
+          "evidence": [
+            "base/src/lgcmarea.cpy:35",
+            "base/src/lgapdb01.cbl:117",
+            "base/src/lgapdb01.cbl:308-310",
+            "base/src/lgapdb01.cbl:311"
+          ],
+          "harness_authority": "returned COMMAREA bytes 19-28 (CA-POLICY-NUM); returned COMMAREA capture (capture key CA_POLICY_NUM); policy insert capture (capture key SQL_POLICY_ASSIGNED_NUMBER)",
+          "harness_value": "1000001",
+          "in_tolerance_anomaly": false,
+          "kind": "integer",
+          "locator": "base/src/lgcmarea.cpy:35",
+          "normalisations": [
+            "leading-zero-insensitive integer"
+          ],
+          "notes": [],
+          "relation": "canonical.preissued_rating",
+          "scale_anomaly": false,
+          "status": "PASS",
+          "warehouse_value": "1000001",
+          "witnesses": [
+            {
+              "absent": null,
+              "family": "commarea",
+              "key": "CA-POLICY-NUM",
+              "source": "returned COMMAREA bytes 19-28 (CA-POLICY-NUM)",
+              "value": "0001000001"
+            },
+            {
+              "absent": null,
+              "family": "capture",
+              "key": "CA_POLICY_NUM",
+              "source": "returned COMMAREA capture (capture key CA_POLICY_NUM)",
+              "value": "0001000001"
+            },
+            {
+              "absent": null,
+              "family": "capture",
+              "key": "SQL_POLICY_ASSIGNED_NUMBER",
+              "source": "policy insert capture (capture key SQL_POLICY_ASSIGNED_NUMBER)",
+              "value": "1000001"
+            }
+          ]
+        },
+        {
+          "cobol_item": "DB2-POLICYTYPE",
+          "column": "policy_type",
+          "delta": null,
+          "evidence": [
+            "base/src/lgpolicy.cpy:43",
+            "base/src/lgapdb01.cbl:184-207",
+            "base/src/lgapdb01.cbl:283"
+          ],
+          "harness_authority": "request routing derivation from CA-REQUEST-ID [base/src/lgapdb01.cbl:184-207]; policy insert capture (capture key SQL_POLICY_POLICYTYPE)",
+          "harness_value": "M",
+          "in_tolerance_anomaly": false,
+          "kind": "single char",
+          "locator": "base/src/lgpolicy.cpy:43",
+          "normalisations": [
+            "trailing-space trim"
+          ],
+          "notes": [],
+          "relation": "canonical.preissued_rating",
+          "scale_anomaly": false,
+          "status": "PASS",
+          "warehouse_value": "M",
+          "witnesses": [
+            {
+              "absent": null,
+              "family": "derived",
+              "key": null,
+              "source": "request routing derivation from CA-REQUEST-ID [base/src/lgapdb01.cbl:184-207]",
+              "value": "M"
+            },
+            {
+              "absent": null,
+              "family": "capture",
+              "key": "SQL_POLICY_POLICYTYPE",
+              "source": "policy insert capture (capture key SQL_POLICY_POLICYTYPE)",
+              "value": "M"
+            }
+          ]
+        },
+        {
+          "cobol_item": "CA-PAYMENT / DB2-PAYMENT",
+          "column": "payment_amount",
+          "delta": "0.00",
+          "evidence": [
+            "base/src/lgcmarea.cpy:43",
+            "base/src/lgpolicy.cpy:51",
+            "base/src/lgapdb01.cbl:92",
+            "base/src/lgapdb01.cbl:265",
+            "base/src/lgapdb01.cbl:287"
+          ],
+          "harness_authority": "returned COMMAREA bytes 95-100 (CA-PAYMENT); returned COMMAREA capture (capture key CA_PAYMENT); driver input bytes 95-100; policy insert capture (capture key SQL_POLICY_PAYMENT)",
+          "harness_value": "500",
+          "in_tolerance_anomaly": false,
+          "kind": "amount",
+          "locator": "base/src/lgcmarea.cpy:43",
+          "normalisations": [
+            "DISPLAY digits to decimal"
+          ],
+          "notes": [
+            "warehouse scale 2"
+          ],
+          "relation": "canonical.preissued_rating",
+          "scale_anomaly": false,
+          "status": "PASS",
+          "warehouse_value": "500.00",
+          "witnesses": [
+            {
+              "absent": null,
+              "family": "commarea",
+              "key": "CA-PAYMENT",
+              "source": "returned COMMAREA bytes 95-100 (CA-PAYMENT)",
+              "value": "000500"
+            },
+            {
+              "absent": null,
+              "family": "capture",
+              "key": "CA_PAYMENT",
+              "source": "returned COMMAREA capture (capture key CA_PAYMENT)",
+              "value": "000500"
+            },
+            {
+              "absent": null,
+              "family": "driver-input",
+              "key": "CA-PAYMENT",
+              "source": "driver input bytes 95-100",
+              "value": "000500"
+            },
+            {
+              "absent": null,
+              "family": "capture",
+              "key": "SQL_POLICY_PAYMENT",
+              "source": "policy insert capture (capture key SQL_POLICY_PAYMENT)",
+              "value": "500"
+            }
+          ]
+        },
+        {
+          "cobol_item": "CA-M-PREMIUM / DB2-M-PREMIUM",
+          "column": "motor_premium_amount",
+          "delta": "0.00",
+          "evidence": [
+            "base/src/lgcmarea.cpy:73",
+            "base/src/lgpolicy.cpy:80",
+            "base/src/lgapdb01.cbl:100",
+            "base/src/lgapdb01.cbl:445",
+            "base/src/lgapdb01.cbl:469"
+          ],
+          "harness_authority": "returned COMMAREA bytes 166-171 (CA-M-PREMIUM); returned COMMAREA capture (capture key CA_M_PREMIUM); driver input bytes 166-171; motor insert capture (capture key SQL_MOTOR_PREMIUM)",
+          "harness_value": "450",
+          "in_tolerance_anomaly": false,
+          "kind": "amount",
+          "locator": "base/src/lgcmarea.cpy:73",
+          "normalisations": [
+            "DISPLAY digits to decimal"
+          ],
+          "notes": [
+            "warehouse scale 2"
+          ],
+          "relation": "canonical.preissued_rating",
+          "scale_anomaly": false,
+          "status": "PASS",
+          "warehouse_value": "450.00",
+          "witnesses": [
+            {
+              "absent": null,
+              "family": "commarea",
+              "key": "CA-M-PREMIUM",
+              "source": "returned COMMAREA bytes 166-171 (CA-M-PREMIUM)",
+              "value": "000450"
+            },
+            {
+              "absent": null,
+              "family": "capture",
+              "key": "CA_M_PREMIUM",
+              "source": "returned COMMAREA capture (capture key CA_M_PREMIUM)",
+              "value": "000450"
+            },
+            {
+              "absent": null,
+              "family": "driver-input",
+              "key": "CA-M-PREMIUM",
+              "source": "driver input bytes 166-171",
+              "value": "000450"
+            },
+            {
+              "absent": null,
+              "family": "capture",
+              "key": "SQL_MOTOR_PREMIUM",
+              "source": "motor insert capture (capture key SQL_MOTOR_PREMIUM)",
+              "value": "450"
+            }
+          ]
+        },
+        {
+          "cobol_item": "CA-B-FirePremium / DB2-B-FirePremium",
+          "column": "fire_premium_amount",
+          "delta": null,
+          "evidence": [
+            "base/src/lgcmarea.cpy:85",
+            "base/src/lgpolicy.cpy:91",
+            "base/src/lgapdb01.cbl:103",
+            "base/src/lgapdb01.cbl:489",
+            "base/src/lgapdb01.cbl:535"
+          ],
+          "harness_authority": "none",
+          "harness_value": null,
+          "in_tolerance_anomaly": false,
+          "kind": "null expectation",
+          "locator": "base/src/lgcmarea.cpy:85",
+          "normalisations": [],
+          "notes": [
+            "product_premium_nullability records this column as null for policy type M",
+            "the policy type of this case populates no value for this column and the warehouse carries NULL"
+          ],
+          "relation": "canonical.preissued_rating",
+          "scale_anomaly": false,
+          "status": "PASS",
+          "warehouse_value": "NULL",
+          "witnesses": []
+        },
+        {
+          "cobol_item": "CA-B-CrimePremium / DB2-B-CrimePremium",
+          "column": "crime_premium_amount",
+          "delta": null,
+          "evidence": [
+            "base/src/lgcmarea.cpy:87",
+            "base/src/lgpolicy.cpy:93",
+            "base/src/lgapdb01.cbl:105",
+            "base/src/lgapdb01.cbl:491",
+            "base/src/lgapdb01.cbl:537"
+          ],
+          "harness_authority": "none",
+          "harness_value": null,
+          "in_tolerance_anomaly": false,
+          "kind": "null expectation",
+          "locator": "base/src/lgcmarea.cpy:87",
+          "normalisations": [],
+          "notes": [
+            "product_premium_nullability records this column as null for policy type M",
+            "the policy type of this case populates no value for this column and the warehouse carries NULL"
+          ],
+          "relation": "canonical.preissued_rating",
+          "scale_anomaly": false,
+          "status": "PASS",
+          "warehouse_value": "NULL",
+          "witnesses": []
+        },
+        {
+          "cobol_item": "CA-B-FloodPremium / DB2-B-FloodPremium",
+          "column": "flood_premium_amount",
+          "delta": null,
+          "evidence": [
+            "base/src/lgcmarea.cpy:89",
+            "base/src/lgpolicy.cpy:95",
+            "base/src/lgapdb01.cbl:107",
+            "base/src/lgapdb01.cbl:493",
+            "base/src/lgapdb01.cbl:539"
+          ],
+          "harness_authority": "none",
+          "harness_value": null,
+          "in_tolerance_anomaly": false,
+          "kind": "null expectation",
+          "locator": "base/src/lgcmarea.cpy:89",
+          "normalisations": [],
+          "notes": [
+            "product_premium_nullability records this column as null for policy type M",
+            "the policy type of this case populates no value for this column and the warehouse carries NULL"
+          ],
+          "relation": "canonical.preissued_rating",
+          "scale_anomaly": false,
+          "status": "PASS",
+          "warehouse_value": "NULL",
+          "witnesses": []
+        },
+        {
+          "cobol_item": "CA-B-WeatherPremium / DB2-B-WeatherPremium",
+          "column": "weather_premium_amount",
+          "delta": null,
+          "evidence": [
+            "base/src/lgcmarea.cpy:91",
+            "base/src/lgpolicy.cpy:97",
+            "base/src/lgapdb01.cbl:109",
+            "base/src/lgapdb01.cbl:495",
+            "base/src/lgapdb01.cbl:541"
+          ],
+          "harness_authority": "none",
+          "harness_value": null,
+          "in_tolerance_anomaly": false,
+          "kind": "null expectation",
+          "locator": "base/src/lgcmarea.cpy:91",
+          "normalisations": [],
+          "notes": [
+            "product_premium_nullability records this column as null for policy type M",
+            "the policy type of this case populates no value for this column and the warehouse carries NULL"
+          ],
+          "relation": "canonical.preissued_rating",
+          "scale_anomaly": false,
+          "status": "PASS",
+          "warehouse_value": "NULL",
+          "witnesses": []
+        }
+      ],
+      "coverage": {
+        "compared": 20,
+        "expected": 20,
+        "line": "coverage: 20/20 canonical column instances compared"
+      },
+      "errors": [],
+      "exit_status": 0,
+      "fixture": "01amot",
+      "inputs": {
+        "captures": "modernization/harness/build/run/01amot/captures.txt",
+        "commarea_post": "modernization/harness/build/run/01amot/commarea_post.dat",
+        "sample_record": "modernization/harness/build/samples/commarea_01amot.dat",
+        "sample_record_source": "the generated record of fixture 01amot under the harness build tree"
+      },
+      "policy_number": 1000001,
+      "policy_type": "M",
+      "request_id": "01AMOT",
+      "snapshot": {
+        "path": "modernization/validation/expected/01amot/captures.normalized.json",
+        "state": "matched"
+      },
+      "verdict": "PASS"
+    },
+    {
+      "assertions": [
+        {
+          "expected": "01ACOM",
+          "group": "Chain completion",
+          "locator": "modernization/harness/driver.cbl",
+          "name": "CASE",
+          "notes": [],
+          "observed": "01ACOM",
+          "status": "PASS"
+        },
+        {
+          "expected": "PASS",
+          "group": "Chain completion",
+          "locator": "modernization/harness/driver.cbl",
+          "name": "DRIVER_STATUS",
+          "notes": [],
+          "observed": "PASS",
+          "status": "PASS"
+        },
+        {
+          "expected": "00",
+          "group": "Chain completion",
+          "locator": "modernization/harness/driver.cbl",
+          "name": "DRIVER_EXIT_STATUS",
+          "notes": [],
+          "observed": "00",
+          "status": "PASS"
+        },
+        {
+          "expected": "00",
+          "group": "Chain completion",
+          "locator": "base/src/lgapdb01.cbl:293",
+          "name": "CA_RETURN_CODE",
+          "notes": [],
+          "observed": "00",
+          "status": "PASS"
+        },
+        {
+          "expected": "N",
+          "group": "Chain completion",
+          "locator": "base/src/lgapdb01.cbl:393",
+          "name": "ABEND_PRESENT",
+          "notes": [],
+          "observed": "N",
+          "status": "PASS"
+        },
+        {
+          "expected": "",
+          "group": "Chain completion",
+          "locator": "base/src/lgapdb01.cbl:393",
+          "name": "ABEND_CODE",
+          "notes": [],
+          "observed": "",
+          "status": "PASS"
+        },
+        {
+          "expected": "0",
+          "group": "Chain completion",
+          "locator": "base/src/lgapdb01.cbl:393",
+          "name": "ABEND_COUNT",
+          "notes": [],
+          "observed": "0000",
+          "status": "PASS"
+        },
+        {
+          "expected": "0",
+          "group": "Chain completion",
+          "locator": "base/src/lgapdb01.cbl:575-592",
+          "name": "DIAG_LINK_COUNT",
+          "notes": [],
+          "observed": "0000",
+          "status": "PASS"
+        },
+        {
+          "expected": "Y",
+          "group": "Chain completion",
+          "locator": "base/src/lgapdb01.cbl:268-287",
+          "name": "SQL_POLICY_PRESENT",
+          "notes": [],
+          "observed": "Y",
+          "status": "PASS"
+        },
+        {
+          "expected": "Y",
+          "group": "Chain completion",
+          "locator": "base/src/lgapdb01.cbl:223-241",
+          "name": "SQL_COMMERCIAL_PRESENT",
+          "notes": [],
+          "observed": "Y",
+          "status": "PASS"
+        },
+        {
+          "expected": "N",
+          "group": "Chain completion",
+          "locator": "base/src/lgapdb01.cbl:223-241",
+          "name": "SQL_ENDOWMENT_PRESENT",
+          "notes": [],
+          "observed": "N",
+          "status": "PASS"
+        },
+        {
+          "expected": "N",
+          "group": "Chain completion",
+          "locator": "base/src/lgapdb01.cbl:223-241",
+          "name": "SQL_HOUSE_PRESENT",
+          "notes": [],
+          "observed": "N",
+          "status": "PASS"
+        },
+        {
+          "expected": "N",
+          "group": "Chain completion",
+          "locator": "base/src/lgapdb01.cbl:223-241",
+          "name": "SQL_MOTOR_PRESENT",
+          "notes": [],
+          "observed": "N",
+          "status": "PASS"
+        },
+        {
+          "expected": "Y",
+          "group": "VSAM corroboration",
+          "locator": "base/src/lgapvs01.cbl:135-141",
+          "name": "VSAM_PRESENT",
+          "notes": [],
+          "observed": "Y",
+          "status": "PASS"
+        },
+        {
+          "expected": "64",
+          "group": "VSAM corroboration",
+          "locator": "base/src/lgapvs01.cbl:137",
+          "name": "VSAM_LENGTH",
+          "notes": [],
+          "observed": "0064",
+          "status": "PASS"
+        },
+        {
+          "expected": "21",
+          "group": "VSAM corroboration",
+          "locator": "base/src/lgapvs01.cbl:139",
+          "name": "VSAM_KEYLENGTH",
+          "notes": [],
+          "observed": "0021",
+          "status": "PASS"
+        },
+        {
+          "expected": "C00000020020001000002",
+          "group": "VSAM corroboration",
+          "locator": "base/src/lgapvs01.cbl:26-29",
+          "name": "VSAM_KEY",
+          "notes": [],
+          "observed": "C00000020020001000002",
+          "status": "PASS"
+        },
+        {
+          "expected": "C",
+          "group": "VSAM corroboration",
+          "locator": "base/src/lgapvs01.cbl:26-29",
+          "name": "VSAM_REQUEST_ID",
+          "notes": [],
+          "observed": "C",
+          "status": "PASS"
+        },
+        {
+          "expected": "0000002002",
+          "group": "VSAM corroboration",
+          "locator": "base/src/lgapvs01.cbl:26-29",
+          "name": "VSAM_CUSTOMER_NUM",
+          "notes": [],
+          "observed": "0000002002",
+          "status": "PASS"
+        },
+        {
+          "expected": "0001000002",
+          "group": "VSAM corroboration",
+          "locator": "base/src/lgapvs01.cbl:26-29",
+          "name": "VSAM_POLICY_NUM",
+          "notes": [],
+          "observed": "0001000002",
+          "status": "PASS"
+        },
+        {
+          "expected": "43 bytes, mapped to no canonical column",
+          "group": "VSAM corroboration",
+          "locator": "base/src/lgapvs01.cbl:30",
+          "name": "product payload",
+          "notes": [
+            "the payload corroborates the write and the composite key alone"
+          ],
+          "observed": "43 bytes, not compared",
+          "status": "PASS"
+        },
+        {
+          "expected": "canonical.issued_policy carries [GENAPP_CLASS_EXEMPLAR]",
+          "group": "Cross-relation identity",
+          "locator": "modernization/extraction/copybook_field_map.yml: targets",
+          "name": "source_system_key",
+          "notes": [],
+          "observed": "canonical.preissued_rating carries [GENAPP_CLASS_EXEMPLAR]",
+          "status": "PASS"
+        },
+        {
+          "expected": "canonical.issued_policy carries [1000002]",
+          "group": "Cross-relation identity",
+          "locator": "modernization/extraction/copybook_field_map.yml: targets",
+          "name": "policy_number",
+          "notes": [],
+          "observed": "canonical.preissued_rating carries [1000002]",
+          "status": "PASS"
+        },
+        {
+          "expected": "canonical.issued_policy carries [C]",
+          "group": "Cross-relation identity",
+          "locator": "modernization/extraction/copybook_field_map.yml: targets",
+          "name": "policy_type",
+          "notes": [],
+          "observed": "canonical.preissued_rating carries [C]",
+          "status": "PASS"
+        }
+      ],
+      "case": "01ACOM",
+      "comparisons": [
+        {
+          "cobol_item": "none (warehouse-assigned)",
+          "column": "source_system_key",
+          "delta": null,
+          "evidence": [
+            "user requirement (no COBOL item supplies it)"
+          ],
+          "harness_authority": "configured run value (--source-system-key)",
+          "harness_value": "GENAPP_CLASS_EXEMPLAR",
+          "in_tolerance_anomaly": false,
+          "kind": "exact string",
+          "locator": "user requirement (no COBOL item supplies it)",
+          "normalisations": [
+            "trailing-space trim"
+          ],
+          "notes": [],
+          "relation": "canonical.issued_policy",
+          "scale_anomaly": false,
+          "status": "PASS",
+          "warehouse_value": "GENAPP_CLASS_EXEMPLAR",
+          "witnesses": [
+            {
+              "absent": null,
+              "family": "configured",
+              "key": null,
+              "source": "configured run value (--source-system-key)",
+              "value": "GENAPP_CLASS_EXEMPLAR"
+            }
+          ]
+        },
+        {
+          "cobol_item": "CA-POLICY-NUM",
+          "column": "policy_number",
+          "delta": null,
+          "evidence": [
+            "base/src/lgcmarea.cpy:35",
+            "base/src/lgapdb01.cbl:117",
+            "base/src/lgapdb01.cbl:308-310",
+            "base/src/lgapdb01.cbl:311"
+          ],
+          "harness_authority": "returned COMMAREA bytes 19-28 (CA-POLICY-NUM); returned COMMAREA capture (capture key CA_POLICY_NUM); policy insert capture (capture key SQL_POLICY_ASSIGNED_NUMBER)",
+          "harness_value": "1000002",
+          "in_tolerance_anomaly": false,
+          "kind": "integer",
+          "locator": "base/src/lgcmarea.cpy:35",
+          "normalisations": [
+            "leading-zero-insensitive integer"
+          ],
+          "notes": [],
+          "relation": "canonical.issued_policy",
+          "scale_anomaly": false,
+          "status": "PASS",
+          "warehouse_value": "1000002",
+          "witnesses": [
+            {
+              "absent": null,
+              "family": "commarea",
+              "key": "CA-POLICY-NUM",
+              "source": "returned COMMAREA bytes 19-28 (CA-POLICY-NUM)",
+              "value": "0001000002"
+            },
+            {
+              "absent": null,
+              "family": "capture",
+              "key": "CA_POLICY_NUM",
+              "source": "returned COMMAREA capture (capture key CA_POLICY_NUM)",
+              "value": "0001000002"
+            },
+            {
+              "absent": null,
+              "family": "capture",
+              "key": "SQL_POLICY_ASSIGNED_NUMBER",
+              "source": "policy insert capture (capture key SQL_POLICY_ASSIGNED_NUMBER)",
+              "value": "1000002"
+            }
+          ]
+        },
+        {
+          "cobol_item": "DB2-POLICYTYPE",
+          "column": "policy_type",
+          "delta": null,
+          "evidence": [
+            "base/src/lgpolicy.cpy:43",
+            "base/src/lgapdb01.cbl:184-207",
+            "base/src/lgapdb01.cbl:283"
+          ],
+          "harness_authority": "request routing derivation from CA-REQUEST-ID [base/src/lgapdb01.cbl:184-207]; policy insert capture (capture key SQL_POLICY_POLICYTYPE)",
+          "harness_value": "C",
+          "in_tolerance_anomaly": false,
+          "kind": "single char",
+          "locator": "base/src/lgpolicy.cpy:43",
+          "normalisations": [
+            "trailing-space trim"
+          ],
+          "notes": [],
+          "relation": "canonical.issued_policy",
+          "scale_anomaly": false,
+          "status": "PASS",
+          "warehouse_value": "C",
+          "witnesses": [
+            {
+              "absent": null,
+              "family": "derived",
+              "key": null,
+              "source": "request routing derivation from CA-REQUEST-ID [base/src/lgapdb01.cbl:184-207]",
+              "value": "C"
+            },
+            {
+              "absent": null,
+              "family": "capture",
+              "key": "SQL_POLICY_POLICYTYPE",
+              "source": "policy insert capture (capture key SQL_POLICY_POLICYTYPE)",
+              "value": "C"
+            }
+          ]
+        },
+        {
+          "cobol_item": "CA-CUSTOMER-NUM",
+          "column": "customer_number",
+          "delta": null,
+          "evidence": [
+            "base/src/lgcmarea.cpy:12",
+            "base/src/lgapdb01.cbl:90",
+            "base/src/lgapdb01.cbl:176",
+            "base/src/lgapdb01.cbl:280"
+          ],
+          "harness_authority": "returned COMMAREA bytes 9-18 (CA-CUSTOMER-NUM); returned COMMAREA capture (capture key CA_CUSTOMER_NUM); driver input bytes 9-18; policy insert capture (capture key SQL_POLICY_CUSTOMERNUM)",
+          "harness_value": "2002",
+          "in_tolerance_anomaly": false,
+          "kind": "integer",
+          "locator": "base/src/lgcmarea.cpy:12",
+          "normalisations": [
+            "leading-zero-insensitive integer"
+          ],
+          "notes": [],
+          "relation": "canonical.issued_policy",
+          "scale_anomaly": false,
+          "status": "PASS",
+          "warehouse_value": "2002",
+          "witnesses": [
+            {
+              "absent": null,
+              "family": "commarea",
+              "key": "CA-CUSTOMER-NUM",
+              "source": "returned COMMAREA bytes 9-18 (CA-CUSTOMER-NUM)",
+              "value": "0000002002"
+            },
+            {
+              "absent": null,
+              "family": "capture",
+              "key": "CA_CUSTOMER_NUM",
+              "source": "returned COMMAREA capture (capture key CA_CUSTOMER_NUM)",
+              "value": "0000002002"
+            },
+            {
+              "absent": null,
+              "family": "driver-input",
+              "key": "CA-CUSTOMER-NUM",
+              "source": "driver input bytes 9-18",
+              "value": "0000002002"
+            },
+            {
+              "absent": null,
+              "family": "capture",
+              "key": "SQL_POLICY_CUSTOMERNUM",
+              "source": "policy insert capture (capture key SQL_POLICY_CUSTOMERNUM)",
+              "value": "2002"
+            }
+          ]
+        },
+        {
+          "cobol_item": "CA-REQUEST-ID",
+          "column": "request_id",
+          "delta": null,
+          "evidence": [
+            "base/src/lgcmarea.cpy:10",
+            "base/src/lgapdb01.cbl:184"
+          ],
+          "harness_authority": "returned COMMAREA bytes 1-6 (CA-REQUEST-ID); returned COMMAREA capture (capture key CA_REQUEST_ID); driver input bytes 1-6",
+          "harness_value": "01ACOM",
+          "in_tolerance_anomaly": false,
+          "kind": "exact string",
+          "locator": "base/src/lgcmarea.cpy:10",
+          "normalisations": [
+            "trailing-space trim"
+          ],
+          "notes": [],
+          "relation": "canonical.issued_policy",
+          "scale_anomaly": false,
+          "status": "PASS",
+          "warehouse_value": "01ACOM",
+          "witnesses": [
+            {
+              "absent": null,
+              "family": "commarea",
+              "key": "CA-REQUEST-ID",
+              "source": "returned COMMAREA bytes 1-6 (CA-REQUEST-ID)",
+              "value": "01ACOM"
+            },
+            {
+              "absent": null,
+              "family": "capture",
+              "key": "CA_REQUEST_ID",
+              "source": "returned COMMAREA capture (capture key CA_REQUEST_ID)",
+              "value": "01ACOM"
+            },
+            {
+              "absent": null,
+              "family": "driver-input",
+              "key": "CA-REQUEST-ID",
+              "source": "driver input bytes 1-6",
+              "value": "01ACOM"
+            }
+          ]
+        },
+        {
+          "cobol_item": "CA-RETURN-CODE",
+          "column": "return_code",
+          "delta": null,
+          "evidence": [
+            "base/src/lgcmarea.cpy:11",
+            "base/src/lgapol01.cbl:105",
+            "base/src/lgapdb01.cbl:172",
+            "base/src/lgapdb01.cbl:293",
+            "base/src/lgapvs01.cbl:144"
+          ],
+          "harness_authority": "returned COMMAREA bytes 7-8 (CA-RETURN-CODE); returned COMMAREA capture (capture key CA_RETURN_CODE)",
+          "harness_value": "00",
+          "in_tolerance_anomaly": false,
+          "kind": "exact string",
+          "locator": "base/src/lgcmarea.cpy:11",
+          "normalisations": [
+            "trailing-space trim"
+          ],
+          "notes": [],
+          "relation": "canonical.issued_policy",
+          "scale_anomaly": false,
+          "status": "PASS",
+          "warehouse_value": "00",
+          "witnesses": [
+            {
+              "absent": null,
+              "family": "commarea",
+              "key": "CA-RETURN-CODE",
+              "source": "returned COMMAREA bytes 7-8 (CA-RETURN-CODE)",
+              "value": "00"
+            },
+            {
+              "absent": null,
+              "family": "capture",
+              "key": "CA_RETURN_CODE",
+              "source": "returned COMMAREA capture (capture key CA_RETURN_CODE)",
+              "value": "00"
+            }
+          ]
+        },
+        {
+          "cobol_item": "CA-ISSUE-DATE / DB2-ISSUEDATE",
+          "column": "issue_date",
+          "delta": null,
+          "evidence": [
+            "base/src/lgcmarea.cpy:38",
+            "base/src/lgpolicy.cpy:46",
+            "base/src/lgapdb01.cbl:281"
+          ],
+          "harness_authority": "returned COMMAREA bytes 29-38 (CA-ISSUE-DATE); returned COMMAREA capture (capture key CA_ISSUE_DATE); driver input bytes 29-38; policy insert capture (capture key SQL_POLICY_ISSUEDATE)",
+          "harness_value": "2026-08-19",
+          "in_tolerance_anomaly": false,
+          "kind": "date",
+          "locator": "base/src/lgcmarea.cpy:38",
+          "normalisations": [
+            "ISO calendar date"
+          ],
+          "notes": [],
+          "relation": "canonical.issued_policy",
+          "scale_anomaly": false,
+          "status": "PASS",
+          "warehouse_value": "2026-08-19",
+          "witnesses": [
+            {
+              "absent": null,
+              "family": "commarea",
+              "key": "CA-ISSUE-DATE",
+              "source": "returned COMMAREA bytes 29-38 (CA-ISSUE-DATE)",
+              "value": "2026-08-19"
+            },
+            {
+              "absent": null,
+              "family": "capture",
+              "key": "CA_ISSUE_DATE",
+              "source": "returned COMMAREA capture (capture key CA_ISSUE_DATE)",
+              "value": "2026-08-19"
+            },
+            {
+              "absent": null,
+              "family": "driver-input",
+              "key": "CA-ISSUE-DATE",
+              "source": "driver input bytes 29-38",
+              "value": "2026-08-19"
+            },
+            {
+              "absent": null,
+              "family": "capture",
+              "key": "SQL_POLICY_ISSUEDATE",
+              "source": "policy insert capture (capture key SQL_POLICY_ISSUEDATE)",
+              "value": "2026-08-19"
+            }
+          ]
+        },
+        {
+          "cobol_item": "CA-EXPIRY-DATE / DB2-EXPIRYDATE",
+          "column": "expiry_date",
+          "delta": null,
+          "evidence": [
+            "base/src/lgcmarea.cpy:39",
+            "base/src/lgpolicy.cpy:47",
+            "base/src/lgapdb01.cbl:282"
+          ],
+          "harness_authority": "returned COMMAREA bytes 39-48 (CA-EXPIRY-DATE); returned COMMAREA capture (capture key CA_EXPIRY_DATE); driver input bytes 39-48; policy insert capture (capture key SQL_POLICY_EXPIRYDATE)",
+          "harness_value": "2027-08-18",
+          "in_tolerance_anomaly": false,
+          "kind": "date",
+          "locator": "base/src/lgcmarea.cpy:39",
+          "normalisations": [
+            "ISO calendar date"
+          ],
+          "notes": [],
+          "relation": "canonical.issued_policy",
+          "scale_anomaly": false,
+          "status": "PASS",
+          "warehouse_value": "2027-08-18",
+          "witnesses": [
+            {
+              "absent": null,
+              "family": "commarea",
+              "key": "CA-EXPIRY-DATE",
+              "source": "returned COMMAREA bytes 39-48 (CA-EXPIRY-DATE)",
+              "value": "2027-08-18"
+            },
+            {
+              "absent": null,
+              "family": "capture",
+              "key": "CA_EXPIRY_DATE",
+              "source": "returned COMMAREA capture (capture key CA_EXPIRY_DATE)",
+              "value": "2027-08-18"
+            },
+            {
+              "absent": null,
+              "family": "driver-input",
+              "key": "CA-EXPIRY-DATE",
+              "source": "driver input bytes 39-48",
+              "value": "2027-08-18"
+            },
+            {
+              "absent": null,
+              "family": "capture",
+              "key": "SQL_POLICY_EXPIRYDATE",
+              "source": "policy insert capture (capture key SQL_POLICY_EXPIRYDATE)",
+              "value": "2027-08-18"
+            }
+          ]
+        },
+        {
+          "cobol_item": "CA-LASTCHANGED / DB2-LASTCHANGED",
+          "column": "last_changed",
+          "delta": null,
+          "evidence": [
+            "base/src/lgcmarea.cpy:40",
+            "base/src/lgpolicy.cpy:48",
+            "base/src/lgapdb01.cbl:284",
+            "base/src/lgapdb01.cbl:316-321"
+          ],
+          "harness_authority": "returned COMMAREA bytes 49-74 (CA-LASTCHANGED); returned COMMAREA capture (capture key CA_LASTCHANGED); policy insert capture (capture key SQL_POLICY_ASSIGNED_LASTCHANGED)",
+          "harness_value": "2026-08-19 12:00:00.000000",
+          "in_tolerance_anomaly": false,
+          "kind": "timestamp",
+          "locator": "base/src/lgcmarea.cpy:40",
+          "normalisations": [
+            "Db2 timestamp to microsecond precision"
+          ],
+          "notes": [],
+          "relation": "canonical.issued_policy",
+          "scale_anomaly": false,
+          "status": "PASS",
+          "warehouse_value": "2026-08-19 12:00:00.000000",
+          "witnesses": [
+            {
+              "absent": null,
+              "family": "commarea",
+              "key": "CA-LASTCHANGED",
+              "source": "returned COMMAREA bytes 49-74 (CA-LASTCHANGED)",
+              "value": "2026-08-19-12.00.00.000000"
+            },
+            {
+              "absent": null,
+              "family": "capture",
+              "key": "CA_LASTCHANGED",
+              "source": "returned COMMAREA capture (capture key CA_LASTCHANGED)",
+              "value": "2026-08-19-12.00.00.000000"
+            },
+            {
+              "absent": null,
+              "family": "capture",
+              "key": "SQL_POLICY_ASSIGNED_LASTCHANGED",
+              "source": "policy insert capture (capture key SQL_POLICY_ASSIGNED_LASTCHANGED)",
+              "value": "2026-08-19-12.00.00.000000"
+            }
+          ]
+        },
+        {
+          "cobol_item": "CA-BROKERID / DB2-BROKERID",
+          "column": "broker_id",
+          "delta": null,
+          "evidence": [
+            "base/src/lgcmarea.cpy:41",
+            "base/src/lgpolicy.cpy:49",
+            "base/src/lgapdb01.cbl:91",
+            "base/src/lgapdb01.cbl:264",
+            "base/src/lgapdb01.cbl:285"
+          ],
+          "harness_authority": "returned COMMAREA bytes 75-84 (CA-BROKERID); returned COMMAREA capture (capture key CA_BROKERID); driver input bytes 75-84; policy insert capture (capture key SQL_POLICY_BROKERID)",
+          "harness_value": "84",
+          "in_tolerance_anomaly": false,
+          "kind": "integer",
+          "locator": "base/src/lgcmarea.cpy:41",
+          "normalisations": [
+            "leading-zero-insensitive integer"
+          ],
+          "notes": [],
+          "relation": "canonical.issued_policy",
+          "scale_anomaly": false,
+          "status": "PASS",
+          "warehouse_value": "84",
+          "witnesses": [
+            {
+              "absent": null,
+              "family": "commarea",
+              "key": "CA-BROKERID",
+              "source": "returned COMMAREA bytes 75-84 (CA-BROKERID)",
+              "value": "0000000084"
+            },
+            {
+              "absent": null,
+              "family": "capture",
+              "key": "CA_BROKERID",
+              "source": "returned COMMAREA capture (capture key CA_BROKERID)",
+              "value": "0000000084"
+            },
+            {
+              "absent": null,
+              "family": "driver-input",
+              "key": "CA-BROKERID",
+              "source": "driver input bytes 75-84",
+              "value": "0000000084"
+            },
+            {
+              "absent": null,
+              "family": "capture",
+              "key": "SQL_POLICY_BROKERID",
+              "source": "policy insert capture (capture key SQL_POLICY_BROKERID)",
+              "value": "84"
+            }
+          ]
+        },
+        {
+          "cobol_item": "CA-BROKERSREF / DB2-BROKERSREF",
+          "column": "brokers_reference",
+          "delta": null,
+          "evidence": [
+            "base/src/lgcmarea.cpy:42",
+            "base/src/lgpolicy.cpy:50",
+            "base/src/lgapdb01.cbl:286"
+          ],
+          "harness_authority": "returned COMMAREA bytes 85-94 (CA-BROKERSREF); returned COMMAREA capture (capture key CA_BROKERSREF); driver input bytes 85-94; policy insert capture (capture key SQL_POLICY_BROKERSREF)",
+          "harness_value": "BRCOM001",
+          "in_tolerance_anomaly": false,
+          "kind": "exact string",
+          "locator": "base/src/lgcmarea.cpy:42",
+          "normalisations": [
+            "trailing-space trim"
+          ],
+          "notes": [],
+          "relation": "canonical.issued_policy",
+          "scale_anomaly": false,
+          "status": "PASS",
+          "warehouse_value": "BRCOM001",
+          "witnesses": [
+            {
+              "absent": null,
+              "family": "commarea",
+              "key": "CA-BROKERSREF",
+              "source": "returned COMMAREA bytes 85-94 (CA-BROKERSREF)",
+              "value": "BRCOM001  "
+            },
+            {
+              "absent": null,
+              "family": "capture",
+              "key": "CA_BROKERSREF",
+              "source": "returned COMMAREA capture (capture key CA_BROKERSREF)",
+              "value": "BRCOM001"
+            },
+            {
+              "absent": null,
+              "family": "driver-input",
+              "key": "CA-BROKERSREF",
+              "source": "driver input bytes 85-94",
+              "value": "BRCOM001  "
+            },
+            {
+              "absent": null,
+              "family": "capture",
+              "key": "SQL_POLICY_BROKERSREF",
+              "source": "policy insert capture (capture key SQL_POLICY_BROKERSREF)",
+              "value": "BRCOM001"
+            }
+          ]
+        },
+        {
+          "cobol_item": "none (warehouse-assigned)",
+          "column": "source_system_key",
+          "delta": null,
+          "evidence": [
+            "user requirement (no COBOL item supplies it)"
+          ],
+          "harness_authority": "configured run value (--source-system-key)",
+          "harness_value": "GENAPP_CLASS_EXEMPLAR",
+          "in_tolerance_anomaly": false,
+          "kind": "exact string",
+          "locator": "user requirement (no COBOL item supplies it)",
+          "normalisations": [
+            "trailing-space trim"
+          ],
+          "notes": [],
+          "relation": "canonical.preissued_rating",
+          "scale_anomaly": false,
+          "status": "PASS",
+          "warehouse_value": "GENAPP_CLASS_EXEMPLAR",
+          "witnesses": [
+            {
+              "absent": null,
+              "family": "configured",
+              "key": null,
+              "source": "configured run value (--source-system-key)",
+              "value": "GENAPP_CLASS_EXEMPLAR"
+            }
+          ]
+        },
+        {
+          "cobol_item": "CA-POLICY-NUM",
+          "column": "policy_number",
+          "delta": null,
+          "evidence": [
+            "base/src/lgcmarea.cpy:35",
+            "base/src/lgapdb01.cbl:117",
+            "base/src/lgapdb01.cbl:308-310",
+            "base/src/lgapdb01.cbl:311"
+          ],
+          "harness_authority": "returned COMMAREA bytes 19-28 (CA-POLICY-NUM); returned COMMAREA capture (capture key CA_POLICY_NUM); policy insert capture (capture key SQL_POLICY_ASSIGNED_NUMBER)",
+          "harness_value": "1000002",
+          "in_tolerance_anomaly": false,
+          "kind": "integer",
+          "locator": "base/src/lgcmarea.cpy:35",
+          "normalisations": [
+            "leading-zero-insensitive integer"
+          ],
+          "notes": [],
+          "relation": "canonical.preissued_rating",
+          "scale_anomaly": false,
+          "status": "PASS",
+          "warehouse_value": "1000002",
+          "witnesses": [
+            {
+              "absent": null,
+              "family": "commarea",
+              "key": "CA-POLICY-NUM",
+              "source": "returned COMMAREA bytes 19-28 (CA-POLICY-NUM)",
+              "value": "0001000002"
+            },
+            {
+              "absent": null,
+              "family": "capture",
+              "key": "CA_POLICY_NUM",
+              "source": "returned COMMAREA capture (capture key CA_POLICY_NUM)",
+              "value": "0001000002"
+            },
+            {
+              "absent": null,
+              "family": "capture",
+              "key": "SQL_POLICY_ASSIGNED_NUMBER",
+              "source": "policy insert capture (capture key SQL_POLICY_ASSIGNED_NUMBER)",
+              "value": "1000002"
+            }
+          ]
+        },
+        {
+          "cobol_item": "DB2-POLICYTYPE",
+          "column": "policy_type",
+          "delta": null,
+          "evidence": [
+            "base/src/lgpolicy.cpy:43",
+            "base/src/lgapdb01.cbl:184-207",
+            "base/src/lgapdb01.cbl:283"
+          ],
+          "harness_authority": "request routing derivation from CA-REQUEST-ID [base/src/lgapdb01.cbl:184-207]; policy insert capture (capture key SQL_POLICY_POLICYTYPE)",
+          "harness_value": "C",
+          "in_tolerance_anomaly": false,
+          "kind": "single char",
+          "locator": "base/src/lgpolicy.cpy:43",
+          "normalisations": [
+            "trailing-space trim"
+          ],
+          "notes": [],
+          "relation": "canonical.preissued_rating",
+          "scale_anomaly": false,
+          "status": "PASS",
+          "warehouse_value": "C",
+          "witnesses": [
+            {
+              "absent": null,
+              "family": "derived",
+              "key": null,
+              "source": "request routing derivation from CA-REQUEST-ID [base/src/lgapdb01.cbl:184-207]",
+              "value": "C"
+            },
+            {
+              "absent": null,
+              "family": "capture",
+              "key": "SQL_POLICY_POLICYTYPE",
+              "source": "policy insert capture (capture key SQL_POLICY_POLICYTYPE)",
+              "value": "C"
+            }
+          ]
+        },
+        {
+          "cobol_item": "CA-PAYMENT / DB2-PAYMENT",
+          "column": "payment_amount",
+          "delta": "0.00",
+          "evidence": [
+            "base/src/lgcmarea.cpy:43",
+            "base/src/lgpolicy.cpy:51",
+            "base/src/lgapdb01.cbl:92",
+            "base/src/lgapdb01.cbl:265",
+            "base/src/lgapdb01.cbl:287"
+          ],
+          "harness_authority": "returned COMMAREA bytes 95-100 (CA-PAYMENT); returned COMMAREA capture (capture key CA_PAYMENT); driver input bytes 95-100; policy insert capture (capture key SQL_POLICY_PAYMENT)",
+          "harness_value": "1750",
+          "in_tolerance_anomaly": false,
+          "kind": "amount",
+          "locator": "base/src/lgcmarea.cpy:43",
+          "normalisations": [
+            "DISPLAY digits to decimal"
+          ],
+          "notes": [
+            "warehouse scale 2"
+          ],
+          "relation": "canonical.preissued_rating",
+          "scale_anomaly": false,
+          "status": "PASS",
+          "warehouse_value": "1750.00",
+          "witnesses": [
+            {
+              "absent": null,
+              "family": "commarea",
+              "key": "CA-PAYMENT",
+              "source": "returned COMMAREA bytes 95-100 (CA-PAYMENT)",
+              "value": "001750"
+            },
+            {
+              "absent": null,
+              "family": "capture",
+              "key": "CA_PAYMENT",
+              "source": "returned COMMAREA capture (capture key CA_PAYMENT)",
+              "value": "001750"
+            },
+            {
+              "absent": null,
+              "family": "driver-input",
+              "key": "CA-PAYMENT",
+              "source": "driver input bytes 95-100",
+              "value": "001750"
+            },
+            {
+              "absent": null,
+              "family": "capture",
+              "key": "SQL_POLICY_PAYMENT",
+              "source": "policy insert capture (capture key SQL_POLICY_PAYMENT)",
+              "value": "1750"
+            }
+          ]
+        },
+        {
+          "cobol_item": "CA-M-PREMIUM / DB2-M-PREMIUM",
+          "column": "motor_premium_amount",
+          "delta": null,
+          "evidence": [
+            "base/src/lgcmarea.cpy:73",
+            "base/src/lgpolicy.cpy:80",
+            "base/src/lgapdb01.cbl:100",
+            "base/src/lgapdb01.cbl:445",
+            "base/src/lgapdb01.cbl:469"
+          ],
+          "harness_authority": "none",
+          "harness_value": null,
+          "in_tolerance_anomaly": false,
+          "kind": "null expectation",
+          "locator": "base/src/lgcmarea.cpy:73",
+          "normalisations": [],
+          "notes": [
+            "product_premium_nullability records this column as null for policy type C",
+            "the policy type of this case populates no value for this column and the warehouse carries NULL"
+          ],
+          "relation": "canonical.preissued_rating",
+          "scale_anomaly": false,
+          "status": "PASS",
+          "warehouse_value": "NULL",
+          "witnesses": []
+        },
+        {
+          "cobol_item": "CA-B-FirePremium / DB2-B-FirePremium",
+          "column": "fire_premium_amount",
+          "delta": "0.00",
+          "evidence": [
+            "base/src/lgcmarea.cpy:85",
+            "base/src/lgpolicy.cpy:91",
+            "base/src/lgapdb01.cbl:103",
+            "base/src/lgapdb01.cbl:489",
+            "base/src/lgapdb01.cbl:535"
+          ],
+          "harness_authority": "returned COMMAREA bytes 900-907 (CA-B-FirePremium); returned COMMAREA capture (capture key CA_B_FIREPREMIUM); driver input bytes 900-907; commercial insert capture (capture key SQL_COMMERCIAL_FIREPREMIUM)",
+          "harness_value": "13500",
+          "in_tolerance_anomaly": false,
+          "kind": "amount",
+          "locator": "base/src/lgcmarea.cpy:85",
+          "normalisations": [
+            "DISPLAY digits to decimal"
+          ],
+          "notes": [
+            "warehouse scale 2"
+          ],
+          "relation": "canonical.preissued_rating",
+          "scale_anomaly": false,
+          "status": "PASS",
+          "warehouse_value": "13500.00",
+          "witnesses": [
+            {
+              "absent": null,
+              "family": "commarea",
+              "key": "CA-B-FirePremium",
+              "source": "returned COMMAREA bytes 900-907 (CA-B-FirePremium)",
+              "value": "00013500"
+            },
+            {
+              "absent": null,
+              "family": "capture",
+              "key": "CA_B_FIREPREMIUM",
+              "source": "returned COMMAREA capture (capture key CA_B_FIREPREMIUM)",
+              "value": "00013500"
+            },
+            {
+              "absent": null,
+              "family": "driver-input",
+              "key": "CA-B-FirePremium",
+              "source": "driver input bytes 900-907",
+              "value": "00013500"
+            },
+            {
+              "absent": null,
+              "family": "capture",
+              "key": "SQL_COMMERCIAL_FIREPREMIUM",
+              "source": "commercial insert capture (capture key SQL_COMMERCIAL_FIREPREMIUM)",
+              "value": "13500"
+            }
+          ]
+        },
+        {
+          "cobol_item": "CA-B-CrimePremium / DB2-B-CrimePremium",
+          "column": "crime_premium_amount",
+          "delta": "0.00",
+          "evidence": [
+            "base/src/lgcmarea.cpy:87",
+            "base/src/lgpolicy.cpy:93",
+            "base/src/lgapdb01.cbl:105",
+            "base/src/lgapdb01.cbl:491",
+            "base/src/lgapdb01.cbl:537"
+          ],
+          "harness_authority": "returned COMMAREA bytes 912-919 (CA-B-CrimePremium); returned COMMAREA capture (capture key CA_B_CRIMEPREMIUM); driver input bytes 912-919; commercial insert capture (capture key SQL_COMMERCIAL_CRIMEPREMIUM)",
+          "harness_value": "3400",
+          "in_tolerance_anomaly": false,
+          "kind": "amount",
+          "locator": "base/src/lgcmarea.cpy:87",
+          "normalisations": [
+            "DISPLAY digits to decimal"
+          ],
+          "notes": [
+            "warehouse scale 2"
+          ],
+          "relation": "canonical.preissued_rating",
+          "scale_anomaly": false,
+          "status": "PASS",
+          "warehouse_value": "3400.00",
+          "witnesses": [
+            {
+              "absent": null,
+              "family": "commarea",
+              "key": "CA-B-CrimePremium",
+              "source": "returned COMMAREA bytes 912-919 (CA-B-CrimePremium)",
+              "value": "00003400"
+            },
+            {
+              "absent": null,
+              "family": "capture",
+              "key": "CA_B_CRIMEPREMIUM",
+              "source": "returned COMMAREA capture (capture key CA_B_CRIMEPREMIUM)",
+              "value": "00003400"
+            },
+            {
+              "absent": null,
+              "family": "driver-input",
+              "key": "CA-B-CrimePremium",
+              "source": "driver input bytes 912-919",
+              "value": "00003400"
+            },
+            {
+              "absent": null,
+              "family": "capture",
+              "key": "SQL_COMMERCIAL_CRIMEPREMIUM",
+              "source": "commercial insert capture (capture key SQL_COMMERCIAL_CRIMEPREMIUM)",
+              "value": "3400"
+            }
+          ]
+        },
+        {
+          "cobol_item": "CA-B-FloodPremium / DB2-B-FloodPremium",
+          "column": "flood_premium_amount",
+          "delta": "0.00",
+          "evidence": [
+            "base/src/lgcmarea.cpy:89",
+            "base/src/lgpolicy.cpy:95",
+            "base/src/lgapdb01.cbl:107",
+            "base/src/lgapdb01.cbl:493",
+            "base/src/lgapdb01.cbl:539"
+          ],
+          "harness_authority": "returned COMMAREA bytes 924-931 (CA-B-FloodPremium); returned COMMAREA capture (capture key CA_B_FLOODPREMIUM); driver input bytes 924-931; commercial insert capture (capture key SQL_COMMERCIAL_FLOODPREMIUM)",
+          "harness_value": "7800",
+          "in_tolerance_anomaly": false,
+          "kind": "amount",
+          "locator": "base/src/lgcmarea.cpy:89",
+          "normalisations": [
+            "DISPLAY digits to decimal"
+          ],
+          "notes": [
+            "warehouse scale 2"
+          ],
+          "relation": "canonical.preissued_rating",
+          "scale_anomaly": false,
+          "status": "PASS",
+          "warehouse_value": "7800.00",
+          "witnesses": [
+            {
+              "absent": null,
+              "family": "commarea",
+              "key": "CA-B-FloodPremium",
+              "source": "returned COMMAREA bytes 924-931 (CA-B-FloodPremium)",
+              "value": "00007800"
+            },
+            {
+              "absent": null,
+              "family": "capture",
+              "key": "CA_B_FLOODPREMIUM",
+              "source": "returned COMMAREA capture (capture key CA_B_FLOODPREMIUM)",
+              "value": "00007800"
+            },
+            {
+              "absent": null,
+              "family": "driver-input",
+              "key": "CA-B-FloodPremium",
+              "source": "driver input bytes 924-931",
+              "value": "00007800"
+            },
+            {
+              "absent": null,
+              "family": "capture",
+              "key": "SQL_COMMERCIAL_FLOODPREMIUM",
+              "source": "commercial insert capture (capture key SQL_COMMERCIAL_FLOODPREMIUM)",
+              "value": "7800"
+            }
+          ]
+        },
+        {
+          "cobol_item": "CA-B-WeatherPremium / DB2-B-WeatherPremium",
+          "column": "weather_premium_amount",
+          "delta": "0.00",
+          "evidence": [
+            "base/src/lgcmarea.cpy:91",
+            "base/src/lgpolicy.cpy:97",
+            "base/src/lgapdb01.cbl:109",
+            "base/src/lgapdb01.cbl:495",
+            "base/src/lgapdb01.cbl:541"
+          ],
+          "harness_authority": "returned COMMAREA bytes 936-943 (CA-B-WeatherPremium); returned COMMAREA capture (capture key CA_B_WEATHERPREMIUM); driver input bytes 936-943; commercial insert capture (capture key SQL_COMMERCIAL_WEATHERPREMIUM)",
+          "harness_value": "2600",
+          "in_tolerance_anomaly": false,
+          "kind": "amount",
+          "locator": "base/src/lgcmarea.cpy:91",
+          "normalisations": [
+            "DISPLAY digits to decimal"
+          ],
+          "notes": [
+            "warehouse scale 2"
+          ],
+          "relation": "canonical.preissued_rating",
+          "scale_anomaly": false,
+          "status": "PASS",
+          "warehouse_value": "2600.00",
+          "witnesses": [
+            {
+              "absent": null,
+              "family": "commarea",
+              "key": "CA-B-WeatherPremium",
+              "source": "returned COMMAREA bytes 936-943 (CA-B-WeatherPremium)",
+              "value": "00002600"
+            },
+            {
+              "absent": null,
+              "family": "capture",
+              "key": "CA_B_WEATHERPREMIUM",
+              "source": "returned COMMAREA capture (capture key CA_B_WEATHERPREMIUM)",
+              "value": "00002600"
+            },
+            {
+              "absent": null,
+              "family": "driver-input",
+              "key": "CA-B-WeatherPremium",
+              "source": "driver input bytes 936-943",
+              "value": "00002600"
+            },
+            {
+              "absent": null,
+              "family": "capture",
+              "key": "SQL_COMMERCIAL_WEATHERPREMIUM",
+              "source": "commercial insert capture (capture key SQL_COMMERCIAL_WEATHERPREMIUM)",
+              "value": "2600"
+            }
+          ]
+        }
+      ],
+      "coverage": {
+        "compared": 20,
+        "expected": 20,
+        "line": "coverage: 20/20 canonical column instances compared"
+      },
+      "errors": [],
+      "exit_status": 0,
+      "fixture": "01acom",
+      "inputs": {
+        "captures": "modernization/harness/build/run/01acom/captures.txt",
+        "commarea_post": "modernization/harness/build/run/01acom/commarea_post.dat",
+        "sample_record": "modernization/harness/build/samples/commarea_01acom.dat",
+        "sample_record_source": "the generated record of fixture 01acom under the harness build tree"
+      },
+      "policy_number": 1000002,
+      "policy_type": "C",
+      "request_id": "01ACOM",
+      "snapshot": {
+        "path": "modernization/validation/expected/01acom/captures.normalized.json",
+        "state": "matched"
+      },
+      "verdict": "PASS"
+    }
+  ],
+  "connection": "modernization/validation/local.duckdb",
+  "errors": [],
+  "exit_status": 0,
+  "expected_dir": "modernization/validation/expected",
+  "field_map": "modernization/extraction/copybook_field_map.yml",
+  "figure_reference": "Figure 5 \u2014 Validation Harness Control Flow in modernization/docs/architecture.md",
+  "gate_artifact": {
+    "name": "modernization/validation/artifacts/gate-probe-redshift.log",
+    "note": "read opportunistically; the target recorded below is the one used",
+    "target_named": "redshift"
+  },
+  "generated_at": "2026-08-23T03:39:46Z",
+  "python_version": "3.12.14",
+  "requested_cases": [
+    "01AMOT",
+    "01ACOM"
+  ],
+  "return_code_vocabulary": {
+    "00": "success",
+    "70": "policy insert returned SQLCODE -530",
+    "80": "VSAM write response was not normal",
+    "90": "SQL failure",
+    "98": "COMMAREA shorter than the required length",
+    "99": "unsupported request id"
+  },
+  "run_dir": "modernization/harness/build/run",
+  "source_system_key": "GENAPP_CLASS_EXEMPLAR",
+  "status_label": "validated against local substitute, not AWS",
+  "summary": {
+    "assertions": 48,
+    "cases": 2,
+    "comparisons": 40,
+    "expected_comparisons": 40,
+    "failed": 0,
+    "failed_assertions": 0,
+    "missing": 0,
+    "scale_anomalies": [],
+    "unexpected_in_tolerance": []
+  },
+  "target": "duckdb",
+  "tool": "diff_harness_vs_warehouse",
+  "transform_freshness": {
+    "accepted_statuses": [
+      "success",
+      "pass"
+    ],
+    "invocation": {
+      "command": "test",
+      "dbt_target": "local_substitute",
+      "dbt_version": "1.12.3",
+      "elapsed_time": "1.4616525173187256",
+      "generated_at": "2026-08-23T03:39:45.628983Z",
+      "invocation_id": "b20b474e-0ed9-47b6-a511-2286a37acf99",
+      "schema_version": "https://schemas.getdbt.com/dbt/run-results/v6.json"
+    },
+    "nodes": {
+      "accepted": 64,
+      "refused": 0,
+      "total": 64,
+      "warned": 0
+    },
+    "note": "dbt test recorded 64 nodes, 64 of them successful and 0 warned",
+    "path": "modernization/dbt/genapp_rqi/target/run_results.json",
+    "refusals": [],
+    "refused_nodes": [],
+    "refused_statuses": [
+      "error",
+      "fail",
+      "skipped",
+      "runtime error"
+    ],
+    "verdict": "FRESH",
+    "warned_nodes": [],
+    "warned_statuses": [
+      "warn"
+    ]
+  },
+  "verdict": "PASS"
+}

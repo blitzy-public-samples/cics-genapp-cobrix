@@ -1,0 +1,268 @@
+# profiles.example.yml
+# Connection template for the single dbt project of the GenApp Policy-Issue
+# cloud-warehouse bridge. Copy this file to profiles.yml, unchanged, in the
+# directory dbt reads profiles from (DBT_PROFILES_DIR, or --profiles-dir, or
+# ~/.dbt). Every connection value is supplied by an environment variable; the
+# copy needs no edit and carries no credential.
+#
+# Profile name. genapp_rqi is the profile entry of
+# modernization/dbt/genapp_rqi/dbt_project.yml. dbt resolves the profile by that
+# name; changing one name without the other leaves the project without a profile.
+#
+# Target selection. DBT_TARGET names the output dbt connects to and defaults to
+# local_substitute. It is the one selector of the whole bridge: the same variable,
+# with the same two values, is the run mode that
+# modernization/landing/land_to_s3.py and modernization/landing/load_local.py
+# resolve, and each accepts a --run-mode option that overrides it for that one
+# command. Selecting local_substitute therefore selects the loopback S3 endpoint
+# for landing, the DuckDB loader for raw loading and the DuckDB output below;
+# selecting redshift selects AWS S3, modernization/landing/load_redshift.sql and
+# the Redshift output below. Landing refuses to run in local_substitute without a
+# loopback endpoint and refuses one in redshift, and load_local.py refuses to run
+# in redshift at all, so no stage can address a branch the others are not
+# addressing.
+#
+# dbt reads DBT_TARGET through its own --target option rather than through this
+# file, so a value carrying content reaches dbt before the target key below is
+# read, and dbt refuses a value that is not one of the output names, listing the
+# names it accepts. The two landing tools read the same variable themselves and
+# accept the same two names. --target on the dbt command line and --run-mode on a
+# landing command each override the variable for that one command.
+#
+# The model files, the source declaration, the singular tests and
+# macros/generate_schema_name.sql are identical for both outputs. Target-specific
+# behaviour is held by this file and by the raw loaders
+# modernization/landing/load_local.py and modernization/landing/load_redshift.sql.
+#
+# Empty values. A variable this file resolves that is set to the empty string or
+# to whitespace alone counts as unset, so the documented default applies to it and
+# the next source in a documented order is read. That is the empty-value
+# resolution the command-line tools of this bridge apply, so a variable exported
+# empty resolves to the same setting here and there. A value that carries content
+# is read exactly as the environment holds it: nothing is trimmed, so a setting
+# that would be invalid with surrounding whitespace fails rather than being
+# repaired silently.
+#
+# DBT_TARGET is the one variable this file does not resolve for itself, and it
+# follows that policy only as far as dbt allows. dbt binds the variable to its own
+# --target option before this file is rendered, so an unset variable and an empty
+# variable reach the target key below and select local_substitute, while a value
+# of whitespace alone reaches dbt as a target name: dbt ends the run, exit status
+# 2, reporting that the profile has no target of that name and listing
+# local_substitute and redshift as the names it accepts. Whitespace alone is
+# therefore refused with the accepted names named, never resolved to a default and
+# never resolved to an output the rest of the bridge is not addressing. The
+# landing and raw-loading tools read the same variable themselves and do count
+# whitespace alone as unset.
+#
+# Schemas. The schema key of an output is the fallback for a model that declares
+# no custom schema. Every model of this project declares one and
+# macros/generate_schema_name.sql returns it verbatim: models land in the literal
+# schemas staging, intermediate and canonical on both outputs.
+#
+# Adapters. dbt-duckdb and dbt-redshift are both pinned in
+# modernization/requirements.txt and both installed in modernization/.venv.
+#
+# Bounds on the redshift output. The output carries a finite connect_timeout and a
+# finite retries count, so an endpoint that does not answer fails the run instead
+# of holding it without limit, and a retryable failure is retried a bounded number
+# of times. dbt-redshift 1.11.0 carries no statement-timeout key, and the real
+# target additionally requires a bounded statement timeout: the raw loader
+# modernization/landing/load_redshift.sql sets statement_timeout for its own
+# session, and the Redshift user or WLM queue this profile connects as must carry
+# a finite statement_timeout for the statements dbt sends. The local_substitute
+# output addresses a database file rather than a service and opens no connection
+# to bound.
+#
+# Execution status. The redshift output has never been connected to an Amazon
+# Redshift cluster or Serverless workgroup. Per-output run status is recorded
+# in modernization/validation/validation-evidence.md, which records the
+# local_substitute run and no Amazon Redshift run.
+#
+# Environment variables read by this file:
+#   DBT_TARGET             name of the output to connect to, local_substitute or
+#                          redshift; defaults to local_substitute, and the same
+#                          variable is the run mode of the landing and raw-loading
+#                          tools
+#   LOCAL_DUCKDB_PATH      DuckDB database file of the local_substitute output,
+#                          naming a file directly inside
+#                          modernization/validation
+#   DUCKDB_DATABASE        DuckDB database file, read when LOCAL_DUCKDB_PATH
+#                          carries no value, and holding the same shape
+#   REDSHIFT_HOST          cluster endpoint, or Serverless workgroup endpoint
+#   REDSHIFT_PORT          port of that endpoint, a decimal whole number between
+#                          1 and 65535; defaults to 5439
+#   REDSHIFT_USER          database user
+#   REDSHIFT_PASSWORD      password of that user
+#   REDSHIFT_DATABASE      database name
+#   REDSHIFT_SCHEMA        fallback schema of the redshift output
+#   REDSHIFT_CONNECT_TIMEOUT
+#                          seconds one connection attempt may wait; defaults to 30
+#   REDSHIFT_RETRIES       bounded number of retries dbt makes after a retryable
+#                          connection or statement failure; defaults to 1
+# Read only while the commented IAM keys of the redshift output are uncommented:
+#   REDSHIFT_CLUSTER_ID    provisioned cluster identifier
+#   REDSHIFT_IAM_PROFILE   named AWS profile IAM authentication reads
+#   AWS_REGION             region of that cluster or workgroup
+# The bucket name, the S3 endpoint, the IAM role identifier and the source-system
+# key are read by the landing tooling in modernization/landing/ and by no key
+# here.
+#
+# Diagram reference: Figure 2 — AFTER (BUILT): Canonical Warehouse Bridge, and
+# Figure 5 — Validation Harness Control Flow, both in
+# modernization/docs/architecture.md.
+# Rationale for every choice in this file: modernization/docs/decision-log.md
+
+genapp_rqi:
+
+  # Output dbt connects to, named from the outputs below. dbt binds DBT_TARGET to
+  # its own --target option, so a value carrying content selects the output
+  # before this key is read, and a value that is not an output name below fails
+  # the run with dbt listing the valid names. This key is what dbt reads when
+  # DBT_TARGET is unset or holds the empty string, and it resolves to
+  # local_substitute: an empty value selects the default output rather than an
+  # output whose name is blank. A value of whitespace alone does not reach this
+  # key, being a target name to dbt; the strip below is what this key applies to
+  # any value that does reach it.
+  target: >-
+    {%- set supplied = env_var('DBT_TARGET', '') -%}
+    {{ supplied if supplied.strip() else 'local_substitute' }}
+
+  outputs:
+
+    # Local-substitute output. Addresses a DuckDB database file and no warehouse
+    # service.
+    local_substitute:
+      type: duckdb
+
+      # Database file. LOCAL_DUCKDB_PATH is read first, then DUCKDB_DATABASE,
+      # then the value below: the order and the default that
+      # modernization/landing/load_local.py applies to its --database option. A
+      # variable set to the empty string or to whitespace alone counts as unset
+      # and the next source is read, which is how load_local.py resolves the same
+      # two variables.
+      # Both consumers reach the same file for a value this key accepts that
+      # names the modernization/validation directory of this repository.
+      # load_local.py canonicalises its --database value and refuses one
+      # resolving outside its own modernization/validation, exit status 3; this
+      # key reads the path text and refuses a value that does not name a file
+      # directly inside a modernization/validation directory, before a database
+      # file is opened or created. The accepted shape is the relative value
+      # modernization/validation/<file>, or an absolute value ending in those
+      # three components, and a .. component is refused. The refusal names the
+      # variable the value came from, the accepted shape and the value supplied,
+      # and dbt reports it as an invalid credential of this output.
+      # A relative value is resolved against the working directory of the dbt
+      # process and not against the project directory. Invoke dbt from the
+      # repository root, naming the project with
+      # --project-dir modernization/dbt/genapp_rqi, for this value to reach the
+      # file load_local.py writes.
+      path: >-
+        {%- set primary = env_var('LOCAL_DUCKDB_PATH', '') -%}
+        {%- set secondary = env_var('DUCKDB_DATABASE', '') -%}
+        {%- set supplied = primary if primary.strip() else secondary -%}
+        {%- set origin = 'LOCAL_DUCKDB_PATH' if primary.strip()
+              else 'DUCKDB_DATABASE' -%}
+        {%- set candidate = supplied if supplied.strip()
+              else 'modernization/validation/local.duckdb' -%}
+        {%- set parts = candidate.split('/') -%}
+        {%- set contained = '..' not in parts and parts | length > 2
+              and parts[-1] | length > 0 and parts[-2] == 'validation'
+              and parts[-3] == 'modernization'
+              and (candidate.startswith('/') or parts | length == 3) -%}
+        {{ candidate if contained
+           else [origin ~ ' must name a database file directly inside '
+                 ~ 'modernization/validation, as the relative value '
+                 ~ 'modernization/validation/<file> or as an absolute value '
+                 ~ 'ending in those three components; the value supplied is "'
+                 ~ candidate ~ '"'] }}
+
+      # Fallback schema. dbt-duckdb takes the database name from the file name
+      # above, and no database key is set here.
+      schema: main
+
+      # One thread. Models and data tests execute one at a time.
+      threads: 1
+
+    # Real-target output. Addresses Amazon Redshift with the password
+    # authentication dbt-redshift applies while no method key is set.
+    redshift:
+      type: redshift
+
+      # Cluster endpoint, or Serverless workgroup endpoint. No default is
+      # carried: an unset variable fails the run.
+      host: "{{ env_var('REDSHIFT_HOST') }}"
+
+      # Port. dbt-redshift requires an integer and env_var returns text, so the
+      # text is checked and then converted. 5439 applies when REDSHIFT_PORT is
+      # unset or carries whitespace alone. A value carrying content is accepted
+      # only as decimal digits alone naming a number between 1 and 65535; the int
+      # filter on its own would turn 5439.5 into 5439, abc and the empty string
+      # into 0 and 99999 into a port no endpoint listens on, so a value outside
+      # the accepted set renders as text rather than as a number, which dbt
+      # refuses as an invalid credential of this output before a connection is
+      # opened. The refusal names the variable, the accepted values and the value
+      # supplied.
+      port: >-
+        {%- set supplied = env_var('REDSHIFT_PORT', '') -%}
+        {%- set candidate = supplied if supplied.strip() else '5439' -%}
+        {%- set decimal = candidate | length > 0
+              and candidate.strip('0123456789') | length == 0 -%}
+        {%- set accepted = decimal and candidate | int >= 1
+              and candidate | int <= 65535 -%}
+        {{ candidate | int if accepted
+           else 'REDSHIFT_PORT must be a decimal whole number between 1 and '
+                ~ '65535, or unset for the default 5439; the value supplied is "'
+                ~ supplied ~ '"' }}
+
+      # Database user, and the password authenticating it. Neither carries a
+      # default. REDSHIFT_PASSWORD is read here as well as by the password key
+      # below, and an unset variable ends the run, exit status 2, naming
+      # REDSHIFT_PASSWORD before a connection is opened. No password value is
+      # rendered into this key.
+      user: >-
+        {%- set account = env_var('REDSHIFT_USER') -%}
+        {%- do env_var('REDSHIFT_PASSWORD') -%}
+        {{ account }}
+      password: "{{ env_var('REDSHIFT_PASSWORD') }}"
+      dbname: "{{ env_var('REDSHIFT_DATABASE') }}"
+
+      # Fallback schema, as for the output above.
+      schema: "{{ env_var('REDSHIFT_SCHEMA') }}"
+
+      # Seconds one connection attempt may wait before it fails. dbt-redshift hands
+      # this to the driver as the connection timeout; with no value set the driver
+      # waits without limit. An integer is required, env_var returns text, and the
+      # int filter converts it, as for the port above.
+      connect_timeout: "{{ env_var('REDSHIFT_CONNECT_TIMEOUT', '30') | int }}"
+
+      # Retries dbt makes after a retryable connection or statement failure, each
+      # after a doubling backoff. The count is the bound and is finite; a value of 0
+      # makes the first attempt the only attempt.
+      retries: "{{ env_var('REDSHIFT_RETRIES', '1') | int }}"
+      # Transport security. verify-full requires the server certificate to be
+      # issued for the host named in the host key above and to chain to a trusted
+      # certificate authority: a certificate whose subject does not match that
+      # host, or whose chain is not trusted, fails the connection instead of
+      # downgrading it. The value reaches redshift-connector unchanged, which
+      # trusts the Amazon CA bundle shipped inside the connector together with the
+      # platform default certificate store; a private certificate authority is
+      # installed into that store, and no key of this file names a certificate
+      # file. Leaving this key out connects with the adapter default, which
+      # verifies the authority chain and not the host name.
+      sslmode: verify-full
+
+      # One thread, as for the output above.
+      threads: 1
+
+      # IAM authentication. With these keys uncommented and the password key
+      # above removed, user names the database user IAM authorises, cluster_id
+      # names a provisioned cluster, and a Serverless workgroup endpoint is
+      # recognised from REDSHIFT_HOST with cluster_id left commented. Removing
+      # the password key removes the REDSHIFT_PASSWORD line of the user key with
+      # it, so an IAM run requires no password variable. The sslmode key above
+      # applies to either authentication method.
+      # method: iam
+      # cluster_id: "{{ env_var('REDSHIFT_CLUSTER_ID') }}"
+      # iam_profile: "{{ env_var('REDSHIFT_IAM_PROFILE') }}"
+      # region: "{{ env_var('AWS_REGION') }}"
