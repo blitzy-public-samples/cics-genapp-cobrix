@@ -801,8 +801,12 @@ instances compared with 0 failures.
   as a tracked modification and fails the gate until it is committed. Every tracked artifact is therefore covered by one
   of the two gates, by digest or by tracked-file equality.
 - A stage that fails after rewriting its artifact leaves that artifact's manifest entry unrefreshed, and gate D then
-  fails closed until the stage succeeds. That is deliberate, and it was observed exactly once during this pass, after a
-  strict-mode `verify-env` probe was made to fail on purpose; one successful `make verify-env` cleared it.
+  fails closed until the stage succeeds. That is deliberate, and it was observed twice during this pass: after a
+  strict-mode `verify-env` probe was made to fail on purpose, and after tool runs outside any stage — a `--json` run of
+  the comparison gate, which also rewrites its default markdown report, and a refused `make dbt` whose `dbt clean` step
+  wrote its own usage error into the published log. The consequence an operator meets is that `make all` then stops at
+  its own first gate rather than at the stage that would refresh the artifact, and the recovery is to re-run the
+  producing stage — `make diff`, `make dbt`, `make verify-env` — each of which records its entry as it publishes.
 - The land-time digest is object metadata on the object it describes, so a caller who can rewrite the object can also
   rewrite its metadata; the control detects out-of-band tampering, not a fully compromised prefix. Objects landed before
   this change carry no digest and fail closed until they are landed again. On the real target the same binding is

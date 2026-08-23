@@ -1,4 +1,6 @@
 run_harness.sh: == stage 1 of 6: preflight ==
+run_harness.sh:   bounded-seconds contract: 11 values measured, each with its authored verdict
+run_harness.sh:   ambient internal names: none of the 12 names this script owns was exported by the caller
 run_harness.sh:   harness lock held: /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4_93f37d/modernization/harness/build/harness.lock (waited up to 300 seconds)
 run_harness.sh:   python 3.12.14 (/tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4_93f37d/modernization/.venv/bin/python)
 run_harness.sh:   cobc 3.2.0 (cobc)
@@ -14,7 +16,7 @@ run_harness.sh:   cobc flags: -std=ibm -fbinary-truncate -ffold-copy=LOWER -ext 
 run_harness.sh:   inputs present: 24 files under modernization/ plus base/src/
 run_harness.sh:   seeds: first case policy 1000001, last case policy 1000012, lastchanged 2026-08-19-12.00.00.000000
 run_harness.sh:   directories ready under /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4_93f37d/modernization/harness/build
-run_harness.sh:   staging directory of this run: /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4_93f37d/modernization/harness/build/evidence/20260823T001518Z-52823
+run_harness.sh:   staging directory of this run: /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4_93f37d/modernization/harness/build/evidence/20260823T033915Z-461208
 run_harness.sh:   evidence retention 5: 1 superseded run directories removed, 5 retained
 run_harness.sh:   evidence directory ready at /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4_93f37d/modernization/validation/artifacts
 run_harness.sh:   cases selected: 01AMOT, 01ACOM, 01AMOT-RC70, 01AMOT-RC90, 01AMOT-LGSQ, 01ACOM-LGSQ, 01AMOT-RC80, 01AMOT-RC98, 01AMOT-LGCA, 01AXXX-RC99, 01AHOU-ROUTE, 01AHOU-LGSQ
@@ -2413,27 +2415,19 @@ run_harness.sh:   cases executed: 12; assertions passed: 902
 run_harness.sh:   source guard harness-execute: PASS (modernization/harness/build/logs/readonly-check.log)
 run_harness.sh: == stage 6 of 6: evidence ==
 run_harness.sh:   source guard harness-final: PASS (modernization/harness/build/logs/readonly-check.log)
-run_harness.sh:   evidence staged: 11 files in /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4_93f37d/modernization/harness/build/evidence/20260823T001518Z-52823
+run_harness.sh:   evidence staged: 11 files in /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4_93f37d/modernization/harness/build/evidence/20260823T033915Z-461208
+run_harness.sh:   generated evidence of other stages covered: 11 of 11 names stand beside the set and are hashed where they stand
 run_harness.sh:   evidence manifest: /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4_93f37d/modernization/harness/build/logs/evidence-manifest.sha256
-run_harness.sh:   publication check: 8 staged names and the manifest replaced the 12 of a full-table run in /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4_93f37d/modernization/harness/build/evidence/20260823T001518Z-52823/publication-check/published, the 3 names of 01ACOM were removed, runtime-versions.txt stood unchanged, and the read-back rejected a planted artifact: /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4_93f37d/modernization/harness/build/evidence/20260823T001518Z-52823/publication-check/published/driver_01acom.log stands beside the set, and the manifest does not name it
+run_harness.sh:   publication check: 8 staged names and the manifest replaced the 12 of a full-table run in /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4_93f37d/modernization/harness/build/evidence/20260823T033915Z-461208/publication-check/published, the 3 names of 01ACOM were removed, runtime-versions.txt and the 2 carried names stood unchanged, and the read-back rejected a planted artifact: /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4_93f37d/modernization/harness/build/evidence/20260823T033915Z-461208/publication-check/published/driver_01acom.log stands beside the set, and the manifest does not name it; and an altered carried name: the published /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4_93f37d/modernization/harness/build/evidence/20260823T033915Z-461208/publication-check/published/diff-report.md does not match its manifest entry
 run_harness.sh:   published names cleared: 12; files placed: 12
-run_harness.sh:   DEVIATION /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4_93f37d/modernization/validation/artifacts/compile-modules.log stands beside the published set and no run of this script writes it
-run_harness.sh:   DEVIATION /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4_93f37d/modernization/validation/artifacts/dbt-clean.log stands beside the published set and no run of this script writes it
-run_harness.sh:   DEVIATION /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4_93f37d/modernization/validation/artifacts/dbt-run.log stands beside the published set and no run of this script writes it
-run_harness.sh:   DEVIATION /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4_93f37d/modernization/validation/artifacts/dbt-test.log stands beside the published set and no run of this script writes it
-run_harness.sh:   DEVIATION /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4_93f37d/modernization/validation/artifacts/diff-report.json stands beside the published set and no run of this script writes it
-run_harness.sh:   DEVIATION /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4_93f37d/modernization/validation/artifacts/diff-report.md stands beside the published set and no run of this script writes it
-run_harness.sh:   DEVIATION /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4_93f37d/modernization/validation/artifacts/execute-harness.log stands beside the published set and no run of this script writes it
-run_harness.sh:   DEVIATION /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4_93f37d/modernization/validation/artifacts/gate-probe-redshift.log stands beside the published set and no run of this script writes it
-run_harness.sh:   DEVIATION /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4_93f37d/modernization/validation/artifacts/gate-probe-s3.log stands beside the published set and no run of this script writes it
-run_harness.sh:   DEVIATION /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4_93f37d/modernization/validation/artifacts/gate-selection.json stands beside the published set and no run of this script writes it
-run_harness.sh:   DEVIATION /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4_93f37d/modernization/validation/artifacts/verify-env.txt stands beside the published set and no run of this script writes it
 run_harness.sh:   artifacts published: 12 files in /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4_93f37d/modernization/validation/artifacts, each named by /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4_93f37d/modernization/validation/artifacts/evidence-manifest.sha256
+run_harness.sh:   generated evidence covered by /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4_93f37d/modernization/validation/artifacts/evidence-manifest.sha256: 11 published by this run and 11 carried from other stages
+run_harness.sh:   artifact modes: 64 entries this run created, each file at 600 and the staging directory at 700
 
 run_harness.sh: == run summary ==
   result:            PASS
-  completed (UTC):   2026-08-23T00:15:32Z
-  run identifier:    20260823T001518Z-52823
+  completed (UTC):   2026-08-23T03:39:31Z
+  run identifier:    20260823T033915Z-461208
   harness script:    /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4_93f37d/modernization/harness/run_harness.sh
   repository root:   /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4_93f37d
   harness lock:      /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4_93f37d/modernization/harness/build/harness.lock held on descriptor 11, waited up to 300 seconds
@@ -2506,25 +2500,14 @@ run_harness.sh: == run summary ==
     post-chain record: /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4_93f37d/modernization/harness/build/run/01ahou-lgsq/commarea_post.dat
     captures:          /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4_93f37d/modernization/harness/build/run/01ahou-lgsq/captures.txt
     driver log:        /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4_93f37d/modernization/harness/build/run/01ahou-lgsq/driver.log
-  deviations reported: 12
+  deviations reported: 1
     cobc pinned=3.1.2.0 measured=3.2.0
-    /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4_93f37d/modernization/validation/artifacts/compile-modules.log stands beside the published set and no run of this script writes it
-    /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4_93f37d/modernization/validation/artifacts/dbt-clean.log stands beside the published set and no run of this script writes it
-    /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4_93f37d/modernization/validation/artifacts/dbt-run.log stands beside the published set and no run of this script writes it
-    /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4_93f37d/modernization/validation/artifacts/dbt-test.log stands beside the published set and no run of this script writes it
-    /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4_93f37d/modernization/validation/artifacts/diff-report.json stands beside the published set and no run of this script writes it
-    /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4_93f37d/modernization/validation/artifacts/diff-report.md stands beside the published set and no run of this script writes it
-    /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4_93f37d/modernization/validation/artifacts/execute-harness.log stands beside the published set and no run of this script writes it
-    /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4_93f37d/modernization/validation/artifacts/gate-probe-redshift.log stands beside the published set and no run of this script writes it
-    /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4_93f37d/modernization/validation/artifacts/gate-probe-s3.log stands beside the published set and no run of this script writes it
-    /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4_93f37d/modernization/validation/artifacts/gate-selection.json stands beside the published set and no run of this script writes it
-    /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4_93f37d/modernization/validation/artifacts/verify-env.txt stands beside the published set and no run of this script writes it
   build outputs:
     generated sources: /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4_93f37d/modernization/harness/build/src
     modules and driver: /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4_93f37d/modernization/harness/build/bin
     generated samples:  /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4_93f37d/modernization/harness/build/samples
     stage logs:         /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4_93f37d/modernization/harness/build/logs
-    staged evidence:    /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4_93f37d/modernization/harness/build/evidence/20260823T001518Z-52823
+    staged evidence:    /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4_93f37d/modernization/harness/build/evidence/20260823T033915Z-461208
     evidence manifest:  /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4_93f37d/modernization/harness/build/logs/evidence-manifest.sha256
   published evidence:
     /tmp/blitzy/cics-genapp-cobrix/blitzy-0777b3bf-63d8-4e2a-b3cd-69d4085adec4_93f37d/modernization/validation/artifacts/translate.log

@@ -1,21 +1,21 @@
-[0m02:43:26  Running with dbt=1.12.3
-[0m02:43:27  Registered adapter: duckdb=1.11.0
-[0m02:43:27  Unable to do partial parsing because saved manifest not found. Starting full parse.
-[0m02:43:29  Found 4 models, 64 data tests, 1 source, 501 macros
-[0m02:43:29  
-[0m02:43:29  Concurrency: 1 threads (target='local_substitute')
-[0m02:43:29  
-[0m02:43:29  1 of 4 START sql view model staging.stg_genapp__policy_issue ................... [RUN]
-[0m02:43:29  1 of 4 OK created sql view model staging.stg_genapp__policy_issue .............. [[32mOK[0m in 0.16s]
-[0m02:43:29  2 of 4 START sql table model intermediate.int_policy_issue_decoded ............. [RUN]
-[0m02:43:29  2 of 4 OK created sql table model intermediate.int_policy_issue_decoded ........ [[32mOK[0m in 0.11s]
-[0m02:43:29  3 of 4 START sql table model canonical.issued_policy ........................... [RUN]
-[0m02:43:29  3 of 4 OK created sql table model canonical.issued_policy ...................... [[32mOK[0m in 0.05s]
-[0m02:43:29  4 of 4 START sql table model canonical.preissued_rating ........................ [RUN]
-[0m02:43:30  4 of 4 OK created sql table model canonical.preissued_rating ................... [[32mOK[0m in 0.04s]
-[0m02:43:30  
-[0m02:43:30  Finished running 3 table models, 1 view model in 0 hours 0 minutes and 0.51 seconds (0.51s).
-[0m02:43:30  
-[0m02:43:30  [32mCompleted successfully[0m
-[0m02:43:30  
-[0m02:43:30  Done. PASS=4 WARN=0 ERROR=0 SKIP=0 NO-OP=0 REUSED=0 TOTAL=4
+[0m03:39:38  Running with dbt=1.12.3
+[0m03:39:38  Registered adapter: duckdb=1.11.0
+[0m03:39:38  Unable to do partial parsing because saved manifest not found. Starting full parse.
+[0m03:39:40  Found 4 models, 64 data tests, 1 source, 501 macros
+[0m03:39:40  
+[0m03:39:40  Concurrency: 1 threads (target='local_substitute')
+[0m03:39:40  
+[0m03:39:40  1 of 4 START sql view model staging.stg_genapp__policy_issue ................... [RUN]
+[0m03:39:41  1 of 4 OK created sql view model staging.stg_genapp__policy_issue .............. [[32mOK[0m in 0.16s]
+[0m03:39:41  2 of 4 START sql table model intermediate.int_policy_issue_decoded ............. [RUN]
+[0m03:39:41  2 of 4 OK created sql table model intermediate.int_policy_issue_decoded ........ [[32mOK[0m in 0.11s]
+[0m03:39:41  3 of 4 START sql table model canonical.issued_policy ........................... [RUN]
+[0m03:39:41  3 of 4 OK created sql table model canonical.issued_policy ...................... [[32mOK[0m in 0.07s]
+[0m03:39:41  4 of 4 START sql table model canonical.preissued_rating ........................ [RUN]
+[0m03:39:41  4 of 4 OK created sql table model canonical.preissued_rating ................... [[32mOK[0m in 0.04s]
+[0m03:39:41  
+[0m03:39:41  Finished running 3 table models, 1 view model in 0 hours 0 minutes and 0.53 seconds (0.53s).
+[0m03:39:41  
+[0m03:39:41  [32mCompleted successfully[0m
+[0m03:39:41  
+[0m03:39:41  Done. PASS=4 WARN=0 ERROR=0 SKIP=0 NO-OP=0 REUSED=0 TOTAL=4
