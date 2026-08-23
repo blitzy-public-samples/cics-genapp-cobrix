@@ -53,10 +53,13 @@
 > executed on this branch. The retained evidence is the 24 tracked files in `modernization/validation/artifacts/` and the
 > two capture snapshots under `modernization/validation/expected/`, indexed file by file in section 13 of the evidence
 > document. `evidence-manifest.sha256` names the run that published the harness set, the case selection that run used and
-> one SHA-256 line per published file — twelve files, the manifest included — so
-> `sha256sum -c evidence-manifest.sha256` in that directory checks that set against the run that wrote it; the remaining
-> artifacts are published by the `Makefile` stages named in that index, and `runtime-versions.txt` is the environment
-> record of the checkout and is published by no run. Every result above carries the local-substitute label.
+> one SHA-256 line per published file — 22 digest lines, covering every generated evidence path of the set except the
+> manifest itself, which carries no digest of itself — so `sha256sum -c evidence-manifest.sha256` in that directory checks
+> that set against the run and the stages that wrote it. The remaining artifacts are published by the `Makefile` stages
+> named in that index, each of which records its own entry as it publishes, and `runtime-versions.txt` is the environment
+> record of the checkout and is published by no run. The read-only gate verifies that coverage as its fourth check, so a
+> published artifact that does not match its entry fails the gate (`D-121`). Every result above carries the
+> local-substitute label.
 
 This document is the single home of the five named figures listed below; the other documents under `modernization/` are
 required to cite them by name instead of reproducing them. This document states what the architecture **is** and what its
@@ -440,7 +443,9 @@ neither node label. `RO` writes its evidence block into `modernization/harness/b
 generated log directory of the harness, and `run_harness.sh` runs that gate for the fourth time before it collects the
 evidence of the run, so the copy published at `modernization/validation/artifacts/readonly-check.log` carries all four
 gate blocks of one run and is replaced as one member of the published evidence set — five fixed names plus three per
-success case that ran — rather than appended to in place. `DRIVER` measures the record it reads on standard input and
+success case that ran — rather than appended to in place. The manifest that run writes carries those eleven names and,
+alongside them, the entry each `Makefile` stage records for the artifact it publishes, so the fourth check of `RO` covers
+the whole published set rather than the harness's own part of it (`D-121`). `DRIVER` measures the record it reads on standard input and
 refuses any width other than 32,500 characters before it calls `LGAPOL01`, and publishes the width it read as the
 `SAMPLE_RECORD_LENGTH` capture that every case asserts, so the `DRIVER` to `CAP` edge cannot carry a result taken from
 an incomplete record. Both properties are validated against local substitute, not AWS.
@@ -543,7 +548,7 @@ title at all:
 `modernization/extraction/copybook_field_map.yml`, `modernization/extraction/build_sample_commarea.py`,
 `modernization/extraction/sample_input/commarea_01amot.json` and
 `modernization/extraction/sample_input/commarea_01acom.json`. Together with
-this document that accounts for all 62 authored files. One tracked evidence artifact carries a title as well and is
+this document that accounts for all 63 authored files. One tracked evidence artifact carries a title as well and is
 counted separately from the authored files: `modernization/validation/artifacts/diff-report.md` cites Figure 5.
 Generated paths are excluded from the search and from every count here: the `modernization/harness/build/` tree copies
 the four shared copybooks verbatim on each run and inherits their titles, `modernization/dbt/genapp_rqi/target` and

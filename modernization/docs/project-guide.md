@@ -51,16 +51,21 @@ The active branch is the local substitute, and every result this project has pro
 | Warehouse | DuckDB, in place of Amazon Redshift |
 | Formal AWS diff requirement | **OPEN** |
 | AWS infrastructure provisioned by this work | none: zero buckets, zero clusters, zero Serverless workgroups, zero networks, zero IAM objects |
-| Dependency set of this environment | **not approved for production use** while the transitive `sqlparse` exception stands (`D-75`) |
+| Dependency set of this environment | no known-vulnerable dependency with an available fix: the transitive `sqlparse` exception of `D-75` is **closed** by `D-118`, and the runtime pins carry security floors (`D-119`) |
 
-**The dependency restriction, stated here so it is not invisible.** The pinned dbt distributions resolve
-`sqlparse 0.5.5`, and the release that fixes its published advisories is excluded by the declared constraint of both
-pins, so **this dependency set is not approved for production use**. While that exception stands the dbt CLI of this
-environment is run only as a bounded batch invocation over the authored model and test set of
-`modernization/dbt/genapp_rqi` — no dbt server, no RPC mode, no process that accepts SQL from a caller, and no
-production workload served from this environment. `D-75` carries the decision with its owner and its review trigger.
-This restriction and the AWS diff are **independent**: closing the diff does not lift the restriction, and lifting the
-restriction does not close the diff.
+**The dependency restriction that stood here is lifted, and what replaced it.** The earlier pins resolved
+`sqlparse 0.5.5`, whose four published advisories are fixed in 0.6.0, and both pins declared a constraint that excluded
+that release — so the set carried a known-vulnerable dependency with no reachable fix and was **not approved for
+production use** under `D-75`. `dbt-core` is now pinned at 1.12.3 and `dbt-redshift` at 1.11.1, whose declared
+constraints admit `sqlparse 0.6.0`; the resolved set is that release, and an audit of both
+`modernization/requirements.txt` and the full installed freeze reports no known vulnerability. `D-118` records the move
+and closes `D-75`, which is kept in place and marked superseded. Three further supply-chain properties now hold: `pip`
+is pinned at 26.2.1 and the interpreter and `git` pins carry security floors that are fatal below them (`D-119`);
+`modernization/requirements-lock.txt` pins all 106 resolved distributions to one artifact digest each and is the
+reproducible install path, cross-checked against the direct pins by `make verify-env` (`D-120`); and the dbt CLI
+remains what it always was here — a bounded batch invocation over the authored model and test set of
+`modernization/dbt/genapp_rqi`, with no server, no RPC mode and no process that accepts SQL from a caller.
+**This says nothing about the AWS diff**, which is independent of it and remains OPEN.
 
 The branch is not a build-time constant. `make gate` re-probes real S3 and real Amazon Redshift on every invocation and
 records the selection in `modernization/validation/artifacts/gate-selection.json`, so the branch is a measured property
@@ -309,15 +314,21 @@ Extraction reproduces that derivation and verifies it against the policy SQL cap
 ### 6.1 Runtimes
 
 The specification pins one runtime set; the run of record measured another on the host available to it. Both are stated,
-and every difference is reported rather than hidden (`D-48`).
+and every difference is reported rather than hidden (`D-48`). Three of those pins were **raised** when the final runtime
+security assessment found that the specified values predate their own security fixes — Python 3.12.3 predates the
+3.12.4 through 3.12.14 releases, `git` 2.43.0 predates the 2.43.7 batch, and `pip` 25.3 carries five advisories fixed by
+26.2.1 — so on a host where the specified versions resolve, a conforming environment would be the vulnerable one and
+`verify-env` would report nothing. Each raised item now carries a **minimum that is fatal below it** as well as a pin
+that is compared exactly, in the pattern `cobc` already used; `D-119` records the divergence and the before-and-after
+values.
 
-| Item | Pinned by the specification | Measured in the run of record |
-|---|---|---|
-| Operating system | Ubuntu 24.04 LTS | Ubuntu 25.10 |
-| Python | 3.12.3 | 3.12.14, built from source; the host's configured apt suites carry no `python3.12` package |
-| `cobc` (GnuCOBOL) | 3.1.2, the stable distribution package used by this project | 3.2.0 |
-| `git` | 2.43.0 | 2.51.0 |
-| `pip` in the virtual environment | 25.3 | 25.3 |
+| Item | Pinned by this project | Minimum accepted | Measured in the run of record |
+|---|---|---|---|
+| Operating system | Ubuntu 24.04 LTS | — | Ubuntu 25.10 |
+| Python | 3.12.14 (raised from 3.12.3) | 3.12.14 | 3.12.14, built from source; the host's configured apt suites carry no `python3.12` package |
+| `cobc` (GnuCOBOL) | 3.1.2, the stable distribution package used by this project | 3.1.2 | 3.2.0 |
+| `git` | 2.51.0 (raised from 2.43.0) | 2.43.7 | 2.51.0 |
+| `pip` in the virtual environment | 26.2.1 (raised from 25.3) | 26.2.1 | 26.2.1 |
 
 `cobc` was **not installed** in the environment observed when this work was planned, and it must be installed before
 anything can be compiled — nothing in this project vendors a COBOL compiler. The per-item deviation table of the run of
@@ -328,8 +339,17 @@ record is in [`../validation/validation-evidence.md`](../validation/validation-e
 All Python and dbt tooling runs from `modernization/.venv` through explicit `.venv/bin/...` paths, so a non-interactive
 shell cannot fall back to a system interpreter. `make verify-env` measures every runtime and every package pin of
 `modernization/requirements.txt` and runs **before** the AWS gate: a missing tool, an interpreter or compiler outside
-the accepted series, or any package version other than its pin ends the run at the first such finding, with the pinned
-and the measured value named. It installs nothing.
+the accepted series, one below a security minimum, any package version other than its pin, or a
+`modernization/requirements-lock.txt` that disagrees with the direct pins or carries an entry without a digest ends the
+run at the first such finding, with the pinned and the measured value named. It installs nothing.
+
+Two ways to install, with different guarantees. `python -m pip install -r modernization/requirements.txt` installs the
+ten exact direct pins and lets the index resolve the 96 transitive versions. `python -m pip install --require-hashes -r
+modernization/requirements-lock.txt` installs all 106 distributions at one measured artifact digest each and refuses the
+whole install if any digest, version or unlisted distribution differs — the reproducible path, and the one to use when
+artifact integrity matters (`D-120`). The digests are for the wheels resolved for CPython 3.12 on linux-x86_64; on
+another interpreter series, operating system or architecture the lock must be regenerated, and its own header records
+how.
 
 ### 6.3 The executable order
 
@@ -501,11 +521,26 @@ surrounding spaces — selects the same identifier line, which then names `reque
 diagnostics. Every other value of that variable, an empty value and an absent variable leave the values withheld. The
 variable is named in the environment table of `modernization/README.md` for that reason.
 
-**File modes are set, not inherited.** A directory the extractor creates carries mode `0700` and a landing record it
-creates carries mode `0600`, each set on the created entry itself as well as requested at creation, so the ambient
-umask cannot widen either and the landed policy data is readable and writable by its owner alone. Neither mode is
-applied to an entry the tool did not create: a record written over an existing file under `--overwrite` keeps the mode
-that file already carries, and a directory that already exists keeps its own mode.
+**File modes are set, not inherited — by every producer.** A directory any tool of this bridge creates carries mode
+`0700` and a file it creates carries mode `0600`, each set on the created entry itself as well as requested at creation,
+so the ambient umask cannot widen either and the generated data is readable and writable by its owner alone. That holds
+for the extractor's landing record, the sample builder's 32,500-character COMMAREA fixtures, the harness runner's
+capture files, post-chain records, driver and stage logs and staged evidence, the translator's build tree, the local
+loader's DuckDB warehouse and its write-ahead sidecar, the comparison gate's two reports and its capture snapshots, the
+evidence manifest, and every log a `make` stage writes. A producer that rewrites a tracked artifact in full normalises
+its mode as well, so an artifact that already stood world-readable in a checkout becomes private on the next run
+(`D-127`). Three deliberate exceptions: an entry a producer neither creates nor rewrites keeps its mode — the extractor
+writing over an existing file under `--overwrite` and an already-existing directory both keep what they carry; the
+compiled driver and modules stay executable; and `modernization/validation/artifacts/runtime-versions.txt`, which no
+producer writes and which carries no identifier, keeps its own.
+
+**Tools write only where they are allowed to.** Each tool that takes an output path canonicalises the whole parent
+chain of the destination — so a symbolic link anywhere along it is judged by what it actually names — and then accepts
+the destination only below a generated root that tool owns inside this repository, or below the resolved system
+temporary directory, which honours `TMPDIR`. `base/`, `synthetic_class/`, every other path inside the repository and
+every path outside both roots are refused by name, with the destination, its canonical form and the accepted roots named
+on the refusal line (`D-125`). No landing tool writes a local artifact at all: a landing writes exactly two S3 objects,
+the record and the COPY manifest naming it.
 
 ### 9.4 A source finding operators should know: the stale motor length
 

@@ -454,12 +454,12 @@ ordinary run returns. These are the case counts measured in this checkout:
 | Command | Cases |
 |---|---:|
 | `bash validation/verify_readonly.sh --self-test` | 61 |
-| `.venv/bin/python extraction/build_sample_commarea.py --self-test` | 114 |
-| `.venv/bin/python extraction/extract_commarea.py --self-test` | 213 |
+| `.venv/bin/python extraction/build_sample_commarea.py --self-test` | 115 |
+| `.venv/bin/python extraction/extract_commarea.py --self-test` | 219 |
 | `.venv/bin/python harness/translate.py --self-test` | 93 |
-| `.venv/bin/python landing/land_to_s3.py --self-test` | 44 |
-| `.venv/bin/python landing/load_local.py --self-test` | 38 |
-| `.venv/bin/python validation/diff_harness_vs_warehouse.py --self-test` | 34 |
+| `.venv/bin/python landing/land_to_s3.py --self-test` | 47 |
+| `.venv/bin/python landing/load_local.py --self-test` | 43 |
+| `.venv/bin/python validation/diff_harness_vs_warehouse.py --self-test` | 40 |
 
 The dbt project's own gates are its four enforced contracts and its 64 data tests, run by `make dbt`. `make all`
 runs the pipeline rather than the self-tests: a self-test proves that a gate can fail, and the pipeline proves

@@ -147,17 +147,11 @@ COBFLAGS := -std=ibm -fbinary-truncate -ffold-copy=LOWER -ext cpy
 # release of its accepted series that carries every security fix published for that
 # series at the time of this measurement. A measured version below its minimum ends the
 # run; a version at or above it that differs from the pin is recorded as a deviation.
-# The minima are the security contract and the pins are the reproducibility contract:
-#   python 3.12.14  carries the 3.12.4 through 3.12.14 security releases
-#   git 2.43.7      carries the batch fixing CVE-2026-27613, CVE-2026-27614,
-#                   CVE-2026-46334, CVE-2026-46835, CVE-2026-48384, CVE-2026-48385
-#                   and CVE-2026-48386
-#   pip 26.2.1      carries the fixes for CVE-2026-1703, CVE-2026-3219, CVE-2026-6357,
-#                   CVE-2026-8643 and CVE-2026-13346
-#   cobc 3.1.2      the published cobc advisories are of the 2.2 branch and are resolved
-#                   throughout the 3 series, so the floor stays at the series entry
+# The minima are the security contract and the pins are the reproducibility contract.
+# The failure message of each check names the advisories that release carries.
 # PYTHON_APT_UPSTREAM is the interpreter release the python3.12 package of the apt pin
 # reports; it stands below PYTHON_MINIMUM, and the remediation line names both.
+# Decision rationale: docs/decision-log.md, rows D-119 and D-120.
 PYTHON_PIN := 3.12.14
 PYTHON_SERIES := 3.12
 PYTHON_MINIMUM := 3.12.14
@@ -271,6 +265,7 @@ feed included, is refused))
 
 # A word list, each word made of the accepted characters $(2) names.
 check_caller_words = $(call check_caller_characters,$(1),$(2),$(3))
+# Decision rationale: docs/decision-log.md, row D-116.
 
 # Authored inputs the recipes name.
 FIELD_MAP := $(PROJECT_DIR)/extraction/copybook_field_map.yml
@@ -419,6 +414,7 @@ endef
 EVIDENCE_REL := modernization/$(ARTIFACTS)
 EVIDENCE_MANIFEST := $(ARTIFACTS)/evidence-manifest.sha256
 record_evidence = bash validation/verify_readonly.sh --record-evidence $(foreach evidence_name,$(1),'$(EVIDENCE_REL)/$(evidence_name)') && chmod '$(GENERATED_FILE_MODE)' '$(EVIDENCE_MANIFEST)'
+# Decision rationale: docs/decision-log.md, row D-121.
 
 # The generated files and the dbt project directory dbt clean, run and test write under,
 # measured by the same containment check as the generated directories above.

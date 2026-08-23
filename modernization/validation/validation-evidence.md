@@ -29,7 +29,7 @@ document.
 
 | # | Stage | Result observed | Evidence | Status |
 |---|---|---|---|---|
-| 1 | `verify-env` | PASS with 7 deviation(s) | `modernization/validation/artifacts/verify-env.txt` | validated against local substitute, not AWS |
+| 1 | `verify-env` | PASS with 4 deviation(s) | `modernization/validation/artifacts/verify-env.txt` | validated against local substitute, not AWS |
 | 2 | `gate` | selected target `local_substitute`; both real-target probes exited 3 | `modernization/validation/artifacts/gate-selection.json` | validated against local substitute, not AWS |
 | 3 | `verify-readonly` `baseline` | verdict PASS, exit_code 0 | the `make all` console, block `stage: baseline`; no file retains it after the run | validated against local substitute, not AWS |
 | 4 | `translate` | 2 sample records and the translated tree under `modernization/harness/build` | `modernization/validation/artifacts/translate.log` | validated against local substitute, not AWS |
@@ -41,7 +41,7 @@ document.
 | 10 | `extract` | one landing record per case, 17 keys each | the landing records `modernization/harness/build/landing/landing_01amot.json` and `landing_01acom.json`; the stage's console output is not separately retained | validated against local substitute, not AWS |
 | 11 | `land` and `load`, twice | one object plus its COPY manifest per case; `raw.genapp_policy_issue` carries 2 rows | the loaded relation in `modernization/validation/local.duckdb`; the stage's console output is not separately retained | validated against local substitute, not AWS |
 | 12 | `verify-readonly` `load` | verdict PASS, exit_code 0 | the `make all` console, block `stage: load`, retained in `modernization/harness/build/logs/readonly-check.log` | validated against local substitute, not AWS |
-| 13 | `dbt` | `dbt run` PASS=4, `dbt test` PASS=63, no warning and no error | `modernization/validation/artifacts/dbt-run.log`, `modernization/validation/artifacts/dbt-test.log` | validated against local substitute, not AWS |
+| 13 | `dbt` | `dbt run` PASS=4, `dbt test` PASS=64, no warning and no error | `modernization/validation/artifacts/dbt-run.log`, `modernization/validation/artifacts/dbt-test.log` | validated against local substitute, not AWS |
 | 14 | `verify-readonly` `dbt` | verdict PASS, exit_code 0 | the `make all` console, block `stage: dbt`, retained in `modernization/harness/build/logs/readonly-check.log` | validated against local substitute, not AWS |
 | 15 | `diff` | PASS, 2 cases, 40 of 40 canonical column instances compared, 0 failed | `modernization/validation/artifacts/diff-report.md` | validated against local substitute, not AWS |
 | 16 | `verify-readonly` `final` | verdict PASS, exit_code 0, 0 tracked modifications | the `make all` console, block `stage: final`, retained in `modernization/harness/build/logs/readonly-check.log` | validated against local substitute, not AWS |
@@ -61,29 +61,39 @@ Measured host of the run: Ubuntu 25.10 (Questing Quokka), `x86_64`. The Python i
 `modernization/.venv` holds the project interpreter and every pinned package, and `modernization/Makefile` invokes
 Python and dbt through `.venv/bin/...` by explicit path.
 
-`make verify-env` result: **PASS with 7 deviation(s)**, report `modernization/validation/artifacts/verify-env.txt`,
+`make verify-env` result: **PASS with 4 deviation(s)**, report `modernization/validation/artifacts/verify-env.txt`,
 `HARNESS_STRICT_TOOL_VERSIONS` unset (`strict tool versions: no`). The stage installs nothing.
 
-| Item | Pinned | Measured in this run | Verdict | Status |
-|---|---|---|---|---|
-| `python3.12` on PATH | 3.12.3 | 3.12.14 | DEVIATION | validated against local substitute, not AWS |
-| `cobc` (GnuCOBOL) | 3.1.2.0 | 3.2.0 | DEVIATION | validated against local substitute, not AWS |
-| `git` | 2.43.0 | 2.51.0 | DEVIATION | validated against local substitute, not AWS |
-| apt `python3.12` | 3.12.3-1ubuntu0.15 | not installed through apt | DEVIATION | validated against local substitute, not AWS |
-| apt `python3.12-venv` | 3.12.3-1ubuntu0.15 | not installed through apt | DEVIATION | validated against local substitute, not AWS |
-| apt `gnucobol3` | 3.1.2-5.1ubuntu1 | 3.2-4 | DEVIATION | validated against local substitute, not AWS |
-| apt `git` | 1:2.43.0-1ubuntu7.3 | 1:2.51.0-1ubuntu1 | DEVIATION | validated against local substitute, not AWS |
-| `.venv/bin/python` | 3.12 series | 3.12.14 | in series | validated against local substitute, not AWS |
-| `pip` in the virtual environment | 25.3 | 25.3 | MATCH | validated against local substitute, not AWS |
+Each runtime now carries two accepted values: the pin, which records the version this project was built and measured
+against, and a minimum, which is the lowest version the stage accepts because a lower one carries a published advisory
+with an available fix. A measured version at or above the minimum and different from the pin is reported as a deviation
+and passes in the default mode; a measured version below the minimum fails the stage whatever the mode (`D-119`).
+
+| Item | Pinned | Minimum accepted | Measured in this run | Verdict | Status |
+|---|---|---|---|---|---|
+| `python3.12` on PATH | 3.12.14 | 3.12.14 | 3.12.14 | MATCH | validated against local substitute, not AWS |
+| `cobc` (GnuCOBOL) | 3.1.2.0 | 3.1.2 | 3.2.0 | DEVIATION | validated against local substitute, not AWS |
+| `git` | 2.51.0 | 2.43.7 | 2.51.0 | MATCH | validated against local substitute, not AWS |
+| apt `python3.12` | 3.12.3-1ubuntu0.15 | — | not installed through apt | DEVIATION | validated against local substitute, not AWS |
+| apt `python3.12-venv` | 3.12.3-1ubuntu0.15 | — | not installed through apt | DEVIATION | validated against local substitute, not AWS |
+| apt `gnucobol3` | 3.1.2-5.1ubuntu1 | — | 3.2-4 | DEVIATION | validated against local substitute, not AWS |
+| apt `git` | 1:2.51.0-1ubuntu1 | — | 1:2.51.0-1ubuntu1 | MATCH | validated against local substitute, not AWS |
+| `.venv/bin/python` | 3.12 series | 3.12.14 | 3.12.14 | in series, at the minimum | validated against local substitute, not AWS |
+| `pip` in the virtual environment | 26.2.1 | 26.2.1 | 26.2.1 | MATCH | validated against local substitute, not AWS |
+
+The apt `python3.12` pin is reported with the note that the release it packages, 3.12.3, is **below** the accepted
+interpreter minimum of 3.12.14: no apt `python3.12` package reaches 3.12.14, so the interpreter checks above govern and
+that pin records the packaging alone. On this host the interpreter is built from source, which is why the two apt Python
+rows read `not installed through apt`.
 
 Every direct Python pin of `modernization/requirements.txt` was measured inside the virtual environment and matched
 exactly; the stage reported `pins measured: 10`.
 
 | Package | Pinned | Measured | Verdict | Status |
 |---|---|---|---|---|
-| `dbt-core` | 1.12.2 | 1.12.2 | MATCH | validated against local substitute, not AWS |
+| `dbt-core` | 1.12.3 | 1.12.3 | MATCH | validated against local substitute, not AWS |
 | `dbt-duckdb` | 1.11.0 | 1.11.0 | MATCH | validated against local substitute, not AWS |
-| `dbt-redshift` | 1.11.0 | 1.11.0 | MATCH | validated against local substitute, not AWS |
+| `dbt-redshift` | 1.11.1 | 1.11.1 | MATCH | validated against local substitute, not AWS |
 | `duckdb` | 1.5.5 | 1.5.5 | MATCH | validated against local substitute, not AWS |
 | `redshift-connector` | 2.1.16 | 2.1.16 | MATCH | validated against local substitute, not AWS |
 | `boto3` | 1.43.74 | 1.43.74 | MATCH | validated against local substitute, not AWS |
@@ -92,19 +102,23 @@ exactly; the stage reported `pins measured: 10`.
 | `PyYAML` | 6.0.3 | 6.0.3 | MATCH | validated against local substitute, not AWS |
 | `jsonschema` | 4.26.0 | 4.26.0 | MATCH | validated against local substitute, not AWS |
 
-`modernization/validation/artifacts/runtime-versions.txt` carries the same three system-runtime deviations together with
-the resolved compiler dialect chain, the numeric-store keys of that chain and one capability probe per behaviour the
-harness relies on. The decision-log rows that cover version pinning and the accepted deviations are D-45 and D-48 in
-`modernization/docs/decision-log.md`.
+`modernization/validation/artifacts/runtime-versions.txt` carries the same runtime measurements and apt-availability
+findings together with the resolved compiler dialect chain, the numeric-store keys of that chain, the hash-pinned closure
+and one capability probe per behaviour the harness relies on. The decision-log rows that cover version pinning and the
+accepted deviations are D-45 and D-48 in `modernization/docs/decision-log.md`; the security floors are D-119 and the
+hash-pinned lock is D-120.
 
-**Standing restriction on this dependency set.** These pins resolve the transitive package `sqlparse` at 0.5.5, and the
-release that fixes its published advisories is excluded by the declared constraint of both `dbt-core` 1.12.2 and
-`dbt-redshift` 1.11.0, so **this dependency set is not approved for production use**. Every result recorded in this
-document was produced under that restriction: the dbt CLI was run as a bounded batch invocation over the authored model
-and test set of `modernization/dbt/genapp_rqi`, with no dbt server, no RPC mode and no process accepting SQL from a
-caller. The exception, its owner and its review trigger are recorded as D-75 in
-`modernization/docs/decision-log.md`. It is independent of the formal AWS diff of section 12: neither closes or lifts
-the other.
+**The restriction that stood on this dependency set is lifted.** It read: these pins resolve the transitive package
+`sqlparse` at 0.5.5, the release that fixes its published advisories is excluded by the declared constraint of both
+`dbt-core` 1.12.2 and `dbt-redshift` 1.11.0, and the set is therefore not approved for production use (D-75). The set now
+pins `dbt-core` 1.12.3 and `dbt-redshift` 1.11.1, the lowest releases whose declared constraints admit `sqlparse` 0.6.0,
+and the resolved closure carries that release. Measured on 2026-08-23 with `pip-audit` 2.10.1 in a separate virtual
+environment, so that the audited environment is not modified: over `modernization/requirements.txt`, `No known
+vulnerabilities found`, exit 0; over the installed closure of `modernization/.venv` — 107 distributions listed by
+`pip freeze --all` — 0 known vulnerabilities, against 10 vulnerabilities in 2 packages measured the same way before the
+change. `pip` is pinned at 26.2.1 and `git` carries a 2.43.7 floor for the same reason. The lifting, its measurement and
+what it does not cover are recorded as D-118 in `modernization/docs/decision-log.md`, and D-75 is marked superseded
+there. The formal AWS diff of section 12 is unaffected: it was independent of this restriction and remains **OPEN**.
 
 ## 3. AWS precondition gate
 
@@ -168,7 +182,8 @@ measurement equalled the embedded baseline:
 
 `modernization/validation/verify_readonly.sh` ran after each major stage and as the final gate. Every run reported
 `gate A result: PASS (5 of 5 baseline entries matched)`, `gate B result: PASS` with
-`git status --porcelain -- base/ produced no output`, and `gate C result: PASS`:
+`git status --porcelain -- base/ produced no output`, `gate C result: PASS`, and `gate D result: PASS` with
+`generated evidence paths standing in this checkout: 22 of 22` and `paths the manifest does not cover: 0`:
 
 | Gate run | Stage label | Where the block stands | Verdict | Exit code | Status |
 |---|---|---|---|---|---|
@@ -199,6 +214,14 @@ that recorded it (`D-106`, `D-107`). No pre-existing repository file was modifie
 bridge lives under `modernization/`, and the five source artifacts above are byte-identical to their baseline. The
 exempt inventory and its extension to the Makefile stage records are recorded as D-47 and D-65 in
 `modernization/docs/decision-log.md`.
+
+Gate D closes the gap that the exemption of gate C opens. A path recorded as exempt generated evidence is allowed to
+differ from its committed copy, so gate C alone accepts any content in it; gate D reads
+`modernization/validation/artifacts/evidence-manifest.sha256` and requires every one of those 22 paths to match the
+digest its manifest entry states. Every gate run of this pipeline reported `digest lines: 22`,
+`covered by a matching digest: 22` and `paths the manifest does not cover: 0`. A published artifact whose bytes do not
+match its entry, or which stands with no entry at all, ends the gate with verdict `FAIL-EVIDENCE-COVERAGE` and exit
+status 6; the measured failure and the manifest's own residual limit are in section 16 (`D-121`).
 
 ## 5. Translate and compile
 
@@ -555,7 +578,7 @@ constructed values and needs no warehouse, no S3 endpoint and no harness output:
 .venv/bin/python validation/diff_harness_vs_warehouse.py --self-test
 ```
 
-Observed: `self-test summary cases=34 passed=34 failed=0`, exit status 0. Among the verdicts those cases reach — none of
+Observed: `self-test summary cases=40 passed=40 failed=0`, exit status 0. Among the verdicts those cases reach — none of
 which the passing run above produces — are a mismatched non-amount value reaching the failure status and the
 comparison-failure exit status 1, an absolute amount delta of exactly 0.01 reaching the in-tolerance pass status with the
 anomaly recorded, a delta above 0.01 failing, an absent harness authority reaching the missing status and exit status 2,
@@ -597,9 +620,10 @@ Outstanding item, one: the formal AWS diff. Its disposition is **OPEN**. Product
 the same dbt models unmodified against real S3 and Amazon Redshift, and this has not yet happened. Nothing in this
 document may be read as closing that requirement.
 
-One standing restriction stands beside it and is not a validation item: the dependency set of this environment is **not
-approved for production use** while the transitive `sqlparse` exception of section 2 stands (D-75). It is not closed by
-this runbook, and closing the formal AWS diff does not lift it.
+The dependency restriction that used to stand beside it no longer does: the transitive `sqlparse` exception of D-75 is
+closed by the raised pins of section 2 and superseded by D-118, and the audited closure of this environment carries no
+known vulnerability with an available fix. Nothing in that closure bears on the formal AWS diff, which was independent of
+it and remains OPEN.
 
 The ordered steps that close it, none of which edits a model file:
 
@@ -708,3 +732,87 @@ exposure was measured. That scope choice is D-100.
 One diagnostic imprecision is recorded and not changed: when a capture snapshot does not match, the comparison tool
 reports the coverage of that case as `0 of 40` although every column was compared before the snapshot was read. The
 verdict and the differing keys are correct; only the coverage figure of a failing run understates what ran.
+
+## 16. Security remediation after the security QA pass
+
+> **Status — validated against local substitute, not AWS.** Every observation in this section was made on the
+> local-substitute branch, against the moto S3 endpoint of this checkout. The formal AWS diff requirement is **OPEN** and
+> nothing here closes it.
+
+A dedicated security pass over this tree exercised the source and repository boundary, path traversal and unintended
+writes, command injection, SQL injection and template rendering, credential and provisioning handling, denial and error
+behaviour, the privacy and status language, and the diff-gate integrity. It raised **14 findings — 0 critical, 0 high,
+6 medium and 8 low, of which 4 were blocking** — and recorded the remaining categories as passing. Each finding is
+recorded below with the behaviour measured before the fix and the behaviour measured after it, in this checkout, by
+re-executing the reproduction the finding named. Rationale for each choice is in `modernization/docs/decision-log.md`,
+rows **D-116** through **D-127**; the decision log is the only place that rationale lives, and the code carries a row
+pointer and no argument.
+
+| # | Finding, severity | Behaviour before | Behaviour now, observed | Where the control lives |
+|---|---|---|---|---|
+| F-1 | Command injection through `DBT_PROFILES_DIR`, MEDIUM, blocking | The value was interpolated into the three dbt recipe lines unquoted, so the shell parsed it: `DBT_PROFILES_DIR='/tmp; touch <marker>' make dbt` created the marker | Both routes are refused before any recipe runs: `Makefile:394: *** DBT_PROFILES_DIR is set to "..." which carries ";"`, exit **2**, no marker created; a legitimate value renders as `--profiles-dir '/tmp/dbt_profiles_clone1'`, single-quoted | `CALLER_ACCEPTED_CHARACTERS`, `check_caller_word` and `check_caller_words` of `modernization/Makefile`, applied to `DBT_PROFILES_DIR`, `CASE`, `CASES`, `CASES_MODE`, `SOURCE_SYSTEM_KEY`, `EXTRACT_DATE`, `STAGE`, `COBC` and `COBFLAGS` (`D-116`) |
+| F-2 | `--output` writes to an arbitrary absolute path, LOW | Any canonical path outside the repository was a legal destination: `--output /etc/passwd --overwrite` was accepted by the confinement check | `--output /etc/passwd --overwrite` → exit **4**, and `/etc/passwd` unchanged (1171 bytes, 23 lines, mtime unchanged); a symlinked parent → exit **4** naming the canonical path it resolved to; the documented temporary-directory destination → exit 0, 17 keys written | `confine_destination` of `modernization/extraction/extract_commarea.py`: the generated roots this tool owns, or below the canonical system temporary directory, and nothing else (`D-125`) |
+| F-3 | `--json`, `--report` and `--expected-dir` write outside the repository, LOW | Only `base/` and `synthetic_class/` were refused; every other absolute path was accepted | `--json /etc/...` → exit **4**; `--expected-dir /etc` → exit **4**, naming the snapshot path it would have written; `--report base/src/...` → exit **4**; the default in-repo destinations → exit 0. Every destination is validated in `resolve_settings`, before the tool reads a warehouse or a capture | `_confine_destination` and `resolve_settings` of `modernization/validation/diff_harness_vs_warehouse.py`, one policy shared with the extraction tool (`D-125`) |
+| F-4 | Unhandled `RecursionError` on deeply nested JSON, MEDIUM | A 200,000-deep document raised through the parser to the top level: a traceback naming absolute paths and exit status 1, outside the documented contract | A 200,000-deep document passed as `--record` → exit **2**, 2 lines on stderr, **0** tracebacks; the same document planted as the landed object, with a correct digest and a correct manifest so that every earlier gate accepts it → exit **2**, 0 tracebacks | `MAX_JSON_NESTING_DEPTH`, `json_nesting_depth` and `UnparsableDocumentError` in `modernization/landing/land_to_s3.py` and `modernization/landing/load_local.py`: a single-pass string-aware scan ahead of the parser, plus conversion of the parser's own `RecursionError` and of a non-`JSONDecodeError` `ValueError` — the second path a 5,000-digit integer reaches (`D-122`) |
+| F-5 | `HARNESS_LOCK_WAIT` silently defaulted on invalid input, LOW | The documented `HARNESS_LOCK_WAIT_SECONDS` was validated and failed closed; an ambient value under the internal name was overwritten without a word | All four payloads → exit **2** with `ambient HARNESS_LOCK_WAIT holds <value>; a whole number of seconds from 1 to 3600 is accepted under that name`, and no side effect | `HARNESS_INTERNAL_AMBIENT`, `seconds_value_accepted`, `check_seconds_contract` and `preflight_internal_names` of `modernization/harness/run_harness.sh` (`D-117`) |
+| F-6 | `GENAPP_SHOW_IDENTIFIERS=1` was not equivalent to `--show-identifiers`, LOW | The resolved value was computed and stored, but the two report call sites passed the flag alone, so the environment form never reached the output its own `--help` promised | `diff` of the two stdout captures — `--show-identifiers` against `GENAPP_SHOW_IDENTIFIERS=1` — is **IDENTICAL** | `_run` of `modernization/landing/load_local.py` now passes `show_identifiers_enabled()` at both call sites, and `SHOW_IDENTIFIERS_VARIABLE` joins `_CONSULTED_VARIABLES` (`D-123`) |
+| F-7 | 4 advisories in transitive `sqlparse` 0.5.5 with the fix unreachable under the pins, MEDIUM, blocking | `dbt-core` 1.12.2 and `dbt-redshift` 1.11.0 excluded the fixing release, and the set carried a standing "not approved for production use" restriction (D-75) | `pip-audit` 2.10.1 over `modernization/requirements.txt` → `No known vulnerabilities found`, exit 0; the resolved closure carries `sqlparse` 0.6.0 | `dbt-core==1.12.3` and `dbt-redshift==1.11.1` in `modernization/requirements.txt` — the lowest releases whose declared constraints admit the fix (`D-118`) |
+| F-8 | `pip` 25.3 carried 5 advisories, all with fixed releases, MEDIUM, blocking | The pinned and installed `pip` was 25.3 | `pip` 26.2.1 installed and pinned; `pip-audit` over `pip freeze --all` (107 distributions, `pip` among them) → **0** vulnerabilities, against 10 vulnerabilities in 2 packages measured the same way before the change | `PIP_PIN`/`PIP_MINIMUM` of `modernization/Makefile`, and the install instructions of `modernization/README.md` (`D-119`) |
+| F-9 | The pinned-runtime baseline named versions behind their security fixes, MEDIUM, blocking | `PYTHON_PIN` 3.12.3, `GIT_PIN` 2.43.0, `APT_PIN_GIT` 1:2.43.0-1ubuntu7.3, and no floor below which the stage refuses | `make verify-env` → exit **0**, `python3.12: pinned 3.12.14 minimum 3.12.14 measured 3.12.14`, `git: pinned 2.51.0 minimum 2.43.7 measured 2.51.0`, `pip: pinned 26.2.1 measured 26.2.1`, `PASS with 4 deviation(s)`, every deviation an honest one this host cannot avoid; `HARNESS_STRICT_TOOL_VERSIONS=1` → exit **2** | `PYTHON_PIN`/`PYTHON_MINIMUM`, `GIT_PIN`/`GIT_MINIMUM`, `PIP_PIN`/`PIP_MINIMUM` and `APT_PIN_GIT` of `modernization/Makefile`, with the section 2 table above as the published record (`D-119`) |
+| F-10 | No artifact hash pinning; 97 transitive packages floated, LOW | `requirements.txt` pinned the 10 direct packages by version and nothing pinned the rest by content | `modernization/requirements-lock.txt` carries **106** hash-pinned distributions and covers all 10 direct pins; `pip install --require-hashes -r modernization/requirements-lock.txt` into a fresh 3.12.14 virtual environment succeeded and reproduced the closure — 107 distributions, `dbt-core` 1.12.3 and `sqlparse` 0.6.0 among them; `make verify-env` cross-checks the lock against the direct pins | the new `modernization/requirements-lock.txt` and the lock check of the `verify-env` recipe (`D-120`) |
+| F-11 | The YAML loader was weaker than its own documented contract, LOW | The field map's stated contract refused aliases and merge keys; two of its three readers accepted them | An alias in the field map → exit **3** from the extraction tool and exit **4** from the comparison tool, both reporting `the field map refers to anchor '*qa' at line 2320; an alias is not accepted`; a merge key → exit **3**; the unmodified map loads in every reader | `_FieldMapLoader` with `MAX_DOCUMENT_DEPTH` in `modernization/extraction/extract_commarea.py` and `modernization/validation/diff_harness_vs_warehouse.py`, matching the builder's loader, and the corrected contract text of `modernization/extraction/copybook_field_map.yml` (`D-126`) |
+| F-12 | The decision-bearing evidence was not hash-covered, LOW | The manifest covered 11 harness files and itself; the 12 artifacts the Makefile stages publish — the comparison reports, the dbt logs, `verify-env.txt`, the gate records, `compile-modules.log`, `execute-harness.log` — carried no digest, and no gate verified one | The manifest covers **22** paths, and a fourth gate verifies each. Appending one line to `diff-report.md` → gate C **PASS**, gate D **FAIL** `does not match the digest its manifest entry states`, verdict `FAIL-EVIDENCE-COVERAGE`, exit **6**, with `sha256sum -c` independently reporting 21 of 22 OK; restoring the file byte-identically → verdict **PASS**, exit 0 | `EXIT_EVIDENCE` and gate D of `modernization/validation/verify_readonly.sh`, its `--record-evidence` mode, `CARRIED_EVIDENCE_NAMES`/`collect_carried_evidence` of `modernization/harness/run_harness.sh`, and the six `record_evidence` calls of `modernization/Makefile` (`D-121`) |
+| F-13 | No object-integrity verification between land and load, MEDIUM | A tampered landed object loaded silently into the canonical relations: the loader read whatever the bucket returned | A same-length out-of-band `put_object` that replaced `BRMOT001` with `TAMPERED` while preserving the object metadata → `load_local` exit **2**, `the bytes on the bucket are not the bytes that were landed, so nothing is loaded`, and the relation unchanged; a legitimate re-land and load → exit 0, `written=1` | `RECORDED_SHA256_METADATA` and `RECORDED_LENGTH_METADATA` written as metadata of the existing `PutObject` in `modernization/landing/land_to_s3.py`, and `confirm_recorded_identity`, `fetch_manifest_bytes` and `confirm_manifest_binding` in `modernization/landing/load_local.py`, all three ahead of the parse and ahead of the database being opened (`D-124`) |
+| F-14 | Identifier-bearing artifacts were created world-readable, LOW | `captures_*.txt`, `commarea_post_*.dat`, `local.duckdb` and every `artifacts/*.json` stood at mode **644**, so every account on the host could read the customer, policy and broker identifiers they carry | `make all` reports `artifact modes: 64 entries this run created, each file at 600 and the staging directory at 700`; `stat` after the run shows `captures_01amot.txt`, `captures_01acom.txt`, `commarea_post_01amot.dat`, `commarea_post_01acom.dat`, `local.duckdb` and every `artifacts/*.json` at **600** — the four paths the finding names among them; the published set measures 23 files at 600 and 1 at 644 | eight producers set the mode rather than inheriting it: `modernization/harness/run_harness.sh` (with a stage-6 gate `check_artifact_modes`), `modernization/landing/load_local.py`, `modernization/validation/diff_harness_vs_warehouse.py`, `modernization/landing/land_to_s3.py`, `modernization/Makefile`, `modernization/extraction/build_sample_commarea.py`, `modernization/harness/translate.py` and `modernization/validation/verify_readonly.sh` (`D-127`) |
+
+**The order the verifications had to run in.** The read-only gate runs four checks in sequence and stops at the first
+failure: the five source hashes, `git status --porcelain -- base/`, the tracked-modification check, and the new evidence
+digest check. The third short-circuits the fourth, so while the authored fixes stood uncommitted the tracked-modification
+check failed and gate D could not be reached at all. F-12 was therefore verified after the fixes were committed, on a
+clean tree, which is the state the gate is designed for.
+
+**What the fixes changed in the measured test surface.** Every tool's self-test grew by the cases its own fix needed, and
+each suite passes in full in this checkout: `verify_readonly.sh` 61, `build_sample_commarea.py` 115,
+`extract_commarea.py` 219, `translate.py` 93, `land_to_s3.py` 47, `load_local.py` 43,
+`diff_harness_vs_warehouse.py` 40 — 618 cases in total. The harness case table is unchanged at 12 cases and 902
+assertions, because the artifact-mode gate counts its checks separately from the assertion total; the dbt project is
+unchanged at 4 models and 64 data tests; and the comparison gate still reports 2 cases and 40 of 40 canonical column
+instances compared with 0 failures.
+
+**Residual exposure that is recorded and not closed.**
+
+- The evidence manifest cannot hash itself, so an actor who rewrites a published artifact **and** its manifest entry is
+  not detected by gate D. What covers that case is the git history of the tracked manifest, not the gate (`D-121`).
+- Of the 24 tracked files under `modernization/validation/artifacts/`, 22 are exempt generated evidence a run rewrites and
+  gate D covers by digest, the 23rd is the manifest itself, and the 24th is `runtime-versions.txt`, which no run writes.
+  That last file is not in the exempt inventory at all, so it is covered by gate C instead: any modification to it counts
+  as a tracked modification and fails the gate until it is committed. Every tracked artifact is therefore covered by one
+  of the two gates, by digest or by tracked-file equality.
+- A stage that fails after rewriting its artifact leaves that artifact's manifest entry unrefreshed, and gate D then
+  fails closed until the stage succeeds. That is deliberate, and it was observed exactly once during this pass, after a
+  strict-mode `verify-env` probe was made to fail on purpose; one successful `make verify-env` cleared it.
+- The land-time digest is object metadata on the object it describes, so a caller who can rewrite the object can also
+  rewrite its metadata; the control detects out-of-band tampering, not a fully compromised prefix. Objects landed before
+  this change carry no digest and fail closed until they are landed again. On the real target the same binding is
+  recorded in `modernization/landing/load_redshift.sql` as provenance only: Amazon Redshift enforces no digest for a JSON
+  `COPY`, so the real-target leg of this control stays **OPEN** with the formal AWS diff (`D-124`).
+- No apt `python3.12` package in any configured suite reaches the accepted interpreter minimum of 3.12.14, so the
+  documented apt line alone cannot satisfy the floor; this host's interpreter is built from source, and section 2 records
+  the packaging pin separately from the interpreter measurement (`D-119`).
+- The digests of `modernization/requirements-lock.txt` are those of the `cp312` `linux-x86_64` wheels this project
+  resolves; another interpreter series or platform requires the lock to be regenerated, and `pip` refuses the install
+  rather than silently resolving something else (`D-120`).
+- Three file-mode exceptions stand by design: `modernization/validation/artifacts/runtime-versions.txt` stays at 644
+  because no producer writes it and it carries no identifier; a directory that already existed keeps its mode, so a
+  long-lived checkout can hold staging directories at 755 while a fresh clone creates them at 700, and the files inside
+  are 600 either way; and the compiled driver, the shared-object modules and the zero-byte lock file are not narrowed
+  because they are executed or appended to rather than read for their content (`D-127`).
+
+**One divergence from the AAP dependency inventory, taken deliberately.** AAP §0.5.2 pins `python3.12` 3.12.3,
+`pip` 25.3, `git` 2.43.0, `dbt-core` 1.12.2 and `dbt-redshift` 1.11.0. Findings F-7, F-8 and F-9 are precisely that four
+of those five values name releases with published advisories and available fixes, so the delivered pins are
+`dbt-core` 1.12.3, `dbt-redshift` 1.11.1, `pip` 26.2.1, `git` 2.51.0 and `python3.12` 3.12.14, each with a floor below
+which `verify-env` refuses. The GnuCOBOL pins are untouched, because no finding names them. The divergence, what it
+buys and what it costs are recorded as D-118 and D-119; `modernization/docs/traceability-matrix.md` carries the lock file
+as a created artifact.
+

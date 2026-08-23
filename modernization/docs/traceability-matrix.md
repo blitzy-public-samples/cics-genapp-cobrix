@@ -36,7 +36,7 @@ cited here by name only.
 | Warehouse-assigned column instances | **2** | `source_system_key`, once on each relation |
 | Total canonical column instances | **20** | 11 columns of `canonical.issued_policy` plus 9 of `canonical.preissued_rating` |
 | Canonical relations | **2** | `canonical.issued_policy` and `canonical.preissued_rating`, and no third relation |
-| Created artifacts | **62** | authored files beneath `modernization/`; generated paths are excluded and named in [§C.9](#c9-generated-paths-excluded-from-the-authored-count) |
+| Created artifacts | **63** | authored files beneath `modernization/`; generated paths are excluded and named in [§C.9](#c9-generated-paths-excluded-from-the-authored-count) |
 | Referenced read-only source files | **5** | `lgapol01.cbl` 169 lines · `lgapdb01.cbl` 595 · `lgapvs01.cbl` 188 · `lgcmarea.cpy` 103 · `lgpolicy.cpy` 107 |
 | Pre-existing files modified | **0** | there is no UPDATE row in this project; the five sources are REFERENCE only |
 | Unmapped items | **0** | in either direction — see [Part E](#part-e--coverage-assertion-and-gap-statement) |
@@ -457,21 +457,22 @@ run fails. Rationale: [`decision-log.md`](decision-log.md), rows **D-15** and **
 
 # Part C — REVERSE direction: every created artifact
 
-All **62** authored artifacts of this work, each with the requirement, source construct or user rule that justifies it.
+All **63** authored artifacts of this work, each with the requirement, source construct or user rule that justifies it.
 Paths are relative to `modernization/`. Group sizes are stated per section and checked in
 [§C.8](#c8-artifact-count-check).
 
 **No row of this part names a pre-existing repository file as a target.** The mode distribution of this work is
-REFERENCE 5, CREATE 62, UPDATE 0: the five source artifacts are read-only and byte-identical, and no other pre-existing
+REFERENCE 5, CREATE 63, UPDATE 0: the five source artifacts are read-only and byte-identical, and no other pre-existing
 file is modified. Rationale: [`decision-log.md`](decision-log.md), row **D-01**.
 
-## C.1 Scaffolding — 4 artifacts
+## C.1 Scaffolding — 5 artifacts
 
 | # | Created artifact | Justified by |
 |---:|---|---|
 | 1 | `README.md` | The requirement for a discoverable entry point: environment setup, the precondition gate and the one-phase `make all` workflow, sited inside the new tree under the read-only boundary (**D-01**) |
-| 2 | `requirements.txt` | The requirement to pin every direct Python and dbt dependency exactly, with both adapters and both drivers installed on either branch (**D-45**) |
-| 3 | `Makefile` | The requirement for a non-interactive one-phase execution order — `verify-env`, `gate`, `translate`, `compile`, `execute`, `extract`, `land`, `load`, `dbt`, `diff`, `verify-readonly`, `all` — that stops at the first failing gate. Its one further target, the optional `local-endpoint`, is no stage of that order and is justified by **D-115** alone; the containment of its generated paths by **D-112** and the refusal of an unaccepted `DBT_TARGET` by **D-113** |
+| 2 | `requirements.txt` | The requirement to pin every direct Python and dbt dependency exactly, with both adapters and both drivers installed on either branch (**D-45**); the two dbt pins that admit the fixed `sqlparse` release (**D-118**) |
+| 2a | `requirements-lock.txt` | The requirement that an install reproduce one measured artifact set rather than whatever the index resolves, met by a hash-pinned resolution of all 106 distributions cross-checked against the direct pins by `verify-env` (**D-120**) |
+| 3 | `Makefile` | The requirement for a non-interactive one-phase execution order — `verify-env`, `gate`, `translate`, `compile`, `execute`, `extract`, `land`, `load`, `dbt`, `diff`, `verify-readonly`, `all` — that stops at the first failing gate. Its one further target, the optional `local-endpoint`, is no stage of that order and is justified by **D-115** alone; the containment of its generated paths by **D-112** and the refusal of an unaccepted `DBT_TARGET` by **D-113**; the one grammar every caller-supplied value is measured against by **D-116**, the security floors beside the reproducibility pins by **D-119**, the lock consistency check by **D-120**, the per-stage evidence refresh by **D-121** and the private mode of every log it writes by **D-127** |
 | 4 | `.gitignore` | The requirement to exclude only generated bridge artifacts, from a nested file that touches no pre-existing ignore file (**D-47**) |
 
 ## C.2 Extraction — 7 artifacts
@@ -571,24 +572,27 @@ resolutions that produced them are rows **D-61** through **D-64**.
 
 | Group | Artifacts | Rows |
 |---|---:|---|
-| Scaffolding | 4 | 1-4 |
+| Scaffolding | 5 | 1-4, plus 2a |
 | Extraction | 7 | 5-11 |
 | Harness | 21 | 12-32 |
 | Landing and warehouse bootstrap | 7 | 33-39 |
 | dbt project | 15 | 40-54 |
 | Validation | 3 | 55-57 |
 | Documentation | 5 | 58-62 |
-| **Total** | **62** | 1-62, numbered consecutively with no gap and no repeat |
+| **Total** | **63** | 1-62, numbered consecutively with no gap and no repeat, plus the interpolated row 2a |
 
-**4 + 7 + 21 + 7 + 15 + 3 + 5 = 62.** The group sizes sum to the stated total, and every one of the 62 carries a
-justification row above. The plan of this work enumerated 61 authored artifacts; the 62nd,
-`dbt/genapp_rqi/tests/assert_canonical_column_widths.sql`, was added when the final test-infrastructure QA pass found
-the declared column widths unasserted on the local adapter, and that departure from the enumerated inventory is recorded
-in [`decision-log.md`](decision-log.md) row **D-105**.
+**5 + 7 + 21 + 7 + 15 + 3 + 5 = 63.** The group sizes sum to the stated total, and every one of the 63 carries a
+justification row above. The plan of this work enumerated 61 authored artifacts, and two stand beyond that inventory.
+`dbt/genapp_rqi/tests/assert_canonical_column_widths.sql` was added when the final test-infrastructure QA pass found the
+declared column widths unasserted on the local adapter, recorded in [`decision-log.md`](decision-log.md) row **D-105**.
+`requirements-lock.txt` was added when the final runtime security assessment found the ten exact pins resting on index
+trust alone, with no artifact digest anywhere and 96 transitive versions free to move between rebuilds; that departure
+is recorded in row **D-120**. Row 2a keeps the original numbering citable rather than renumbering 60 rows around one
+insertion.
 
 ## C.9 Generated paths excluded from the authored count
 
-These are produced by a run rather than authored, and are deliberately outside the 62. Only trailing wildcards are
+These are produced by a run rather than authored, and are deliberately outside the 63. Only trailing wildcards are
 used, and the DuckDB database is named exactly.
 
 | # | Generated path | Produced by |
@@ -707,7 +711,7 @@ column` rather than left out.
 
 | Reverse scope | Where recorded | Outcome |
 |---|---|---|
-| 62 created artifacts | [§C.1](#c1-scaffolding--4-artifacts)-[§C.7](#c7-documentation--5-artifacts) | each with the requirement, source construct or user rule that justifies it; 4 + 7 + 21 + 7 + 15 + 3 + 5 = 62 |
+| 63 created artifacts | [§C.1](#c1-scaffolding--5-artifacts)-[§C.7](#c7-documentation--5-artifacts) | each with the requirement, source construct or user rule that justifies it; 5 + 7 + 21 + 7 + 15 + 3 + 5 = 63 |
 | 3 rule-forced documents | [§C.7](#c7-documentation--5-artifacts) | `decision-log.md` → Rule 1, `traceability-matrix.md` → Rule 1, `architecture.md` → Rule 2 |
 | 7 generated paths | [§C.9](#c9-generated-paths-excluded-from-the-authored-count) | deliberately outside the authored count, each attributed to the run step that produces it |
 | 20 canonical column instances | [§D.1](#d1-canonicalissued_policy--11-column-instances)-[§D.2](#d2-canonicalpreissued_rating--9-column-instances) | 18 to a named COBOL item and locator, 2 to the stated warehouse assignment |

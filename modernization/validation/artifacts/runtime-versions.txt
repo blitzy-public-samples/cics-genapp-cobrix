@@ -2,7 +2,7 @@ BEGIN runtime-version-report
 report: system runtime and Python package versions measured in this
         checkout against modernization/requirements.txt and the
         environment contract of the technical specification
-timestamp_utc: 2026-08-20T08:59:11Z
+timestamp_utc: 2026-08-23T03:06:44Z
 repository_root: . (every path of this report is relative to the repository
         root, so the report reads the same from every checkout)
 host_release: Ubuntu 25.10
@@ -11,24 +11,34 @@ status_label: validated against local substitute, not AWS
 aws_branch: formal AWS validation remains OPEN; this report covers versions only
 rationale: see modernization/docs/decision-log.md
 
-system runtimes (required, measured, verdict):
-  python (venv interpreter)  required=3.12.3 (apt 3.12.3-1ubuntu0.15)    measured=3.12.14   DEVIATION
-  cobc (GnuCOBOL)            required=3.1.2.0 (apt 3.1.2-5.1ubuntu1)     measured=3.2.0     DEVIATION
-  git                        required=2.43.0 (apt 1:2.43.0-1ubuntu7.3)   measured=2.51.0    DEVIATION
-  pip (inside the venv)      required=25.3                               measured=25.3      MATCH
+system runtimes (required, minimum accepted, measured, verdict):
+  python (venv interpreter)  required=3.12.14  minimum=3.12.14   measured=3.12.14   MATCH
+  cobc (GnuCOBOL)            required=3.1.2.0  minimum=3.1.2     measured=3.2.0     DEVIATION
+  git                        required=2.51.0   minimum=2.43.7    measured=2.51.0    MATCH
+  pip (inside the venv)      required=26.2.1   minimum=26.2.1    measured=26.2.1    MATCH
+  the minimum column is the lowest version make verify-env accepts, because a
+        lower one carries a published advisory with an available fix; a
+        measured version at or above it and different from the required value
+        is reported as a deviation, and one below it fails the stage in every
+        mode
 
 pinned apt specifications, availability in the configured suites:
   gnucobol3=3.1.2-5.1ubuntu1      apt-get download: version not found
-  git=1:2.43.0-1ubuntu7.3         apt-get download: version not found
+  git=1:2.51.0-1ubuntu1           apt-get download: available, and the
+        installed version
   python3.12=3.12.3-1ubuntu0.15   apt-get download: no package matches the name
   python3.12-venv=3.12.3-1ubuntu0.15  apt-get download: no package matches the name
-  installed instead: gnucobol3 3.2-4, git 1:2.51.0-1ubuntu1,
+  installed instead: gnucobol3 3.2-4,
         /usr/local/bin/python3.12 built from source
+  the two apt Python specifications package interpreter release 3.12.3, below
+        the accepted interpreter minimum of 3.12.14, and no apt python3.12
+        package reaches that minimum in any configured suite; the interpreter
+        measurement above governs and these pins record the packaging alone
 
 direct Python dependency pins (required == measured for every entry):
-  dbt-core               required=1.12.2     measured=1.12.2     MATCH
+  dbt-core               required=1.12.3     measured=1.12.3     MATCH
   dbt-duckdb             required=1.11.0     measured=1.11.0     MATCH
-  dbt-redshift           required=1.11.0     measured=1.11.0     MATCH
+  dbt-redshift           required=1.11.1     measured=1.11.1     MATCH
   duckdb                 required=1.5.5      measured=1.5.5      MATCH
   redshift-connector     required=2.1.16     measured=2.1.16     MATCH
   boto3                  required=1.43.74    measured=1.43.74    MATCH
@@ -38,7 +48,19 @@ direct Python dependency pins (required == measured for every entry):
   jsonschema             required=4.26.0     measured=4.26.0     MATCH
   pip check: no broken requirements found
   import surfaces exercised: 12 of 12
-  dbt: Core 1.12.2 with duckdb 1.11.0 and redshift 1.11.0 adapters
+  dbt: Core 1.12.3 with duckdb 1.11.0 and redshift 1.11.1 adapters
+  transitive resolution of note: sqlparse 0.6.0, the release that fixes the
+        advisories the earlier 0.5.5 resolution carried; the two dbt
+        distributions above are the lowest releases whose declared
+        constraints admit it
+  hash-pinned closure: modernization/requirements-lock.txt carries 106
+        distributions, each with its sha256, and covers all 10 direct pins;
+        pip install --require-hashes -r modernization/requirements-lock.txt
+        reproduces this closure exactly
+  security audit of the resolved closure: pip-audit 2.10.1 over the installed
+        distributions reported 0 known vulnerabilities, and over
+        modernization/requirements.txt reported none found (measured
+        2026-08-23, PyPI advisory data of that date)
 
 compiler dialect resolution (measured 2026-08-21T02:30:30Z, cobc 3.2.0):
   COB_CONFIG_DIR      /usr/share/gnucobol/config, the directory cobc --info
@@ -89,9 +111,12 @@ capability probes on the measured runtimes (command, observed):
   git status --porcelain                       exit 0
   git lfs env                                  exit 0
 
-verdict: three system runtime versions deviate from the required values and
-        the required apt versions are not present in the configured suites;
-        every Python pin matches, the dialect the harness compiles under is
-        resolved and recorded, and every probed capability the harness,
-        the record builder and the read-only gate rely on is present
+verdict: one system runtime version deviates from its required value, cobc
+        3.2.0 against the required 3.1.2.0, and it is above the accepted
+        minimum; three of the four pinned apt specifications are not present in
+        the configured suites; every interpreter, pip and Python package pin
+        matches, the resolved closure carries no known vulnerability, the
+        dialect the harness compiles under is resolved and recorded, and every
+        probed capability the harness, the record builder and the read-only
+        gate rely on is present
 END runtime-version-report
